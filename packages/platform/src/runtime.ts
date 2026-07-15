@@ -5,6 +5,9 @@
  */
 export type RuntimePlatform = 'web' | 'electron'
 
+/** @brief 当前前端语义版本 / Current frontend semantic version. */
+export const APPLICATION_VERSION = '0.1.0'
+
 /**
  * @brief 最小运行时信息 / Minimal runtime information.
  */

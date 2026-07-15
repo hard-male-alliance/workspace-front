@@ -13,18 +13,21 @@ describe('isAllowedRendererUrl', () => {
     )
   })
 
-  it('生产 file URL 只允许应用入口及其 hash 路由', () => {
+  it('生产自定义协议只允许受信任 renderer host', () => {
     expect(
       isAllowedRendererUrl(
-        'file:///opt/ai-job-workspace/renderer/index.html#/knowledge',
-        'file:///opt/ai-job-workspace/renderer/index.html'
+        'ai-job-workspace://renderer/knowledge/source-1/visibility',
+        'ai-job-workspace://renderer/index.html'
       )
     ).toBe(true)
     expect(
       isAllowedRendererUrl(
-        'file:///opt/ai-job-workspace/renderer/other.html',
-        'file:///opt/ai-job-workspace/renderer/index.html'
+        'ai-job-workspace://untrusted/index.html',
+        'ai-job-workspace://renderer/index.html'
       )
+    ).toBe(false)
+    expect(
+      isAllowedRendererUrl('file:///tmp/untrusted.html', 'ai-job-workspace://renderer/index.html')
     ).toBe(false)
   })
 })
@@ -63,6 +66,16 @@ describe('isTrustedRendererIpcSender', () => {
           webContentsId: 7,
           isMainFrame: true,
           frameUrl: 'http://localhost:5173/'
+        },
+        trustedRenderer
+      )
+    ).toBe(false)
+    expect(
+      isTrustedRendererIpcSender(
+        {
+          webContentsId: 42,
+          isMainFrame: true,
+          frameUrl: 'http://untrusted.example/'
         },
         trustedRenderer
       )

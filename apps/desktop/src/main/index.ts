@@ -1,26 +1,105 @@
-import { app, BrowserWindow, ipcMain, session } from 'electron'
+import { app, BrowserWindow, ipcMain, net, protocol, session } from 'electron'
 import type { IpcMainInvokeEvent, WebContents } from 'electron'
+import { existsSync } from 'node:fs'
+import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { RUNTIME_INFO_CHANNEL } from '@ai-job-workspace/platform'
+import { APPLICATION_VERSION, RUNTIME_INFO_CHANNEL } from '@ai-job-workspace/platform'
 import type { RuntimeInfo } from '@ai-job-workspace/platform'
 
 import { isAllowedRendererUrl, isTrustedRendererIpcSender } from './security'
+import {
+  rendererProtocolHost,
+  rendererProtocolScheme,
+  resolveRendererFilePath
+} from './renderer-protocol'
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: rendererProtocolScheme,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true
+    }
+  }
+])
 
 /** @brief 生产构建后的渲染器入口路径 / Renderer entry path after a production build. */
 const productionRendererPath = fileURLToPath(new URL('../renderer/index.html', import.meta.url))
 
 /** @brief 生产构建后的受信任渲染器 URL / Trusted renderer URL after a production build. */
-const productionRendererUrl = pathToFileURL(productionRendererPath).toString()
+const productionRendererUrl = `${rendererProtocolScheme}://${rendererProtocolHost}/index.html`
+
+/** @brief 生产入口文档的附加 CSP / Additional CSP applied to the production entry document. */
+const productionContentSecurityPolicy =
+  "default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; media-src 'self' blob:; worker-src 'self' blob:"
 
 /** @brief 唯一的产品主窗口 / The single product main window. */
 let mainWindow: BrowserWindow | null = null
+
+/** @brief 受控 smoke 检查的环境开关 / Environment switch for the controlled smoke check. */
+const desktopSmokeEnvironmentKey = 'AI_JOB_WORKSPACE_SMOKE'
+
+/** @brief renderer smoke 检查的返回数据 / Renderer smoke-check result. */
+interface DesktopSmokeResult {
+  /** @brief renderer 根节点的文本长度 / Text length of the renderer root element. */
+  readonly rootTextLength: number
+  /** @brief preload bridge 返回的平台 / Platform returned by the preload bridge. */
+  readonly platform: string
+  /** @brief preload bridge 返回的应用版本 / App version returned by the preload bridge. */
+  readonly appVersion: string
+}
 
 /**
  * @brief 获取当前受信任的渲染器 URL / Get the currently trusted renderer URL.
  * @return 开发服务器或生产 HTML 的 URL / The development-server or production-HTML URL.
  */
 function getRendererUrl(): string {
-  return process.env['ELECTRON_RENDERER_URL'] ?? productionRendererUrl
+  return getDevelopmentRendererUrl() ?? productionRendererUrl
+}
+
+/**
+ * @brief 获取仅开发态可用的 Vite renderer URL / Get a Vite renderer URL available only in development.
+ * @return 非打包开发进程中的 renderer URL；其他情况下为 undefined / Renderer URL in an unpackaged development process, otherwise undefined.
+ * @note 已打包应用绝不信任环境变量中的 renderer URL，始终加载受限自定义协议。
+ */
+function getDevelopmentRendererUrl(): string | undefined {
+  return app.isPackaged ? undefined : process.env['ELECTRON_RENDERER_URL']
+}
+
+/**
+ * @brief 注册受限 renderer 协议 / Register the restricted renderer protocol.
+ * @return 无返回值 / No return value.
+ * @note 仅将 `ai-job-workspace://renderer` 映射到构建输出；不会把任意本地文件暴露给 renderer。
+ */
+function registerRendererProtocol(): void {
+  protocol.handle(rendererProtocolScheme, async (request): Promise<Response> => {
+    /** @brief renderer 构建输出目录 / Renderer build output directory. */
+    const rendererDirectory = path.dirname(productionRendererPath)
+    /** @brief 经过路径约束后的资源路径 / Resource path after path constraints. */
+    const rendererFilePath = resolveRendererFilePath(request.url, rendererDirectory)
+
+    if (rendererFilePath === undefined || !existsSync(rendererFilePath)) {
+      return new Response('Not found.', { status: 404 })
+    }
+
+    /** @brief 受限协议代理的本地文件响应 / Local-file response proxied by the restricted protocol. */
+    const response = await net.fetch(pathToFileURL(rendererFilePath).toString())
+
+    if (rendererFilePath !== productionRendererPath) {
+      return response
+    }
+
+    /** @brief 入口文档响应的安全头 / Security headers for the entry-document response. */
+    const headers = new Headers(response.headers)
+    headers.set('Content-Security-Policy', productionContentSecurityPolicy)
+
+    return new Response(response.body, {
+      headers,
+      status: response.status,
+      statusText: response.statusText
+    })
+  })
 }
 
 /**
@@ -30,7 +109,7 @@ function getRendererUrl(): string {
 function getRuntimeInfo(): RuntimeInfo {
   return {
     platform: 'electron',
-    appVersion: app.getVersion()
+    appVersion: APPLICATION_VERSION
   }
 }
 
@@ -124,17 +203,18 @@ function isTrustedRuntimeInfoRequest(event: IpcMainInvokeEvent): boolean {
     return false
   }
 
-  return isTrustedRendererIpcSender(
-    {
-      webContentsId: event.sender.id,
-      isMainFrame: senderFrame === event.sender.mainFrame,
-      frameUrl: senderFrame.url
-    },
-    {
-      webContentsId: mainWindow.webContents.id,
-      rendererUrl: getRendererUrl()
-    }
-  )
+  /** @brief 用于授权校验的发送方身份 / Sender identity used for authorization. */
+  const senderIdentity = {
+    webContentsId: event.sender.id,
+    isMainFrame: senderFrame.frameTreeNodeId === event.sender.mainFrame.frameTreeNodeId,
+    frameUrl: senderFrame.url
+  }
+  /** @brief 可信主窗口身份 / Trusted main-window identity. */
+  const trustedRenderer = {
+    webContentsId: mainWindow.webContents.id,
+    rendererUrl: getRendererUrl()
+  }
+  return isTrustedRendererIpcSender(senderIdentity, trustedRenderer)
 }
 
 /**
@@ -167,14 +247,14 @@ function registerIpcHandlers(): void {
  */
 async function loadRenderer(window: BrowserWindow): Promise<void> {
   /** @brief 开发服务器 URL / Development-server URL. */
-  const developmentRendererUrl = process.env['ELECTRON_RENDERER_URL']
+  const developmentRendererUrl = getDevelopmentRendererUrl()
 
   if (developmentRendererUrl !== undefined) {
     await window.loadURL(developmentRendererUrl)
     return
   }
 
-  await window.loadFile(productionRendererPath)
+  await window.loadURL(productionRendererUrl)
 }
 
 /**
@@ -229,13 +309,114 @@ async function createMainWindow(): Promise<BrowserWindow> {
 }
 
 /**
+ * @brief 读取 renderer、preload 与 IPC 的 smoke 结果 / Read the renderer, preload, and IPC smoke result.
+ * @param window 已加载 renderer 的主窗口 / Main window whose renderer has loaded.
+ * @return 经运行时校验的 smoke 数据 / Runtime-validated smoke data.
+ * @note 运行时信息由正常 React 渲染路径读取，绝不向 renderer 暴露测试 API。
+ */
+async function inspectDesktopSmoke(window: BrowserWindow): Promise<DesktopSmokeResult> {
+  /** @brief 主进程发起的受控 renderer 检查结果 / Controlled renderer check result initiated by main. */
+  const result: unknown = await window.webContents.executeJavaScript(`
+    new Promise((resolve, reject) => {
+      const deadline = Date.now() + 5000
+
+      async function inspectRenderer() {
+        const root = document.getElementById('root')
+        const rootTextLength = root?.textContent?.trim().length ?? 0
+
+        const applicationShell = document.querySelector('[data-runtime-platform]')
+        const platform = applicationShell?.getAttribute('data-runtime-platform') ?? ''
+        const appVersion = applicationShell?.getAttribute('data-runtime-version') ?? ''
+
+        if (rootTextLength > 0 && platform === 'electron' && appVersion.length > 0) {
+          try {
+            resolve({
+              rootTextLength,
+              platform,
+              appVersion
+            })
+          } catch (error) {
+            reject(error)
+          }
+          return
+        }
+
+        if (Date.now() >= deadline) {
+          reject(new Error('Renderer did not mount before the desktop smoke timeout.'))
+          return
+        }
+
+        globalThis.setTimeout(inspectRenderer, 25)
+      }
+
+      void inspectRenderer()
+    })
+  `)
+
+  if (
+    typeof result !== 'object' ||
+    result === null ||
+    !('rootTextLength' in result) ||
+    !('platform' in result) ||
+    !('appVersion' in result)
+  ) {
+    throw new Error('Desktop smoke check returned an invalid result.')
+  }
+
+  /** @brief 经运行时形状检查后的 smoke 数据 / Smoke data after runtime shape validation. */
+  const smokeResult = result as DesktopSmokeResult
+
+  if (
+    typeof smokeResult.rootTextLength !== 'number' ||
+    smokeResult.rootTextLength <= 0 ||
+    smokeResult.platform !== 'electron' ||
+    typeof smokeResult.appVersion !== 'string' ||
+    smokeResult.appVersion.length === 0
+  ) {
+    throw new Error('Desktop smoke check could not verify renderer content or the preload bridge.')
+  }
+
+  return smokeResult
+}
+
+/**
+ * @brief 验证 renderer、preload、IPC 与生产深链 / Verify renderer, preload, IPC, and a production deep link.
+ * @param window 已加载 renderer 的主窗口 / Main window whose renderer has loaded.
+ * @return smoke 检查通过时兑现的 Promise / Promise fulfilled when the smoke check passes.
+ * @note 只在 `AI_JOB_WORKSPACE_SMOKE=1` 时调用；深链检查会验证根路径构建资源在自定义协议下仍能加载。
+ */
+async function verifyDesktopSmoke(window: BrowserWindow): Promise<void> {
+  /** @brief 根路由的 smoke 数据 / Smoke data from the root route. */
+  const rootSmokeResult = await inspectDesktopSmoke(window)
+  /** @brief 用于验证相对资源不会逃逸的生产深链 / Production deep link used to verify asset resolution. */
+  const deepLinkUrl = `${rendererProtocolScheme}://${rendererProtocolHost}/knowledge/ks_mock_git/visibility`
+
+  await window.loadURL(deepLinkUrl)
+
+  /** @brief 深链重新加载后的 smoke 数据 / Smoke data after a deep-link reload. */
+  const deepLinkSmokeResult = await inspectDesktopSmoke(window)
+
+  console.info(
+    `Desktop smoke passed: root=${rootSmokeResult.rootTextLength} chars, deep-link=${deepLinkSmokeResult.rootTextLength} chars, platform=${deepLinkSmokeResult.platform}, version=${deepLinkSmokeResult.appVersion}`
+  )
+}
+
+/**
  * @brief 初始化桌面应用 / Initialize the desktop application.
  * @return 初始化完成时兑现的 Promise / A promise fulfilled when initialization completes.
  */
 async function initializeDesktopApplication(): Promise<void> {
   configureDefaultPermissionDenial()
+  registerRendererProtocol()
   registerIpcHandlers()
-  await createMainWindow()
+  /** @brief 已创建且已加载的主窗口 / Created and loaded main window. */
+  const window = await createMainWindow()
+
+  if (process.env[desktopSmokeEnvironmentKey] === '1') {
+    await verifyDesktopSmoke(window)
+    app.quit()
+    return
+  }
 
   app.on('activate', recreateMainWindowOnActivate)
 }

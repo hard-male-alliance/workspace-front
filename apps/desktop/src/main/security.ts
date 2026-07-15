@@ -41,7 +41,7 @@ function parseUrl(value: string): URL | undefined {
  * @param candidateUrl 导航目标 URL / Candidate navigation URL.
  * @param rendererUrl 受信任的应用渲染器 URL / Trusted application renderer URL.
  * @return 目标属于受信任渲染器范围时为 true / True when the target is in the trusted renderer scope.
- * @note 开发环境允许同源 Vite 路由；生产 file URL 仅允许同一 HTML 文档及其 hash 路由。
+ * @note 开发环境与生产自定义协议均仅允许同一协议、主机与端口下的客户端路由。
  */
 export function isAllowedRendererUrl(candidateUrl: string, rendererUrl: string): boolean {
   /** @brief 已解析的候选 URL / Parsed candidate URL. */
@@ -53,15 +53,11 @@ export function isAllowedRendererUrl(candidateUrl: string, rendererUrl: string):
     return false
   }
 
-  if (trustedRenderer.protocol === 'file:') {
-    return (
-      candidate.protocol === 'file:' &&
-      candidate.pathname === trustedRenderer.pathname &&
-      candidate.search === trustedRenderer.search
-    )
+  if (candidate.protocol === 'file:' || trustedRenderer.protocol === 'file:') {
+    return false
   }
 
-  return candidate.origin === trustedRenderer.origin
+  return candidate.protocol === trustedRenderer.protocol && candidate.host === trustedRenderer.host
 }
 
 /**
