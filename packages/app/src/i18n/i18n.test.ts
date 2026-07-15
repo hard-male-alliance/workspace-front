@@ -16,6 +16,9 @@ describe('application i18n', () => {
     expect(appI18n.language).toBe('zh-SG')
     expect(appI18n.t('nav.workspace')).toBe('工作台')
     expect(appI18n.t('template.settings.accentStyle.warm')).toBe('暖棕')
+    expect(appI18n.t('knowledge.status.fetching')).toBe('正在获取')
+    expect(document.documentElement.lang).toBe('zh-SG')
+    expect(document.title).toBe('求职工作台')
   })
 
   it('switches to en-US without changing translation keys', async () => {
@@ -24,6 +27,9 @@ describe('application i18n', () => {
     expect(appI18n.language).toBe('en-US')
     expect(appI18n.t('nav.workspace')).toBe('Workspace')
     expect(appI18n.t('template.settings.accentStyle.warm')).toBe('Warm')
+    expect(appI18n.t('knowledge.status.fetching')).toBe('Fetching')
+    expect(document.documentElement.lang).toBe('en-US')
+    expect(document.title).toBe('Career Workspace')
   })
 
   it('accepts only the two deliberately supported UI locales', () => {

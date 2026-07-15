@@ -4,7 +4,8 @@
 export const zhSGTranslation = {
   app: {
     name: '求职工作台',
-    tagline: '把准备、练习和复盘放在同一个工作流里。'
+    tagline: '把准备、练习和复盘放在同一个工作流里。',
+    homeAria: 'Inkwell 工作区首页'
   },
   nav: {
     primary: '主导航',
@@ -36,6 +37,7 @@ export const zhSGTranslation = {
   },
   topbar: {
     feedback: '反馈',
+    feedbackRecorded: '反馈已记录到本地演示',
     changeLocale: '切换界面语言'
   },
   common: {
@@ -67,6 +69,7 @@ export const zhSGTranslation = {
     completed: '已完成',
     connected: '已连接',
     reconnecting: '正在重连',
+    loadingInterface: '正在加载界面语言…',
     loadingWorkspace: '正在加载工作区…',
     loadingResume: '正在加载简历编辑器…',
     loadingTemplateSettings: '正在加载模板设置…',
@@ -80,7 +83,8 @@ export const zhSGTranslation = {
     errorInterview: '无法加载模拟面试',
     errorInterviewSummary: '无法加载面试总结',
     errorKnowledge: '无法加载知识来源',
-    errorVisibility: '无法加载知识可见性'
+    errorVisibility: '无法加载知识可见性',
+    errorDescription: '演示数据暂时不可用。请重试，或返回工作台。'
   },
   workspace: {
     title: '工作台',
@@ -120,14 +124,19 @@ export const zhSGTranslation = {
     form: '内容',
     preview: '预览',
     assistant: '简历助手',
+    openAssistant: '打开简历助手',
     previewReady: '预览已同步',
     previewRendering: '正在生成预览',
+    localDraft: '本地草稿预览（Mock）',
     pdfPreview: 'PDF 视觉预览（Mock）',
+    pdfPreviewAria: '简历 PDF 视觉预览（Mock）',
     mobileTabs: '移动端面板切换',
     templateSettings: '模板设置',
     revision: '版本 {{revision}}',
     knowledgeLinked: '此简历已自动加入个人知识库',
     askAssistant: '询问助手如何优化这份简历…',
+    assistantMessageForm: '简历助手消息',
+    sendMessage: '发送消息',
     emptyResumes: '还没有简历。创建一份后，它会自动成为可配置的知识来源。',
     editor: {
       sectionTitle: '区段标题',
@@ -159,6 +168,10 @@ export const zhSGTranslation = {
     selected: '当前选择',
     capabilities: '公开能力',
     zones: '语义区域',
+    zoneMain: '主内容区',
+    zoneSidebar: '侧栏',
+    columns: '{{count}} 列',
+    sourceMap: '来源映射',
     intentNotice: '模板版本固定；迁移不会静默改变现有简历。',
     settingsDescription: '控件由 TemplateManifest.settings 驱动，值受模板约束。',
     pageSize: '页面规格',
@@ -168,6 +181,7 @@ export const zhSGTranslation = {
     densityHelp: '0 到 1 的语义紧凑度。',
     intentPayload: '将要表达的意图',
     intentPayloadDescription: 'v0.1 只展示与 ResumeStyleIntent 对齐的语义字段，不发送网络请求。',
+    intentPayloadAria: 'ResumeStyleIntent Mock 预览',
     groups: {
       header: '页首',
       appearance: '外观'
@@ -202,6 +216,7 @@ export const zhSGTranslation = {
     liveMode: '全双工练习模式',
     interviewer: '面试官',
     candidate: '你',
+    live: '实时',
     interrupt: '打断',
     endInterview: '结束面试',
     minutes: '分钟',
@@ -212,6 +227,30 @@ export const zhSGTranslation = {
     scenario: '场景',
     bargeIn: '可打断数字人',
     connection: '媒体连接',
+    stageAria: '数字人面试画面',
+    candidatePreview: '候选人摄像头预览（Mock）',
+    muteMicrophone: '静音麦克风',
+    unmuteMicrophone: '打开麦克风',
+    disableCamera: '关闭摄像头',
+    enableCamera: '打开摄像头',
+    shareScreen: '共享屏幕（Mock）',
+    reconnect: '重新连接（Mock）',
+    screenShareRequested: '已请求本地屏幕共享（Mock；未采集或传输媒体）。',
+    reconnectRequested: '已请求本地重连（Mock；未建立网络连接）。',
+    enabled: '已启用',
+    disabled: '已关闭',
+    avatarOutputModes: {
+      serverVideo: '服务端视频',
+      clientRender: '客户端数字人渲染',
+      audioOnly: '仅音频'
+    },
+    connectionStates: {
+      idle: '未连接',
+      connecting: '正在连接',
+      connected: '已连接',
+      reconnecting: '正在重连',
+      failed: '连接失败'
+    },
     mediaNotice: '当前为演示状态；真实音视频会经 WebRTC 传输，控制事件独立处理。',
     emptyScenarios: '当前没有可用场景。'
   },
@@ -227,13 +266,31 @@ export const zhSGTranslation = {
     limitations: '局限性说明',
     evidence: '转录证据',
     evidenceBased: '证据驱动的练习反馈',
+    rawMockScore: 'Mock 原始分数',
+    transcriptFallback: '转录片段 {{segmentId}}',
+    practice: '练习：',
+    successCriterion: '成功标准：',
+    dimensions: {
+      problemFraming: '问题界定',
+      architecture: '架构设计',
+      communication: '表达结构',
+      reliability: '可靠性推演'
+    },
     description: '评分仅基于量表、确认的转录证据与可观察沟通行为；它不是人格或就业结果判断。',
     savePlan: '保存练习计划',
+    planSaved: '练习计划已保存到本地演示状态',
+    planSavedDescription: '没有写入后端，也没有创建正式练习计划。',
     rubricDescription: '每项都标注了置信度与可检查证据。',
     evidenceDescription: '结论可以回到具体的已确认片段复核。',
     speakingTime: '发言时长',
     wordsPerMinute: '每分钟词数',
     longPauses: '长停顿',
+    duration: '{{minutes}} 分 {{seconds}} 秒',
+    priorities: {
+      high: '高优先级',
+      medium: '中优先级',
+      low: '低优先级'
+    },
     actionPlanDescription: '把建议转成可练习、可检查的下一步。',
     limitationsDescription: '请将这份结果当作练习反馈，而非确定性评价。'
   },
@@ -264,7 +321,21 @@ export const zhSGTranslation = {
     agentBoundaryDescription: '策略和会话选择共同决定有效可见性。',
     defaultPolicy: '默认策略',
     externalModel: '外部模型处理',
-    reviewPolicy: '查看一个来源的授权矩阵'
+    reviewPolicy: '查看一个来源的授权矩阵',
+    refreshSources: '刷新知识来源（Mock）',
+    refreshRecorded: '刷新请求已记录（Mock；未向来源发起同步）。',
+    autoManaged: '自动加入',
+    visibilityForSource: '{{sourceName}} 的可见性设置',
+    denied: '拒绝',
+    off: '关闭',
+    status: {
+      notStarted: '尚未开始',
+      fetching: '正在获取',
+      parsing: '正在解析',
+      chunking: '正在切分',
+      stale: '需要刷新',
+      deleted: '已删除'
+    }
   },
   visibility: {
     title: 'Agent 可见性',
@@ -279,8 +350,9 @@ export const zhSGTranslation = {
     summarize: '摘要',
     derive: '作为推理依据',
     writeBack: '写回来源',
-    pendingNotice: '当前页面为只读 Mock；最终授权仍由后端按 EffectiveAccess 判定。',
-    description: '为“来源”设置最小授权；最终 EffectiveAccess 仍由后端结合会话选择做 deny 优先判定。',
+    pendingNotice: '当前页面为本地可编辑 Mock；最终授权仍由后端按 EffectiveAccess 判定。',
+    description:
+      '为“来源”设置最小授权；最终 EffectiveAccess 仍由后端结合会话选择做 deny 优先判定。',
     mockSaved: '已保存到本地演示状态',
     mockSavedDescription: '没有发出 PATCH，也没有改变后端权威策略。',
     defaultEffect: '默认效果',
@@ -289,9 +361,35 @@ export const zhSGTranslation = {
     sessionOverrideHelp: '允许用户在单次 Agent Run 中临时排除或显式选择来源。',
     externalModelHelp: '默认关闭；真实实现需要服务端策略、区域和审计校验。',
     matrixDescription: '只有明确 allow 的操作可用；没有 grant 不等于继承允许。',
+    matrixCell: '{{scope}}：{{operation}}为{{effect}}',
     agentScope: 'Agent',
+    allow: '允许',
+    deny: '拒绝',
+    effects: {
+      allow: '允许',
+      deny: '拒绝'
+    },
+    sensitivity: {
+      normal: '常规',
+      confidential: '机密',
+      highlyConfidential: '高度机密'
+    },
+    regions: {
+      cn: '中国大陆',
+      global: '全球',
+      privateDeployment: '私有部署'
+    },
+    scopes: {
+      resumeAssistant: '简历助手',
+      jobFitAnalyst: '岗位匹配分析',
+      interviewAgent: '面试 Agent',
+      interviewReporter: '面试报告 Agent',
+      generalChat: '通用对话',
+      portfolioAssistant: '作品集助手'
+    },
     beforeProduction: '接入前仍待确认',
-    beforeProductionDescription: 'PATCH、策略解释、会话审计快照和 EffectiveAccess 计算均不会在前端自行臆造。'
+    beforeProductionDescription:
+      'PATCH、策略解释、会话审计快照和 EffectiveAccess 计算均不会在前端自行臆造。'
   },
   states: {
     loadingTitle: '正在准备你的工作区',
@@ -302,7 +400,8 @@ export const zhSGTranslation = {
     emptyBody: '添加内容后，AI 才能在明确授权的范围内提供帮助。',
     eyebrow: '共享 UI 状态',
     title: '空、加载与错误',
-    description: '每个数据页都可经相同的 mock gateway 进入这些状态；这里保留为可直接验收的视觉样例。',
+    description:
+      '每个数据页都可经相同的 mock gateway 进入这些状态；这里保留为可直接验收的视觉样例。',
     emptyAction: '添加第一份内容',
     retried: '已重试（Mock）',
     errorHint: '真实环境会显示 contract 的 ProblemDetails，而非 Mock 错误。'
@@ -313,7 +412,8 @@ export const zhSGTranslation = {
 export const enUSTranslation = {
   app: {
     name: 'Career Workspace',
-    tagline: 'Prepare, practise, and reflect in one workflow.'
+    tagline: 'Prepare, practise, and reflect in one workflow.',
+    homeAria: 'Inkwell workspace home'
   },
   nav: {
     primary: 'Primary navigation',
@@ -345,6 +445,7 @@ export const enUSTranslation = {
   },
   topbar: {
     feedback: 'Feedback',
+    feedbackRecorded: 'Feedback recorded locally',
     changeLocale: 'Change interface language'
   },
   common: {
@@ -376,6 +477,7 @@ export const enUSTranslation = {
     completed: 'Completed',
     connected: 'Connected',
     reconnecting: 'Reconnecting',
+    loadingInterface: 'Loading interface language…',
     loadingWorkspace: 'Loading workspace…',
     loadingResume: 'Loading resume editor…',
     loadingTemplateSettings: 'Loading template settings…',
@@ -389,7 +491,8 @@ export const enUSTranslation = {
     errorInterview: 'Unable to load mock interview',
     errorInterviewSummary: 'Unable to load interview summary',
     errorKnowledge: 'Unable to load knowledge sources',
-    errorVisibility: 'Unable to load knowledge visibility'
+    errorVisibility: 'Unable to load knowledge visibility',
+    errorDescription: 'Demo data is temporarily unavailable. Try again or return to the workspace.'
   },
   workspace: {
     title: 'Workspace',
@@ -405,10 +508,12 @@ export const enUSTranslation = {
     home: {
       eyebrow: 'AI career workspace',
       greeting: 'Good morning, Klee.',
-      description: 'Keep resumes, practice, and personal knowledge in one place for your next better answer.',
+      description:
+        'Keep resumes, practice, and personal knowledge in one place for your next better answer.',
       continueEditing: 'Continue editing resume',
       progressTitle: 'This week',
-      progressDescription: 'This is a demo workspace aggregate; production metrics arrive after the service contract is frozen.',
+      progressDescription:
+        'This is a demo workspace aggregate; production metrics arrive after the service contract is frozen.',
       resumeCount: 'resumes',
       interviewCount: 'completed interviews',
       knowledgeCount: 'ready knowledge sources',
@@ -421,7 +526,8 @@ export const enUSTranslation = {
       visibilityMeta: 'Sources other than your resume are denied by default',
       activityTitle: 'Recent activity',
       activityDescription: 'A visible trail of resources, interviews, and knowledge indexing.',
-      mockNotice: 'This is a v0.1 Mock experience; no resume, media, or knowledge data is sent to a backend.'
+      mockNotice:
+        'This is a v0.1 Mock experience; no resume, media, or knowledge data is sent to a backend.'
     }
   },
   resume: {
@@ -429,14 +535,19 @@ export const enUSTranslation = {
     form: 'Content',
     preview: 'Preview',
     assistant: 'Resume assistant',
+    openAssistant: 'Open resume assistant',
     previewReady: 'Preview is in sync',
     previewRendering: 'Generating preview',
+    localDraft: 'Local draft preview (Mock)',
     pdfPreview: 'PDF visual preview (Mock)',
+    pdfPreviewAria: 'Resume PDF visual preview (Mock)',
     mobileTabs: 'Mobile panel switcher',
     templateSettings: 'Template settings',
     revision: 'Revision {{revision}}',
     knowledgeLinked: 'This resume is automatically included in your personal knowledge.',
     askAssistant: 'Ask how to improve this resume…',
+    assistantMessageForm: 'Resume assistant message',
+    sendMessage: 'Send message',
     emptyResumes: 'No resumes yet. Once created, a resume becomes a configurable knowledge source.',
     editor: {
       sectionTitle: 'Section title',
@@ -445,12 +556,15 @@ export const enUSTranslation = {
       bold: 'Bold',
       quote: 'Quote block',
       bullets: 'Bulleted list',
-      semanticHint: 'You can edit the rich-text preview locally. Once the formal contract is integrated, saving becomes a ResumeOperationBatch.',
-      mockNote: 'The preview, conversation, and proposal are supplied by a Mock adapter; PDF, SSE, and write-back are not connected yet.'
+      semanticHint:
+        'You can edit the rich-text preview locally. Once the formal contract is integrated, saving becomes a ResumeOperationBatch.',
+      mockNote:
+        'The preview, conversation, and proposal are supplied by a Mock adapter; PDF, SSE, and write-back are not connected yet.'
     },
     proposal: {
       title: 'Suggested change (your approval is required)',
-      change: 'Change the project highlight to “reduced inference latency from 1.8 s to 620 ms” so verifiable impact appears first.',
+      change:
+        'Change the project highlight to “reduced inference latency from 1.8 s to 620 ms” so verifiable impact appears first.',
       accept: 'Accept',
       reject: 'Reject',
       accepted: 'Accepted (Mock; the resume is unchanged)',
@@ -462,21 +576,31 @@ export const enUSTranslation = {
     currentTemplate: 'Current template',
     otherTemplates: 'Other templates',
     semanticIntent: 'Semantic style intent',
-    migrationHint: 'Changing templates is an explicit backend migration job; this screen only shows settings.',
-    choiceDescription: 'In production, a switch creates an explicit compatibility check and migration job.',
+    migrationHint:
+      'Changing templates is an explicit backend migration job; this screen only shows settings.',
+    choiceDescription:
+      'In production, a switch creates an explicit compatibility check and migration job.',
     noDescription: 'No description yet',
     selected: 'Selected',
     capabilities: 'Published capabilities',
     zones: 'Semantic zones',
-    intentNotice: 'Template versions are fixed; a migration never silently changes an existing resume.',
-    settingsDescription: 'Controls are driven by TemplateManifest.settings and their values are constrained by the template.',
+    zoneMain: 'Main content',
+    zoneSidebar: 'Sidebar',
+    columns: '{{count}} columns',
+    sourceMap: 'Source map',
+    intentNotice:
+      'Template versions are fixed; a migration never silently changes an existing resume.',
+    settingsDescription:
+      'Controls are driven by TemplateManifest.settings and their values are constrained by the template.',
     pageSize: 'Page format',
     fontToken: 'Font token',
     fontTokenHelp: 'The template interprets the token; no font path is exposed.',
     density: 'Content density',
     densityHelp: 'A semantic compactness value from 0 to 1.',
     intentPayload: 'Intent to be expressed',
-    intentPayloadDescription: 'v0.1 displays only semantic fields aligned with ResumeStyleIntent and sends no network request.',
+    intentPayloadDescription:
+      'v0.1 displays only semantic fields aligned with ResumeStyleIntent and sends no network request.',
+    intentPayloadAria: 'ResumeStyleIntent Mock preview',
     groups: {
       header: 'Header',
       appearance: 'Appearance'
@@ -511,17 +635,46 @@ export const enUSTranslation = {
     liveMode: 'Full-duplex practice mode',
     interviewer: 'Interviewer',
     candidate: 'You',
+    live: 'Live',
     interrupt: 'Interrupt',
     endInterview: 'End interview',
     minutes: 'min',
     viewMockReport: 'View Mock summary',
     openSummary: 'Open summary',
     practiceContext: 'Practice context',
-    contextDescription: 'Media state and Agent-visible data will be managed independently from session state in the production integration.',
+    contextDescription:
+      'Media state and Agent-visible data will be managed independently from session state in the production integration.',
     scenario: 'Scenario',
     bargeIn: 'Interruptible avatar',
     connection: 'Media connection',
-    mediaNotice: 'This is a demo state. Production A/V uses WebRTC, with control events handled separately.',
+    stageAria: 'Avatar interview stage',
+    candidatePreview: 'Candidate camera preview (Mock)',
+    muteMicrophone: 'Mute microphone',
+    unmuteMicrophone: 'Turn on microphone',
+    disableCamera: 'Turn off camera',
+    enableCamera: 'Turn on camera',
+    shareScreen: 'Share screen (Mock)',
+    reconnect: 'Reconnect (Mock)',
+    screenShareRequested:
+      'Local screen-share request recorded (Mock; no media was captured or sent).',
+    reconnectRequested:
+      'Local reconnect request recorded (Mock; no network connection was created).',
+    enabled: 'Enabled',
+    disabled: 'Disabled',
+    avatarOutputModes: {
+      serverVideo: 'Server video',
+      clientRender: 'Client-rendered avatar',
+      audioOnly: 'Audio only'
+    },
+    connectionStates: {
+      idle: 'Not connected',
+      connecting: 'Connecting',
+      connected: 'Connected',
+      reconnecting: 'Reconnecting',
+      failed: 'Connection failed'
+    },
+    mediaNotice:
+      'This is a demo state. Production A/V uses WebRTC, with control events handled separately.',
     emptyScenarios: 'No scenarios are available right now.'
   },
   report: {
@@ -536,13 +689,33 @@ export const enUSTranslation = {
     limitations: 'Limitations',
     evidence: 'Transcript evidence',
     evidenceBased: 'Evidence-grounded practice feedback',
-    description: 'Scores are based only on the rubric, confirmed transcript evidence, and observable communication behaviours; they do not judge personality or employment outcomes.',
+    rawMockScore: 'Mock raw score',
+    transcriptFallback: 'Transcript segment {{segmentId}}',
+    practice: 'Practice:',
+    successCriterion: 'Success criterion:',
+    dimensions: {
+      problemFraming: 'Problem framing',
+      architecture: 'Architecture design',
+      communication: 'Communication structure',
+      reliability: 'Reliability reasoning'
+    },
+    description:
+      'Scores are based only on the rubric, confirmed transcript evidence, and observable communication behaviours; they do not judge personality or employment outcomes.',
     savePlan: 'Save practice plan',
+    planSaved: 'Practice plan saved to local demo state',
+    planSavedDescription:
+      'Nothing was written to a backend and no formal practice plan was created.',
     rubricDescription: 'Each dimension includes confidence and inspectable evidence.',
     evidenceDescription: 'Every conclusion can be reviewed against specific confirmed excerpts.',
     speakingTime: 'Speaking time',
     wordsPerMinute: 'Words per minute',
     longPauses: 'Long pauses',
+    duration: '{{minutes}}m {{seconds}}s',
+    priorities: {
+      high: 'High priority',
+      medium: 'Medium priority',
+      low: 'Low priority'
+    },
     actionPlanDescription: 'Turn the feedback into next steps you can practise and check.',
     limitationsDescription: 'Treat this as practice feedback, not a deterministic evaluation.'
   },
@@ -554,13 +727,16 @@ export const enUSTranslation = {
     indexed: 'Indexed',
     documents: 'documents',
     chunks: 'chunks',
-    resumeAutoSync: 'Resumes enter the knowledge base automatically; deleting one must not leave a ghost index.',
+    resumeAutoSync:
+      'Resumes enter the knowledge base automatically; deleting one must not leave a ghost index.',
     emptySources: 'No knowledge sources yet. Add a blog, a repository, or a file.',
     visibility: 'Visibility settings',
     memory: 'Personal memory',
-    addSourceDescription: 'Blogs, repositories, URLs, and files are supported; real uploads and connection consent await backend integration.',
+    addSourceDescription:
+      'Blogs, repositories, URLs, and files are supported; real uploads and connection consent await backend integration.',
     mockSubmitted: 'Recorded as a Mock action',
-    mockSubmittedDescription: 'No file is uploaded, no URL is fetched, and no formal KnowledgeSource is created.',
+    mockSubmittedDescription:
+      'No file is uploaded, no URL is fetched, and no formal KnowledgeSource is created.',
     sourceType: 'Source type',
     gitRepository: 'Code repository',
     blog: 'Blog feed',
@@ -568,12 +744,28 @@ export const enUSTranslation = {
     file: 'File',
     sourceLocation: 'URL or file name',
     addAsMock: 'Add to demo',
-    sourceDescription: 'A source represents syncable material; it does not expose chunk or vector implementation details.',
+    sourceDescription:
+      'A source represents syncable material; it does not expose chunk or vector implementation details.',
     agentBoundary: 'Agent access boundary',
-    agentBoundaryDescription: 'Policy and session selection together determine effective visibility.',
+    agentBoundaryDescription:
+      'Policy and session selection together determine effective visibility.',
     defaultPolicy: 'Default policy',
     externalModel: 'External model processing',
-    reviewPolicy: 'Review a source authorization matrix'
+    reviewPolicy: 'Review a source authorization matrix',
+    refreshSources: 'Refresh knowledge sources (Mock)',
+    refreshRecorded: 'Refresh request recorded (Mock; no source sync was started).',
+    autoManaged: 'Auto-included',
+    visibilityForSource: 'Visibility settings for {{sourceName}}',
+    denied: 'Denied',
+    off: 'Off',
+    status: {
+      notStarted: 'Not started',
+      fetching: 'Fetching',
+      parsing: 'Parsing',
+      chunking: 'Segmenting',
+      stale: 'Needs refresh',
+      deleted: 'Deleted'
+    }
   },
   visibility: {
     title: 'Agent visibility',
@@ -588,19 +780,50 @@ export const enUSTranslation = {
     summarize: 'Summarise',
     derive: 'Use for reasoning',
     writeBack: 'Write back to source',
-    pendingNotice: 'This is a read-only Mock. The backend makes the final EffectiveAccess decision.',
-    description: 'Grant the minimum access to a source. The backend still applies deny-first EffectiveAccess after session selection.',
+    pendingNotice:
+      'This is a locally editable Mock. The backend makes the final EffectiveAccess decision.',
+    description:
+      'Grant the minimum access to a source. The backend still applies deny-first EffectiveAccess after session selection.',
     mockSaved: 'Saved to local demo state',
     mockSavedDescription: 'No PATCH was sent and no authoritative backend policy changed.',
     defaultEffect: 'Default effect',
     sessionControls: 'Session and model controls',
     draftOnly: 'The following adjustments apply only to this Mock page.',
-    sessionOverrideHelp: 'Let a user temporarily exclude or explicitly select sources in one Agent Run.',
-    externalModelHelp: 'Off by default. Production needs server-side policy, regional, and audit checks.',
-    matrixDescription: 'Only explicitly allowed operations are available; no grant does not inherit an allow.',
+    sessionOverrideHelp:
+      'Let a user temporarily exclude or explicitly select sources in one Agent Run.',
+    externalModelHelp:
+      'Off by default. Production needs server-side policy, regional, and audit checks.',
+    matrixDescription:
+      'Only explicitly allowed operations are available; no grant does not inherit an allow.',
+    matrixCell: '{{scope}}: {{operation}} is {{effect}}',
     agentScope: 'Agent',
+    allow: 'Allow',
+    deny: 'Deny',
+    effects: {
+      allow: 'Allow',
+      deny: 'Deny'
+    },
+    sensitivity: {
+      normal: 'Normal',
+      confidential: 'Confidential',
+      highlyConfidential: 'Highly confidential'
+    },
+    regions: {
+      cn: 'Mainland China',
+      global: 'Global',
+      privateDeployment: 'Private deployment'
+    },
+    scopes: {
+      resumeAssistant: 'Resume assistant',
+      jobFitAnalyst: 'Job-fit analyst',
+      interviewAgent: 'Interview agent',
+      interviewReporter: 'Interview reporter',
+      generalChat: 'General chat',
+      portfolioAssistant: 'Portfolio assistant'
+    },
     beforeProduction: 'Still to confirm before integration',
-    beforeProductionDescription: 'The frontend does not invent PATCH, policy explanation, session audit snapshots, or EffectiveAccess computation.'
+    beforeProductionDescription:
+      'The frontend does not invent PATCH, policy explanation, session audit snapshots, or EffectiveAccess computation.'
   },
   states: {
     loadingTitle: 'Preparing your workspace',
@@ -611,7 +834,8 @@ export const enUSTranslation = {
     emptyBody: 'After you add content, AI can help within the visibility you explicitly grant.',
     eyebrow: 'Shared UI states',
     title: 'Empty, loading, and error',
-    description: 'Every data page can enter these states through the same Mock gateway; this page keeps a directly reviewable visual example.',
+    description:
+      'Every data page can enter these states through the same Mock gateway; this page keeps a directly reviewable visual example.',
     emptyAction: 'Add your first item',
     retried: 'Retried (Mock)',
     errorHint: 'Production will show contract ProblemDetails rather than a Mock error.'

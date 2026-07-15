@@ -1,0 +1,23 @@
+# Dependencies / 依赖目录
+node_modules/
+
+# Build artifacts / 构建产物
+dist/
+out/
+coverage/
+release/
+
+# Local environment / 本地环境文件
+.env
+.env.*
+!.env.example
+
+# Tooling / 工具缓存
+.vite/
+*.tsbuildinfo
+
+# OS and editor files / 操作系统与编辑器文件
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

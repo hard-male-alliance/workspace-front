@@ -23,14 +23,15 @@ export const MOCK_PENDING_CONTRACT_ITEMS: readonly MockPendingContractItem[] = [
   {
     id: 'resume-preview-artifact',
     domain: 'resume',
-    question: '真实 PDF RenderArtifact、短期签名 URL 与 PdfSourceMap 的前端获取时机尚待服务端接入确认。',
+    question:
+      '真实 PDF RenderArtifact、短期签名 URL 与 PdfSourceMap 的前端获取时机尚待服务端接入确认。',
     mockHandling: '使用无二进制内容的 UiResumePreviewModel 作为语义预览占位。'
   },
   {
     id: 'resume-editor-mutations',
     domain: 'resume',
     question: 'ResumeOperationBatch 的提交、If-Match/ETag 与离线重放队列尚未接入。',
-    mockHandling: '编辑器只读取确定性文档投影，不伪造保存或冲突解决请求。'
+    mockHandling: '编辑器仅让本地草稿驱动视觉预览，不伪造保存、冲突解决或网络请求。'
   },
   {
     id: 'interview-media-transport',
@@ -48,6 +49,6 @@ export const MOCK_PENDING_CONTRACT_ITEMS: readonly MockPendingContractItem[] = [
     id: 'knowledge-write-policy',
     domain: 'knowledge',
     question: 'KnowledgeVisibilityPolicy 的 PATCH、审计解释与服务端 EffectiveAccess 计算尚未接入。',
-    mockHandling: '仅展示只读策略投影，且明确以 default deny 语义为默认。'
+    mockHandling: '仅允许本地 Mock 草稿预览，且明确以 default deny 语义为默认；不会发送 PATCH。'
   }
 ]

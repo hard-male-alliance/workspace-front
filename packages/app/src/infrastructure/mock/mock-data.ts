@@ -28,9 +28,7 @@ export const MOCK_WORKSPACE_ID = asUiOpaqueId<'workspace'>('ws_mock_klee_career_
 export const MOCK_RESUME_ID = asUiOpaqueId<'resume'>('res_mock_ai_platform')
 
 /** @brief Mock 简历知识来源 ID / Mock resume knowledge-source ID. */
-export const MOCK_RESUME_KNOWLEDGE_SOURCE_ID = asUiOpaqueId<'knowledge-source'>(
-  'ks_mock_resume'
-)
+export const MOCK_RESUME_KNOWLEDGE_SOURCE_ID = asUiOpaqueId<'knowledge-source'>('ks_mock_resume')
 
 /** @brief Mock 主模板 ID / Mock primary template ID. */
 export const MOCK_DAWN_TEMPLATE_ID = asUiOpaqueId<'template'>('tpl_mock_dawn')
@@ -39,19 +37,14 @@ export const MOCK_DAWN_TEMPLATE_ID = asUiOpaqueId<'template'>('tpl_mock_dawn')
 export const MOCK_EDITORIAL_TEMPLATE_ID = asUiOpaqueId<'template'>('tpl_mock_editorial')
 
 /** @brief Mock 面试场景 ID / Mock interview scenario ID. */
-export const MOCK_INTERVIEW_SCENARIO_ID = asUiOpaqueId<'interview-scenario'>(
-  'scn_mock_system_design'
-)
+export const MOCK_INTERVIEW_SCENARIO_ID =
+  asUiOpaqueId<'interview-scenario'>('scn_mock_system_design')
 
 /** @brief Mock 面试会话 ID / Mock interview session ID. */
-export const MOCK_INTERVIEW_SESSION_ID = asUiOpaqueId<'interview-session'>(
-  'int_mock_system_design'
-)
+export const MOCK_INTERVIEW_SESSION_ID = asUiOpaqueId<'interview-session'>('int_mock_system_design')
 
 /** @brief Mock 面试报告 ID / Mock interview report ID. */
-export const MOCK_INTERVIEW_REPORT_ID = asUiOpaqueId<'interview-report'>(
-  'rpt_mock_system_design'
-)
+export const MOCK_INTERVIEW_REPORT_ID = asUiOpaqueId<'interview-report'>('rpt_mock_system_design')
 
 /** @brief Mock Git 知识来源 ID / Mock Git knowledge-source ID. */
 export const MOCK_GIT_KNOWLEDGE_SOURCE_ID = asUiOpaqueId<'knowledge-source'>('ks_mock_git')
@@ -135,13 +128,13 @@ export const MOCK_DAWN_TEMPLATE: UiTemplateManifest = {
   zones: [
     {
       id: 'main',
-      labelKey: 'template.zones.main',
+      labelKey: 'template.zoneMain',
       acceptedSectionKinds: ['summary', 'experience', 'education', 'projects', 'skills', 'custom'],
       maxSections: null
     },
     {
       id: 'sidebar',
-      labelKey: 'template.zones.sidebar',
+      labelKey: 'template.zoneSidebar',
       acceptedSectionKinds: ['skills', 'languages', 'certifications', 'custom'],
       maxSections: 4
     }
@@ -216,12 +209,26 @@ export const MOCK_EDITORIAL_TEMPLATE: UiTemplateManifest = {
   previewAssetUrl: null,
   supportedLocales: ['zh-SG', 'en-US'],
   supportedPageSizes: ['A4', 'LETTER', 'LEGAL'],
-  supportedSectionKinds: ['summary', 'experience', 'education', 'projects', 'skills', 'publications'],
+  supportedSectionKinds: [
+    'summary',
+    'experience',
+    'education',
+    'projects',
+    'skills',
+    'publications'
+  ],
   zones: [
     {
       id: 'main',
-      labelKey: 'template.zones.main',
-      acceptedSectionKinds: ['summary', 'experience', 'education', 'projects', 'skills', 'publications'],
+      labelKey: 'template.zoneMain',
+      acceptedSectionKinds: [
+        'summary',
+        'experience',
+        'education',
+        'projects',
+        'skills',
+        'publications'
+      ],
       maxSections: null
     }
   ],
@@ -271,8 +278,7 @@ export const MOCK_RESUME_DOCUMENT: UiResumeDocument = {
   profile: {
     fullName: 'Klee Chen',
     headline: 'AI Platform Engineer · Distributed Systems',
-    summary:
-      '面向生产环境构建可靠的 AI 平台与开发者工具，专注检索、推理编排和可观测性。',
+    summary: '面向生产环境构建可靠的 AI 平台与开发者工具，专注检索、推理编排和可观测性。',
     contacts: [
       { kind: 'email', label: '邮箱', value: 'klee@example.com' },
       { kind: 'github', label: 'GitHub', value: 'github.com/klee-lab' },
@@ -285,8 +291,7 @@ export const MOCK_RESUME_DOCUMENT: UiResumeDocument = {
       kind: 'summary',
       title: '职业摘要',
       visible: true,
-      contentPreview:
-        '面向生产环境构建可靠的 AI 平台与开发者工具，专注检索、推理编排和可观测性。',
+      contentPreview: '面向生产环境构建可靠的 AI 平台与开发者工具，专注检索、推理编排和可观测性。',
       items: []
     },
     {

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   MOCK_INTERVIEW_SESSION_ID,
+  MOCK_KNOWLEDGE_SOURCES,
   MOCK_KNOWLEDGE_VISIBILITY,
   MOCK_RESUME_ID,
   MOCK_WORKSPACE_ID
@@ -52,6 +53,19 @@ describe('Mock gateways', () => {
     expect(firstRead[0]).not.toBe(secondRead[0])
   })
 
+  it('serves a visibility projection for every linked Mock knowledge source', async () => {
+    /** @brief 知识 Mock 网关 / Knowledge Mock gateway. */
+    const knowledgeGateway = new MockKnowledgeGateway()
+    /** @brief 各来源的可见性投影 / Visibility projections for all sources. */
+    const visibilityModels = await Promise.all(
+      MOCK_KNOWLEDGE_SOURCES.map((source) => knowledgeGateway.getKnowledgeVisibility(source.id))
+    )
+
+    expect(visibilityModels.map((model) => model.source.id)).toEqual(
+      MOCK_KNOWLEDGE_SOURCES.map((source) => source.id)
+    )
+  })
+
   it('makes empty and error states explicit for page-state testing', async () => {
     /** @brief 空态简历 Mock 网关 / Empty-state resume Mock gateway. */
     const emptyGateway = new MockResumeGateway({ mode: 'empty' })
@@ -59,7 +73,9 @@ describe('Mock gateways', () => {
     const failingGateway = new MockWorkspaceGateway({ mode: 'error' })
 
     await expect(emptyGateway.listResumeCards(MOCK_WORKSPACE_ID)).resolves.toEqual([])
-    await expect(emptyGateway.getResumeEditor(MOCK_RESUME_ID)).rejects.toBeInstanceOf(MockGatewayError)
+    await expect(emptyGateway.getResumeEditor(MOCK_RESUME_ID)).rejects.toBeInstanceOf(
+      MockGatewayError
+    )
     await expect(failingGateway.getWorkspaceHome(MOCK_WORKSPACE_ID)).rejects.toMatchObject({
       code: 'mock.unavailable'
     })

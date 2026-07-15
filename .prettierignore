@@ -1,0 +1,9 @@
+# Formal contracts are externally authored and consumed read-only.
+contract/**
+
+# Dependency lockfile ordering and generated outputs are not source formatting targets.
+pnpm-lock.yaml
+**/dist/**
+**/out/**
+coverage/**
+node_modules/**

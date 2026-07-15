@@ -103,10 +103,7 @@ export interface UiWorkspace {
 
 /** @brief 首页活动类别 / Workspace-home activity kind. */
 export type UiWorkspaceActivityKind =
-  | 'resume_updated'
-  | 'template_changed'
-  | 'interview_completed'
-  | 'knowledge_indexed'
+  'resume_updated' | 'template_changed' | 'interview_completed' | 'knowledge_indexed'
 
 /**
  * @brief 首页近期活动投影 / Recent activity projection for the home page.
@@ -215,14 +212,7 @@ export interface UiResumeSection {
 
 /** @brief 简历联系信息类别 / Resume contact kind. */
 export type UiResumeContactKind =
-  | 'email'
-  | 'phone'
-  | 'website'
-  | 'linkedin'
-  | 'github'
-  | 'portfolio'
-  | 'location'
-  | 'other'
+  'email' | 'phone' | 'website' | 'linkedin' | 'github' | 'portfolio' | 'location' | 'other'
 
 /** @brief 简历联系信息展示模型 / Resume-contact display model. */
 export interface UiResumeContact {
@@ -428,24 +418,11 @@ export interface UiResumeCard {
 
 /** @brief 模板设置控件类型 / Template-setting control type. */
 export type UiTemplateSettingControl =
-  | 'switch'
-  | 'slider'
-  | 'number'
-  | 'select'
-  | 'radio'
-  | 'color'
-  | 'measurement'
-  | 'text'
+  'switch' | 'slider' | 'number' | 'select' | 'radio' | 'color' | 'measurement' | 'text'
 
 /** @brief 模板设置值类型 / Template-setting value type. */
 export type UiTemplateSettingValueType =
-  | 'boolean'
-  | 'integer'
-  | 'number'
-  | 'string'
-  | 'choice'
-  | 'color'
-  | 'measurement'
+  'boolean' | 'integer' | 'number' | 'string' | 'choice' | 'color' | 'measurement'
 
 /** @brief 模板设置选项 / Template-setting choice. */
 export interface UiTemplateSettingChoice {
@@ -604,13 +581,7 @@ export interface UiTemplateSettingsModel {
 
 /** @brief 面试类型 / Interview type. */
 export type UiInterviewType =
-  | 'behavioral'
-  | 'technical'
-  | 'system_design'
-  | 'coding'
-  | 'case'
-  | 'hr'
-  | 'mixed'
+  'behavioral' | 'technical' | 'system_design' | 'coding' | 'case' | 'hr' | 'mixed'
 
 /** @brief 面试难度 / Interview difficulty. */
 export type UiInterviewDifficulty = 'introductory' | 'standard' | 'advanced' | 'expert'

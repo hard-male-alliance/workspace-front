@@ -351,14 +351,18 @@ export class MockKnowledgeGateway extends MockGatewayBase implements KnowledgeGa
    * @param sourceId 知识来源 ID / Knowledge source ID.
    * @return Mock 可见性页面数据 / Mock visibility-page data.
    */
-  async getKnowledgeVisibility(
-    sourceId: UiKnowledgeSourceId
-  ): Promise<UiKnowledgeVisibilityModel> {
+  async getKnowledgeVisibility(sourceId: UiKnowledgeSourceId): Promise<UiKnowledgeVisibilityModel> {
     const mode = await this.prepareMockRead()
-    if (mode === 'empty' || sourceId !== MOCK_KNOWLEDGE_VISIBILITY.source.id) {
+    /** @brief 与路由来源 ID 匹配的 Mock 来源 / Mock source matching the route source ID. */
+    const source = MOCK_KNOWLEDGE_SOURCES.find((candidate) => candidate.id === sourceId)
+
+    if (mode === 'empty' || source === undefined) {
       return this.throwMockNotFound('knowledge visibility')
     }
 
-    return cloneMockValue(MOCK_KNOWLEDGE_VISIBILITY)
+    return cloneMockValue({
+      source,
+      availableAgentScopes: MOCK_KNOWLEDGE_VISIBILITY.availableAgentScopes
+    })
   }
 }
