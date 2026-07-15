@@ -11,7 +11,7 @@ import type {
   WorkspaceGateway
 } from '../../domain/gateways'
 import type {
-  AppLocale,
+  UiContentLocale,
   UiInterviewReport,
   UiInterviewScenario,
   UiInterviewSessionId,
@@ -231,10 +231,10 @@ export class MockResumeGateway extends MockGatewayBase implements ResumeGateway 
 
   /**
    * @brief 列出支持指定语言的 Mock 模板 / List Mock templates supporting a locale.
-   * @param locale 界面语言 / UI locale.
+   * @param locale 资源内容语言 / Resource-content locale.
    * @return Mock 模板清单 / Mock template manifests.
    */
-  async listTemplateManifests(locale: AppLocale): Promise<readonly UiTemplateManifest[]> {
+  async listTemplateManifests(locale: UiContentLocale): Promise<readonly UiTemplateManifest[]> {
     const mode = await this.prepareMockRead()
     if (mode === 'empty') {
       return []

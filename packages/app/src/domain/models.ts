@@ -15,6 +15,12 @@ export type AppLocale = (typeof APP_LOCALES)[number]
 export const DEFAULT_APP_LOCALE: AppLocale = 'zh-SG'
 
 /**
+ * @brief 资源内容语言 / Resource-content locale.
+ * @note 对应 contract 的 BCP 47 Locale 语义；它与当前前端可翻译的 AppLocale 有意分离。
+ */
+export type UiContentLocale = string
+
+/**
  * @brief 带语义品牌的不透明标识符 / Semantically branded opaque identifier.
  * @template TBrand 标识符类别 / Identifier category.
  * @note 此品牌只在前端类型系统中生效，绝不推断后端 ID 的格式或排序。
@@ -85,8 +91,8 @@ export interface UiWorkspace {
   readonly slug: string
   /** @brief 当前 UI 用户的角色 / Current UI user's role. */
   readonly role: UiWorkspaceRole
-  /** @brief 默认界面语言 / Default UI locale. */
-  readonly locale: AppLocale
+  /** @brief 默认资源语言 / Default resource-content locale. */
+  readonly locale: UiContentLocale
   /** @brief 时区 IANA 名称 / IANA timezone name. */
   readonly timezone: string
   /** @brief 产品套餐 / Product plan. */
@@ -387,8 +393,8 @@ export interface UiResumeDocument {
   readonly revision: number
   /** @brief 标题 / Title. */
   readonly title: string
-  /** @brief 文档语言 / Document locale. */
-  readonly locale: AppLocale
+  /** @brief 文档内容语言 / Document-content locale. */
+  readonly locale: UiContentLocale
   /** @brief 模板引用 / Template reference. */
   readonly template: UiTemplateReference
   /** @brief 个人资料 / Personal profile. */
@@ -513,8 +519,8 @@ export interface UiTemplateManifest {
   readonly description: string | null
   /** @brief 可选预览资源 URL / Optional preview asset URL. */
   readonly previewAssetUrl: string | null
-  /** @brief 支持语言 / Supported locales. */
-  readonly supportedLocales: readonly AppLocale[]
+  /** @brief 支持的资源内容语言 / Supported resource-content locales. */
+  readonly supportedLocales: readonly UiContentLocale[]
   /** @brief 支持页面规格 / Supported page sizes. */
   readonly supportedPageSizes: readonly UiResumePageSize[]
   /** @brief 支持的区段类型 / Supported section kinds. */
@@ -713,8 +719,8 @@ export interface UiInterviewSession {
   readonly status: UiInterviewSessionStatus
   /** @brief 目标职位 / Job target. */
   readonly jobTarget: UiJobTarget
-  /** @brief UI 语言 / UI locale. */
-  readonly locale: AppLocale
+  /** @brief 面试内容语言 / Interview-content locale. */
+  readonly locale: UiContentLocale
   /** @brief 媒体偏好 / Media preferences. */
   readonly media: UiInterviewMediaPreferences
   /** @brief 开始时间 / Start time. */

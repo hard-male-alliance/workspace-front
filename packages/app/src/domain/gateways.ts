@@ -5,7 +5,7 @@
  */
 
 import type {
-  AppLocale,
+  UiContentLocale,
   UiInterviewReport,
   UiInterviewScenario,
   UiInterviewSessionId,
@@ -57,10 +57,10 @@ export interface ResumeGateway {
 
   /**
    * @brief 按界面语言列出模板 / List templates by UI locale.
-   * @param locale 界面语言 / UI locale.
+   * @param locale 资源内容语言 / Resource-content locale.
    * @return 模板展示模型列表 / Template display models.
    */
-  listTemplateManifests(locale: AppLocale): Promise<readonly UiTemplateManifest[]>
+  listTemplateManifests(locale: UiContentLocale): Promise<readonly UiTemplateManifest[]>
 
   /**
    * @brief 获取模板设置页数据 / Get template-settings page data.
