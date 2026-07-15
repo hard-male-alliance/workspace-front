@@ -344,8 +344,11 @@ export interface UiSectionLayoutIntent {
   readonly headingStyleToken: string | null
 }
 
-/** @brief 模板设置可表达的简单值 / Simple values expressible by template settings. */
-export type UiTemplateSettingValue = boolean | number | string | null
+/**
+ * @brief 模板设置可表达的语义值 / Semantic values expressible by template settings.
+ * @note color 与 measurement 保持结构化，避免将其降级为 CSS 或渲染器私有字符串。
+ */
+export type UiTemplateSettingValue = boolean | number | string | null | UiColorValue | UiMeasurement
 
 /**
  * @brief 简历样式语义意图 / Resume-style semantic intent.
