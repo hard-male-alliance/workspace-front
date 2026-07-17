@@ -266,7 +266,13 @@ function TemplateSettingsContent({
               {t('common.mockData', { defaultValue: 'Demo data' })}
             </span>
           </div>
-          <div className="aw-template-grid">
+          <div className="aw-template-list">
+            {model.availableTemplates.length === 0 ? (
+              <div className="aw-template-empty">
+                <LayoutTemplate aria-hidden="true" size={20} />
+                <p>{t('template.empty', { defaultValue: '当前没有其他可用模板。' })}</p>
+              </div>
+            ) : null}
             {model.availableTemplates.map((template) => {
               /** @brief 当前模板是否被选择 / Whether this template is selected. */
               const isSelected = template.id === selectedTemplate.id
@@ -287,6 +293,15 @@ function TemplateSettingsContent({
                     >
                       {template.description ??
                         t('template.noDescription', { defaultValue: '暂无说明' })}
+                    </span>
+                    <span className="aw-template-fit">
+                      {template.capabilities.supportsSidebar
+                        ? t('template.fitStructured', {
+                            defaultValue: '适合技能与经历并重的结构化简历'
+                          })
+                        : t('template.fitNarrative', {
+                            defaultValue: '适合项目叙事与长内容阅读'
+                          })}
                     </span>
                   </span>
                   <span className="aw-chip-row">
@@ -311,8 +326,12 @@ function TemplateSettingsContent({
         </section>
 
         <aside className="aw-card aw-settings-card">
+          <span
+            aria-hidden="true"
+            className={`${getTemplateThumbnailClass(selectedTemplate)} aw-template-preview`}
+          />
           <div className="aw-inline-actions">
-            <LayoutTemplate aria-hidden="true" color="#9a5938" size={17} />
+            <LayoutTemplate aria-hidden="true" className="aw-accent-icon" size={17} />
             <div>
               <h2 className="aw-card-title">
                 {t('template.currentTemplate', { defaultValue: '当前模板' })}
@@ -364,7 +383,7 @@ function TemplateSettingsContent({
 
       <section className="aw-card aw-settings-card" style={{ marginTop: 18 }}>
         <div className="aw-inline-actions">
-          <SlidersHorizontal aria-hidden="true" color="#9a5938" size={18} />
+          <SlidersHorizontal aria-hidden="true" className="aw-accent-icon" size={18} />
           <div>
             <h2 className="aw-card-title">
               {t('template.semanticIntent', { defaultValue: '语义样式意图' })}
@@ -464,7 +483,7 @@ function TemplateSettingsContent({
 
       <section className="aw-card aw-card-pad" style={{ marginTop: 18 }}>
         <div className="aw-inline-actions">
-          <Palette aria-hidden="true" color="#9a5938" size={18} />
+          <Palette aria-hidden="true" className="aw-accent-icon" size={18} />
           <div>
             <h2 className="aw-card-title">
               {t('template.intentPayload', { defaultValue: '将要表达的意图' })}
@@ -480,16 +499,7 @@ function TemplateSettingsContent({
           aria-label={t('template.intentPayloadAria', {
             defaultValue: 'ResumeStyleIntent Mock 预览'
           })}
-          style={{
-            overflow: 'auto',
-            margin: '15px 0 0',
-            padding: 13,
-            borderRadius: 8,
-            background: '#292622',
-            color: '#f7efe8',
-            fontSize: 11,
-            lineHeight: 1.55
-          }}
+          className="aw-intent-preview"
         >
           {JSON.stringify(
             {

@@ -148,7 +148,7 @@ function InterviewRoomContent({
       <div className="aw-page-header">
         <div>
           <p className="aw-eyebrow">
-            {t('interview.liveMode', { defaultValue: '全双工练习模式' })}
+            {t('interview.liveMode', { defaultValue: '文字 Mock 练习' })}
           </p>
           <h1 className="aw-page-title">
             {t('interview.title', { defaultValue: '数字人模拟面试' })}
@@ -170,6 +170,25 @@ function InterviewRoomContent({
           </Link>
         </div>
       </div>
+
+      <section aria-labelledby="interview-current-question" className="aw-interview-focus">
+        <div>
+          <span className="aw-interview-step">
+            {t('interview.questionProgress', {
+              current: 1,
+              total: liveInterview.scenario.targetQuestionCount,
+              defaultValue: `第 1 / ${liveInterview.scenario.targetQuestionCount} 题`
+            })}
+          </span>
+          <h2 id="interview-current-question">
+            {t('interview.currentQuestion', { defaultValue: '当前问题' })}
+          </h2>
+          <p>{liveInterview.interviewerText}</p>
+        </div>
+        <span className="aw-status aw-status--active">
+          {t('interview.textMockStatus', { defaultValue: '文字 Mock 练习' })}
+        </span>
+      </section>
 
       <div className="aw-interview-grid">
         <section
@@ -332,7 +351,7 @@ function InterviewRoomContent({
               style={{ marginRight: 5, verticalAlign: 'text-bottom' }}
             />
             {t('interview.mediaNotice', {
-              defaultValue: '当前为演示状态；真实音视频会经 WebRTC 传输，控制事件独立处理。'
+              defaultValue: '当前没有采集音频、视频或建立实时连接；所有媒体按钮仅用于界面演示。'
             })}
           </p>
         </aside>
@@ -342,7 +361,7 @@ function InterviewRoomContent({
         <div className="aw-inline-actions" style={{ justifyContent: 'space-between' }}>
           <div>
             <h2 className="aw-card-title" id="live-transcript-title">
-              {t('interview.liveTranscript', { defaultValue: '实时字幕' })}
+              {t('interview.liveTranscript', { defaultValue: '对话记录（Mock）' })}
             </h2>
             <p className="aw-card-description">{liveInterview.interviewerText}</p>
           </div>

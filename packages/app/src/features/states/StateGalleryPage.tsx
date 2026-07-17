@@ -26,6 +26,9 @@ export function StateGalleryPage(): React.JSX.Element {
             })}
           </p>
         </div>
+        <span className="aw-status aw-status--active">
+          {t('states.internalOnly', { defaultValue: '仅供开发与验收' })}
+        </span>
       </div>
       <div className="aw-state-grid">
         <section className="aw-card" aria-labelledby="state-empty-title">

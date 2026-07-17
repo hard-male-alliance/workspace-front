@@ -1,11 +1,6 @@
 import type { LucideIcon } from 'lucide-react'
-import {
-  BookOpenText,
-  BriefcaseBusiness,
-  Database,
-  LayoutDashboard,
-  MonitorSmartphone
-} from 'lucide-react'
+import { BookOpenText, BriefcaseBusiness, Database, LayoutDashboard, Moon, Sun } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 
@@ -28,7 +23,7 @@ const navigationItems: readonly NavigationItem[] = [
   {
     to: '/',
     labelKey: 'nav.workspace',
-    defaultLabel: '工作区',
+    defaultLabel: '工作台',
     icon: LayoutDashboard
   },
   {
@@ -48,14 +43,30 @@ const navigationItems: readonly NavigationItem[] = [
     labelKey: 'nav.knowledge',
     defaultLabel: '知识库',
     icon: Database
-  },
-  {
-    to: '/states',
-    labelKey: 'nav.states',
-    defaultLabel: '状态',
-    icon: MonitorSmartphone
   }
 ]
+
+/** @brief 可选界面主题 / Selectable interface theme. */
+type ThemeMode = 'dark' | 'light'
+
+/** @brief 本地主题偏好键 / Local theme-preference key. */
+const THEME_STORAGE_KEY = 'inkwell-theme'
+
+/**
+ * @brief 读取本地主题，未设置时固定使用深色 / Read the local theme, defaulting to dark.
+ * @return 当前可用主题 / Current usable theme.
+ */
+function readInitialTheme(): ThemeMode {
+  if (typeof window === 'undefined') {
+    return 'dark'
+  }
+
+  try {
+    return window.localStorage.getItem(THEME_STORAGE_KEY) === 'light' ? 'light' : 'dark'
+  } catch {
+    return 'dark'
+  }
+}
 
 /**
  * @brief 根据当前 URL 推导顶部路径名称 / Derive the top-bar breadcrumb from the current URL.
@@ -108,6 +119,26 @@ export function WorkspaceShell(): React.JSX.Element {
   const nextLocale = i18n.language === 'en-US' ? 'zh-SG' : 'en-US'
   /** @brief 当前 renderer 已确认的宿主信息 / Host information confirmed for the current renderer. */
   const runtimeInfo = useRuntimeInfo()
+  /** @brief 当前界面主题 / Current interface theme. */
+  const [theme, setTheme] = useState<ThemeMode>(readInitialTheme)
+
+  useEffect((): void => {
+    document.documentElement.dataset.theme = theme
+    document.documentElement.style.colorScheme = theme
+  }, [theme])
+
+  /** @brief 切换并保存本地主题 / Toggle and persist the local theme. */
+  const toggleTheme = (): void => {
+    /** @brief 下一主题 / Next theme. */
+    const nextTheme: ThemeMode = theme === 'dark' ? 'light' : 'dark'
+
+    setTheme(nextTheme)
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme)
+    } catch {
+      // Storage can be unavailable in privacy-restricted renderers; the in-memory theme still works.
+    }
+  }
 
   return (
     <div
@@ -122,7 +153,7 @@ export function WorkspaceShell(): React.JSX.Element {
           to="/"
         >
           <span aria-hidden="true" className="aw-brand-mark">
-            I
+            墨
           </span>
           <span className="aw-brand-text">Inkwell</span>
         </Link>
@@ -139,7 +170,7 @@ export function WorkspaceShell(): React.JSX.Element {
                 className={({ isActive }): string =>
                   isActive ? 'aw-nav-link aw-nav-link--active' : 'aw-nav-link'
                 }
-                end={item.to === '/'}
+                end={item.to === '/' || item.to === '/knowledge'}
                 key={item.to}
                 to={item.to}
               >
@@ -174,6 +205,22 @@ export function WorkspaceShell(): React.JSX.Element {
           <div className="aw-topbar-actions">
             <button className="aw-quiet-button" type="button">
               {t('topbar.feedback', { defaultValue: '反馈' })}
+            </button>
+            <button
+              aria-label={
+                theme === 'dark'
+                  ? t('topbar.switchToLight', { defaultValue: '切换为浅色主题' })
+                  : t('topbar.switchToDark', { defaultValue: '切换为深色主题' })
+              }
+              className="aw-icon-button"
+              onClick={toggleTheme}
+              type="button"
+            >
+              {theme === 'dark' ? (
+                <Sun aria-hidden="true" size={16} />
+              ) : (
+                <Moon aria-hidden="true" size={16} />
+              )}
             </button>
             <button
               aria-label={t('topbar.changeLocale', { defaultValue: '切换界面语言' })}

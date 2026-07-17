@@ -83,7 +83,7 @@ function RubricDetail({ score }: { readonly score: UiInterviewRubricScore }): Re
       {score.evidence.length > 0 ? (
         <div style={{ marginTop: 12 }}>
           {score.evidence.map((evidence) => (
-            <div className="aw-proposal-change" key={evidence.segmentId}>
+            <div className="aw-evidence-quote" key={evidence.segmentId}>
               <Quote
                 aria-hidden="true"
                 size={13}
@@ -204,9 +204,55 @@ function InterviewSummaryContent({
             </div>
           </section>
 
+          <section
+            className="aw-card aw-card-pad"
+            data-testid="report-priority"
+            style={{ marginTop: 18 }}
+          >
+            <div className="aw-inline-actions">
+              <Target aria-hidden="true" className="aw-accent-icon" size={18} />
+              <div>
+                <h2 className="aw-card-title">
+                  {t('report.actionPlan', { defaultValue: '下一步行动' })}
+                </h2>
+                <p className="aw-card-description">
+                  {t('report.actionPlanDescription', {
+                    defaultValue: '先完成高优先级练习，再回看评分证据。'
+                  })}
+                </p>
+              </div>
+            </div>
+            <div className="aw-action-plan" style={{ marginTop: 14 }}>
+              {report.actionPlan.map((item) => (
+                <article className="aw-action-item" key={item.title}>
+                  <span className={`aw-priority aw-priority--${item.priority}`} />
+                  <div>
+                    <span className="aw-chip">
+                      {t(getPriorityLabelKey(item.priority), { defaultValue: item.priority })}
+                    </span>
+                    <h3 className="aw-card-title" style={{ marginTop: 8 }}>
+                      {item.title}
+                    </h3>
+                    <p className="aw-card-description">{item.why}</p>
+                    <p className="aw-setting-help">
+                      <strong>{t('report.practice', { defaultValue: '练习：' })}</strong>{' '}
+                      {item.practice}
+                    </p>
+                    <p className="aw-setting-help">
+                      <strong>
+                        {t('report.successCriterion', { defaultValue: '成功标准：' })}
+                      </strong>{' '}
+                      {item.successCriterion}
+                    </p>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+
           <section className="aw-card aw-rubric-list" style={{ marginTop: 18 }}>
             <div className="aw-inline-actions">
-              <BarChart3 aria-hidden="true" color="#9a5938" size={18} />
+              <BarChart3 aria-hidden="true" className="aw-accent-icon" size={18} />
               <div>
                 <h2 className="aw-card-title">
                   {t('report.rubric', { defaultValue: '维度评分' })}
@@ -231,9 +277,9 @@ function InterviewSummaryContent({
             ))}
           </section>
 
-          <section style={{ marginTop: 18 }}>
+          <section data-testid="report-evidence" style={{ marginTop: 18 }}>
             <div className="aw-inline-actions" style={{ marginBottom: 11 }}>
-              <Quote aria-hidden="true" color="#9a5938" size={18} />
+              <Quote aria-hidden="true" className="aw-accent-icon" size={18} />
               <div>
                 <h2 className="aw-card-title">
                   {t('report.evidence', { defaultValue: '转录证据' })}
@@ -258,16 +304,7 @@ function InterviewSummaryContent({
             <h2 className="aw-card-title">
               {t('report.strengths', { defaultValue: '做得好的地方' })}
             </h2>
-            <ul
-              className="aw-paper"
-              style={{
-                width: 'auto',
-                minHeight: 0,
-                padding: '9px 0 0',
-                boxShadow: 'none',
-                background: 'transparent'
-              }}
-            >
+            <ul className="aw-report-list">
               {report.strengths.map((strength) => (
                 <li key={strength}>{strength}</li>
               ))}
@@ -277,16 +314,7 @@ function InterviewSummaryContent({
             <h2 className="aw-card-title">
               {t('report.improvements', { defaultValue: '下一步改进' })}
             </h2>
-            <ul
-              className="aw-paper"
-              style={{
-                width: 'auto',
-                minHeight: 0,
-                padding: '9px 0 0',
-                boxShadow: 'none',
-                background: 'transparent'
-              }}
-            >
+            <ul className="aw-report-list">
               {report.improvements.map((improvement) => (
                 <li key={improvement}>{improvement}</li>
               ))}
@@ -294,7 +322,7 @@ function InterviewSummaryContent({
           </section>
           <section className="aw-card aw-card-pad">
             <div className="aw-inline-actions">
-              <Clock3 aria-hidden="true" color="#9a5938" size={17} />
+              <Clock3 aria-hidden="true" className="aw-accent-icon" size={17} />
               <h2 className="aw-card-title">
                 {t('report.communication', { defaultValue: '可观察沟通指标' })}
               </h2>
@@ -324,47 +352,7 @@ function InterviewSummaryContent({
 
       <section className="aw-card aw-card-pad" style={{ marginTop: 18 }}>
         <div className="aw-inline-actions">
-          <Target aria-hidden="true" color="#9a5938" size={18} />
-          <div>
-            <h2 className="aw-card-title">
-              {t('report.actionPlan', { defaultValue: '行动计划' })}
-            </h2>
-            <p className="aw-card-description">
-              {t('report.actionPlanDescription', {
-                defaultValue: '把建议转成可练习、可检查的下一步。'
-              })}
-            </p>
-          </div>
-        </div>
-        <div className="aw-action-plan" style={{ marginTop: 14 }}>
-          {report.actionPlan.map((item) => (
-            <article className="aw-action-item" key={item.title}>
-              <span className={`aw-priority aw-priority--${item.priority}`} />
-              <div>
-                <span className="aw-chip">
-                  {t(getPriorityLabelKey(item.priority), { defaultValue: item.priority })}
-                </span>
-                <h3 className="aw-card-title" style={{ marginTop: 8 }}>
-                  {item.title}
-                </h3>
-                <p className="aw-card-description">{item.why}</p>
-                <p className="aw-setting-help">
-                  <strong>{t('report.practice', { defaultValue: '练习：' })}</strong>{' '}
-                  {item.practice}
-                </p>
-                <p className="aw-setting-help">
-                  <strong>{t('report.successCriterion', { defaultValue: '成功标准：' })}</strong>{' '}
-                  {item.successCriterion}
-                </p>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="aw-card aw-card-pad" style={{ marginTop: 18 }}>
-        <div className="aw-inline-actions">
-          <CircleAlert aria-hidden="true" color="#9a6b27" size={18} />
+          <CircleAlert aria-hidden="true" className="aw-warning-icon" size={18} />
           <div>
             <h2 className="aw-card-title">
               {t('report.limitations', { defaultValue: '局限性说明' })}
@@ -376,16 +364,7 @@ function InterviewSummaryContent({
             </p>
           </div>
         </div>
-        <ul
-          className="aw-paper"
-          style={{
-            width: 'auto',
-            minHeight: 0,
-            padding: '9px 0 0',
-            boxShadow: 'none',
-            background: 'transparent'
-          }}
-        >
+        <ul className="aw-report-list">
           {report.limitations.map((limitation) => (
             <li key={limitation}>{limitation}</li>
           ))}

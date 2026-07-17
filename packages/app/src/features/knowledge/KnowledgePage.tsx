@@ -8,10 +8,11 @@ import {
   Link2,
   Plus,
   RefreshCw,
+  Search,
   ShieldCheck,
   UploadCloud
 } from 'lucide-react'
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
@@ -214,6 +215,25 @@ function KnowledgeContent({
   const [isAddSourceOpen, setAddSourceOpen] = useState(false)
   /** @brief 是否已记录本地刷新请求 / Whether a local refresh request was recorded. */
   const [hasRefreshRequested, setRefreshRequested] = useState(false)
+  /** @brief 本地来源筛选文本 / Local source-filter query. */
+  const [sourceQuery, setSourceQuery] = useState('')
+  /** @brief 当前选中的来源 / Currently selected source. */
+  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(sources.at(0)?.id ?? null)
+  /** @brief 与筛选文本匹配的来源 / Sources matching the local query. */
+  const filteredSources = useMemo(() => {
+    const normalizedQuery = sourceQuery.trim().toLocaleLowerCase()
+    if (normalizedQuery.length === 0) {
+      return sources
+    }
+    return sources.filter((source) =>
+      `${source.name} ${source.originLabel}`.toLocaleLowerCase().includes(normalizedQuery)
+    )
+  }, [sourceQuery, sources])
+  /** @brief 详情面板展示的来源 / Source shown in the detail panel. */
+  const selectedSource =
+    filteredSources.find((source) => source.id === selectedSourceId) ??
+    filteredSources.at(0) ??
+    null
 
   return (
     <div className="aw-page">
@@ -240,6 +260,28 @@ function KnowledgeContent({
       </div>
 
       {isAddSourceOpen ? <MockSourceForm onClose={(): void => setAddSourceOpen(false)} /> : null}
+
+      <div className="aw-knowledge-toolbar">
+        <label className="aw-search-field">
+          <Search aria-hidden="true" size={15} />
+          <input
+            aria-label={t('knowledge.filterSources', { defaultValue: '筛选知识来源' })}
+            onChange={(event): void => setSourceQuery(event.target.value)}
+            placeholder={t('knowledge.filterPlaceholder', {
+              defaultValue: '按名称或地址筛选…'
+            })}
+            type="search"
+            value={sourceQuery}
+          />
+        </label>
+        <span className="aw-status">
+          {t('knowledge.filteredCount', {
+            count: filteredSources.length,
+            total: sources.length,
+            defaultValue: `${filteredSources.length} / ${sources.length} 个来源`
+          })}
+        </span>
+      </div>
 
       <div className="aw-knowledge-layout">
         <section aria-labelledby="knowledge-sources-title">
@@ -273,7 +315,7 @@ function KnowledgeContent({
               <RefreshCw aria-hidden="true" size={15} />
             </button>
           </div>
-          {sources.length === 0 ? (
+          {filteredSources.length === 0 ? (
             <EmptyState
               action={
                 <button
@@ -284,16 +326,19 @@ function KnowledgeContent({
                   {t('knowledge.addSource', { defaultValue: '添加知识来源' })}
                 </button>
               }
-              description={t('knowledge.emptySources', {
-                defaultValue: '还没有知识来源。你可以添加博客、代码仓库或文件。'
+              description={t('knowledge.noMatchingSources', {
+                defaultValue: '没有匹配的知识来源，请调整筛选条件。'
               })}
               title={t('common.empty', { defaultValue: '这里还没有内容' })}
               visual={<UploadCloud aria-hidden="true" size={21} />}
             />
           ) : (
             <div className="aw-source-list">
-              {sources.map((source) => (
-                <article className="aw-source-card" key={source.id}>
+              {filteredSources.map((source) => (
+                <article
+                  className={`aw-source-card ${selectedSource?.id === source.id ? 'aw-source-card--selected' : ''}`}
+                  key={source.id}
+                >
                   <span aria-hidden="true" className="aw-source-icon">
                     {getSourceIcon(source.sourceType)}
                   </span>
@@ -336,6 +381,17 @@ function KnowledgeContent({
                     >
                       <ShieldCheck aria-hidden="true" size={15} />
                     </Link>
+                    <button
+                      aria-label={t('knowledge.viewSourceDetails', {
+                        sourceName: source.name,
+                        defaultValue: `查看 ${source.name} 详情`
+                      })}
+                      className="aw-quiet-button aw-source-detail-button"
+                      onClick={(): void => setSelectedSourceId(source.id)}
+                      type="button"
+                    >
+                      {t('common.review', { defaultValue: '查看' })}
+                    </button>
                   </div>
                 </article>
               ))}
@@ -343,44 +399,70 @@ function KnowledgeContent({
           )}
         </section>
 
-        <aside className="aw-card aw-card-pad">
-          <div className="aw-inline-actions">
-            <Bot aria-hidden="true" color="#9a5938" size={18} />
-            <div>
-              <h2 className="aw-card-title">
-                {t('knowledge.agentBoundary', { defaultValue: 'Agent 访问边界' })}
-              </h2>
-              <p className="aw-card-description">
-                {t('knowledge.agentBoundaryDescription', {
-                  defaultValue: '策略和会话选择共同决定有效可见性。'
-                })}
-              </p>
+        <aside className="aw-card aw-card-pad aw-source-detail">
+          <div>
+            <p className="aw-sidebar-label">
+              {t('knowledge.selectedSource', { defaultValue: '当前选择' })}
+            </p>
+            <h2 className="aw-card-title">
+              {t('knowledge.sourceDetails', { defaultValue: '来源详情' })}
+            </h2>
+            {selectedSource !== null ? (
+              <>
+                <p className="aw-source-detail-name">{selectedSource.name}</p>
+                <p className="aw-card-description">{selectedSource.originLabel}</p>
+                <div className="aw-source-detail-stats">
+                  <span>
+                    <strong>{selectedSource.documentCount}</strong>
+                    {t('knowledge.documents', { defaultValue: '份文档' })}
+                  </span>
+                  <span>
+                    <strong>{selectedSource.chunkCount}</strong>
+                    {t('knowledge.chunks', { defaultValue: '个片段' })}
+                  </span>
+                </div>
+              </>
+            ) : null}
+          </div>
+          <div className="aw-source-detail-boundary">
+            <div className="aw-inline-actions">
+              <Bot aria-hidden="true" className="aw-accent-icon" size={18} />
+              <div>
+                <h2 className="aw-card-title">
+                  {t('knowledge.agentBoundary', { defaultValue: 'Agent 访问边界' })}
+                </h2>
+                <p className="aw-card-description">
+                  {t('knowledge.agentBoundaryDescription', {
+                    defaultValue: '策略和会话选择共同决定有效可见性。'
+                  })}
+                </p>
+              </div>
             </div>
+            <div className="aw-list-row">
+              <span className="aw-muted">
+                {t('knowledge.defaultPolicy', { defaultValue: '默认策略' })}
+              </span>
+              <span className="aw-status aw-status--active">
+                {t('knowledge.denied', { defaultValue: '拒绝' })}
+              </span>
+            </div>
+            <div className="aw-list-row">
+              <span className="aw-muted">
+                {t('knowledge.externalModel', { defaultValue: '外部模型处理' })}
+              </span>
+              <span className="aw-status">{t('knowledge.off', { defaultValue: '关闭' })}</span>
+            </div>
+            <p className="aw-setting-help" style={{ marginBottom: 0 }}>
+              <Link to="/knowledge/ks_mock_git/visibility">
+                <Link2
+                  aria-hidden="true"
+                  size={13}
+                  style={{ marginRight: 4, verticalAlign: 'text-bottom' }}
+                />
+                {t('knowledge.reviewPolicy', { defaultValue: '查看一个来源的授权矩阵' })}
+              </Link>
+            </p>
           </div>
-          <div className="aw-list-row">
-            <span className="aw-muted">
-              {t('knowledge.defaultPolicy', { defaultValue: '默认策略' })}
-            </span>
-            <span className="aw-status aw-status--active">
-              {t('knowledge.denied', { defaultValue: '拒绝' })}
-            </span>
-          </div>
-          <div className="aw-list-row">
-            <span className="aw-muted">
-              {t('knowledge.externalModel', { defaultValue: '外部模型处理' })}
-            </span>
-            <span className="aw-status">{t('knowledge.off', { defaultValue: '关闭' })}</span>
-          </div>
-          <p className="aw-setting-help" style={{ marginBottom: 0 }}>
-            <Link to="/knowledge/ks_mock_git/visibility">
-              <Link2
-                aria-hidden="true"
-                size={13}
-                style={{ marginRight: 4, verticalAlign: 'text-bottom' }}
-              />
-              {t('knowledge.reviewPolicy', { defaultValue: '查看一个来源的授权矩阵' })}
-            </Link>
-          </p>
         </aside>
       </div>
     </div>

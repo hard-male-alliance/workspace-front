@@ -202,6 +202,10 @@ function KnowledgeVisibilityContent({
   )
   /** @brief 是否显示保存后的 Mock 状态 / Whether to show post-save Mock status. */
   const [isMockSaved, setMockSaved] = useState(false)
+  /** @brief 显式允许的 Agent 授权数量 / Count of explicitly allowed agent grants. */
+  const allowedGrantCount = model.source.visibility.agentGrants.filter(
+    (grant) => grant.effect === 'allow'
+  ).length
 
   return (
     <div className="aw-page">
@@ -252,10 +256,32 @@ function KnowledgeVisibilityContent({
         </div>
       ) : null}
 
+      <section aria-labelledby="visibility-overview-title" className="aw-visibility-summary">
+        <div>
+          <p className="aw-sidebar-label">
+            {t('visibility.overviewLabel', { defaultValue: '权限概览' })}
+          </p>
+          <h2 id="visibility-overview-title">{model.source.name}</h2>
+        </div>
+        <div className="aw-visibility-summary-stats">
+          <span>
+            <strong>{allowedGrantCount}</strong>
+            {t('visibility.allowedAgents', { defaultValue: '个 Agent 已明确授权' })}
+          </span>
+          <span>
+            <strong>{model.source.visibility.allowedModelRegions.length}</strong>
+            {t('visibility.regionCount', { defaultValue: '个允许区域' })}
+          </span>
+          <span className="aw-status aw-status--active">
+            {t('visibility.defaultDeny', { defaultValue: '默认拒绝' })}
+          </span>
+        </div>
+      </section>
+
       <div className="aw-visibility-grid">
         <section className="aw-card aw-card-pad" aria-labelledby="visibility-source-title">
           <div className="aw-inline-actions">
-            <ShieldCheck aria-hidden="true" color="#9a5938" size={19} />
+            <ShieldCheck aria-hidden="true" className="aw-accent-icon" size={19} />
             <div>
               <h2 className="aw-card-title" id="visibility-source-title">
                 {model.source.name}
@@ -317,7 +343,7 @@ function KnowledgeVisibilityContent({
 
         <aside className="aw-card aw-settings-card">
           <div className="aw-inline-actions">
-            <SlidersHorizontal aria-hidden="true" color="#9a5938" size={18} />
+            <SlidersHorizontal aria-hidden="true" className="aw-accent-icon" size={18} />
             <div>
               <h2 className="aw-card-title">
                 {t('visibility.sessionControls', { defaultValue: '会话与模型控制' })}
@@ -376,7 +402,7 @@ function KnowledgeVisibilityContent({
         style={{ marginTop: 18 }}
       >
         <div className="aw-inline-actions">
-          <Eye aria-hidden="true" color="#9a5938" size={18} />
+          <Eye aria-hidden="true" className="aw-accent-icon" size={18} />
           <div>
             <h2 className="aw-card-title" id="visibility-matrix-title">
               {t('visibility.operations', { defaultValue: '按 Agent 作用域授权' })}
@@ -411,7 +437,7 @@ function KnowledgeVisibilityContent({
 
       <section className="aw-card aw-card-pad" style={{ marginTop: 18 }}>
         <div className="aw-inline-actions">
-          <CircleAlert aria-hidden="true" color="#9a6b27" size={18} />
+          <CircleAlert aria-hidden="true" className="aw-warning-icon" size={18} />
           <div>
             <h2 className="aw-card-title">
               {t('visibility.beforeProduction', { defaultValue: '接入前仍待确认' })}
