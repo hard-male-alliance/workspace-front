@@ -23,7 +23,10 @@ import type { UiResumeEditorModel, UiResumeSection } from '../../domain'
 import { ErrorState, LoadingState } from '../../ui'
 
 /** @brief 移动端编辑器显示面板 / Visible editor pane on compact screens. */
-type MobileEditorPane = 'edit' | 'preview' | 'assistant'
+type MobileEditorPane = 'edit' | 'preview'
+
+/** @brief 阶段二 Mock 建议应用后的本地草稿内容 / Local draft content after applying the stage-two Mock proposal. */
+const MOCK_PROPOSAL_CONTENT = '将推理延迟从 1.8s 降至 620ms'
 
 /** @brief 单个简历区段的本地编辑草稿 / Local editing draft for one resume section. */
 interface ResumeSectionDraft {
@@ -109,9 +112,9 @@ function ResumePaperSection({
 }
 
 /**
- * @brief 已就绪的三栏简历编辑器 / Ready three-pane resume editor.
+ * @brief 已就绪的双栏简历编辑器与助手抽屉 / Ready two-pane resume editor with assistant drawer.
  * @param props 编辑器数据 / Editor data.
- * @return 可交互的三栏编辑器 / Interactive three-pane editor.
+ * @return 可交互的双栏编辑器 / Interactive two-pane editor.
  */
 function ResumeEditorContent({
   editor
@@ -197,7 +200,6 @@ function ResumeEditorContent({
    * @return 无返回值 / No return value.
    */
   const openAssistant = (): void => {
-    setMobilePane('assistant')
     setChatOpen(true)
   }
 
@@ -207,7 +209,33 @@ function ResumeEditorContent({
    */
   const closeAssistant = (): void => {
     setChatOpen(false)
-    setMobilePane('preview')
+  }
+
+  /**
+   * @brief 经学生确认后，把 Mock 建议应用到本地草稿 / Apply the Mock proposal to the local draft after student confirmation.
+   * @return 无返回值 / No return value.
+   * @note 只更新本页草稿与预览，不调用 Gateway、HTTP 或后端写回。
+   */
+  const applyProposal = (): void => {
+    const targetSection = editor.resume.sections.at(0)
+
+    if (targetSection === undefined) {
+      return
+    }
+
+    setSectionDrafts((currentDrafts) => ({
+      ...currentDrafts,
+      [targetSection.id]: {
+        title: currentDrafts[targetSection.id]?.title ?? targetSection.title,
+        content: MOCK_PROPOSAL_CONTENT
+      }
+    }))
+    setSelectedSectionId(targetSection.id)
+    if (richTextEditorRef.current !== null) {
+      richTextEditorRef.current.textContent = MOCK_PROPOSAL_CONTENT
+      initializedRichTextSectionIdRef.current = targetSection.id
+    }
+    setProposalDecision('accepted')
   }
 
   /**
@@ -272,291 +300,307 @@ function ResumeEditorContent({
         >
           {t('resume.preview', { defaultValue: '预览' })}
         </button>
-        <button
-          aria-pressed={mobilePane === 'assistant'}
-          className="aw-tab"
-          onClick={(): void => selectMobilePane('assistant')}
-          type="button"
-        >
-          {t('resume.assistant', { defaultValue: '简历助手' })}
-        </button>
       </div>
       <div
         className={`aw-editor-page ${isChatOpen ? 'aw-editor-page--chat-open' : ''} aw-editor-page--mobile-${mobilePane}`}
       >
-        <aside
-          className="aw-editor-pane"
-          aria-label={t('resume.form', { defaultValue: '简历内容' })}
-        >
-          <div className="aw-editor-pane-header">
-            <h1 className="aw-editor-pane-title">{editor.resume.title}</h1>
-            <Link
-              aria-label={t('resume.templateSettings', { defaultValue: '打开模板设置' })}
-              className="aw-icon-button"
-              to={`/resumes/${editor.resume.id}/template`}
-            >
-              <Settings2 aria-hidden="true" size={16} />
-            </Link>
-          </div>
-          <div className="aw-editor-scroll aw-editor-left-body">
-            <p className="aw-sidebar-label">{t('resume.form', { defaultValue: '语义区段' })}</p>
-            {editor.resume.sections.map((section) => (
-              <button
-                className={`aw-section-selector ${selectedSection?.id === section.id ? 'aw-section-selector--selected' : ''}`}
-                key={section.id}
-                onClick={(): void => setSelectedSectionId(section.id)}
-                type="button"
+        <div className="aw-editor-workspace">
+          <aside
+            className="aw-editor-pane"
+            aria-label={t('resume.form', { defaultValue: '简历内容' })}
+          >
+            <div className="aw-editor-pane-header">
+              <h1 className="aw-editor-pane-title">{editor.resume.title}</h1>
+              <Link
+                aria-label={t('resume.templateSettings', { defaultValue: '打开模板设置' })}
+                className="aw-icon-button"
+                to={`/resumes/${editor.resume.id}/template`}
               >
-                <FileText aria-hidden="true" size={14} strokeWidth={1.65} />
-                <span>{getSectionLabel(section)}</span>
-                <ChevronRight aria-hidden="true" size={14} style={{ marginLeft: 'auto' }} />
-              </button>
-            ))}
-            {selectedSection !== null ? (
-              <div aria-live="polite">
-                <div className="aw-editor-field">
-                  <label className="aw-editor-label" htmlFor="editor-section-title">
-                    {t('resume.editor.sectionTitle', { defaultValue: '区段标题' })}
-                  </label>
-                  <input
-                    className="aw-text-input"
-                    onChange={(event): void =>
-                      updateSelectedSectionDraft('title', event.target.value)
-                    }
-                    value={selectedSectionDraft?.title ?? ''}
-                    id="editor-section-title"
-                  />
-                </div>
-                <div className="aw-editor-field">
-                  <span className="aw-editor-label" id="editor-section-content-label">
-                    {t('resume.editor.semanticContent', { defaultValue: '语义内容' })}
-                  </span>
-                  <div className="aw-rich-text-shell">
-                    <div
-                      aria-label={t('resume.editor.formatting', { defaultValue: '富文本格式工具' })}
-                      className="aw-rich-text-toolbar"
-                      role="toolbar"
-                    >
-                      <button
-                        aria-label={t('resume.editor.bold', { defaultValue: '加粗' })}
-                        className="aw-icon-button"
-                        onMouseDown={(event): void => event.preventDefault()}
-                        onClick={(): void => applyLocalRichTextCommand('bold')}
-                        type="button"
-                      >
-                        <Bold aria-hidden="true" size={15} />
-                      </button>
-                      <button
-                        aria-label={t('resume.editor.quote', { defaultValue: '引用块' })}
-                        className="aw-icon-button"
-                        onMouseDown={(event): void => event.preventDefault()}
-                        onClick={(): void => applyLocalRichTextCommand('formatBlock')}
-                        type="button"
-                      >
-                        <Quote aria-hidden="true" size={15} />
-                      </button>
-                      <button
-                        aria-label={t('resume.editor.bullets', { defaultValue: '项目符号列表' })}
-                        className="aw-icon-button"
-                        onMouseDown={(event): void => event.preventDefault()}
-                        onClick={(): void => applyLocalRichTextCommand('insertUnorderedList')}
-                        type="button"
-                      >
-                        <List aria-hidden="true" size={15} />
-                      </button>
-                    </div>
-                    <div
-                      aria-labelledby="editor-section-content-label"
-                      className="aw-rich-text-editor"
-                      contentEditable
-                      key={selectedSection.id}
-                      onInput={(event): void =>
-                        updateSelectedSectionDraft('content', event.currentTarget.textContent ?? '')
+                <Settings2 aria-hidden="true" size={16} />
+              </Link>
+            </div>
+            <div className="aw-editor-scroll aw-editor-left-body">
+              <p className="aw-sidebar-label">{t('resume.form', { defaultValue: '语义区段' })}</p>
+              {editor.resume.sections.map((section) => (
+                <button
+                  className={`aw-section-selector ${selectedSection?.id === section.id ? 'aw-section-selector--selected' : ''}`}
+                  key={section.id}
+                  onClick={(): void => setSelectedSectionId(section.id)}
+                  type="button"
+                >
+                  <FileText aria-hidden="true" size={14} strokeWidth={1.65} />
+                  <span>{getSectionLabel(section)}</span>
+                  <ChevronRight aria-hidden="true" size={14} style={{ marginLeft: 'auto' }} />
+                </button>
+              ))}
+              {selectedSection !== null ? (
+                <div aria-live="polite">
+                  <div className="aw-editor-field">
+                    <label className="aw-editor-label" htmlFor="editor-section-title">
+                      {t('resume.editor.sectionTitle', { defaultValue: '区段标题' })}
+                    </label>
+                    <input
+                      className="aw-text-input"
+                      onChange={(event): void =>
+                        updateSelectedSectionDraft('title', event.target.value)
                       }
-                      ref={richTextEditorRef}
-                      role="textbox"
-                      suppressContentEditableWarning
+                      value={selectedSectionDraft?.title ?? ''}
+                      id="editor-section-title"
                     />
                   </div>
-                  <p className="aw-setting-help">
-                    {t('resume.editor.semanticHint', {
-                      defaultValue:
-                        '可在本地编辑富文本预览；保存操作将在正式契约接入后成为 ResumeOperationBatch。'
-                    })}
-                  </p>
+                  <div className="aw-editor-field">
+                    <span className="aw-editor-label" id="editor-section-content-label">
+                      {t('resume.editor.semanticContent', { defaultValue: '语义内容' })}
+                    </span>
+                    <div className="aw-rich-text-shell">
+                      <div
+                        aria-label={t('resume.editor.formatting', {
+                          defaultValue: '富文本格式工具'
+                        })}
+                        className="aw-rich-text-toolbar"
+                        role="toolbar"
+                      >
+                        <button
+                          aria-label={t('resume.editor.bold', { defaultValue: '加粗' })}
+                          className="aw-icon-button"
+                          onMouseDown={(event): void => event.preventDefault()}
+                          onClick={(): void => applyLocalRichTextCommand('bold')}
+                          type="button"
+                        >
+                          <Bold aria-hidden="true" size={15} />
+                        </button>
+                        <button
+                          aria-label={t('resume.editor.quote', { defaultValue: '引用块' })}
+                          className="aw-icon-button"
+                          onMouseDown={(event): void => event.preventDefault()}
+                          onClick={(): void => applyLocalRichTextCommand('formatBlock')}
+                          type="button"
+                        >
+                          <Quote aria-hidden="true" size={15} />
+                        </button>
+                        <button
+                          aria-label={t('resume.editor.bullets', { defaultValue: '项目符号列表' })}
+                          className="aw-icon-button"
+                          onMouseDown={(event): void => event.preventDefault()}
+                          onClick={(): void => applyLocalRichTextCommand('insertUnorderedList')}
+                          type="button"
+                        >
+                          <List aria-hidden="true" size={15} />
+                        </button>
+                      </div>
+                      <div
+                        aria-labelledby="editor-section-content-label"
+                        className="aw-rich-text-editor"
+                        contentEditable
+                        key={selectedSection.id}
+                        onInput={(event): void =>
+                          updateSelectedSectionDraft(
+                            'content',
+                            event.currentTarget.textContent ?? ''
+                          )
+                        }
+                        ref={richTextEditorRef}
+                        role="textbox"
+                        suppressContentEditableWarning
+                      />
+                    </div>
+                    <p className="aw-setting-help">
+                      {t('resume.editor.semanticHint', {
+                        defaultValue:
+                          '可在本地编辑富文本预览；保存操作将在正式契约接入后成为 ResumeOperationBatch。'
+                      })}
+                    </p>
+                  </div>
                 </div>
+              ) : null}
+            </div>
+          </aside>
+
+          <section
+            className="aw-editor-pane"
+            aria-label={t('resume.preview', { defaultValue: '简历预览' })}
+          >
+            <div className="aw-editor-pane-header">
+              <div className="aw-inline-actions">
+                <h2 className="aw-editor-pane-title">
+                  {t('resume.preview', { defaultValue: '预览' })}
+                </h2>
+                <span className="aw-chip">
+                  {t('resume.pdfPreview', { defaultValue: 'PDF 视觉预览（Mock）' })} ·{' '}
+                  {editor.resume.styleIntent.page.size}
+                </span>
+                <span
+                  className={`aw-status ${editor.preview.state === 'ready' ? 'aw-status--ready' : 'aw-status--active'}`}
+                >
+                  {hasLocalPreviewDraft
+                    ? t('resume.localDraft', { defaultValue: '本地草稿预览（Mock）' })
+                    : editor.preview.state === 'ready'
+                      ? t('resume.previewReady', { defaultValue: '预览已同步' })
+                      : t('resume.previewRendering', { defaultValue: '正在生成预览' })}
+                </span>
               </div>
-            ) : null}
-          </div>
-        </aside>
-
-        <section
-          className="aw-editor-pane"
-          aria-label={t('resume.preview', { defaultValue: '简历预览' })}
-        >
-          <div className="aw-editor-pane-header">
-            <div className="aw-inline-actions">
-              <h2 className="aw-editor-pane-title">
-                {t('resume.preview', { defaultValue: '预览' })}
-              </h2>
-              <span className="aw-chip">
-                {t('resume.pdfPreview', { defaultValue: 'PDF 视觉预览（Mock）' })} ·{' '}
-                {editor.resume.styleIntent.page.size}
-              </span>
-              <span
-                className={`aw-status ${editor.preview.state === 'ready' ? 'aw-status--ready' : 'aw-status--active'}`}
+              <button
+                aria-label={t('resume.openAssistant', { defaultValue: '打开简历助手' })}
+                className="aw-icon-button"
+                onClick={openAssistant}
+                type="button"
               >
-                {hasLocalPreviewDraft
-                  ? t('resume.localDraft', { defaultValue: '本地草稿预览（Mock）' })
-                  : editor.preview.state === 'ready'
-                    ? t('resume.previewReady', { defaultValue: '预览已同步' })
-                    : t('resume.previewRendering', { defaultValue: '正在生成预览' })}
-              </span>
+                <PanelRightOpen aria-hidden="true" size={16} />
+              </button>
             </div>
-            <button
-              aria-label={t('resume.openAssistant', { defaultValue: '打开简历助手' })}
-              className="aw-icon-button"
-              onClick={openAssistant}
-              type="button"
-            >
-              <PanelRightOpen aria-hidden="true" size={16} />
-            </button>
-          </div>
-          <div className="aw-editor-scroll aw-editor-preview">
-            <article
-              aria-label={t('resume.pdfPreviewAria', {
-                defaultValue: 'Resume PDF visual preview (Mock)'
-              })}
-              className="aw-paper"
-            >
-              <header className="aw-paper-header">
-                <h2 className="aw-paper-name">{editor.resume.profile.fullName}</h2>
-                {editor.resume.profile.headline !== null ? (
-                  <p className="aw-paper-role">{editor.resume.profile.headline}</p>
-                ) : null}
-                <p className="aw-paper-contact">
-                  {editor.resume.profile.contacts.map((contact) => contact.value).join(' · ')}
-                </p>
-              </header>
-              {editor.resume.sections
-                .filter((section) => section.visible)
-                .map((section) => (
-                  <ResumePaperSection
-                    draft={sectionDrafts[section.id]}
-                    key={section.id}
-                    section={section}
-                  />
-                ))}
-            </article>
-          </div>
-        </section>
+            <div className="aw-editor-scroll aw-editor-preview">
+              <article
+                aria-label={t('resume.pdfPreviewAria', {
+                  defaultValue: 'Resume PDF visual preview (Mock)'
+                })}
+                className="aw-paper"
+              >
+                <header className="aw-paper-header">
+                  <h2 className="aw-paper-name">{editor.resume.profile.fullName}</h2>
+                  {editor.resume.profile.headline !== null ? (
+                    <p className="aw-paper-role">{editor.resume.profile.headline}</p>
+                  ) : null}
+                  <p className="aw-paper-contact">
+                    {editor.resume.profile.contacts.map((contact) => contact.value).join(' · ')}
+                  </p>
+                </header>
+                {editor.resume.sections
+                  .filter((section) => section.visible)
+                  .map((section) => (
+                    <ResumePaperSection
+                      draft={sectionDrafts[section.id]}
+                      key={section.id}
+                      section={section}
+                    />
+                  ))}
+              </article>
+            </div>
+          </section>
+        </div>
 
-        <aside
-          className="aw-editor-pane aw-chat-panel"
-          aria-label={t('resume.assistant', { defaultValue: '简历助手' })}
-        >
-          <div className="aw-editor-pane-header">
-            <div className="aw-inline-actions">
-              <Bot aria-hidden="true" color="#9a5938" size={17} />
-              <h2 className="aw-editor-pane-title">
-                {t('resume.assistant', { defaultValue: '简历助手' })}
-              </h2>
-            </div>
+        {isChatOpen ? (
+          <>
             <button
               aria-label={t('common.close', { defaultValue: '关闭' })}
-              className="aw-icon-button"
+              className="aw-assistant-backdrop"
               onClick={closeAssistant}
               type="button"
-            >
-              <X aria-hidden="true" size={16} />
-            </button>
-          </div>
-          <div className="aw-chat-messages">
-            {editor.assistantMessages.map((message) => (
-              <div className={`aw-message aw-message--${message.role}`} key={message.id}>
-                <p>{message.text}</p>
-              </div>
-            ))}
-            {submittedMessages.map((message, index) => (
-              <div className="aw-message aw-message--user" key={`${message}-${index}`}>
-                <p>{message}</p>
-              </div>
-            ))}
-            <div className="aw-proposal">
-              <p className="aw-proposal-title">
-                <WandSparkles
-                  aria-hidden="true"
-                  size={13}
-                  style={{ marginRight: 5, verticalAlign: 'text-bottom' }}
-                />
-                {t('resume.proposal.title', { defaultValue: '建议修改（需要你的审批）' })}
-              </p>
-              <div className="aw-proposal-change">
-                {t('resume.proposal.change', {
-                  defaultValue:
-                    '把项目亮点改为“将推理延迟从 1.8s 降至 620ms”，以先呈现可验证的影响。'
-                })}
-              </div>
-              {proposalDecision === 'pending' ? (
-                <div className="aw-inline-actions">
-                  <button
-                    className="aw-primary-button"
-                    onClick={(): void => setProposalDecision('accepted')}
-                    type="button"
-                  >
-                    <Check aria-hidden="true" size={13} />
-                    {t('resume.proposal.accept', { defaultValue: '接受' })}
-                  </button>
-                  <button
-                    className="aw-quiet-button"
-                    onClick={(): void => setProposalDecision('rejected')}
-                    type="button"
-                  >
-                    {t('resume.proposal.reject', { defaultValue: '拒绝' })}
-                  </button>
-                </div>
-              ) : (
-                <span
-                  className={`aw-status ${proposalDecision === 'accepted' ? 'aw-status--ready' : ''}`}
-                >
-                  {proposalDecision === 'accepted'
-                    ? t('resume.proposal.accepted', {
-                        defaultValue: '已接受（Mock，不会写入简历）'
-                      })
-                    : t('resume.proposal.rejected', { defaultValue: '已拒绝' })}
-                </span>
-              )}
-            </div>
-          </div>
-          <form
-            aria-label={t('resume.assistantMessageForm', {
-              defaultValue: 'Resume assistant message'
-            })}
-            className="aw-chat-composer"
-            onSubmit={submitChatMessage}
-          >
-            <textarea
-              aria-label={t('resume.askAssistant', { defaultValue: '询问简历助手' })}
-              className="aw-textarea"
-              onChange={(event): void => setChatDraft(event.target.value)}
-              placeholder={t('resume.askAssistant', { defaultValue: '询问助手如何优化这份简历…' })}
-              value={chatDraft}
             />
-            <button
-              aria-label={t('resume.sendMessage', { defaultValue: 'Send message' })}
-              className="aw-icon-button"
-              type="submit"
+            <aside
+              className="aw-editor-pane aw-chat-panel"
+              aria-label={t('resume.assistant', { defaultValue: '简历助手' })}
             >
-              <Send aria-hidden="true" size={16} />
-            </button>
-          </form>
-        </aside>
+              <div className="aw-editor-pane-header">
+                <div className="aw-inline-actions">
+                  <Bot aria-hidden="true" className="aw-accent-icon" size={17} />
+                  <h2 className="aw-editor-pane-title">
+                    {t('resume.assistant', { defaultValue: '简历助手' })}
+                  </h2>
+                </div>
+                <button
+                  aria-label={t('common.close', { defaultValue: '关闭' })}
+                  className="aw-icon-button"
+                  onClick={closeAssistant}
+                  type="button"
+                >
+                  <X aria-hidden="true" size={16} />
+                </button>
+              </div>
+              <div className="aw-chat-messages">
+                {editor.assistantMessages.map((message) => (
+                  <div className={`aw-message aw-message--${message.role}`} key={message.id}>
+                    <p>{message.text}</p>
+                  </div>
+                ))}
+                {submittedMessages.map((message, index) => (
+                  <div className="aw-message aw-message--user" key={`${message}-${index}`}>
+                    <p>{message}</p>
+                  </div>
+                ))}
+                <div className="aw-proposal">
+                  <p className="aw-proposal-title">
+                    <WandSparkles
+                      aria-hidden="true"
+                      size={13}
+                      style={{ marginRight: 5, verticalAlign: 'text-bottom' }}
+                    />
+                    {t('resume.proposal.title', { defaultValue: '建议修改（需要你的审批）' })}
+                  </p>
+                  <p className="aw-proposal-reason">
+                    {t('resume.proposal.reason', {
+                      defaultValue: '目标区块：职业摘要 · 原因：优先呈现可验证的工程结果'
+                    })}
+                  </p>
+                  <div className="aw-proposal-comparison">
+                    <div>
+                      <span>{t('resume.proposal.before', { defaultValue: '修改前' })}</span>
+                      <p>{editor.resume.sections.at(0)?.contentPreview ?? ''}</p>
+                    </div>
+                    <div>
+                      <span>{t('resume.proposal.after', { defaultValue: '建议内容' })}</span>
+                      <p>{MOCK_PROPOSAL_CONTENT}</p>
+                    </div>
+                  </div>
+                  {proposalDecision === 'pending' ? (
+                    <div className="aw-inline-actions">
+                      <button className="aw-primary-button" onClick={applyProposal} type="button">
+                        <Check aria-hidden="true" size={13} />
+                        {t('resume.proposal.accept', { defaultValue: '应用建议' })}
+                      </button>
+                      <button
+                        className="aw-quiet-button"
+                        onClick={(): void => setProposalDecision('rejected')}
+                        type="button"
+                      >
+                        {t('resume.proposal.reject', { defaultValue: '暂不应用' })}
+                      </button>
+                    </div>
+                  ) : (
+                    <span
+                      className={`aw-status ${proposalDecision === 'accepted' ? 'aw-status--ready' : ''}`}
+                    >
+                      {proposalDecision === 'accepted'
+                        ? t('resume.proposal.accepted', {
+                            defaultValue: '已应用到本地草稿（Mock）'
+                          })
+                        : t('resume.proposal.rejected', { defaultValue: '已拒绝' })}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <form
+                aria-label={t('resume.assistantMessageForm', {
+                  defaultValue: 'Resume assistant message'
+                })}
+                className="aw-chat-composer"
+                onSubmit={submitChatMessage}
+              >
+                <textarea
+                  aria-label={t('resume.askAssistant', { defaultValue: '询问简历助手' })}
+                  className="aw-textarea"
+                  onChange={(event): void => setChatDraft(event.target.value)}
+                  placeholder={t('resume.askAssistant', {
+                    defaultValue: '询问助手如何优化这份简历…'
+                  })}
+                  value={chatDraft}
+                />
+                <button
+                  aria-label={t('resume.sendMessage', { defaultValue: 'Send message' })}
+                  className="aw-icon-button"
+                  type="submit"
+                >
+                  <Send aria-hidden="true" size={16} />
+                </button>
+              </form>
+            </aside>
+          </>
+        ) : null}
       </div>
       <div className="aw-page" style={{ paddingTop: 16, paddingBottom: 16 }}>
         <p className="aw-muted" style={{ margin: 0 }}>
           <Sparkles
             aria-hidden="true"
-            color="#9a5938"
+            className="aw-accent-icon"
             size={14}
             style={{ marginRight: 6, verticalAlign: 'text-bottom' }}
           />
@@ -571,7 +615,7 @@ function ResumeEditorContent({
 }
 
 /**
- * @brief 三栏简历编辑器路由页 / Three-pane resume-editor route page.
+ * @brief 双栏简历编辑器路由页 / Two-pane resume-editor route page.
  * @return 含 loading、error 与编辑器内容的路由页 / Route page with loading, error, and editor content.
  */
 export function ResumeEditorPage(): React.JSX.Element {

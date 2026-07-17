@@ -1,9 +1,10 @@
-import { ArrowRight, FileText, GraduationCap, Sparkles } from 'lucide-react'
+import { ArrowRight, BookOpenText, BriefcaseBusiness, FileText, GraduationCap } from 'lucide-react'
 import { useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
-import type { UiWorkspaceActivity, UiWorkspaceHomeModel } from '../../domain'
+
 import { useAppGateways, useAsyncResource } from '../../app/AppData'
+import type { UiWorkspaceActivity, UiWorkspaceHomeModel } from '../../domain'
 import { ErrorState, LoadingState } from '../../ui'
 
 /**
@@ -33,7 +34,7 @@ function getActivityTone(activity: UiWorkspaceActivity): string {
 /**
  * @brief 工作区首页内容 / Workspace-home content.
  * @param props 首页数据 / Home-page data.
- * @return 已就绪的首页 / Ready home page.
+ * @return 以行动为中心的今日工作台 / Action-first daily workspace.
  */
 function WorkspaceHomeContent({
   home
@@ -44,160 +45,189 @@ function WorkspaceHomeContent({
   const { i18n, t } = useTranslation()
 
   return (
-    <div className="aw-page">
-      <div className="aw-page-header">
+    <div className="aw-page aw-workbench-page">
+      <header className="aw-workbench-header">
         <div>
-          <p className="aw-eyebrow">
-            {t('workspace.home.eyebrow', { defaultValue: 'AI 求职工作台' })}
+          <p className="aw-workbench-context">
+            {t('workspace.home.context', { defaultValue: '个人求职准备 · 今日安排' })}
           </p>
           <h1 className="aw-page-title">
-            {t('workspace.home.greeting', {
-              defaultValue: '早上好，Klee。'
-            })}
+            {t('workspace.home.title', { defaultValue: '今日工作台' })}
           </h1>
           <p className="aw-page-description">
-            {t('workspace.home.description', {
-              defaultValue: '把简历、练习和个人知识放在同一处，专注下一次更好的表达。'
+            {t('workspace.home.greeting', {
+              defaultValue: '早上好，Klee。先完成最重要的一步，再处理其他任务。'
             })}
           </p>
         </div>
-        <div className="aw-inline-actions">
-          <Link className="aw-primary-button" to="/resumes/res_mock_ai_platform/edit">
-            <FileText aria-hidden="true" size={15} />
-            {t('workspace.home.continueEditing', { defaultValue: '继续编辑简历' })}
-          </Link>
-        </div>
-      </div>
+        <span className="aw-status aw-status--ready">
+          {t('workspace.home.localWorkspace', { defaultValue: '本地演示工作区' })}
+        </span>
+      </header>
 
-      <div className="aw-overview-grid">
-        <section aria-labelledby="workspace-progress-title" className="aw-card aw-card-pad">
-          <h2 className="aw-card-title" id="workspace-progress-title">
-            {t('workspace.home.progressTitle', { defaultValue: '本周进展' })}
-          </h2>
-          <p className="aw-card-description">
-            {t('workspace.home.progressDescription', {
-              defaultValue: '这是演示用工作区聚合；真实统计会在服务端契约冻结后接入。'
-            })}
-          </p>
-          <div className="aw-stat-grid">
-            <div className="aw-stat">
-              <div className="aw-stat-value">{home.resumeCount}</div>
-              <div className="aw-stat-label">
-                {t('workspace.home.resumeCount', { defaultValue: '份简历' })}
-              </div>
-            </div>
-            <div className="aw-stat">
-              <div className="aw-stat-value">{home.completedInterviewCount}</div>
-              <div className="aw-stat-label">
-                {t('workspace.home.interviewCount', { defaultValue: '次已完成面试' })}
-              </div>
-            </div>
-            <div className="aw-stat">
-              <div className="aw-stat-value">{home.readyKnowledgeSourceCount}</div>
-              <div className="aw-stat-label">
-                {t('workspace.home.knowledgeCount', { defaultValue: '个已就绪知识源' })}
-              </div>
-            </div>
-          </div>
-          <div className="aw-continue-card aw-card">
-            <span aria-hidden="true" className="aw-document-thumb" />
-            <div>
-              <p className="aw-list-row-title">
-                {t('workspace.home.resumeTitle', { defaultValue: 'AI 平台工程师' })}
-              </p>
-              <p className="aw-list-row-meta">
-                {t('workspace.home.resumeMeta', {
-                  defaultValue: 'Modern 模板 · 语义修订 v18 · 刚刚保存'
-                })}
-              </p>
-            </div>
-            <Link className="aw-primary-button" to="/resumes/res_mock_ai_platform/edit">
-              {t('common.open', { defaultValue: '打开' })}
-              <ArrowRight aria-hidden="true" size={14} />
-            </Link>
-          </div>
-        </section>
-
-        <section aria-labelledby="workspace-next-title" className="aw-card aw-card-pad">
-          <h2 className="aw-card-title" id="workspace-next-title">
-            {t('workspace.home.nextTitle', { defaultValue: '下一步' })}
-          </h2>
-          <div className="aw-list-row">
-            <div>
-              <p className="aw-list-row-title">
-                {t('workspace.home.practiceTitle', { defaultValue: '练习系统设计面试' })}
-              </p>
-              <p className="aw-list-row-meta">
-                {t('workspace.home.practiceMeta', {
-                  defaultValue: '30 分钟 · 可打断的数字人面试官'
-                })}
-              </p>
-            </div>
-            <Link className="aw-quiet-button" to="/interviews/int_mock_system_design">
-              {t('common.start', { defaultValue: '开始' })}
-            </Link>
-          </div>
-          <div className="aw-list-row">
-            <div>
-              <p className="aw-list-row-title">
-                {t('workspace.home.visibilityTitle', { defaultValue: '检查知识可见性' })}
-              </p>
-              <p className="aw-list-row-meta">
-                {t('workspace.home.visibilityMeta', { defaultValue: '简历以外的资料默认拒绝访问' })}
-              </p>
-            </div>
-            <Link className="aw-quiet-button" to="/knowledge/ks_mock_resume/visibility">
-              {t('common.review', { defaultValue: '查看' })}
-            </Link>
-          </div>
-        </section>
-      </div>
-
-      <section
-        aria-labelledby="workspace-activity-title"
-        className="aw-card aw-card-pad"
-        style={{ marginTop: 18 }}
-      >
-        <div className="aw-inline-actions" style={{ justifyContent: 'space-between' }}>
-          <div>
-            <h2 className="aw-card-title" id="workspace-activity-title">
-              {t('workspace.home.activityTitle', { defaultValue: '最近活动' })}
+      <div className="aw-today-grid">
+        <section aria-labelledby="workspace-focus-title" className="aw-focus-panel">
+          <div className="aw-focus-copy">
+            <h2 className="aw-focus-label" id="workspace-focus-title">
+              {t('workspace.home.focusLabel', { defaultValue: '今日最重要的事' })}
             </h2>
-            <p className="aw-card-description">
-              {t('workspace.home.activityDescription', {
-                defaultValue: '资源、面试和知识索引的可见轨迹。'
+            <h3>
+              {t('workspace.home.focusTitle', { defaultValue: '继续完善 AI 平台工程师简历' })}
+            </h3>
+            <p>
+              {t('workspace.home.focusDescription', {
+                defaultValue: '从项目经历开始，把成果写得更具体，再进入模拟面试。'
               })}
             </p>
           </div>
-          <Sparkles aria-hidden="true" color="#9a5938" size={19} strokeWidth={1.6} />
-        </div>
-        <div className="aw-timeline">
-          {home.recentActivities.map((activity) => (
-            <div className="aw-timeline-item" key={activity.id}>
-              <span aria-hidden="true" className="aw-timeline-dot" />
-              <div className="aw-list-row" style={{ padding: 0, border: 0 }}>
-                <div>
-                  <p className="aw-list-row-title">{activity.title}</p>
-                  <p className="aw-list-row-meta">{activity.description}</p>
-                </div>
-                <div className="aw-inline-actions">
-                  <span className={`aw-status ${getActivityTone(activity)}`}>
-                    {formatActivityTime(activity.occurredAt, i18n.language)}
-                  </span>
-                </div>
-              </div>
+          <div className="aw-focus-meta">
+            <span>
+              <FileText aria-hidden="true" size={15} />
+              {t('workspace.home.resumeMeta', {
+                defaultValue: 'Dawn 模板 · 语义修订 v18 · 本地草稿'
+              })}
+            </span>
+            <Link className="aw-primary-button" to="/resumes/res_mock_ai_platform/edit">
+              {t('workspace.home.continueEditing', { defaultValue: '继续编辑简历' })}
+              <ArrowRight aria-hidden="true" size={15} />
+            </Link>
+          </div>
+        </section>
+
+        <section aria-labelledby="workspace-progress-title" className="aw-progress-panel">
+          <div className="aw-section-heading">
+            <div>
+              <h2 id="workspace-progress-title">
+                {t('workspace.home.progressTitle', { defaultValue: '本周进展' })}
+              </h2>
+              <p>
+                {t('workspace.home.progressDescription', {
+                  defaultValue: '仅汇总当前工作区已有数据。'
+                })}
+              </p>
             </div>
-          ))}
-        </div>
-      </section>
-      <p className="aw-muted" style={{ margin: '18px 0 0' }}>
-        <GraduationCap
-          aria-hidden="true"
-          size={14}
-          style={{ marginRight: 6, verticalAlign: 'text-bottom' }}
-        />
+          </div>
+          <dl className="aw-progress-list">
+            <div>
+              <dt>{t('workspace.home.resumeCount', { defaultValue: '简历' })}</dt>
+              <dd>{home.resumeCount}</dd>
+            </div>
+            <div>
+              <dt>{t('workspace.home.interviewCount', { defaultValue: '已完成面试' })}</dt>
+              <dd>{home.completedInterviewCount}</dd>
+            </div>
+            <div>
+              <dt>{t('workspace.home.knowledgeCount', { defaultValue: '已就绪知识源' })}</dt>
+              <dd>{home.readyKnowledgeSourceCount}</dd>
+            </div>
+          </dl>
+        </section>
+      </div>
+
+      <div className="aw-workbench-grid">
+        <section aria-labelledby="workspace-continue-title" className="aw-workbench-section">
+          <div className="aw-section-heading">
+            <div>
+              <h2 id="workspace-continue-title">
+                {t('workspace.home.continueTitle', { defaultValue: '继续处理' })}
+              </h2>
+              <p>
+                {t('workspace.home.continueDescription', {
+                  defaultValue: '从上次停下的位置继续，不需要重新寻找入口。'
+                })}
+              </p>
+            </div>
+          </div>
+          <div className="aw-action-list">
+            <Link className="aw-action-row" to="/resumes/res_mock_ai_platform/edit">
+              <span className="aw-action-icon">
+                <FileText aria-hidden="true" size={18} />
+              </span>
+              <span className="aw-action-copy">
+                <strong>
+                  {t('workspace.home.resumeTitle', { defaultValue: 'AI 平台工程师简历' })}
+                </strong>
+                <small>
+                  {t('workspace.home.resumeActionMeta', {
+                    defaultValue: '继续编辑内容与查看 Mock 预览'
+                  })}
+                </small>
+              </span>
+              <ArrowRight aria-hidden="true" size={16} />
+            </Link>
+            <Link className="aw-action-row" to="/interviews/int_mock_system_design">
+              <span className="aw-action-icon">
+                <BriefcaseBusiness aria-hidden="true" size={18} />
+              </span>
+              <span className="aw-action-copy">
+                <strong>
+                  {t('workspace.home.practiceTitle', { defaultValue: '系统设计模拟面试' })}
+                </strong>
+                <small>
+                  {t('workspace.home.practiceMeta', {
+                    defaultValue: '保留当前音视频外观的文字 Mock 流程'
+                  })}
+                </small>
+              </span>
+              <ArrowRight aria-hidden="true" size={16} />
+            </Link>
+            <Link className="aw-action-row" to="/knowledge">
+              <span className="aw-action-icon">
+                <BookOpenText aria-hidden="true" size={18} />
+              </span>
+              <span className="aw-action-copy">
+                <strong>
+                  {t('workspace.home.knowledgeTitle', { defaultValue: '个人知识库' })}
+                </strong>
+                <small>
+                  {t('workspace.home.knowledgeMeta', {
+                    count: home.readyKnowledgeSourceCount,
+                    defaultValue: `${home.readyKnowledgeSourceCount} 个知识源已就绪`
+                  })}
+                </small>
+              </span>
+              <ArrowRight aria-hidden="true" size={16} />
+            </Link>
+          </div>
+        </section>
+
+        <section aria-labelledby="workspace-activity-title" className="aw-workbench-section">
+          <div className="aw-section-heading">
+            <div>
+              <h2 id="workspace-activity-title">
+                {t('workspace.home.activityTitle', { defaultValue: '最近活动' })}
+              </h2>
+              <p>
+                {t('workspace.home.activityDescription', {
+                  defaultValue: '当前 Mock 工作区中已记录的操作。'
+                })}
+              </p>
+            </div>
+          </div>
+          <div className="aw-timeline">
+            {home.recentActivities.map((activity) => (
+              <div className="aw-timeline-item" key={activity.id}>
+                <span aria-hidden="true" className="aw-timeline-dot" />
+                <div className="aw-activity-copy">
+                  <strong>{activity.title}</strong>
+                  <span>{activity.description}</span>
+                </div>
+                <time
+                  className={`aw-status ${getActivityTone(activity)}`}
+                  dateTime={activity.occurredAt}
+                >
+                  {formatActivityTime(activity.occurredAt, i18n.language)}
+                </time>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      <p className="aw-workbench-notice">
+        <GraduationCap aria-hidden="true" size={15} />
         {t('workspace.home.mockNotice', {
-          defaultValue: '当前为 v0.1 mock 展示；不会向后端发送任何简历、媒体或知识数据。'
+          defaultValue: '当前为 v0.1 Mock 展示；不会向后端发送简历、媒体或知识数据。'
         })}
       </p>
     </div>
@@ -242,8 +272,7 @@ export function WorkspaceHomePage(): React.JSX.Element {
       <div className="aw-page">
         <ErrorState
           description={t('status.errorDescription', {
-            defaultValue:
-              'Demo data is temporarily unavailable. Try again or return to the workspace.'
+            defaultValue: '演示数据暂时不可用。请重试，或返回工作台。'
           })}
           title={t('status.errorWorkspace', { defaultValue: '无法加载工作区' })}
         />

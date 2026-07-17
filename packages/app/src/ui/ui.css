@@ -110,14 +110,14 @@
   }
 
   .ui-error-state {
-    border: 1px solid #e6c3bf;
+    border: 1px solid var(--ui-color-danger);
     border-radius: var(--ui-radius-md);
     background: var(--ui-color-danger-subtle);
   }
 
   .ui-error-state .ui-state__visual {
-    color: #7f3934;
-    background: #efd0cc;
+    color: var(--ui-color-danger);
+    background: var(--ui-color-danger-subtle);
   }
 
   @keyframes ui-spin {

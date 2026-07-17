@@ -14,15 +14,15 @@ export const zhSGTranslation = {
     resume: '简历',
     resumes: '简历',
     interview: '模拟面试',
-    knowledge: '个人知识库',
+    knowledge: '知识库',
     settings: '设置',
-    states: '界面状态',
+    states: '状态',
     templateSettings: '模板设置',
     interviewSummary: '面试总结',
-    visibility: '知识可见性'
+    visibility: '可见性'
   },
   breadcrumbs: {
-    workspace: '我的工作区',
+    workspace: '今日工作台',
     resumeEditor: '简历 / 编辑器',
     templateSettings: '简历 / 模板设置',
     interviewRoom: '模拟面试 / 面试房间',
@@ -38,7 +38,9 @@ export const zhSGTranslation = {
   topbar: {
     feedback: '反馈',
     feedbackRecorded: '反馈已记录到本地演示',
-    changeLocale: '切换界面语言'
+    changeLocale: '切换界面语言',
+    switchToLight: '切换为浅色主题',
+    switchToDark: '切换为深色主题'
   },
   common: {
     open: '打开',
@@ -98,24 +100,34 @@ export const zhSGTranslation = {
     startInterview: '开始一次模拟面试',
     addKnowledge: '添加个人知识',
     home: {
-      eyebrow: 'AI 求职工作台',
-      greeting: '早上好，Klee。',
+      context: '个人求职准备 · 今日安排',
+      title: '今日工作台',
+      greeting: '早上好，Klee。先完成最重要的一步，再处理其他任务。',
       description: '把简历、练习和个人知识放在同一处，专注下一次更好的表达。',
+      localWorkspace: '本地演示工作区',
+      focusLabel: '今日最重要的事',
+      focusTitle: '继续完善 AI 平台工程师简历',
+      focusDescription: '从项目经历开始，把成果写得更具体，再进入模拟面试。',
       continueEditing: '继续编辑简历',
       progressTitle: '本周进展',
-      progressDescription: '这是演示用工作区聚合；真实统计会在服务端契约冻结后接入。',
-      resumeCount: '份简历',
-      interviewCount: '次已完成面试',
-      knowledgeCount: '个已就绪知识源',
-      resumeTitle: 'AI 平台工程师',
-      resumeMeta: 'Dawn 模板 · 语义修订 v18 · 刚刚保存',
+      progressDescription: '仅汇总当前工作区已有数据。',
+      resumeCount: '简历',
+      interviewCount: '已完成面试',
+      knowledgeCount: '已就绪知识源',
+      resumeTitle: 'AI 平台工程师简历',
+      resumeMeta: 'Dawn 模板 · 语义修订 v18 · 本地草稿',
+      resumeActionMeta: '继续编辑内容与查看 Mock 预览',
+      continueTitle: '继续处理',
+      continueDescription: '从上次停下的位置继续，不需要重新寻找入口。',
       nextTitle: '下一步',
-      practiceTitle: '练习系统设计面试',
-      practiceMeta: '45 分钟 · 可打断的数字人面试官',
+      practiceTitle: '系统设计模拟面试',
+      practiceMeta: '保留当前音视频外观的文字 Mock 流程',
+      knowledgeTitle: '个人知识库',
+      knowledgeMeta: '{{count}} 个知识源已就绪',
       visibilityTitle: '检查知识可见性',
       visibilityMeta: '简历以外的资料默认拒绝访问',
       activityTitle: '最近活动',
-      activityDescription: '资源、面试和知识索引的可见轨迹。',
+      activityDescription: '当前 Mock 工作区中已记录的操作。',
       mockNotice: '当前为 v0.1 Mock 展示；不会向后端发送任何简历、媒体或知识数据。'
     }
   },
@@ -150,10 +162,12 @@ export const zhSGTranslation = {
     },
     proposal: {
       title: '建议修改（需要你的审批）',
-      change: '把项目亮点改为“将推理延迟从 1.8s 降至 620ms”，以先呈现可验证的影响。',
-      accept: '接受',
-      reject: '拒绝',
-      accepted: '已接受（Mock，不会写入简历）',
+      reason: '目标区块：职业摘要 · 原因：优先呈现可验证的工程结果',
+      before: '修改前',
+      after: '建议内容',
+      accept: '应用建议',
+      reject: '暂不应用',
+      accepted: '已应用到本地草稿（Mock）',
       rejected: '已拒绝'
     }
   },
@@ -165,6 +179,9 @@ export const zhSGTranslation = {
     migrationHint: '切换模板会在后端以显式迁移任务完成，当前仅展示设置。',
     choiceDescription: '切换会在真实环境中创建显式兼容性检查与迁移任务。',
     noDescription: '暂无说明',
+    empty: '当前没有其他可用模板。',
+    fitStructured: '适合技能与经历并重的结构化简历',
+    fitNarrative: '适合项目叙事与长内容阅读',
     selected: '当前选择',
     capabilities: '公开能力',
     zones: '语义区域',
@@ -212,18 +229,21 @@ export const zhSGTranslation = {
     selectScenario: '选择一个练习场景',
     targetRole: '目标岗位',
     duration: '预计时长',
-    liveTranscript: '实时字幕',
-    liveMode: '全双工练习模式',
+    liveTranscript: '对话记录（Mock）',
+    liveMode: '文字 Mock 练习',
+    currentQuestion: '当前问题',
+    questionProgress: '第 {{current}} / {{total}} 题',
+    textMockStatus: '文字 Mock 练习',
     interviewer: '面试官',
     candidate: '你',
-    live: '实时',
+    live: '生成中',
     interrupt: '打断',
     endInterview: '结束面试',
     minutes: '分钟',
     viewMockReport: '查看 Mock 总结',
     openSummary: '打开总结',
     practiceContext: '练习上下文',
-    contextDescription: '媒体状态与 Agent 可见数据在正式接入时会独立于会话状态管理。',
+    contextDescription: '当前问题、回答和字幕来自预置 Mock 数据，媒体按钮只改变本地界面状态。',
     scenario: '场景',
     bargeIn: '可打断数字人',
     connection: '媒体连接',
@@ -247,11 +267,11 @@ export const zhSGTranslation = {
     connectionStates: {
       idle: '未连接',
       connecting: '正在连接',
-      connected: '已连接',
+      connected: '演示状态',
       reconnecting: '正在重连',
       failed: '连接失败'
     },
-    mediaNotice: '当前为演示状态；真实音视频会经 WebRTC 传输，控制事件独立处理。',
+    mediaNotice: '当前没有采集音频、视频或建立实时连接；所有媒体按钮仅用于界面演示。',
     emptyScenarios: '当前没有可用场景。'
   },
   report: {
@@ -262,7 +282,7 @@ export const zhSGTranslation = {
     improvements: '下一步改进',
     rubric: '维度评分',
     communication: '可观察沟通指标',
-    actionPlan: '行动计划',
+    actionPlan: '下一步行动',
     limitations: '局限性说明',
     evidence: '转录证据',
     evidenceBased: '证据驱动的练习反馈',
@@ -291,7 +311,7 @@ export const zhSGTranslation = {
       medium: '中优先级',
       low: '低优先级'
     },
-    actionPlanDescription: '把建议转成可练习、可检查的下一步。',
+    actionPlanDescription: '先完成高优先级练习，再回看评分证据。',
     limitationsDescription: '请将这份结果当作练习反馈，而非确定性评价。'
   },
   knowledge: {
@@ -324,6 +344,13 @@ export const zhSGTranslation = {
     reviewPolicy: '查看一个来源的授权矩阵',
     refreshSources: '刷新知识来源（Mock）',
     refreshRecorded: '刷新请求已记录（Mock；未向来源发起同步）。',
+    filterSources: '筛选知识来源',
+    filterPlaceholder: '按名称或地址筛选…',
+    filteredCount: '{{count}} / {{total}} 个来源',
+    noMatchingSources: '没有匹配的知识来源，请调整筛选条件。',
+    viewSourceDetails: '查看 {{sourceName}} 详情',
+    selectedSource: '当前选择',
+    sourceDetails: '来源详情',
     autoManaged: '自动加入',
     visibilityForSource: '{{sourceName}} 的可见性设置',
     denied: '拒绝',
@@ -340,6 +367,9 @@ export const zhSGTranslation = {
   visibility: {
     title: 'Agent 可见性',
     defaultDeny: '默认拒绝',
+    overviewLabel: '权限概览',
+    allowedAgents: '个 Agent 已明确授权',
+    regionCount: '个允许区域',
     policyVersion: '策略版本 {{version}}',
     sessionOverride: '允许会话级选择',
     externalModel: '允许外部模型处理',
@@ -404,7 +434,8 @@ export const zhSGTranslation = {
       '每个数据页都可经相同的 mock gateway 进入这些状态；这里保留为可直接验收的视觉样例。',
     emptyAction: '添加第一份内容',
     retried: '已重试（Mock）',
-    errorHint: '真实环境会显示 contract 的 ProblemDetails，而非 Mock 错误。'
+    errorHint: '真实环境会显示 contract 的 ProblemDetails，而非 Mock 错误。',
+    internalOnly: '仅供开发与验收'
   }
 } as const
 
@@ -422,15 +453,15 @@ export const enUSTranslation = {
     resume: 'Resume',
     resumes: 'Resumes',
     interview: 'Mock interview',
-    knowledge: 'Personal knowledge',
+    knowledge: 'Knowledge',
     settings: 'Settings',
-    states: 'Interface states',
+    states: 'States',
     templateSettings: 'Template settings',
     interviewSummary: 'Interview summary',
-    visibility: 'Knowledge visibility'
+    visibility: 'Visibility'
   },
   breadcrumbs: {
-    workspace: 'My workspace',
+    workspace: "Today's workspace",
     resumeEditor: 'Resume / Editor',
     templateSettings: 'Resume / Template settings',
     interviewRoom: 'Mock interview / Interview room',
@@ -446,7 +477,9 @@ export const enUSTranslation = {
   topbar: {
     feedback: 'Feedback',
     feedbackRecorded: 'Feedback recorded locally',
-    changeLocale: 'Change interface language'
+    changeLocale: 'Change interface language',
+    switchToLight: 'Switch to light theme',
+    switchToDark: 'Switch to dark theme'
   },
   common: {
     open: 'Open',
@@ -506,26 +539,36 @@ export const enUSTranslation = {
     startInterview: 'Start a mock interview',
     addKnowledge: 'Add personal knowledge',
     home: {
-      eyebrow: 'AI career workspace',
-      greeting: 'Good morning, Klee.',
+      context: 'Personal career preparation · Today',
+      title: "Today's workspace",
+      greeting: 'Good morning, Klee. Finish the most important step before moving on.',
       description:
         'Keep resumes, practice, and personal knowledge in one place for your next better answer.',
+      localWorkspace: 'Local demo workspace',
+      focusLabel: "Today's priority",
+      focusTitle: 'Continue improving the AI Platform Engineer resume',
+      focusDescription:
+        'Start with project experience, make the outcomes specific, then move into interview practice.',
       continueEditing: 'Continue editing resume',
       progressTitle: 'This week',
-      progressDescription:
-        'This is a demo workspace aggregate; production metrics arrive after the service contract is frozen.',
-      resumeCount: 'resumes',
-      interviewCount: 'completed interviews',
-      knowledgeCount: 'ready knowledge sources',
-      resumeTitle: 'AI Platform Engineer',
-      resumeMeta: 'Dawn template · semantic revision v18 · saved just now',
+      progressDescription: 'Only existing workspace data is included.',
+      resumeCount: 'Resumes',
+      interviewCount: 'Completed interviews',
+      knowledgeCount: 'Ready knowledge sources',
+      resumeTitle: 'AI Platform Engineer resume',
+      resumeMeta: 'Dawn template · semantic revision v18 · local draft',
+      resumeActionMeta: 'Continue editing content and reviewing the Mock preview',
+      continueTitle: 'Continue working',
+      continueDescription: 'Resume where you stopped without searching for the right entry point.',
       nextTitle: 'Next steps',
-      practiceTitle: 'Practise a system-design interview',
-      practiceMeta: '45 min · interruptible avatar interviewer',
+      practiceTitle: 'System-design mock interview',
+      practiceMeta: 'Keeps the current text Mock with audio and video presentation',
+      knowledgeTitle: 'Personal knowledge',
+      knowledgeMeta: '{{count}} knowledge sources ready',
       visibilityTitle: 'Review knowledge visibility',
       visibilityMeta: 'Sources other than your resume are denied by default',
       activityTitle: 'Recent activity',
-      activityDescription: 'A visible trail of resources, interviews, and knowledge indexing.',
+      activityDescription: 'Recorded actions from the current Mock workspace.',
       mockNotice:
         'This is a v0.1 Mock experience; no resume, media, or knowledge data is sent to a backend.'
     }
@@ -563,11 +606,12 @@ export const enUSTranslation = {
     },
     proposal: {
       title: 'Suggested change (your approval is required)',
-      change:
-        'Change the project highlight to “reduced inference latency from 1.8 s to 620 ms” so verifiable impact appears first.',
-      accept: 'Accept',
-      reject: 'Reject',
-      accepted: 'Accepted (Mock; the resume is unchanged)',
+      reason: 'Target: Professional summary · Reason: lead with a verifiable engineering result',
+      before: 'Before',
+      after: 'Suggested copy',
+      accept: 'Apply suggestion',
+      reject: 'Not now',
+      accepted: 'Applied to the local draft (Mock)',
       rejected: 'Rejected'
     }
   },
@@ -581,6 +625,9 @@ export const enUSTranslation = {
     choiceDescription:
       'In production, a switch creates an explicit compatibility check and migration job.',
     noDescription: 'No description yet',
+    empty: 'No other templates are currently available.',
+    fitStructured: 'Best for structured resumes balancing skills and experience',
+    fitNarrative: 'Best for project narratives and longer-form reading',
     selected: 'Selected',
     capabilities: 'Published capabilities',
     zones: 'Semantic zones',
@@ -631,11 +678,14 @@ export const enUSTranslation = {
     selectScenario: 'Choose a practice scenario',
     targetRole: 'Target role',
     duration: 'Expected duration',
-    liveTranscript: 'Live transcript',
-    liveMode: 'Full-duplex practice mode',
+    liveTranscript: 'Conversation record (Mock)',
+    liveMode: 'Text-based Mock practice',
+    currentQuestion: 'Current question',
+    questionProgress: 'Question {{current}} of {{total}}',
+    textMockStatus: 'Text-based Mock practice',
     interviewer: 'Interviewer',
     candidate: 'You',
-    live: 'Live',
+    live: 'Generating',
     interrupt: 'Interrupt',
     endInterview: 'End interview',
     minutes: 'min',
@@ -643,7 +693,7 @@ export const enUSTranslation = {
     openSummary: 'Open summary',
     practiceContext: 'Practice context',
     contextDescription:
-      'Media state and Agent-visible data will be managed independently from session state in the production integration.',
+      'The question, answer, and transcript come from preset Mock data. Media controls only change local UI state.',
     scenario: 'Scenario',
     bargeIn: 'Interruptible avatar',
     connection: 'Media connection',
@@ -669,12 +719,12 @@ export const enUSTranslation = {
     connectionStates: {
       idle: 'Not connected',
       connecting: 'Connecting',
-      connected: 'Connected',
+      connected: 'Demo state',
       reconnecting: 'Reconnecting',
       failed: 'Connection failed'
     },
     mediaNotice:
-      'This is a demo state. Production A/V uses WebRTC, with control events handled separately.',
+      'No audio or video is captured and no realtime connection is created. Media controls are UI-only.',
     emptyScenarios: 'No scenarios are available right now.'
   },
   report: {
@@ -685,7 +735,7 @@ export const enUSTranslation = {
     improvements: 'What to improve',
     rubric: 'Rubric scores',
     communication: 'Observable communication metrics',
-    actionPlan: 'Action plan',
+    actionPlan: 'Next actions',
     limitations: 'Limitations',
     evidence: 'Transcript evidence',
     evidenceBased: 'Evidence-grounded practice feedback',
@@ -716,7 +766,8 @@ export const enUSTranslation = {
       medium: 'Medium priority',
       low: 'Low priority'
     },
-    actionPlanDescription: 'Turn the feedback into next steps you can practise and check.',
+    actionPlanDescription:
+      'Complete the highest-priority practice first, then review the evidence.',
     limitationsDescription: 'Treat this as practice feedback, not a deterministic evaluation.'
   },
   knowledge: {
@@ -754,6 +805,13 @@ export const enUSTranslation = {
     reviewPolicy: 'Review a source authorization matrix',
     refreshSources: 'Refresh knowledge sources (Mock)',
     refreshRecorded: 'Refresh request recorded (Mock; no source sync was started).',
+    filterSources: 'Filter knowledge sources',
+    filterPlaceholder: 'Filter by name or address…',
+    filteredCount: '{{count}} of {{total}} sources',
+    noMatchingSources: 'No knowledge sources match this filter.',
+    viewSourceDetails: 'View details for {{sourceName}}',
+    selectedSource: 'Current selection',
+    sourceDetails: 'Source details',
     autoManaged: 'Auto-included',
     visibilityForSource: 'Visibility settings for {{sourceName}}',
     denied: 'Denied',
@@ -770,6 +828,9 @@ export const enUSTranslation = {
   visibility: {
     title: 'Agent visibility',
     defaultDeny: 'Default deny',
+    overviewLabel: 'Permission overview',
+    allowedAgents: 'Agents explicitly allowed',
+    regionCount: 'Allowed regions',
     policyVersion: 'Policy version {{version}}',
     sessionOverride: 'Allow session-level selection',
     externalModel: 'Allow external model processing',
@@ -838,7 +899,8 @@ export const enUSTranslation = {
       'Every data page can enter these states through the same Mock gateway; this page keeps a directly reviewable visual example.',
     emptyAction: 'Add your first item',
     retried: 'Retried (Mock)',
-    errorHint: 'Production will show contract ProblemDetails rather than a Mock error.'
+    errorHint: 'Production will show contract ProblemDetails rather than a Mock error.',
+    internalOnly: 'Development and acceptance only'
   }
 } as const
 
