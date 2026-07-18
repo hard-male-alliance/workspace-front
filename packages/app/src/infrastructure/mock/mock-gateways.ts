@@ -12,24 +12,41 @@ import type {
 } from '../../domain/gateways'
 import type {
   UiContentLocale,
+  UiCreateInterviewInput,
+  UiCreateInterviewResult,
+  UiInterviewHistoryItem,
   UiInterviewReport,
+  UiInterviewRuntimeModel,
   UiInterviewScenario,
+  UiInterviewSetupModel,
   UiInterviewSessionId,
   UiKnowledgeSource,
   UiKnowledgeSourceId,
   UiKnowledgeVisibilityModel,
   UiLiveInterviewModel,
   UiResumeCard,
+  UiResumeAssistantMessage,
+  UiResumeAssistantMessageInput,
+  UiResumeAssistantTurnResult,
+  UiResumeAssistantUndoInput,
+  UiResumeAssistantUndoResult,
   UiResumeEditorModel,
   UiResumeId,
+  UiResumeSectionDeleteInput,
+  UiResumeSectionsReorderInput,
+  UiResumeSectionUpdateInput,
+  UiResumeTemplateSelectionInput,
   UiTemplateManifest,
   UiTemplateSettingsModel,
   UiWorkspace,
   UiWorkspaceHomeModel,
   UiWorkspaceId
 } from '../../domain/models'
+import { asUiOpaqueId } from '../../domain/models'
 import {
   MOCK_INTERVIEW_REPORT,
+  MOCK_INTERVIEW_HISTORY,
+  MOCK_INTERVIEW_RUNTIME,
   MOCK_INTERVIEW_SCENARIOS,
   MOCK_INTERVIEW_SESSION_ID,
   MOCK_KNOWLEDGE_SOURCES,
@@ -60,7 +77,7 @@ export interface MockGatewayOptions {
 }
 
 /** @brief Mock 错误码 / Mock error code. */
-export type MockGatewayErrorCode = 'mock.unavailable' | 'mock.not_found'
+export type MockGatewayErrorCode = 'mock.unavailable' | 'mock.not_found' | 'mock.conflict'
 
 /**
  * @brief 明确标注的 Mock 网关错误 / Explicitly named Mock gateway error.
@@ -193,12 +210,25 @@ export class MockWorkspaceGateway extends MockGatewayBase implements WorkspaceGa
  * @note 所有返回值都是 UI projection；它不提交 ResumeOperationBatch 或模板迁移 Job。
  */
 export class MockResumeGateway extends MockGatewayBase implements ResumeGateway {
+  /** @brief 当前实例内的简历编辑器投影 / Resume-editor projection owned by this instance. */
+  private editor: UiResumeEditorModel
+
+  /** @brief 最近一次可撤销 AI 变更 / Latest undoable AI change. */
+  private undoState: {
+    readonly changeId: string
+    readonly editor: UiResumeEditorModel
+  } | null = null
+
+  /** @brief 确定性消息序号 / Deterministic message sequence. */
+  private messageSequence = 0
+
   /**
    * @brief 构造简历 Mock 网关 / Construct the resume Mock gateway.
    * @param options Mock 行为选项 / Mock behavior options.
    */
   constructor(options: MockGatewayOptions = {}) {
     super(options)
+    this.editor = cloneMockValue(MOCK_RESUME_EDITOR)
   }
 
   /**
@@ -226,7 +256,223 @@ export class MockResumeGateway extends MockGatewayBase implements ResumeGateway 
       return this.throwMockNotFound('resume editor')
     }
 
-    return cloneMockValue(MOCK_RESUME_EDITOR)
+    return cloneMockValue(this.editor)
+  }
+
+  /**
+   * @brief 处理确定性的 Mock 简历助手消息 / Handle a deterministic Mock assistant message.
+   * @param input 助手消息领域输入 / Assistant-message domain input.
+   * @return 结构化助手结果 / Structured assistant result.
+   */
+  async sendAssistantMessage(
+    input: UiResumeAssistantMessageInput
+  ): Promise<UiResumeAssistantTurnResult> {
+    await this.prepareMockRead()
+    if (input.resumeId !== MOCK_RESUME_ID) {
+      return this.throwMockNotFound('resume editor')
+    }
+
+    const message = input.message.trim()
+    if (message.length === 0) {
+      throw new MockGatewayError('mock.conflict', 'Mock assistant messages cannot be empty.')
+    }
+
+    this.messageSequence += 1
+    const changeId = asUiOpaqueId<'resume-assistant-change'>(
+      `chg_mock_resume_${this.messageSequence}`
+    )
+    const before = cloneMockValue(this.editor)
+    const isGenerationRequest = message.includes('生成')
+    const assistantMessage: UiResumeAssistantMessage = {
+      id: `msg_mock_assistant_${this.messageSequence}`,
+      role: 'assistant',
+      text: isGenerationRequest
+        ? '已根据当前对话和 Mock 知识内容生成简历结构，并同步到内容与 PDF 预览。'
+        : '已直接更新职业摘要，突出可验证的工程结果。',
+      createdAt: '2026-07-18T00:00:00.000Z',
+      isStreaming: false
+    }
+    const userMessage: UiResumeAssistantMessage = {
+      id: `msg_mock_user_${this.messageSequence}`,
+      role: 'user',
+      text: message,
+      createdAt: '2026-07-18T00:00:00.000Z',
+      isStreaming: false
+    }
+    const nextSections = this.editor.resume.sections.map((section, index) =>
+      index === 0
+        ? {
+            ...section,
+            contentPreview: isGenerationRequest
+              ? 'AI 平台工程师，专注于可靠的模型服务、知识检索与可观测性工程。'
+              : '将模型推理延迟从 1.8 秒降低至 620 毫秒，并建立可复用的 AI 平台能力。'
+          }
+        : section
+    )
+
+    this.editor = {
+      ...this.editor,
+      resume: {
+        ...this.editor.resume,
+        revision: this.editor.resume.revision + 1,
+        sections: nextSections,
+        updatedAt: '2026-07-18T00:00:00.000Z'
+      },
+      assistantMessages: [...this.editor.assistantMessages, userMessage, assistantMessage]
+    }
+    this.undoState = { changeId, editor: before }
+
+    return cloneMockValue({
+      editor: this.editor,
+      assistantMessage,
+      changeId,
+      canUndo: true
+    })
+  }
+
+  /**
+   * @brief 撤销最近一次 Mock AI 变更 / Undo the latest Mock AI change.
+   * @param input 撤销领域输入 / Undo domain input.
+   * @return 撤销后的编辑器 / Editor after undo.
+   */
+  async undoAssistantChange(
+    input: UiResumeAssistantUndoInput
+  ): Promise<UiResumeAssistantUndoResult> {
+    await this.prepareMockRead()
+    if (
+      input.resumeId !== MOCK_RESUME_ID ||
+      this.undoState === null ||
+      input.changeId !== this.undoState.changeId
+    ) {
+      throw new MockGatewayError(
+        'mock.conflict',
+        'The Mock assistant change can no longer be undone.'
+      )
+    }
+
+    this.editor = cloneMockValue(this.undoState.editor)
+    this.undoState = null
+    return cloneMockValue({ editor: this.editor, canUndo: false })
+  }
+
+  /**
+   * @brief 更新 Mock 简历板块并使旧 AI 撤销失效 / Update a Mock section and invalidate AI undo.
+   * @param input 板块编辑领域输入 / Section-edit domain input.
+   * @return 最新编辑器 / Latest editor.
+   */
+  async updateResumeSection(input: UiResumeSectionUpdateInput): Promise<UiResumeEditorModel> {
+    await this.prepareMockRead()
+    if (input.resumeId !== MOCK_RESUME_ID) {
+      return this.throwMockNotFound('resume editor')
+    }
+
+    const sectionExists = this.editor.resume.sections.some(
+      (section) => section.id === input.sectionId
+    )
+    if (!sectionExists) {
+      return this.throwMockNotFound('resume section')
+    }
+
+    this.editor = {
+      ...this.editor,
+      resume: {
+        ...this.editor.resume,
+        revision: this.editor.resume.revision + 1,
+        sections: this.editor.resume.sections.map((section) =>
+          section.id === input.sectionId
+            ? { ...section, title: input.title, contentPreview: input.content }
+            : section
+        ),
+        updatedAt: '2026-07-18T00:00:01.000Z'
+      }
+    }
+    this.undoState = null
+    return cloneMockValue(this.editor)
+  }
+
+  /** @brief 调整 Mock 简历板块顺序 / Reorder Mock resume sections. */
+  async reorderResumeSections(input: UiResumeSectionsReorderInput): Promise<UiResumeEditorModel> {
+    await this.prepareMockRead()
+    if (input.resumeId !== MOCK_RESUME_ID) {
+      return this.throwMockNotFound('resume editor')
+    }
+
+    const sectionById = new Map(this.editor.resume.sections.map((section) => [section.id, section]))
+    const reorderedSections = input.orderedSectionIds.map((sectionId) => sectionById.get(sectionId))
+    if (
+      reorderedSections.length !== this.editor.resume.sections.length ||
+      new Set(input.orderedSectionIds).size !== this.editor.resume.sections.length ||
+      reorderedSections.some((section) => section === undefined)
+    ) {
+      throw new MockGatewayError('mock.conflict', 'The Mock section order is incomplete.')
+    }
+
+    this.editor = {
+      ...this.editor,
+      resume: {
+        ...this.editor.resume,
+        revision: this.editor.resume.revision + 1,
+        sections: reorderedSections.filter((section) => section !== undefined),
+        updatedAt: '2026-07-18T00:00:02.000Z'
+      }
+    }
+    this.undoState = null
+    return cloneMockValue(this.editor)
+  }
+
+  /** @brief 删除 Mock 简历板块 / Delete a Mock resume section. */
+  async deleteResumeSection(input: UiResumeSectionDeleteInput): Promise<UiResumeEditorModel> {
+    await this.prepareMockRead()
+    if (input.resumeId !== MOCK_RESUME_ID) {
+      return this.throwMockNotFound('resume editor')
+    }
+
+    const remainingSections = this.editor.resume.sections.filter(
+      (section) => section.id !== input.sectionId
+    )
+    if (remainingSections.length === this.editor.resume.sections.length) {
+      return this.throwMockNotFound('resume section')
+    }
+    if (remainingSections.length === 0) {
+      throw new MockGatewayError('mock.conflict', 'A Mock resume must keep at least one section.')
+    }
+
+    this.editor = {
+      ...this.editor,
+      resume: {
+        ...this.editor.resume,
+        revision: this.editor.resume.revision + 1,
+        sections: remainingSections,
+        updatedAt: '2026-07-18T00:00:03.000Z'
+      }
+    }
+    this.undoState = null
+    return cloneMockValue(this.editor)
+  }
+
+  /** @brief 切换 Mock 简历模板 / Select a Mock resume template. */
+  async selectResumeTemplate(input: UiResumeTemplateSelectionInput): Promise<UiResumeEditorModel> {
+    await this.prepareMockRead()
+    if (input.resumeId !== MOCK_RESUME_ID) {
+      return this.throwMockNotFound('resume editor')
+    }
+
+    const template = MOCK_TEMPLATE_MANIFESTS.find((item) => item.id === input.templateId)
+    if (template === undefined) {
+      return this.throwMockNotFound('resume template')
+    }
+
+    this.editor = {
+      ...this.editor,
+      resume: {
+        ...this.editor.resume,
+        revision: this.editor.resume.revision + 1,
+        template: { templateId: template.id, templateVersion: template.version },
+        updatedAt: '2026-07-18T00:00:04.000Z'
+      }
+    }
+    this.undoState = null
+    return cloneMockValue(this.editor)
   }
 
   /**
@@ -266,6 +512,42 @@ export class MockResumeGateway extends MockGatewayBase implements ResumeGateway 
  * @note 它不建立 RealtimeConnectionDescriptor、WebRTC、SSE 或 WebSocket 连接。
  */
 export class MockInterviewGateway extends MockGatewayBase implements InterviewGateway {
+  /** @inheritdoc */
+  async listCompletedInterviews(
+    workspaceId: UiWorkspaceId
+  ): Promise<readonly UiInterviewHistoryItem[]> {
+    const mode = await this.prepareMockRead()
+    if (mode === 'empty' || workspaceId !== MOCK_WORKSPACE_ID) {
+      return []
+    }
+
+    return cloneMockValue(MOCK_INTERVIEW_HISTORY)
+  }
+
+  /** @inheritdoc */
+  async getInterviewSetup(workspaceId: UiWorkspaceId): Promise<UiInterviewSetupModel> {
+    const mode = await this.prepareMockRead()
+    if (mode === 'empty' || workspaceId !== MOCK_WORKSPACE_ID) {
+      return { scenarios: [], jobTargets: [] }
+    }
+
+    return cloneMockValue({
+      scenarios: MOCK_INTERVIEW_SCENARIOS,
+      jobTargets: [MOCK_INTERVIEW_RUNTIME.session.jobTarget]
+    })
+  }
+
+  /** @inheritdoc */
+  async createInterview(input: UiCreateInterviewInput): Promise<UiCreateInterviewResult> {
+    input.signal?.throwIfAborted()
+    await this.prepareMockRead()
+    if (input.workspaceId !== MOCK_WORKSPACE_ID || input.jobTarget.title.trim().length === 0) {
+      return this.throwMockNotFound('interview setup')
+    }
+
+    return { sessionId: MOCK_INTERVIEW_SESSION_ID }
+  }
+
   /**
    * @brief 构造面试 Mock 网关 / Construct the interview Mock gateway.
    * @param options Mock 行为选项 / Mock behavior options.
@@ -302,6 +584,44 @@ export class MockInterviewGateway extends MockGatewayBase implements InterviewGa
     }
 
     return cloneMockValue(MOCK_LIVE_INTERVIEW)
+  }
+
+  /** @inheritdoc */
+  async getInterviewRuntime(sessionId: UiInterviewSessionId): Promise<UiInterviewRuntimeModel> {
+    const mode = await this.prepareMockRead()
+    if (mode === 'empty' || sessionId !== MOCK_INTERVIEW_SESSION_ID) {
+      return this.throwMockNotFound('interview runtime')
+    }
+
+    return cloneMockValue(MOCK_INTERVIEW_RUNTIME)
+  }
+
+  /** @inheritdoc */
+  async submitInterviewAnswer(sessionId: UiInterviewSessionId): Promise<UiInterviewRuntimeModel> {
+    const runtime = await this.getInterviewRuntime(sessionId)
+    const submittedEntry = {
+      id: 'seg_mock_candidate_submitted',
+      speaker: 'candidate' as const,
+      text: runtime.currentTranscript,
+      isFinal: true,
+      startMs: 15000,
+      endMs: 22000
+    }
+    const closingEntry = {
+      id: 'seg_mock_interviewer_close',
+      speaker: 'interviewer' as const,
+      text: '本次面试的问题已经覆盖完成，可以结束面试并查看分析。',
+      isFinal: true,
+      startMs: 23000,
+      endMs: 26000
+    }
+
+    return cloneMockValue({
+      ...runtime,
+      phase: 'completion_ready' as const,
+      currentTranscript: '',
+      transcript: [...runtime.transcript, submittedEntry, closingEntry]
+    })
   }
 
   /**

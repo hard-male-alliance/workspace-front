@@ -34,16 +34,36 @@ export const MOCK_PENDING_CONTRACT_ITEMS: readonly MockPendingContractItem[] = [
     mockHandling: '编辑器仅让本地草稿驱动视觉预览，不伪造保存、冲突解决或网络请求。'
   },
   {
+    id: 'resume-assistant-generation',
+    domain: 'resume',
+    question:
+      '简历助手的消息提交、Agent Run 绑定、结构化变更结果、单步撤销、取消以及 SSE 事件与恢复语义尚未冻结。',
+    mockHandling:
+      '通过 ResumeGateway 返回确定性的结构化编辑器投影和变更标识；不定义 HTTP 路径、DTO、鉴权头或流事件格式。'
+  },
+  {
     id: 'interview-media-transport',
     domain: 'interview',
-    question: 'RealtimeConnectionDescriptor、WebRTC 信令与媒体轨道协商尚未接入。',
-    mockHandling: '使用 UiLiveInterviewModel 展示确定性的连接状态、字幕和数字人文案。'
+    question:
+      '音频采集、语音转写、AI 回合流、结束指令、去重、顺序、重连、恢复窗口与服务端权威超时语义尚未冻结。',
+    mockHandling:
+      '使用 UiInterviewRuntimeModel 模拟只读转写、提交回答和 AI 控制结束；不采集音频，不建立 WebRTC、WebSocket 或 SSE 连接。'
+  },
+  {
+    id: 'interview-session-lifecycle',
+    domain: 'interview',
+    question:
+      '历史列表、配置读取、创建会话、放弃会话的 method、path、DTO、幂等、错误与身份边界尚未冻结。',
+    mockHandling:
+      '通过 InterviewGateway 返回确定性历史、配置和创建结果；页面不包含传输字段或可信身份头。'
   },
   {
     id: 'interview-report-job',
     domain: 'interview',
-    question: '报告 Job 的轮询、SSE 进度和失败诊断尚未接入。',
-    mockHandling: '直接提供完成态 UiInterviewReport，用于总结页面布局验收。'
+    question:
+      '报告 Job 的轮询或流式进度、失败诊断、最终资源、评分上下限和 100 分归一化规则尚未接入。',
+    mockHandling:
+      '直接提供明确标注的 100 分制 Mock UiInterviewReport，用于总结页面布局验收，不宣称为正式评分。'
   },
   {
     id: 'knowledge-write-policy',

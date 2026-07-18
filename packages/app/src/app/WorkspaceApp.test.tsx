@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup } from '@testing-library/react'
 import { appI18n, appI18nReady } from '../i18n'
@@ -63,10 +63,7 @@ describe('WorkspaceApp', (): void => {
       'href',
       '/resumes/res_mock_ai_platform/edit'
     )
-    expect(screen.getByRole('link', { name: '模拟面试' })).toHaveAttribute(
-      'href',
-      '/interviews/int_mock_system_design'
-    )
+    expect(screen.getByRole('link', { name: '模拟面试' })).toHaveAttribute('href', '/interviews')
     expect(screen.getByRole('link', { name: '知识库' })).toHaveAttribute('href', '/knowledge')
     expect(screen.queryByRole('link', { name: '可见性' })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: '状态' })).not.toBeInTheDocument()
@@ -85,52 +82,93 @@ describe('WorkspaceApp', (): void => {
     )
     expect(screen.getByRole('link', { name: 'Mock interview' })).toHaveAttribute(
       'href',
-      '/interviews/int_mock_system_design'
+      '/interviews'
     )
     expect(document.documentElement.lang).toBe('en-US')
     expect(document.title).toBe('Career Workspace')
   })
 
-  it('opens the resume assistant as a drawer and applies a proposal only after confirmation', async (): Promise<void> => {
+  it('renders three persistent resume window headers with equal desktop panels and separators', async (): Promise<void> => {
     await resetChineseLocale()
 
-    /** @brief 当前渲染容器 / Current render container. */
-    const { container } = render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
+    render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
 
     await screen.findByRole('heading', { name: 'Klee Chen' })
 
-    expect(container.querySelectorAll('.aw-editor-workspace > .aw-editor-pane')).toHaveLength(2)
-    const resumePreview = screen.getByRole('article', { name: '简历 PDF 视觉预览（Mock）' })
-    expect(resumePreview).toBeInTheDocument()
-    expect(screen.queryByRole('complementary', { name: '简历助手' })).not.toBeInTheDocument()
+    expect(screen.getByRole('toolbar', { name: '简历窗口控制' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'AI 对话' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '内容编辑' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'PDF 预览' })).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'AI 对话' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '内容编辑' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'PDF 预览' })).toBeInTheDocument()
+    expect(screen.getAllByRole('separator')).toHaveLength(2)
+  })
 
-    fireEvent.click(screen.getByRole('button', { name: '打开简历助手' }))
-    expect(screen.getByRole('complementary', { name: '简历助手' })).toBeInTheDocument()
-    expect(screen.getByText('建议修改（需要你的审批）')).toBeInTheDocument()
+  it('allows every resume window to collapse while preserving all three title bars', async (): Promise<void> => {
+    await resetChineseLocale()
+
+    render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
+    await screen.findByRole('heading', { name: 'Klee Chen' })
+
+    fireEvent.click(screen.getByRole('button', { name: '收起“AI 对话”窗口' }))
+    fireEvent.click(screen.getByRole('button', { name: '收起“内容编辑”窗口' }))
+    fireEvent.click(screen.getByRole('button', { name: '收起“PDF 预览”窗口' }))
+
+    expect(screen.queryByRole('complementary', { name: 'AI 对话' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '内容编辑' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'PDF 预览' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '展开“AI 对话”窗口' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '展开“内容编辑”窗口' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '展开“PDF 预览”窗口' })).toBeInTheDocument()
+    expect(screen.queryAllByRole('separator')).toHaveLength(0)
+  })
+
+  it('applies an AI revision immediately and lets the student undo the latest change', async (): Promise<void> => {
+    await resetChineseLocale()
+
+    render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
+    await screen.findByRole('heading', { name: 'Klee Chen' })
+
+    fireEvent.change(screen.getByRole('textbox', { name: '询问简历助手' }), {
+      target: { value: '把职业摘要改得更突出量化成果' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }))
+
     expect(
-      within(resumePreview).queryByText('将推理延迟从 1.8s 降至 620ms')
-    ).not.toBeInTheDocument()
+      await screen.findByText('已直接更新职业摘要，突出可验证的工程结果。')
+    ).toBeInTheDocument()
+    expect(
+      screen.getByDisplayValue(
+        '将模型推理延迟从 1.8 秒降低至 620 毫秒，并建立可复用的 AI 平台能力。'
+      )
+    ).toBeInTheDocument()
+    expect(
+      screen.getAllByText('将模型推理延迟从 1.8 秒降低至 620 毫秒，并建立可复用的 AI 平台能力。')
+    ).toHaveLength(2)
 
-    fireEvent.click(screen.getByRole('button', { name: '应用建议' }))
-    expect(screen.getAllByText('将推理延迟从 1.8s 降至 620ms')).toHaveLength(2)
-    expect(screen.getByText('已应用到本地草稿（Mock）')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '撤销本次 AI 修改' }))
+    expect(
+      await screen.findByDisplayValue(
+        '面向生产环境构建可靠的 AI 平台与开发者工具，专注检索、推理编排和可观测性。'
+      )
+    ).toBeInTheDocument()
+  })
 
-    /** @brief 移动端编辑 tab / Compact-layout editing tab. */
-    const editingTab = screen.getByRole('button', { name: '内容' })
-    fireEvent.click(editingTab)
-    expect(container.querySelector('.aw-editor-page')).toHaveClass('aw-editor-page--mobile-edit')
+  it('offers section ordering, deletion, and quick template selection in the workspace', async (): Promise<void> => {
+    await resetChineseLocale()
 
-    /** @brief 本地草稿标题输入 / Local draft-title input. */
-    const sectionTitleInput = screen.getByLabelText('区段标题')
-    fireEvent.change(sectionTitleInput, { target: { value: '本地草稿摘要' } })
-    expect(screen.getByRole('heading', { name: '本地草稿摘要' })).toBeInTheDocument()
-    expect(screen.getByText('本地草稿预览（Mock）')).toBeInTheDocument()
+    render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
+    await screen.findByRole('heading', { name: 'Klee Chen' })
 
-    /** @brief 富文本编辑器 DOM / Rich-text editor DOM. */
-    const richTextEditor = screen.getByRole('textbox', { name: '语义内容' })
-    richTextEditor.textContent = '本地富文本草稿内容'
-    fireEvent.input(richTextEditor)
-    expect(screen.getAllByText('本地富文本草稿内容')).toHaveLength(2)
+    expect(screen.getByRole('button', { name: '下移职业摘要' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '删除职业摘要' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: '快速切换简历模板' })).toHaveValue('tpl_mock_dawn')
+
+    fireEvent.change(screen.getByRole('combobox', { name: '快速切换简历模板' }), {
+      target: { value: 'tpl_mock_editorial' }
+    })
+    expect(await screen.findByText('Editorial')).toBeInTheDocument()
   })
 
   it('presents templates as a focused list with one selected preview', async (): Promise<void> => {
@@ -151,14 +189,14 @@ describe('WorkspaceApp', (): void => {
     expect(screen.getAllByText('Editorial')).toHaveLength(2)
   })
 
-  it('renders template intent, live interview, report, knowledge and visibility routes', async (): Promise<void> => {
+  it('renders template, interview, report, knowledge and visibility routes', async (): Promise<void> => {
     await resetChineseLocale()
 
     /** @brief 待验收路由与标题 / Acceptance routes and headings. */
     const routeCases: readonly { readonly path: string; readonly heading: string }[] = [
       { path: '/resumes/res_mock_ai_platform/template', heading: '模板与版式' },
-      { path: '/interviews/int_mock_system_design', heading: '数字人模拟面试' },
-      { path: '/interviews/int_mock_system_design/summary', heading: '面试总结' },
+      { path: '/interviews/int_mock_system_design', heading: '模拟面试进行中' },
+      { path: '/interviews/int_mock_system_design/summary', heading: '面试分析' },
       { path: '/knowledge', heading: '个人记忆与知识库' },
       { path: '/knowledge/ks_mock_git/visibility', heading: 'Agent 可见性' }
     ]
@@ -189,39 +227,102 @@ describe('WorkspaceApp', (): void => {
     }
   })
 
-  it('gives local Mock controls explicit feedback without creating a transport', async (): Promise<void> => {
+  it('opens the interview hub with a new-interview entry and completed history', async () => {
     await resetChineseLocale()
 
-    /** @brief 面试页容器 / Interview-page container. */
-    const interviewRender = render(
-      <WorkspaceApp initialPath="/interviews/int_mock_system_design" />
+    render(<WorkspaceApp initialPath="/interviews" />)
+
+    expect(await screen.findByRole('heading', { name: '模拟面试' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '开始新面试' })).toHaveAttribute(
+      'href',
+      '/interviews/new'
     )
+    expect(screen.getByText('AI Platform Engineer')).toBeInTheDocument()
+    expect(screen.getByText('82')).toBeInTheDocument()
+  })
 
-    await screen.findByRole('heading', { name: '数字人模拟面试' })
-    expect(screen.getByText('文字 Mock 练习')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: '当前问题' })).toBeInTheDocument()
-    expect(screen.getByText('第 1 / 5 题')).toBeInTheDocument()
-    expect(screen.getByText('客户端数字人渲染')).toBeInTheDocument()
-    expect(screen.queryByText('client_render')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '共享屏幕（Mock）' }))
-    expect(screen.getByText('已请求本地屏幕共享（Mock；未采集或传输媒体）。')).toBeInTheDocument()
-    interviewRender.unmount()
+  it('starts an interview from a compact setup form with knowledge selected by default', async () => {
+    await resetChineseLocale()
 
-    /** @brief 总结页容器 / Summary-page container. */
-    const summaryRender = render(
-      <WorkspaceApp initialPath="/interviews/int_mock_system_design/summary" />
+    render(<WorkspaceApp initialPath="/interviews/new" />)
+
+    expect(await screen.findByRole('heading', { name: '配置模拟面试' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: '目标岗位' })).toHaveValue('AI Platform Engineer')
+
+    const knowledgeOptions = await screen.findAllByRole('checkbox')
+    expect(knowledgeOptions.length).toBeGreaterThan(0)
+    expect(knowledgeOptions.every((option) => option.hasAttribute('checked'))).toBe(true)
+
+    fireEvent.click(screen.getByRole('button', { name: '开始面试' }))
+    expect(await screen.findByRole('heading', { name: '模拟面试进行中' })).toBeInTheDocument()
+  })
+
+  it('allows a student to enter a target role that is not in the saved list', async () => {
+    await resetChineseLocale()
+
+    render(<WorkspaceApp initialPath="/interviews/new" />)
+
+    const targetRole = await screen.findByRole('combobox', { name: '目标岗位' })
+    fireEvent.change(targetRole, { target: { value: '__custom__' } })
+
+    const customRole = screen.getByRole('textbox', { name: '手动输入目标岗位' })
+    fireEvent.change(customRole, { target: { value: '前端开发实习生' } })
+
+    expect(customRole).toHaveValue('前端开发实习生')
+    expect(screen.getByRole('button', { name: '开始面试' })).toBeEnabled()
+  })
+
+  it('keeps the transcript read-only until the student submits and AI ends the interview', async (): Promise<void> => {
+    await resetChineseLocale()
+
+    render(<WorkspaceApp initialPath="/interviews/int_mock_system_design" />)
+
+    await screen.findByRole('heading', { name: '模拟面试进行中' })
+    expect(screen.getByText('持续监听中；转写只读，无法编辑或撤回。')).toBeInTheDocument()
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(screen.getByText('Mock 不采集真实音频')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '结束录音并提交' }))
+
+    expect(await screen.findByText('AI 已完成本次面试')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /结束面试并查看分析/ })).toHaveAttribute(
+      'href',
+      '/interviews/int_mock_system_design/summary'
     )
+  })
 
-    await screen.findByRole('heading', { name: '面试总结' })
-    const prioritySection = screen.getByTestId('report-priority')
-    const evidenceSection = screen.getByTestId('report-evidence')
-    expect(
-      prioritySection.compareDocumentPosition(evidenceSection) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy()
-    expect(screen.getByText('高优先级')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '保存练习计划' }))
-    expect(screen.getByText('练习计划已保存到本地演示状态')).toBeInTheDocument()
-    summaryRender.unmount()
+  it('requires confirmation before leaving an unfinished interview', async (): Promise<void> => {
+    await resetChineseLocale()
+
+    render(<WorkspaceApp initialPath="/interviews/int_mock_system_design" />)
+    await screen.findByRole('heading', { name: '模拟面试进行中' })
+
+    fireEvent.click(screen.getByRole('button', { name: '退出本次练习' }))
+
+    expect(screen.getByRole('dialog', { name: '退出本次练习？' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '确认退出' })).toHaveAttribute('href', '/interviews')
+  })
+
+  it('explains the interview score with dimensions, evidence, and next practice actions', async () => {
+    await resetChineseLocale()
+
+    render(<WorkspaceApp initialPath="/interviews/int_mock_system_design/summary" />)
+
+    await screen.findByRole('heading', { name: '面试分析' })
+    expect(screen.getByText('82')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '能力维度' })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: '面试能力维度评分' })).toBeInTheDocument()
+    expect(screen.getAllByRole('progressbar')).toHaveLength(5)
+    expect(screen.getByRole('heading', { name: '评分证据' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '下一次练习' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '返回面试记录' })).toHaveAttribute(
+      'href',
+      '/interviews'
+    )
+    expect(screen.getByRole('link', { name: '再练一次' })).toHaveAttribute(
+      'href',
+      '/interviews/new'
+    )
   })
 
   it('filters knowledge sources locally and keeps source details in the knowledge workflow', async (): Promise<void> => {

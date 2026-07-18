@@ -6,7 +6,9 @@
 
 import {
   asUiOpaqueId,
+  type UiInterviewHistoryItem,
   type UiInterviewReport,
+  type UiInterviewRuntimeModel,
   type UiInterviewScenario,
   type UiInterviewSession,
   type UiKnowledgeSource,
@@ -537,8 +539,14 @@ export const MOCK_SYSTEM_DESIGN_SCENARIO: UiInterviewScenario = {
       {
         id: 'rub_dim_reliability',
         name: '可靠性与演进',
-        weight: 0.2,
+        weight: 0.15,
         observableIndicators: ['覆盖故障场景', '提出可观测性和渐进迁移路径']
+      },
+      {
+        id: 'rub_dim_evidence',
+        name: '案例与证据',
+        weight: 0.05,
+        observableIndicators: ['使用具体经历支持判断', '提供可验证的结果或指标']
       }
     ],
     minimumScore: 0,
@@ -622,6 +630,31 @@ export const MOCK_LIVE_INTERVIEW: UiLiveInterviewModel = {
   ]
 }
 
+/** @brief Mock 已完成面试历史 / Mock completed-interview history. */
+export const MOCK_INTERVIEW_HISTORY: readonly UiInterviewHistoryItem[] = [
+  {
+    sessionId: MOCK_INTERVIEW_SESSION_ID,
+    jobTarget: MOCK_INTERVIEW_SESSION.jobTarget,
+    interviewType: MOCK_SYSTEM_DESIGN_SCENARIO.interviewType,
+    difficulty: MOCK_SYSTEM_DESIGN_SCENARIO.difficulty,
+    completedAt: '2026-07-14T14:30:00.000Z',
+    durationMinutes: 38,
+    overallScore: 82
+  }
+]
+
+/** @brief Mock 正式面试初始运行状态 / Initial Mock interview runtime state. */
+export const MOCK_INTERVIEW_RUNTIME: UiInterviewRuntimeModel = {
+  session: MOCK_INTERVIEW_SESSION,
+  scenario: MOCK_SYSTEM_DESIGN_SCENARIO,
+  phase: 'listening',
+  transcript: MOCK_LIVE_INTERVIEW.transcript.filter((entry) => entry.isFinal),
+  currentTranscript: MOCK_LIVE_INTERVIEW.transcript.find((entry) => !entry.isFinal)?.text ?? '',
+  elapsedSeconds: 18 * 60 + 42,
+  estimatedDurationMinutes: 45,
+  isMock: true
+}
+
 /** @brief Mock 面试总结 / Mock interview report. */
 export const MOCK_INTERVIEW_REPORT: UiInterviewReport = {
   id: MOCK_INTERVIEW_REPORT_ID,
@@ -679,6 +712,21 @@ export const MOCK_INTERVIEW_REPORT: UiInterviewReport = {
       summary: '提到了可观测性，但还未完整覆盖背压和降级路径。',
       evidence: [],
       improvementActions: ['为每条关键链路列出超时、重试、降级与告警。']
+    },
+    {
+      dimensionId: 'rub_dim_evidence',
+      score: 74,
+      confidence: 0.7,
+      summary: '使用了具体架构动作，但缺少量化结果支撑关键取舍。',
+      evidence: [
+        {
+          segmentId: 'seg_mock_candidate_1',
+          startMs: 7200,
+          endMs: 14600,
+          quote: '我会先确认评估对象、并发规模、数据保留与可审计要求。'
+        }
+      ],
+      improvementActions: ['为每个关键取舍补充一个数量级、指标或真实项目结果。']
     }
   ],
   communicationMetrics: {
