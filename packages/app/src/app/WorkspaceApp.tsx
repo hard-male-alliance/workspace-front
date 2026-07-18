@@ -13,6 +13,8 @@ import {
 } from '../infrastructure/mock'
 import { InterviewRoomPage } from '../features/interview/InterviewRoomPage'
 import { InterviewSummaryPage } from '../features/interview/InterviewSummaryPage'
+import { InterviewHubPage } from '../features/interview/InterviewHubPage'
+import { InterviewSetupPage } from '../features/interview/InterviewSetupPage'
 import { KnowledgePage } from '../features/knowledge/KnowledgePage'
 import { KnowledgeVisibilityPage } from '../features/knowledge/KnowledgeVisibilityPage'
 import { ResumeEditorPage } from '../features/resume/ResumeEditorPage'
@@ -107,6 +109,8 @@ export function WorkspaceApp({ gateways, initialPath }: WorkspaceAppProps): Reac
             <Route element={<WorkspaceHomePage />} path="/" />
             <Route element={<ResumeEditorPage />} path="/resumes/:resumeId/edit" />
             <Route element={<TemplateSettingsPage />} path="/resumes/:resumeId/template" />
+            <Route element={<InterviewHubPage />} path="/interviews" />
+            <Route element={<InterviewSetupPage />} path="/interviews/new" />
             <Route element={<InterviewRoomPage />} path="/interviews/:sessionId" />
             <Route element={<InterviewSummaryPage />} path="/interviews/:sessionId/summary" />
             <Route element={<KnowledgePage />} path="/knowledge" />

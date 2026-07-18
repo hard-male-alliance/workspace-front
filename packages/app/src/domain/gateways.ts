@@ -6,16 +6,29 @@
 
 import type {
   UiContentLocale,
+  UiCreateInterviewInput,
+  UiCreateInterviewResult,
+  UiInterviewHistoryItem,
   UiInterviewReport,
+  UiInterviewRuntimeModel,
   UiInterviewScenario,
+  UiInterviewSetupModel,
   UiInterviewSessionId,
   UiKnowledgeSource,
   UiKnowledgeSourceId,
   UiKnowledgeVisibilityModel,
   UiLiveInterviewModel,
   UiResumeCard,
+  UiResumeAssistantMessageInput,
+  UiResumeAssistantTurnResult,
+  UiResumeAssistantUndoInput,
+  UiResumeAssistantUndoResult,
   UiResumeEditorModel,
   UiResumeId,
+  UiResumeSectionDeleteInput,
+  UiResumeSectionsReorderInput,
+  UiResumeSectionUpdateInput,
+  UiResumeTemplateSelectionInput,
   UiTemplateManifest,
   UiTemplateSettingsModel,
   UiWorkspace,
@@ -56,6 +69,36 @@ export interface ResumeGateway {
   getResumeEditor(resumeId: UiResumeId): Promise<UiResumeEditorModel>
 
   /**
+   * @brief 向简历助手发送自然语言 / Send natural language to the resume assistant.
+   * @param input 助手消息领域输入 / Assistant-message domain input.
+   * @return 助手消息与最新简历投影 / Assistant message and latest resume projection.
+   */
+  sendAssistantMessage(input: UiResumeAssistantMessageInput): Promise<UiResumeAssistantTurnResult>
+
+  /**
+   * @brief 撤销最近一次仍有效的 AI 变更 / Undo the latest still-valid AI change.
+   * @param input 撤销领域输入 / Undo domain input.
+   * @return 撤销后的编辑器投影 / Editor projection after undo.
+   */
+  undoAssistantChange(input: UiResumeAssistantUndoInput): Promise<UiResumeAssistantUndoResult>
+
+  /**
+   * @brief 提交用户对单个板块的编辑 / Submit a user-authored section edit.
+   * @param input 板块编辑领域输入 / Section-edit domain input.
+   * @return 最新编辑器投影 / Latest editor projection.
+   */
+  updateResumeSection(input: UiResumeSectionUpdateInput): Promise<UiResumeEditorModel>
+
+  /** @brief 调整简历板块顺序 / Reorder resume sections. */
+  reorderResumeSections(input: UiResumeSectionsReorderInput): Promise<UiResumeEditorModel>
+
+  /** @brief 删除简历板块 / Delete a resume section. */
+  deleteResumeSection(input: UiResumeSectionDeleteInput): Promise<UiResumeEditorModel>
+
+  /** @brief 快速切换简历模板 / Quickly select a resume template. */
+  selectResumeTemplate(input: UiResumeTemplateSelectionInput): Promise<UiResumeEditorModel>
+
+  /**
    * @brief 按界面语言列出模板 / List templates by UI locale.
    * @param locale 资源内容语言 / Resource-content locale.
    * @return 模板展示模型列表 / Template display models.
@@ -72,6 +115,15 @@ export interface ResumeGateway {
 
 /** @brief 模拟面试页面数据端口 / Mock-interview page-data port. */
 export interface InterviewGateway {
+  /** @brief 列出已完成且报告可用的面试 / List completed interviews with available reports. */
+  listCompletedInterviews(workspaceId: UiWorkspaceId): Promise<readonly UiInterviewHistoryItem[]>
+
+  /** @brief 获取新面试配置页数据 / Get new-interview setup data. */
+  getInterviewSetup(workspaceId: UiWorkspaceId): Promise<UiInterviewSetupModel>
+
+  /** @brief 创建一次面试练习 / Create an interview practice session. */
+  createInterview(input: UiCreateInterviewInput): Promise<UiCreateInterviewResult>
+
   /**
    * @brief 列出可用的面试场景 / List available interview scenarios.
    * @param workspaceId 工作区 ID / Workspace ID.
@@ -85,6 +137,12 @@ export interface InterviewGateway {
    * @return 实时面试页面模型 / Live-interview page model.
    */
   getLiveInterview(sessionId: UiInterviewSessionId): Promise<UiLiveInterviewModel>
+
+  /** @brief 获取正式面试运行状态 / Get the live interview runtime state. */
+  getInterviewRuntime(sessionId: UiInterviewSessionId): Promise<UiInterviewRuntimeModel>
+
+  /** @brief 结束当前录音并提交回答 / Finish and submit the current spoken answer. */
+  submitInterviewAnswer(sessionId: UiInterviewSessionId): Promise<UiInterviewRuntimeModel>
 
   /**
    * @brief 获取面试总结 / Get an interview summary.

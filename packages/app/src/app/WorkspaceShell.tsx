@@ -33,7 +33,7 @@ const navigationItems: readonly NavigationItem[] = [
     icon: BookOpenText
   },
   {
-    to: '/interviews/int_mock_system_design',
+    to: '/interviews',
     labelKey: 'nav.interview',
     defaultLabel: '面试',
     icon: BriefcaseBusiness
@@ -74,6 +74,14 @@ function readInitialTheme(): ThemeMode {
  * @return 用户可见的简短路径名称 / A short user-visible breadcrumb.
  */
 function getBreadcrumbKey(pathname: string): string {
+  if (pathname === '/interviews') {
+    return 'breadcrumbs.interviewHub'
+  }
+
+  if (pathname === '/interviews/new') {
+    return 'breadcrumbs.interviewSetup'
+  }
+
   if (pathname.includes('/template')) {
     return 'breadcrumbs.templateSettings'
   }

@@ -567,6 +567,93 @@ export interface UiResumeEditorModel {
   readonly assistantMessages: readonly UiResumeAssistantMessage[]
 }
 
+/** @brief 简历助手变更标识 / Resume-assistant change identifier. */
+export type UiResumeAssistantChangeId = UiOpaqueId<'resume-assistant-change'>
+
+/** @brief 向简历助手发送自然语言的领域输入 / Domain input for a resume-assistant message. */
+export interface UiResumeAssistantMessageInput {
+  /** @brief 目标简历 / Target resume. */
+  readonly resumeId: UiResumeId
+  /** @brief 用户自然语言 / User-authored natural language. */
+  readonly message: string
+  /** @brief 可选取消信号 / Optional cancellation signal. */
+  readonly signal?: AbortSignal
+}
+
+/** @brief 简历助手一次响应的领域结果 / Domain result of one resume-assistant turn. */
+export interface UiResumeAssistantTurnResult {
+  /** @brief 最新编辑器投影 / Latest editor projection. */
+  readonly editor: UiResumeEditorModel
+  /** @brief 本次助手消息 / Assistant message for this turn. */
+  readonly assistantMessage: UiResumeAssistantMessage
+  /** @brief 可撤销变更标识；未修改简历时为空 / Undoable change ID, or null without a change. */
+  readonly changeId: UiResumeAssistantChangeId | null
+  /** @brief 当前结果是否可撤销 / Whether this result can currently be undone. */
+  readonly canUndo: boolean
+}
+
+/** @brief 撤销简历助手变更的领域输入 / Domain input for undoing an assistant change. */
+export interface UiResumeAssistantUndoInput {
+  /** @brief 目标简历 / Target resume. */
+  readonly resumeId: UiResumeId
+  /** @brief 待撤销变更 / Change to undo. */
+  readonly changeId: UiResumeAssistantChangeId
+  /** @brief 可选取消信号 / Optional cancellation signal. */
+  readonly signal?: AbortSignal
+}
+
+/** @brief 撤销简历助手变更的领域结果 / Domain result of undoing an assistant change. */
+export interface UiResumeAssistantUndoResult {
+  /** @brief 撤销后的编辑器投影 / Editor projection after undo. */
+  readonly editor: UiResumeEditorModel
+  /** @brief 撤销后是否仍可继续单步撤销 / Whether another single-step undo remains. */
+  readonly canUndo: boolean
+}
+
+/** @brief 用户编辑简历板块的领域输入 / Domain input for a user-authored section edit. */
+export interface UiResumeSectionUpdateInput {
+  /** @brief 目标简历 / Target resume. */
+  readonly resumeId: UiResumeId
+  /** @brief 目标板块 / Target section. */
+  readonly sectionId: UiResumeSectionId
+  /** @brief 板块标题 / Section title. */
+  readonly title: string
+  /** @brief 纯文本正文 / Plain-text body. */
+  readonly content: string
+  /** @brief 可选取消信号 / Optional cancellation signal. */
+  readonly signal?: AbortSignal
+}
+
+/** @brief 调整简历板块顺序的领域输入 / Domain input for reordering resume sections. */
+export interface UiResumeSectionsReorderInput {
+  /** @brief 目标简历 / Target resume. */
+  readonly resumeId: UiResumeId
+  /** @brief 完整且有序的板块 ID / Complete ordered section IDs. */
+  readonly orderedSectionIds: readonly UiResumeSectionId[]
+  /** @brief 可选取消信号 / Optional cancellation signal. */
+  readonly signal?: AbortSignal
+}
+
+/** @brief 删除简历板块的领域输入 / Domain input for deleting a resume section. */
+export interface UiResumeSectionDeleteInput {
+  /** @brief 目标简历 / Target resume. */
+  readonly resumeId: UiResumeId
+  /** @brief 待删除板块 / Section to delete. */
+  readonly sectionId: UiResumeSectionId
+  /** @brief 可选取消信号 / Optional cancellation signal. */
+  readonly signal?: AbortSignal
+}
+
+/** @brief 快速切换简历模板的领域输入 / Domain input for quick template selection. */
+export interface UiResumeTemplateSelectionInput {
+  /** @brief 目标简历 / Target resume. */
+  readonly resumeId: UiResumeId
+  /** @brief 目标模板 / Target template. */
+  readonly templateId: UiTemplateId
+  /** @brief 可选取消信号 / Optional cancellation signal. */
+  readonly signal?: AbortSignal
+}
+
 /** @brief 模板设置页数据模型 / Template-settings page data model. */
 export interface UiTemplateSettingsModel {
   /** @brief 目标简历 ID / Target resume ID. */
@@ -739,6 +826,70 @@ export interface UiLiveInterviewModel {
   readonly interviewerText: string
   /** @brief 实时字幕 / Realtime transcript. */
   readonly transcript: readonly UiTranscriptEntry[]
+}
+
+/** @brief 已完成面试的历史列表投影 / Completed-interview history projection. */
+export interface UiInterviewHistoryItem {
+  /** @brief 面试会话 / Interview session. */
+  readonly sessionId: UiInterviewSessionId
+  /** @brief 目标岗位 / Target job. */
+  readonly jobTarget: UiJobTarget
+  /** @brief 面试类型 / Interview type. */
+  readonly interviewType: UiInterviewType
+  /** @brief 面试难度 / Interview difficulty. */
+  readonly difficulty: UiInterviewDifficulty
+  /** @brief 完成时间 / Completion time. */
+  readonly completedAt: string
+  /** @brief 实际时长（分钟）/ Actual duration in minutes. */
+  readonly durationMinutes: number
+  /** @brief 总评分；未形成权威分数时为空 / Overall score, or null without an authoritative score. */
+  readonly overallScore: number | null
+}
+
+/** @brief 新面试配置页投影 / New-interview setup projection. */
+export interface UiInterviewSetupModel {
+  /** @brief 可用场景 / Available scenarios. */
+  readonly scenarios: readonly UiInterviewScenario[]
+  /** @brief 已保存岗位目标 / Saved job targets. */
+  readonly jobTargets: readonly UiJobTarget[]
+}
+
+/** @brief 创建面试的领域输入 / Domain input for creating an interview. */
+export interface UiCreateInterviewInput {
+  readonly workspaceId: UiWorkspaceId
+  readonly jobTarget: UiJobTarget
+  readonly interviewType: UiInterviewType
+  readonly difficulty: UiInterviewDifficulty
+  readonly durationMinutes: number
+  readonly knowledgeSourceIds: readonly UiKnowledgeSourceId[]
+  readonly focusPrompt: string | null
+  readonly signal?: AbortSignal
+}
+
+/** @brief 创建面试的领域结果 / Domain result for creating an interview. */
+export interface UiCreateInterviewResult {
+  readonly sessionId: UiInterviewSessionId
+}
+
+/** @brief 正式面试页面阶段 / Live interview page phase. */
+export type UiInterviewRuntimePhase =
+  | 'interviewer_streaming'
+  | 'listening'
+  | 'submitting_answer'
+  | 'thinking'
+  | 'completion_ready'
+  | 'connection_failed'
+
+/** @brief 正式面试运行投影 / Live interview runtime projection. */
+export interface UiInterviewRuntimeModel {
+  readonly session: UiInterviewSession
+  readonly scenario: UiInterviewScenario
+  readonly phase: UiInterviewRuntimePhase
+  readonly transcript: readonly UiTranscriptEntry[]
+  readonly currentTranscript: string
+  readonly elapsedSeconds: number
+  readonly estimatedDurationMinutes: number
+  readonly isMock: boolean
 }
 
 /** @brief 面试证据引用 / Interview evidence reference. */
