@@ -122,7 +122,7 @@ export const zhSGTranslation = {
       knowledgeCount: '已就绪知识源',
       resumeTitle: 'AI 平台工程师简历',
       resumeMeta: 'Dawn 模板 · 语义修订 v18 · 本地草稿',
-      resumeActionMeta: '继续编辑内容与查看 Mock 预览',
+      resumeActionMeta: '继续编辑内容与生成 PDF 预览',
       continueTitle: '继续处理',
       continueDescription: '从上次停下的位置继续，不需要重新寻找入口。',
       nextTitle: '下一步',
@@ -134,7 +134,7 @@ export const zhSGTranslation = {
       visibilityMeta: '简历以外的资料默认拒绝访问',
       activityTitle: '最近活动',
       activityDescription: '当前 Mock 工作区中已记录的操作。',
-      mockNotice: '当前为 v0.1 Mock 展示；不会向后端发送任何简历、媒体或知识数据。'
+      mockNotice: '工作区与面试仍为 Mock；简历读取、写入、Proposal 审批和 PDF 已连接当前项目后端。'
     }
   },
   resume: {
@@ -192,9 +192,9 @@ export const zhSGTranslation = {
       moveDown: '下移{{name}}',
       deleteSection: '删除{{name}}',
       structuredItems: '包含 {{count}} 条结构化经历',
-      assistantError: 'Mock 助手暂时无法处理这条消息，请重试。',
+      assistantError: '暂时无法生成修改建议，请重试。',
       undoError: '这次 AI 修改已经无法撤销。',
-      sectionError: '板块修改未能保存到 Mock 状态。',
+      sectionError: '板块修改未能保存，请重试；若版本冲突请重新加载。',
       reorderError: '无法调整板块顺序。',
       deleteError: '无法删除这个板块。'
     }
@@ -706,7 +706,7 @@ export const enUSTranslation = {
       knowledgeCount: 'Ready knowledge sources',
       resumeTitle: 'AI Platform Engineer resume',
       resumeMeta: 'Dawn template · semantic revision v18 · local draft',
-      resumeActionMeta: 'Continue editing content and reviewing the Mock preview',
+      resumeActionMeta: 'Continue editing content and generating a PDF preview',
       continueTitle: 'Continue working',
       continueDescription: 'Resume where you stopped without searching for the right entry point.',
       nextTitle: 'Next steps',
@@ -719,7 +719,7 @@ export const enUSTranslation = {
       activityTitle: 'Recent activity',
       activityDescription: 'Recorded actions from the current Mock workspace.',
       mockNotice:
-        'This is a v0.1 Mock experience; no resume, media, or knowledge data is sent to a backend.'
+        'Workspace and interviews still use Mock data; Resume reads, writes, Proposal decisions, and PDF rendering use the project backend.'
     }
   },
   resume: {
@@ -780,9 +780,9 @@ export const enUSTranslation = {
       moveDown: 'Move {{name}} down',
       deleteSection: 'Delete {{name}}',
       structuredItems: 'Contains {{count}} structured entries',
-      assistantError: 'The Mock assistant could not process this message. Try again.',
+      assistantError: 'A change Proposal could not be generated. Try again.',
       undoError: 'This AI change can no longer be undone.',
-      sectionError: 'The section change could not be saved to Mock state.',
+      sectionError: 'The section could not be saved. Reload first if its revision has changed.',
       reorderError: 'The section order could not be changed.',
       deleteError: 'This section could not be deleted.'
     }

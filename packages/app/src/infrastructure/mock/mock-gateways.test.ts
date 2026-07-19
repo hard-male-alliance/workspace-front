@@ -115,6 +115,46 @@ describe('Mock gateways', () => {
     ).toBe(true)
   })
 
+  it('keeps a Mock Proposal pending until the user accepts or rejects it', async () => {
+    const resumeGateway = new MockResumeGateway()
+    const before = await resumeGateway.getResumeEditor(MOCK_RESUME_ID)
+
+    const proposal = await resumeGateway.createResumeProposal({
+      message: '把职业摘要改得更突出量化成果',
+      resumeId: MOCK_RESUME_ID
+    })
+
+    expect(await resumeGateway.listResumeProposals(MOCK_RESUME_ID)).toEqual([proposal])
+    expect((await resumeGateway.getResumeEditor(MOCK_RESUME_ID)).resume.revision).toBe(
+      before.resume.revision
+    )
+
+    const accepted = await resumeGateway.decideResumeProposal({
+      decision: 'accept',
+      proposalId: proposal.id
+    })
+    expect(accepted.status).toBe('accepted')
+    expect((await resumeGateway.getResumeEditor(MOCK_RESUME_ID)).resume.revision).toBeGreaterThan(
+      before.resume.revision
+    )
+  })
+
+  it('keeps Mock PDF rendering split into start, status, and artifact recovery', async () => {
+    const resumeGateway = new MockResumeGateway()
+
+    const started = await resumeGateway.startResumePdfRender({
+      resumeId: MOCK_RESUME_ID,
+      resumeRevision: 18
+    })
+    const completed = await resumeGateway.getResumeRenderJob(started.id)
+    const artifacts = await resumeGateway.listResumePdfArtifacts(MOCK_RESUME_ID)
+
+    expect(started.status).toBe('queued')
+    expect(completed.status).toBe('succeeded')
+    expect(completed.artifacts).toHaveLength(1)
+    expect(artifacts).toEqual(completed.artifacts)
+  })
+
   it('applies an assistant revision immediately and can undo the latest AI change', async () => {
     /** @brief 简历 Mock 网关 / Resume Mock gateway. */
     const resumeGateway = new MockResumeGateway()

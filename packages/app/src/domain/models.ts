@@ -557,6 +557,38 @@ export interface UiResumePreviewModel {
   readonly diagnostic: string | null
 }
 
+/** @brief PDF Render artifact 展示模型 / PDF Render artifact display model. */
+export interface UiResumePdfArtifact {
+  readonly id: UiOpaqueId<'resume-pdf-artifact'>
+  readonly resumeId: UiResumeId
+  readonly resumeRevision: number
+  readonly contentUrl: string
+  readonly pageCount: number | null
+  readonly createdAt: string
+}
+
+/** @brief Resume Render Job 状态 / Resume Render Job status. */
+export type UiResumeRenderJobStatus =
+  'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'expired'
+
+/** @brief Resume Render Job 展示模型 / Resume Render Job display model. */
+export interface UiResumeRenderJob {
+  readonly id: UiOpaqueId<'resume-render-job'>
+  readonly resumeId: UiResumeId
+  readonly resumeRevision: number
+  readonly status: UiResumeRenderJobStatus
+  readonly progressPercent: number | null
+  readonly artifacts: readonly UiResumePdfArtifact[]
+  readonly diagnostic: string | null
+}
+
+/** @brief 启动 PDF preview Render Job 输入 / Start-PDF-preview input. */
+export interface UiStartResumePdfRenderInput {
+  readonly resumeId: UiResumeId
+  readonly resumeRevision: number
+  readonly signal?: AbortSignal
+}
+
 /** @brief 简历编辑器整页数据模型 / Resume-editor page data model. */
 export interface UiResumeEditorModel {
   /** @brief 简历文档 / Resume document. */
@@ -569,6 +601,32 @@ export interface UiResumeEditorModel {
 
 /** @brief 简历助手变更标识 / Resume-assistant change identifier. */
 export type UiResumeAssistantChangeId = UiOpaqueId<'resume-assistant-change'>
+
+/** @brief Resume Proposal 标识 / Resume Proposal identifier. */
+export type UiResumeProposalId = UiOpaqueId<'resume-proposal'>
+
+/** @brief Resume Proposal 状态 / Resume Proposal status. */
+export type UiResumeProposalStatus =
+  'pending' | 'accepted' | 'partially_accepted' | 'rejected' | 'expired' | 'conflicted'
+
+/** @brief 待用户审批的结构化简历建议 / Structured Resume suggestion awaiting user approval. */
+export interface UiResumeProposal {
+  readonly id: UiResumeProposalId
+  readonly resumeId: UiResumeId
+  readonly baseRevision: number
+  readonly title: string
+  readonly summary: string | null
+  readonly changes: readonly string[]
+  readonly status: UiResumeProposalStatus
+  readonly createdAt: string
+}
+
+/** @brief Proposal 接受或拒绝输入 / Proposal accept-or-reject input. */
+export interface UiResumeProposalDecisionInput {
+  readonly proposalId: UiResumeProposalId
+  readonly decision: 'accept' | 'reject'
+  readonly signal?: AbortSignal
+}
 
 /** @brief 向简历助手发送自然语言的领域输入 / Domain input for a resume-assistant message. */
 export interface UiResumeAssistantMessageInput {

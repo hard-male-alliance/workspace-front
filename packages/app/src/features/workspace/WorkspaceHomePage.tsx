@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 
 import { useAppGateways, useAsyncResource } from '../../app/AppData'
-import type { UiWorkspaceActivity, UiWorkspaceHomeModel } from '../../domain'
+import type { UiResumeCard, UiWorkspaceActivity, UiWorkspaceHomeModel } from '../../domain'
 import { ErrorState, LoadingState } from '../../ui'
 
 /**
@@ -37,9 +37,11 @@ function getActivityTone(activity: UiWorkspaceActivity): string {
  * @return 以行动为中心的今日工作台 / Action-first daily workspace.
  */
 function WorkspaceHomeContent({
-  home
+  home,
+  resumeCard
 }: {
   readonly home: UiWorkspaceHomeModel
+  readonly resumeCard: UiResumeCard | null
 }): React.JSX.Element {
   /** @brief 翻译函数 / Translation function. */
   const { i18n, t } = useTranslation()
@@ -72,25 +74,32 @@ function WorkspaceHomeContent({
               {t('workspace.home.focusLabel', { defaultValue: '今日最重要的事' })}
             </h2>
             <h3>
-              {t('workspace.home.focusTitle', { defaultValue: '继续完善 AI 平台工程师简历' })}
+              {resumeCard?.title ??
+                t('workspace.home.emptyResumeTitle', { defaultValue: '还没有可编辑的简历' })}
             </h3>
             <p>
-              {t('workspace.home.focusDescription', {
-                defaultValue: '从项目经历开始，把成果写得更具体，再进入模拟面试。'
-              })}
+              {resumeCard === null
+                ? t('workspace.home.emptyResumeDescription', {
+                    defaultValue: '后端当前没有返回简历，创建协议冻结后可从这里开始。'
+                  })
+                : t('workspace.home.focusDescription', {
+                    defaultValue: '从项目经历开始，把成果写得更具体，再进入模拟面试。'
+                  })}
             </p>
           </div>
           <div className="aw-focus-meta">
-            <span>
-              <FileText aria-hidden="true" size={15} />
-              {t('workspace.home.resumeMeta', {
-                defaultValue: 'Dawn 模板 · 语义修订 v18 · 本地草稿'
-              })}
-            </span>
-            <Link className="aw-primary-button" to="/resumes/res_mock_ai_platform/edit">
-              {t('workspace.home.continueEditing', { defaultValue: '继续编辑简历' })}
-              <ArrowRight aria-hidden="true" size={15} />
-            </Link>
+            {resumeCard === null ? null : (
+              <>
+                <span>
+                  <FileText aria-hidden="true" size={15} />
+                  {resumeCard.templateName} · v{resumeCard.revision}
+                </span>
+                <Link className="aw-primary-button" to={`/resumes/${resumeCard.id}/edit`}>
+                  {t('workspace.home.continueEditing', { defaultValue: '继续编辑简历' })}
+                  <ArrowRight aria-hidden="true" size={15} />
+                </Link>
+              </>
+            )}
           </div>
         </section>
 
@@ -139,22 +148,38 @@ function WorkspaceHomeContent({
             </div>
           </div>
           <div className="aw-action-list">
-            <Link className="aw-action-row" to="/resumes/res_mock_ai_platform/edit">
-              <span className="aw-action-icon">
-                <FileText aria-hidden="true" size={18} />
-              </span>
-              <span className="aw-action-copy">
-                <strong>
-                  {t('workspace.home.resumeTitle', { defaultValue: 'AI 平台工程师简历' })}
-                </strong>
-                <small>
-                  {t('workspace.home.resumeActionMeta', {
-                    defaultValue: '继续编辑内容与查看 Mock 预览'
-                  })}
-                </small>
-              </span>
-              <ArrowRight aria-hidden="true" size={16} />
-            </Link>
+            {resumeCard === null ? (
+              <div className="aw-action-row">
+                <span className="aw-action-icon">
+                  <FileText aria-hidden="true" size={18} />
+                </span>
+                <span className="aw-action-copy">
+                  <strong>
+                    {t('workspace.home.emptyResumeTitle', { defaultValue: '还没有可编辑的简历' })}
+                  </strong>
+                  <small>
+                    {t('workspace.home.emptyResumeAction', {
+                      defaultValue: '等待正式创建协议接入'
+                    })}
+                  </small>
+                </span>
+              </div>
+            ) : (
+              <Link className="aw-action-row" to={`/resumes/${resumeCard.id}/edit`}>
+                <span className="aw-action-icon">
+                  <FileText aria-hidden="true" size={18} />
+                </span>
+                <span className="aw-action-copy">
+                  <strong>{resumeCard.title}</strong>
+                  <small>
+                    {t('workspace.home.resumeActionMeta', {
+                      defaultValue: '继续编辑内容与查看 Mock 预览'
+                    })}
+                  </small>
+                </span>
+                <ArrowRight aria-hidden="true" size={16} />
+              </Link>
+            )}
             <Link className="aw-action-row" to="/interviews/int_mock_system_design">
               <span className="aw-action-icon">
                 <BriefcaseBusiness aria-hidden="true" size={18} />
@@ -242,9 +267,12 @@ export function WorkspaceHomePage(): React.JSX.Element {
   /** @brief 翻译函数 / Translation function. */
   const { t } = useTranslation()
   /** @brief 工作区 gateway / Workspace gateway. */
-  const { workspace } = useAppGateways()
+  const { resume, workspace } = useAppGateways()
   /** @brief 稳定的首页加载器 / Stable home-data loader. */
-  const loadHome = useCallback(async (): Promise<UiWorkspaceHomeModel> => {
+  const loadHome = useCallback(async (): Promise<{
+    readonly home: UiWorkspaceHomeModel
+    readonly resumeCard: UiResumeCard | null
+  }> => {
     /** @brief 可访问的工作区列表 / Accessible workspace list. */
     const workspaces = await workspace.listWorkspaces()
     /** @brief 当前演示工作区 / Current demo workspace. */
@@ -254,8 +282,15 @@ export function WorkspaceHomePage(): React.JSX.Element {
       throw new Error('No workspace is available for the current user.')
     }
 
-    return workspace.getWorkspaceHome(firstWorkspace.id)
-  }, [workspace])
+    const [home, resumeCards] = await Promise.all([
+      workspace.getWorkspaceHome(firstWorkspace.id),
+      resume.listResumeCards(firstWorkspace.id)
+    ])
+    const resumeCard =
+      [...resumeCards].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ??
+      null
+    return { home, resumeCard }
+  }, [resume, workspace])
   /** @brief 首页异步资源 / Home async resource. */
   const home = useAsyncResource(loadHome)
 
@@ -280,5 +315,5 @@ export function WorkspaceHomePage(): React.JSX.Element {
     )
   }
 
-  return <WorkspaceHomeContent home={home.data} />
+  return <WorkspaceHomeContent home={home.data.home} resumeCard={home.data.resumeCard} />
 }

@@ -32,12 +32,17 @@ import type {
   UiResumeAssistantUndoResult,
   UiResumeEditorModel,
   UiResumeId,
+  UiResumeProposal,
+  UiResumeProposalDecisionInput,
+  UiResumePdfArtifact,
+  UiResumeRenderJob,
   UiResumeSectionDeleteInput,
   UiResumeSectionsReorderInput,
   UiResumeSectionUpdateInput,
   UiResumeTemplateSelectionInput,
   UiTemplateManifest,
   UiTemplateSettingsModel,
+  UiStartResumePdfRenderInput,
   UiWorkspace,
   UiWorkspaceHomeModel,
   UiWorkspaceId
@@ -222,6 +227,21 @@ export class MockResumeGateway extends MockGatewayBase implements ResumeGateway 
   /** @brief 确定性消息序号 / Deterministic message sequence. */
   private messageSequence = 0
 
+  /** @brief 当前实例内待审批 Proposal / Pending Proposals owned by this instance. */
+  private proposals: UiResumeProposal[] = []
+
+  /** @brief Mock Proposal 对应的原始指令 / Original instructions for Mock Proposals. */
+  private readonly proposalInstructions = new Map<string, string>()
+
+  /** @brief 确定性 Proposal 序号 / Deterministic Proposal sequence. */
+  private proposalSequence = 0
+
+  /** @brief Mock Render Jobs / Mock Render Jobs. */
+  private readonly renderJobs = new Map<string, UiResumeRenderJob>()
+
+  /** @brief 已完成的 Mock PDF artifacts / Completed Mock PDF artifacts. */
+  private pdfArtifacts: UiResumePdfArtifact[] = []
+
   /**
    * @brief 构造简历 Mock 网关 / Construct the resume Mock gateway.
    * @param options Mock 行为选项 / Mock behavior options.
@@ -257,6 +277,111 @@ export class MockResumeGateway extends MockGatewayBase implements ResumeGateway 
     }
 
     return cloneMockValue(this.editor)
+  }
+
+  async listResumeProposals(resumeId: UiResumeId): Promise<readonly UiResumeProposal[]> {
+    await this.prepareMockRead()
+    return cloneMockValue(
+      this.proposals.filter(
+        (proposal) => proposal.resumeId === resumeId && proposal.status === 'pending'
+      )
+    )
+  }
+
+  async createResumeProposal(input: UiResumeAssistantMessageInput): Promise<UiResumeProposal> {
+    await this.prepareMockRead()
+    if (input.resumeId !== MOCK_RESUME_ID) return this.throwMockNotFound('resume editor')
+    const instruction = input.message.trim()
+    if (instruction.length === 0) {
+      throw new MockGatewayError('mock.conflict', 'Mock Proposal instructions cannot be empty.')
+    }
+    this.proposalSequence += 1
+    const proposal: UiResumeProposal = {
+      baseRevision: this.editor.resume.revision,
+      changes: ['set_field'],
+      createdAt: '2026-07-18T00:00:00.000Z',
+      id: asUiOpaqueId<'resume-proposal'>(`proposal_mock_${this.proposalSequence}`),
+      resumeId: input.resumeId,
+      status: 'pending',
+      summary: '将根据你的指令更新职业摘要；接受前不会写入简历。',
+      title: '职业摘要修改建议'
+    }
+    this.proposals = [...this.proposals, proposal]
+    this.proposalInstructions.set(proposal.id, instruction)
+    return cloneMockValue(proposal)
+  }
+
+  async decideResumeProposal(input: UiResumeProposalDecisionInput): Promise<UiResumeProposal> {
+    await this.prepareMockRead()
+    const proposal = this.proposals.find((item) => item.id === input.proposalId)
+    if (proposal === undefined || proposal.status !== 'pending') {
+      return this.throwMockNotFound('resume proposal')
+    }
+    if (input.decision === 'accept') {
+      const instruction = this.proposalInstructions.get(proposal.id)
+      if (instruction === undefined) return this.throwMockNotFound('resume proposal instruction')
+      await this.sendAssistantMessage({ message: instruction, resumeId: proposal.resumeId })
+    }
+    const decided: UiResumeProposal = {
+      ...proposal,
+      status: input.decision === 'accept' ? 'accepted' : 'rejected'
+    }
+    this.proposals = this.proposals.map((item) => (item.id === proposal.id ? decided : item))
+    this.proposalInstructions.delete(proposal.id)
+    return cloneMockValue(decided)
+  }
+
+  async startResumePdfRender(input: UiStartResumePdfRenderInput): Promise<UiResumeRenderJob> {
+    await this.prepareMockRead()
+    input.signal?.throwIfAborted()
+    if (input.resumeId !== MOCK_RESUME_ID) return this.throwMockNotFound('resume editor')
+    const job: UiResumeRenderJob = {
+      artifacts: [],
+      diagnostic: null,
+      id: asUiOpaqueId<'resume-render-job'>(`render_mock_${input.resumeRevision}`),
+      progressPercent: 0,
+      resumeId: input.resumeId,
+      resumeRevision: input.resumeRevision,
+      status: 'queued'
+    }
+    this.renderJobs.set(job.id, job)
+    return cloneMockValue(job)
+  }
+
+  async getResumeRenderJob(
+    jobId: UiResumeRenderJob['id'],
+    signal?: AbortSignal
+  ): Promise<UiResumeRenderJob> {
+    await this.prepareMockRead()
+    signal?.throwIfAborted()
+    const job = this.renderJobs.get(jobId)
+    if (job === undefined) return this.throwMockNotFound('resume render job')
+    const artifact: UiResumePdfArtifact = {
+      contentUrl: 'about:blank#mock-resume-pdf',
+      createdAt: '2026-07-18T00:00:05.000Z',
+      id: asUiOpaqueId<'resume-pdf-artifact'>(`artifact_mock_${job.resumeRevision}`),
+      pageCount: 1,
+      resumeId: job.resumeId,
+      resumeRevision: job.resumeRevision
+    }
+    const completed: UiResumeRenderJob = {
+      ...job,
+      artifacts: [artifact],
+      progressPercent: 100,
+      status: 'succeeded'
+    }
+    this.renderJobs.set(jobId, completed)
+    this.pdfArtifacts = [artifact]
+    return cloneMockValue(completed)
+  }
+
+  async listResumePdfArtifacts(
+    resumeId: UiResumeId,
+    signal?: AbortSignal
+  ): Promise<readonly UiResumePdfArtifact[]> {
+    await this.prepareMockRead()
+    signal?.throwIfAborted()
+    return cloneMockValue(this.pdfArtifacts.filter((artifact) => artifact.resumeId === resumeId))
   }
 
   /**

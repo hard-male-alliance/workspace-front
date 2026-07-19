@@ -27,7 +27,7 @@ const navigationItems: readonly NavigationItem[] = [
     icon: LayoutDashboard
   },
   {
-    to: '/resumes/res_mock_ai_platform/edit',
+    to: '/resumes',
     labelKey: 'nav.resume',
     defaultLabel: '简历',
     icon: BookOpenText

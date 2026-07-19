@@ -25,12 +25,17 @@ import type {
   UiResumeAssistantUndoResult,
   UiResumeEditorModel,
   UiResumeId,
+  UiResumeProposal,
+  UiResumeProposalDecisionInput,
+  UiResumePdfArtifact,
+  UiResumeRenderJob,
   UiResumeSectionDeleteInput,
   UiResumeSectionsReorderInput,
   UiResumeSectionUpdateInput,
   UiResumeTemplateSelectionInput,
   UiTemplateManifest,
   UiTemplateSettingsModel,
+  UiStartResumePdfRenderInput,
   UiWorkspace,
   UiWorkspaceHomeModel,
   UiWorkspaceId
@@ -67,6 +72,33 @@ export interface ResumeGateway {
    * @return 编辑器页面展示模型 / Editor-page display model.
    */
   getResumeEditor(resumeId: UiResumeId): Promise<UiResumeEditorModel>
+
+  /** @brief 恢复当前简历待审批 Proposal / Recover pending Proposals for a Resume. */
+  listResumeProposals(
+    resumeId: UiResumeId,
+    signal?: AbortSignal
+  ): Promise<readonly UiResumeProposal[]>
+
+  /** @brief 根据自然语言创建待审批 Proposal / Create an approval-gated Proposal from natural language. */
+  createResumeProposal(input: UiResumeAssistantMessageInput): Promise<UiResumeProposal>
+
+  /** @brief 接受或拒绝 Proposal / Accept or reject a Proposal. */
+  decideResumeProposal(input: UiResumeProposalDecisionInput): Promise<UiResumeProposal>
+
+  /** @brief 启动 PDF preview Render Job / Start a PDF preview Render Job. */
+  startResumePdfRender(input: UiStartResumePdfRenderInput): Promise<UiResumeRenderJob>
+
+  /** @brief 查询 Resume Render Job / Get a Resume Render Job. */
+  getResumeRenderJob(
+    jobId: UiResumeRenderJob['id'],
+    signal?: AbortSignal
+  ): Promise<UiResumeRenderJob>
+
+  /** @brief 恢复 Resume 的 PDF artifacts / Recover PDF artifacts for a Resume. */
+  listResumePdfArtifacts(
+    resumeId: UiResumeId,
+    signal?: AbortSignal
+  ): Promise<readonly UiResumePdfArtifact[]>
 
   /**
    * @brief 向简历助手发送自然语言 / Send natural language to the resume assistant.

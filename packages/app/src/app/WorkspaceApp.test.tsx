@@ -1,8 +1,14 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup } from '@testing-library/react'
 import { appI18n, appI18nReady } from '../i18n'
 import { WorkspaceApp } from './WorkspaceApp'
+import {
+  MockInterviewGateway,
+  MockKnowledgeGateway,
+  MockResumeGateway,
+  MockWorkspaceGateway
+} from '../infrastructure/mock'
 
 /** @brief 每个测试后的 DOM 清理 / DOM cleanup after every test. */
 afterEach((): void => {
@@ -59,10 +65,7 @@ describe('WorkspaceApp', (): void => {
     expect(screen.getByRole('heading', { name: '最近活动' })).toBeInTheDocument()
 
     expect(screen.getByRole('link', { name: '工作台' })).toHaveAttribute('href', '/')
-    expect(screen.getByRole('link', { name: '简历' })).toHaveAttribute(
-      'href',
-      '/resumes/res_mock_ai_platform/edit'
-    )
+    expect(screen.getByRole('link', { name: '简历' })).toHaveAttribute('href', '/resumes')
     expect(screen.getByRole('link', { name: '模拟面试' })).toHaveAttribute('href', '/interviews')
     expect(screen.getByRole('link', { name: '知识库' })).toHaveAttribute('href', '/knowledge')
     expect(screen.queryByRole('link', { name: '可见性' })).not.toBeInTheDocument()
@@ -76,10 +79,7 @@ describe('WorkspaceApp', (): void => {
     render(<WorkspaceApp initialPath="/" />)
 
     expect(await screen.findByRole('heading', { name: "Today's workspace" })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Resume' })).toHaveAttribute(
-      'href',
-      '/resumes/res_mock_ai_platform/edit'
-    )
+    expect(screen.getByRole('link', { name: 'Resume' })).toHaveAttribute('href', '/resumes')
     expect(screen.getByRole('link', { name: 'Mock interview' })).toHaveAttribute(
       'href',
       '/interviews'
@@ -124,7 +124,7 @@ describe('WorkspaceApp', (): void => {
     expect(screen.queryAllByRole('separator')).toHaveLength(0)
   })
 
-  it('applies an AI revision immediately and lets the student undo the latest change', async (): Promise<void> => {
+  it('keeps an AI Proposal pending until the student explicitly accepts it', async (): Promise<void> => {
     await resetChineseLocale()
 
     render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
@@ -135,24 +135,86 @@ describe('WorkspaceApp', (): void => {
     })
     fireEvent.click(screen.getByRole('button', { name: '发送消息' }))
 
-    expect(
-      await screen.findByText('已直接更新职业摘要，突出可验证的工程结果。')
-    ).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '职业摘要修改建议' })).toBeInTheDocument()
     expect(
       screen.getByDisplayValue(
+        '面向生产环境构建可靠的 AI 平台与开发者工具，专注检索、推理编排和可观测性。'
+      )
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '接受建议' }))
+    expect(
+      await screen.findByDisplayValue(
         '将模型推理延迟从 1.8 秒降低至 620 毫秒，并建立可复用的 AI 平台能力。'
       )
     ).toBeInTheDocument()
-    expect(
-      screen.getAllByText('将模型推理延迟从 1.8 秒降低至 620 毫秒，并建立可复用的 AI 平台能力。')
-    ).toHaveLength(2)
+  })
 
-    fireEvent.click(screen.getByRole('button', { name: '撤销本次 AI 修改' }))
+  it('rejects a pending AI Proposal without changing the Resume', async (): Promise<void> => {
+    await resetChineseLocale()
+
+    render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
+    await screen.findByRole('heading', { name: 'Klee Chen' })
+    fireEvent.change(screen.getByRole('textbox', { name: '询问简历助手' }), {
+      target: { value: '把职业摘要改得更突出量化成果' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }))
+    await screen.findByRole('heading', { name: '职业摘要修改建议' })
+
+    fireEvent.click(screen.getByRole('button', { name: '拒绝建议' }))
+
     expect(
       await screen.findByDisplayValue(
         '面向生产环境构建可靠的 AI 平台与开发者工具，专注检索、推理编排和可观测性。'
       )
     ).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '职业摘要修改建议' })).not.toBeInTheDocument()
+  })
+
+  it('starts a PDF Render Job and displays the completed artifact', async (): Promise<void> => {
+    await resetChineseLocale()
+
+    render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
+    await screen.findByRole('heading', { name: 'Klee Chen' })
+
+    fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
+
+    expect(await screen.findByTitle('简历 PDF 预览')).toHaveAttribute(
+      'src',
+      'about:blank#mock-resume-pdf'
+    )
+    expect(screen.getByRole('link', { name: '下载 PDF' })).toHaveAttribute(
+      'href',
+      'about:blank#mock-resume-pdf'
+    )
+  })
+
+  it('aborts PDF polling when the Resume page unmounts', async (): Promise<void> => {
+    await resetChineseLocale()
+    const resume = new MockResumeGateway()
+    let pollingSignal: AbortSignal | undefined
+    vi.spyOn(resume, 'getResumeRenderJob').mockImplementation((_jobId, signal): Promise<never> => {
+      pollingSignal = signal
+      return new Promise<never>(() => undefined)
+    })
+    const view = render(
+      <WorkspaceApp
+        gateways={{
+          interview: new MockInterviewGateway(),
+          knowledge: new MockKnowledgeGateway(),
+          resume,
+          workspace: new MockWorkspaceGateway()
+        }}
+        initialPath="/resumes/res_mock_ai_platform/edit"
+      />
+    )
+    await screen.findByRole('heading', { name: 'Klee Chen' })
+    fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
+    await vi.waitFor((): void => expect(pollingSignal).toBeDefined())
+
+    view.unmount()
+
+    expect(pollingSignal?.aborted).toBe(true)
   })
 
   it('offers section ordering, deletion, and quick template selection in the workspace', async (): Promise<void> => {
