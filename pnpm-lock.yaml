@@ -118,6 +118,9 @@ importers:
 
   packages/app:
     dependencies:
+      '@ai-job-workspace/platform':
+        specifier: workspace:*
+        version: link:../platform
       i18next:
         specifier: ^26.3.6
         version: 26.3.6(typescript@6.0.3)

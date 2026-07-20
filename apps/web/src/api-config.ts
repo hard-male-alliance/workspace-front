@@ -1,5 +1,7 @@
 /** @file Web API 地址配置 / Web API endpoint configuration. */
 
+import { resolveCspSafeHttpOrigin } from '@ai-job-workspace/platform'
+
 /** @brief Web 构建可读取的公开 API 环境变量 / Public API environment values available to Web builds. */
 export interface PublicApiEnvironment {
   readonly VITE_API_BASE_URL?: string | undefined
@@ -20,27 +22,15 @@ function hasValue(value: string | undefined): value is string {
 
 /** @brief 校验并规范化 HTTP(S) origin / Validate and normalize an HTTP(S) origin. */
 function validateOrigin(value: string): string {
-  let url: URL
-  try {
-    url = new URL(value)
-  } catch {
-    throw new ApiConfigurationError('The API endpoint must be a valid HTTP(S) origin.')
-  }
-
-  if (
-    (url.protocol !== 'http:' && url.protocol !== 'https:') ||
-    url.username.length > 0 ||
-    url.password.length > 0 ||
-    url.pathname !== '/' ||
-    url.search.length > 0 ||
-    url.hash.length > 0
-  ) {
+  /** @brief CSP-safe HTTP(S) origin，失败时为 undefined / CSP-safe HTTP(S) origin, or undefined on failure. */
+  const origin = resolveCspSafeHttpOrigin(value)
+  if (origin === undefined) {
     throw new ApiConfigurationError(
-      'The API endpoint must be an HTTP(S) origin without credentials, path, query, or hash.'
+      'The API endpoint must be a CSP-safe HTTP(S) hostname origin without credentials, path, query, or hash.'
     )
   }
 
-  return url.origin
+  return origin
 }
 
 /**

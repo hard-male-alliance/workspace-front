@@ -1,11 +1,17 @@
 /** @brief 共享跨端 React 应用导出 / Shared cross-platform React application exports. */
 export * from './app/AppData'
+/** @brief 应用诊断上下文与边界导出 / Application diagnostics context and boundary exports. */
+export * from './app/Diagnostics'
 /** @brief 共享平台运行时钩子导出 / Shared platform-runtime hook exports. */
 export * from './app/runtime'
 /** @brief 共享应用根导出 / Shared application-root exports. */
 export * from './app/WorkspaceApp'
 /** @brief 前端 UI 投影与端口导出 / Frontend UI projections and ports exports. */
 export * from './domain'
+/** @brief 前端可观测性端口导出 / Frontend observability-port exports. */
+export * from './observability'
+/** @brief 前端诊断基础设施导出 / Frontend diagnostics-infrastructure exports. */
+export * from './infrastructure/observability'
 /** @brief i18n 导出 / i18n exports. */
 export * from './i18n'
 /** @brief 真实 HTTP 基础设施导出 / Real HTTP infrastructure exports. */

@@ -47,9 +47,12 @@ describe('resolveApiBaseUrl', (): void => {
     ).toThrowError(ApiConfigurationError)
   })
 
-  it('rejects credentials, paths, and invalid ports', (): void => {
+  it('rejects credentials, CSP separators, paths, and invalid ports', (): void => {
     expect(() =>
       resolveApiBaseUrl({ VITE_API_BASE_URL: 'https://user:secret@example.test/api' })
+    ).toThrowError(ApiConfigurationError)
+    expect(() =>
+      resolveApiBaseUrl({ VITE_API_BASE_URL: 'https://api.example.test;script-src' })
     ).toThrowError(ApiConfigurationError)
     expect(() =>
       resolveApiBaseUrl({

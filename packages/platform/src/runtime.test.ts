@@ -11,5 +11,6 @@ describe('createWebPlatformBridge', () => {
       platform: 'web',
       appVersion: '0.1.0-test'
     })
+    await expect(bridge.getRuntimeInfo()).resolves.not.toHaveProperty('diagnosticsEndpoint')
   })
 })

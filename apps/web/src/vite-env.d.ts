@@ -5,6 +5,9 @@ interface ImportMetaEnv {
   readonly VITE_API_PROTOCOL?: string | undefined
   readonly VITE_API_HOSTNAME?: string | undefined
   readonly VITE_API_PORT?: string | undefined
+  readonly VITE_DIAGNOSTICS_HOSTNAME?: string | undefined
+  readonly VITE_DIAGNOSTICS_PORT?: string | undefined
+  readonly VITE_DIAGNOSTICS_PROTOCOL?: string | undefined
 }
 
 interface ImportMeta {
