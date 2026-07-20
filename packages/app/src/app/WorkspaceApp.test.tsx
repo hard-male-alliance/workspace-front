@@ -4,6 +4,7 @@ import { cleanup } from '@testing-library/react'
 import { appI18n, appI18nReady } from '../i18n'
 import type { WorkspaceAppProps } from './WorkspaceApp'
 import { WorkspaceApp as SharedWorkspaceApp } from './WorkspaceApp'
+import { createDiagnostics } from '../infrastructure/observability'
 import {
   MOCK_KNOWLEDGE_SOURCES,
   MOCK_RESUME_ID,
@@ -14,15 +15,24 @@ import {
 } from '../infrastructure/mock'
 import { HttpProblemError } from '../infrastructure/http/http-client'
 
-type TestWorkspaceAppProps = Omit<WorkspaceAppProps, 'gateways'> & {
+type TestWorkspaceAppProps = Omit<WorkspaceAppProps, 'diagnostics' | 'gateways'> & {
+  readonly diagnostics?: WorkspaceAppProps['diagnostics']
   readonly gateways?: WorkspaceAppProps['gateways']
 }
 
+/** @brief 测试共享的无输出 Diagnostics / Shared no-output Diagnostics for tests. */
+const testDiagnostics = createDiagnostics({ sinks: [] })
+
 /** @brief 为测试渲染提供隔离的默认 Mock Gateway / Provide isolated default Mock Gateways for tests. */
-function WorkspaceApp({ gateways, ...props }: TestWorkspaceAppProps): React.JSX.Element {
+function WorkspaceApp({
+  diagnostics,
+  gateways,
+  ...props
+}: TestWorkspaceAppProps): React.JSX.Element {
   return (
     <SharedWorkspaceApp
       {...props}
+      diagnostics={diagnostics ?? testDiagnostics}
       gateways={
         gateways ?? {
           workspace: new MockWorkspaceGateway(),

@@ -3,7 +3,14 @@ import type { ReactNode } from 'react'
 import { BrowserRouter, MemoryRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AppDataProvider } from './AppData'
 import type { AppGateways } from './AppData'
+import {
+  DiagnosticsBoundary,
+  DiagnosticsProvider,
+  DiagnosticsRouteObserver,
+  DiagnosticsRuntimeObserver
+} from './Diagnostics'
 import { WorkspaceShell } from './WorkspaceShell'
+import type { Diagnostics } from '../observability'
 import { appI18n, appI18nReady } from '../i18n'
 import { InterviewRoomPage } from '../features/interview/InterviewRoomPage'
 import { InterviewSummaryPage } from '../features/interview/InterviewSummaryPage'
@@ -68,6 +75,8 @@ function I18nBootstrap({ children }: I18nBootstrapProps): React.JSX.Element {
 export interface WorkspaceAppProps {
   /** @brief 由运行时显式装配的数据 gateway / Data gateways explicitly composed by the runtime. */
   readonly gateways: AppGateways
+  /** @brief 由运行时显式装配的结构化诊断端口 / Structured diagnostics port explicitly composed by the runtime. */
+  readonly diagnostics: Diagnostics
   /** @brief 测试或嵌入场景中的初始路径 / Initial path for tests or embedding. */
   readonly initialPath?: string
 }
@@ -78,29 +87,42 @@ export interface WorkspaceAppProps {
  * @return 完整的路由化 React 产品界面 / Complete routed React product UI.
  * @note Electron renderer 不直接访问 Node.js；所有平台能力需经窄 bridge 另行注入。
  */
-export function WorkspaceApp({ gateways, initialPath }: WorkspaceAppProps): React.JSX.Element {
+export function WorkspaceApp({
+  diagnostics,
+  gateways,
+  initialPath
+}: WorkspaceAppProps): React.JSX.Element {
   /** @brief 不依赖具体 router 的应用树 / Application tree independent of a concrete router. */
   const application = (
-    <I18nBootstrap>
-      <AppDataProvider gateways={gateways}>
-        <Routes>
-          <Route element={<WorkspaceShell />}>
-            <Route element={<WorkspaceHomePage />} path="/" />
-            <Route element={<ResumeEntryPage />} path="/resumes" />
-            <Route element={<ResumeEditorPage />} path="/resumes/:resumeId/edit" />
-            <Route element={<TemplateSettingsPage />} path="/resumes/:resumeId/template" />
-            <Route element={<InterviewHubPage />} path="/interviews" />
-            <Route element={<InterviewSetupPage />} path="/interviews/new" />
-            <Route element={<InterviewRoomPage />} path="/interviews/:sessionId" />
-            <Route element={<InterviewSummaryPage />} path="/interviews/:sessionId/summary" />
-            <Route element={<KnowledgePage />} path="/knowledge" />
-            <Route element={<KnowledgeVisibilityPage />} path="/knowledge/:sourceId/visibility" />
-            <Route element={<StateGalleryPage />} path="/states" />
-          </Route>
-          <Route element={<Navigate replace to="/" />} path="*" />
-        </Routes>
-      </AppDataProvider>
-    </I18nBootstrap>
+    <DiagnosticsProvider diagnostics={diagnostics}>
+      <DiagnosticsBoundary>
+        <DiagnosticsRuntimeObserver />
+        <I18nBootstrap>
+          <AppDataProvider gateways={gateways}>
+            <DiagnosticsRouteObserver />
+            <Routes>
+              <Route element={<WorkspaceShell />}>
+                <Route element={<WorkspaceHomePage />} path="/" />
+                <Route element={<ResumeEntryPage />} path="/resumes" />
+                <Route element={<ResumeEditorPage />} path="/resumes/:resumeId/edit" />
+                <Route element={<TemplateSettingsPage />} path="/resumes/:resumeId/template" />
+                <Route element={<InterviewHubPage />} path="/interviews" />
+                <Route element={<InterviewSetupPage />} path="/interviews/new" />
+                <Route element={<InterviewRoomPage />} path="/interviews/:sessionId" />
+                <Route element={<InterviewSummaryPage />} path="/interviews/:sessionId/summary" />
+                <Route element={<KnowledgePage />} path="/knowledge" />
+                <Route
+                  element={<KnowledgeVisibilityPage />}
+                  path="/knowledge/:sourceId/visibility"
+                />
+                <Route element={<StateGalleryPage />} path="/states" />
+              </Route>
+              <Route element={<Navigate replace to="/" />} path="*" />
+            </Routes>
+          </AppDataProvider>
+        </I18nBootstrap>
+      </DiagnosticsBoundary>
+    </DiagnosticsProvider>
   )
 
   if (initialPath !== undefined) {

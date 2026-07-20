@@ -1,3 +1,5 @@
+import type { DiagnosticsConfigurationErrorReason } from './diagnostics'
+
 /**
  * @brief 运行时宿主类型 / Runtime host type.
  *
@@ -8,16 +10,30 @@ export type RuntimePlatform = 'web' | 'electron'
 /** @brief 当前前端语义版本 / Current frontend semantic version. */
 export const APPLICATION_VERSION = '0.1.0'
 
-/**
- * @brief 最小运行时信息 / Minimal runtime information.
- */
-export interface RuntimeInfo {
-  /** @brief 运行应用的宿主 / Host that runs the application. */
-  readonly platform: RuntimePlatform
-
+/** @brief 所有运行时信息共有的公开字段 / Public fields shared by all runtime-information variants. */
+interface BaseRuntimeInfo {
   /** @brief 应用语义版本 / Semantic application version. */
   readonly appVersion: string
 }
+
+/** @brief 浏览器运行时信息 / Browser runtime information. */
+export interface WebRuntimeInfo extends BaseRuntimeInfo {
+  /** @brief 浏览器宿主标识 / Browser-host discriminator. */
+  readonly platform: 'web'
+}
+
+/** @brief Electron 运行时信息 / Electron runtime information. */
+export interface ElectronRuntimeInfo extends BaseRuntimeInfo {
+  /** @brief Electron 宿主标识 / Electron-host discriminator. */
+  readonly platform: 'electron'
+  /** @brief 主进程校验后可选的诊断批量上传 endpoint / Optional diagnostics batch-upload endpoint validated by the main process. */
+  readonly diagnosticsEndpoint?: string
+  /** @brief 主进程拒绝诊断上传配置时的无敏感原因 / Non-sensitive reason when the main process rejected diagnostics upload configuration. */
+  readonly diagnosticsConfigurationError?: DiagnosticsConfigurationErrorReason
+}
+
+/** @brief 跨平台运行时信息的判别联合 / Discriminated union of cross-platform runtime information. */
+export type RuntimeInfo = ElectronRuntimeInfo | WebRuntimeInfo
 
 /**
  * @brief 渲染器可见的平台桥接 / Renderer-visible platform bridge.
@@ -53,7 +69,7 @@ export function createWebPlatformBridge(appVersion: string): PlatformBridge {
    * @brief 获取浏览器运行时信息 / Get browser runtime information.
    * @return 已兑现的浏览器运行时信息 Promise / A fulfilled promise for browser runtime information.
    */
-  function getRuntimeInfo(): Promise<RuntimeInfo> {
+  function getRuntimeInfo(): Promise<WebRuntimeInfo> {
     return Promise.resolve({
       platform: 'web',
       appVersion

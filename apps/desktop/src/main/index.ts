@@ -4,8 +4,12 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { APPLICATION_VERSION, RUNTIME_INFO_CHANNEL } from '@ai-job-workspace/platform'
-import type { RuntimeInfo } from '@ai-job-workspace/platform'
+import type { ElectronRuntimeInfo, RuntimeInfo } from '@ai-job-workspace/platform'
 
+import {
+  createProductionContentSecurityPolicy,
+  resolveDesktopDiagnosticsConfiguration
+} from './diagnostics-config'
 import { isAllowedRendererUrl, isTrustedRendererIpcSender } from './security'
 import {
   rendererProtocolHost,
@@ -19,7 +23,9 @@ protocol.registerSchemesAsPrivileged([
     privileges: {
       standard: true,
       secure: true,
-      supportFetchAPI: true
+      supportFetchAPI: true,
+      /** @brief 允许受 CSP 约束的 renderer 对已放行诊断 origin 发起 CORS fetch / Allow CSP-constrained renderer CORS fetches to the configured diagnostics origin. */
+      corsEnabled: true
     }
   }
 ])
@@ -30,9 +36,13 @@ const productionRendererPath = fileURLToPath(new URL('../renderer/index.html', i
 /** @brief 生产构建后的受信任渲染器 URL / Trusted renderer URL after a production build. */
 const productionRendererUrl = `${rendererProtocolScheme}://${rendererProtocolHost}/index.html`
 
+/** @brief 经主进程校验的可选诊断服务配置 / Optional diagnostics-service configuration validated by the main process. */
+const desktopDiagnosticsConfiguration = resolveDesktopDiagnosticsConfiguration(process.env)
+
 /** @brief 生产入口文档的附加 CSP / Additional CSP applied to the production entry document. */
-const productionContentSecurityPolicy =
-  "default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; media-src 'self' blob:; worker-src 'self' blob:"
+const productionContentSecurityPolicy = createProductionContentSecurityPolicy(
+  desktopDiagnosticsConfiguration
+)
 
 /** @brief 唯一的产品主窗口 / The single product main window. */
 let mainWindow: BrowserWindow | null = null
@@ -106,10 +116,16 @@ function registerRendererProtocol(): void {
  * @brief 构造运行时信息 / Build runtime information.
  * @return 不包含特权对象的最小运行时信息 / Minimal runtime information without privileged objects.
  */
-function getRuntimeInfo(): RuntimeInfo {
+function getRuntimeInfo(): ElectronRuntimeInfo {
   return {
+    appVersion: APPLICATION_VERSION,
     platform: 'electron',
-    appVersion: APPLICATION_VERSION
+    ...(desktopDiagnosticsConfiguration.kind === 'enabled'
+      ? { diagnosticsEndpoint: desktopDiagnosticsConfiguration.endpoint }
+      : {}),
+    ...(desktopDiagnosticsConfiguration.kind === 'invalid'
+      ? { diagnosticsConfigurationError: desktopDiagnosticsConfiguration.reason }
+      : {})
   }
 }
 

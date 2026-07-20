@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { WorkspaceApp } from '../../app/WorkspaceApp'
 import { asUiOpaqueId } from '../../domain'
+import { createDiagnostics } from '../../infrastructure/observability'
 import {
   MockInterviewGateway,
   MockKnowledgeGateway,
@@ -10,6 +11,9 @@ import {
   MockWorkspaceGateway
 } from '../../infrastructure/mock'
 import { appI18n, appI18nReady } from '../../i18n'
+
+/** @brief 工作区页面测试使用的无输出 Diagnostics / No-output Diagnostics used by workspace-page tests. */
+const testDiagnostics = createDiagnostics({ sinks: [] })
 
 afterEach((): void => {
   cleanup()
@@ -26,6 +30,7 @@ async function renderHomeWithResumeCards(
 
   render(
     <WorkspaceApp
+      diagnostics={testDiagnostics}
       gateways={{
         interview: new MockInterviewGateway(),
         knowledge: new MockKnowledgeGateway(),
@@ -85,6 +90,7 @@ describe('WorkspaceHomePage Resume navigation', (): void => {
 
     render(
       <WorkspaceApp
+        diagnostics={testDiagnostics}
         gateways={{
           interview: new MockInterviewGateway(),
           knowledge: new MockKnowledgeGateway(),

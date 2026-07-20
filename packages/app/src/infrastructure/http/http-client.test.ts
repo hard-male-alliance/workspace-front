@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import type { DiagnosticRecord } from '../../observability'
+import { createDiagnostics } from '../observability'
 import { createHttpClient } from './http-client'
 
 describe('createHttpClient', (): void => {
@@ -188,6 +190,150 @@ describe('createHttpClient', (): void => {
     await expect(client.getJson('/resumes')).rejects.toMatchObject({
       name: 'HttpContractError',
       status: 200
+    })
+  })
+
+  it('records a completed request with a local correlation ID but no query text', async (): Promise<void> => {
+    /** @brief 健康诊断接收器收到的记录 / Records received by the healthy diagnostics sink. */
+    const records: DiagnosticRecord[] = []
+    /** @brief 被测 HTTP client / HTTP client under test. */
+    const client = createHttpClient({
+      baseUrl: 'https://api.example.test',
+      createRequestId: (): string => 'request_local_123',
+      diagnostics: createDiagnostics({
+        sinks: [
+          {
+            emit(record): void {
+              records.push(record)
+            }
+          }
+        ]
+      }),
+      fetchImpl: vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(JSON.stringify({ items: [] }), {
+          headers: { 'Content-Type': 'application/json' },
+          status: 200
+        })
+      )
+    })
+
+    await client.getJson('/knowledge-sources', { query: { cursor: 'sensitive-cursor' } })
+
+    expect(records).toHaveLength(1)
+    expect(records[0]).toMatchObject({
+      attributes: {
+        method: 'GET',
+        operation: 'knowledge.source.list',
+        request_id: 'request_local_123',
+        status: 200
+      },
+      name: 'http.request_completed'
+    })
+    expect(JSON.stringify(records)).not.toContain('sensitive-cursor')
+  })
+
+  it('records a categorized network failure without exporting the error text', async (): Promise<void> => {
+    /** @brief 健康诊断接收器收到的记录 / Records received by the healthy diagnostics sink. */
+    const records: DiagnosticRecord[] = []
+    /** @brief 被测 HTTP client / HTTP client under test. */
+    const client = createHttpClient({
+      baseUrl: 'https://api.example.test',
+      createRequestId: (): string => 'request_local_456',
+      diagnostics: createDiagnostics({
+        sinks: [
+          {
+            emit(record): void {
+              records.push(record)
+            }
+          }
+        ]
+      }),
+      fetchImpl: vi.fn<typeof fetch>().mockRejectedValue(new TypeError('private DNS failure'))
+    })
+
+    await expect(client.getJson('/resumes/res_secret')).rejects.toBeInstanceOf(TypeError)
+
+    expect(records[0]).toMatchObject({
+      attributes: {
+        error_kind: 'network',
+        operation: 'resume.document.read',
+        request_id: 'request_local_456',
+        status: null
+      },
+      name: 'http.request_failed'
+    })
+    expect(JSON.stringify(records)).not.toContain('private DNS failure')
+    expect(JSON.stringify(records)).not.toContain('res_secret')
+  })
+
+  it('records expected cancellation separately from an HTTP failure', async (): Promise<void> => {
+    /** @brief 健康诊断接收器收到的记录 / Records received by the healthy diagnostics sink. */
+    const records: DiagnosticRecord[] = []
+    /** @brief 被测 HTTP client / HTTP client under test. */
+    const client = createHttpClient({
+      baseUrl: 'https://api.example.test',
+      createRequestId: (): string => 'request_local_789',
+      diagnostics: createDiagnostics({
+        sinks: [
+          {
+            emit(record): void {
+              records.push(record)
+            }
+          }
+        ]
+      }),
+      fetchImpl: vi
+        .fn<typeof fetch>()
+        .mockRejectedValue(new DOMException('private cancellation reason', 'AbortError'))
+    })
+
+    await expect(client.getJson('/resume-templates')).rejects.toMatchObject({ name: 'AbortError' })
+
+    expect(records[0]).toMatchObject({
+      attributes: {
+        method: 'GET',
+        operation: 'resume.template.list',
+        request_id: 'request_local_789'
+      },
+      name: 'http.request_cancelled'
+    })
+    expect(JSON.stringify(records)).not.toContain('private cancellation reason')
+  })
+
+  it('does not let an unavailable diagnostics ID factory block the business request', async (): Promise<void> => {
+    /** @brief 健康诊断接收器收到的记录 / Records received by the healthy diagnostics sink. */
+    const records: DiagnosticRecord[] = []
+    /** @brief 网络边界替身 / Fetch boundary double. */
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ items: [] }), {
+        headers: { 'Content-Type': 'application/json' },
+        status: 200
+      })
+    )
+    /** @brief 被测 HTTP client / HTTP client under test. */
+    const client = createHttpClient({
+      baseUrl: 'https://api.example.test',
+      createRequestId: (): never => {
+        throw new Error('random source is unavailable')
+      },
+      diagnostics: createDiagnostics({
+        sinks: [
+          {
+            emit(record): void {
+              records.push(record)
+            }
+          }
+        ]
+      }),
+      fetchImpl
+    })
+
+    await expect(client.getJson('/resume-templates')).resolves.toMatchObject({ status: 200 })
+
+    expect(fetchImpl).toHaveBeenCalledOnce()
+    expect(records[0]).toMatchObject({
+      attributes: { request_id: 'unavailable' },
+      name: 'http.request_completed'
     })
   })
 })
