@@ -272,6 +272,31 @@ function knowledgeSource(id: string): Record<string, unknown> {
   }
 }
 
+function knowledgeJob(status = 'queued'): Record<string, unknown> {
+  return {
+    created_at: '2026-07-20T00:00:00Z',
+    error: null,
+    expires_at: null,
+    extensions: {},
+    finished_at: null,
+    id: 'job_knowledge_12345678',
+    job_type: 'knowledge.ingest',
+    progress: {
+      completed_units: status === 'succeeded' ? 1 : 0,
+      message: null,
+      percent: status === 'succeeded' ? 100 : 0,
+      phase: status === 'succeeded' ? 'done' : 'queued',
+      total_units: 1
+    },
+    request_id: 'request_12345678',
+    source_id: 'source_knowledge_12345678',
+    source_version_id: 'version_knowledge_12345678',
+    started_at: null,
+    stats: { chunks: 0, documents: 0, embedded_tokens: 0, skipped: 0 },
+    status
+  }
+}
+
 describe('HttpResumeGateway', (): void => {
   it('follows opaque template cursors until the backend page is complete', async (): Promise<void> => {
     const fetchImpl = vi
@@ -577,5 +602,145 @@ describe('HttpKnowledgeGateway', (): void => {
     expect(sources[0]).toMatchObject({ id: 'ks_example', ingestionStatus: 'ready' })
     expect(fetchImpl.mock.calls[0]?.[1]).not.toHaveProperty('headers.X-Mock-Workspace-Id')
     expect(fetchImpl.mock.calls[0]?.[1]).not.toHaveProperty('headers.X-AIWS-Workspace-Id')
+  })
+
+  it('uploads a new file source with multipart and an idempotency key', async (): Promise<void> => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ingestion_job: knowledgeJob(),
+          source: {
+            ...knowledgeSource('source_knowledge_12345678'),
+            config: { filename: 'notes.md', source_type: 'file' },
+            source_type: 'file'
+          }
+        }),
+        { headers: { 'Content-Type': 'application/json' }, status: 202 }
+      )
+    )
+    const gateway = new HttpKnowledgeGateway(
+      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
+    )
+    const file = new File(['hello'], 'notes.md', { type: 'text/markdown' })
+
+    const result = await gateway.uploadKnowledgeSource({ file, name: 'Study notes' })
+
+    expect(fetchUrl(fetchImpl, 0)).toBe('http://127.0.0.1:8000/api/v1/knowledge-sources/uploads')
+    expect(fetchImpl.mock.calls[0]?.[1]?.method).toBe('POST')
+    const headers = fetchImpl.mock.calls[0]?.[1]?.headers as Record<string, string>
+    expect(headers['Idempotency-Key']).toMatch(/^knowledge_upload_/u)
+    expect(headers).not.toHaveProperty('Content-Type')
+    const body = fetchImpl.mock.calls[0]?.[1]?.body as FormData
+    expect(body.get('file')).toBe(file)
+    expect(body.get('name')).toBe('Study notes')
+    expect(result).toMatchObject({
+      ingestionJob: { status: 'queued' },
+      source: { id: 'source_knowledge_12345678', sourceType: 'file' }
+    })
+  })
+
+  it('uploads a new version using the real encoded source id', async (): Promise<void> => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ingestion_job: knowledgeJob(),
+          source: {
+            ...knowledgeSource('source / knowledge'),
+            config: { filename: 'notes.md', source_type: 'file' },
+            source_type: 'file'
+          }
+        }),
+        { headers: { 'Content-Type': 'application/json' }, status: 202 }
+      )
+    )
+    const gateway = new HttpKnowledgeGateway(
+      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
+    )
+
+    await gateway.uploadKnowledgeSourceVersion({
+      file: new File(['new'], 'notes.md', { type: 'text/markdown' }),
+      sourceId: 'source / knowledge' as never
+    })
+
+    expect(fetchUrl(fetchImpl, 0)).toBe(
+      'http://127.0.0.1:8000/api/v1/knowledge-sources/source%20%2F%20knowledge/versions'
+    )
+    expect((fetchImpl.mock.calls[0]?.[1]?.body as FormData).has('name')).toBe(false)
+  })
+
+  it('reads an ingestion Job with the supplied cancellation signal', async (): Promise<void> => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(Response.json(knowledgeJob()))
+    const gateway = new HttpKnowledgeGateway(
+      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
+    )
+    const controller = new AbortController()
+
+    const job = await gateway.getKnowledgeIngestionJob(
+      'job_knowledge_12345678' as never,
+      controller.signal
+    )
+
+    expect(fetchUrl(fetchImpl, 0)).toBe(
+      'http://127.0.0.1:8000/api/v1/knowledge-ingestion-jobs/job_knowledge_12345678'
+    )
+    expect(fetchImpl.mock.calls[0]?.[1]).toMatchObject({ signal: controller.signal })
+    expect(job).toMatchObject({ sourceId: 'source_knowledge_12345678', status: 'queued' })
+  })
+
+  it('posts the formal KnowledgeSearchRequest and maps citations', async (): Promise<void> => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({
+        items: [
+          {
+            citation: {
+              citation_id: 'citation_knowledge_12345678',
+              locator: {
+                line_end: 18,
+                line_start: 12,
+                page: null,
+                path: 'notes.md',
+                symbol: null,
+                time_end_ms: null,
+                time_start_ms: null
+              },
+              quote: 'A grounded result.',
+              score: 0.9,
+              source_id: 'source_knowledge_12345678',
+              source_version_id: 'version_knowledge_12345678',
+              title: 'notes.md',
+              uri: null
+            },
+            metadata: {},
+            result_id: 'result_knowledge_12345678',
+            score: 0.9,
+            text: 'A grounded result.'
+          }
+        ]
+      })
+    )
+    const gateway = new HttpKnowledgeGateway(
+      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
+    )
+
+    const results = await gateway.searchKnowledge({
+      query: 'vector database',
+      sourceIds: ['source_knowledge_12345678' as never]
+    })
+
+    expect(fetchUrl(fetchImpl, 0)).toBe('http://127.0.0.1:8000/api/v1/knowledge-searches')
+    expect(JSON.parse(fetchBody(fetchImpl, 0))).toEqual({
+      filters: {},
+      include_quotes: true,
+      query: 'vector database',
+      selection: {
+        agent_scope: 'general_chat',
+        exclude_source_ids: [],
+        include_source_ids: ['source_knowledge_12345678'],
+        mode: 'explicit',
+        pinned_versions: []
+      },
+      top_k: 20
+    })
+    expect(results[0]).toMatchObject({ locatorLabel: 'notes.md · lines 12–18' })
   })
 })

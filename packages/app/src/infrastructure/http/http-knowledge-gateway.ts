@@ -2,14 +2,32 @@
 
 import type {
   KnowledgeGateway,
+  UiKnowledgeIngestionJob,
+  UiKnowledgeIngestionJobId,
+  UiKnowledgeSearchInput,
+  UiKnowledgeSearchResult,
   UiKnowledgeSource,
   UiKnowledgeSourceId,
+  UiKnowledgeUploadInput,
+  UiKnowledgeUploadResult,
+  UiKnowledgeVersionUploadInput,
   UiKnowledgeVisibilityModel,
   UiWorkspaceId
 } from '../../domain'
 import type { HttpClient } from './http-client'
-import { mapKnowledgeSourceDto } from './mappers'
-import { parseKnowledgeSourceDto, parseKnowledgeSourceListDto } from './validators'
+import { HttpContractError } from './http-client'
+import {
+  mapKnowledgeIngestionJobDto,
+  mapKnowledgeSearchResultDto,
+  mapKnowledgeSourceDto
+} from './mappers'
+import {
+  parseKnowledgeFileUploadResponseDto,
+  parseKnowledgeIngestionJobDto,
+  parseKnowledgeSearchResponseDto,
+  parseKnowledgeSourceDto,
+  parseKnowledgeSourceListDto
+} from './validators'
 
 /** @brief KnowledgeSource HTTP Gateway / KnowledgeSource HTTP Gateway. */
 export class HttpKnowledgeGateway implements KnowledgeGateway {
@@ -41,6 +59,66 @@ export class HttpKnowledgeGateway implements KnowledgeGateway {
     return results
   }
 
+  /** @inheritdoc */
+  async uploadKnowledgeSource(input: UiKnowledgeUploadInput): Promise<UiKnowledgeUploadResult> {
+    const body = new FormData()
+    body.append('file', input.file)
+    if (input.name !== undefined && input.name.trim().length > 0) {
+      body.append('name', input.name.trim())
+    }
+    return this.#upload('/knowledge-sources/uploads', body, 'knowledge_upload', input.signal)
+  }
+
+  /** @inheritdoc */
+  async uploadKnowledgeSourceVersion(
+    input: UiKnowledgeVersionUploadInput
+  ): Promise<UiKnowledgeUploadResult> {
+    const body = new FormData()
+    body.append('file', input.file)
+    return this.#upload(
+      `/knowledge-sources/${encodeURIComponent(input.sourceId)}/versions`,
+      body,
+      'knowledge_version',
+      input.signal
+    )
+  }
+
+  /** @inheritdoc */
+  async getKnowledgeIngestionJob(
+    jobId: UiKnowledgeIngestionJobId,
+    signal?: AbortSignal
+  ): Promise<UiKnowledgeIngestionJob> {
+    const response = await this.#client.getJson(
+      `/knowledge-ingestion-jobs/${encodeURIComponent(jobId)}`,
+      signal === undefined ? {} : { signal }
+    )
+    return mapKnowledgeIngestionJobDto(parseKnowledgeIngestionJobDto(response.data))
+  }
+
+  /** @inheritdoc */
+  async searchKnowledge(
+    input: UiKnowledgeSearchInput
+  ): Promise<readonly UiKnowledgeSearchResult[]> {
+    const response = await this.#client.postJson(
+      '/knowledge-searches',
+      {
+        filters: {},
+        include_quotes: true,
+        query: input.query,
+        selection: {
+          agent_scope: 'general_chat',
+          exclude_source_ids: [],
+          include_source_ids: input.sourceIds,
+          mode: 'explicit',
+          pinned_versions: []
+        },
+        top_k: 20
+      },
+      input.signal === undefined ? {} : { signal: input.signal }
+    )
+    return parseKnowledgeSearchResponseDto(response.data).items.map(mapKnowledgeSearchResultDto)
+  }
+
   async getKnowledgeVisibility(sourceId: UiKnowledgeSourceId): Promise<UiKnowledgeVisibilityModel> {
     const response = await this.#client.getJson(
       `/knowledge-sources/${encodeURIComponent(sourceId)}`
@@ -51,6 +129,27 @@ export class HttpKnowledgeGateway implements KnowledgeGateway {
         ...new Set(source.visibility.agentGrants.map((grant) => grant.agentScope))
       ],
       source
+    }
+  }
+
+  /** @brief 发送临时直接上传请求 / Send a temporary direct-upload request. */
+  async #upload(
+    path: string,
+    body: FormData,
+    idempotencyPrefix: string,
+    signal?: AbortSignal
+  ): Promise<UiKnowledgeUploadResult> {
+    const response = await this.#client.postForm(path, body, {
+      idempotencyKey: `${idempotencyPrefix}_${globalThis.crypto.randomUUID()}`,
+      ...(signal === undefined ? {} : { signal })
+    })
+    if (response.status !== 202) {
+      throw new HttpContractError('Backend did not accept the Knowledge upload.', response.status)
+    }
+    const dto = parseKnowledgeFileUploadResponseDto(response.data)
+    return {
+      ingestionJob: mapKnowledgeIngestionJobDto(dto.ingestion_job),
+      source: mapKnowledgeSourceDto(dto.source)
     }
   }
 }

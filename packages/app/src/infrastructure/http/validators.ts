@@ -4,6 +4,10 @@ import { HttpContractError } from './http-client'
 import type {
   CursorPageDto,
   ColorValueDto,
+  KnowledgeFileUploadResponseDto,
+  KnowledgeIngestionJobDto,
+  KnowledgeSearchResponseDto,
+  KnowledgeSearchResultDto,
   KnowledgeSourceDto,
   MeasurementDto,
   PaginatedDto,
@@ -28,6 +32,20 @@ function record(value: unknown, path: string): Record<string, unknown> {
     throw new HttpContractError(`Backend field ${path} must be an object.`, 200)
   }
   return value as Record<string, unknown>
+}
+
+/** @brief 断言对象不含契约外字段 / Assert an object has no fields outside the contract. */
+function exactRecord(
+  value: unknown,
+  path: string,
+  allowedKeys: readonly string[]
+): Record<string, unknown> {
+  const input = record(value, path)
+  const unexpectedKey = Object.keys(input).find((key) => !allowedKeys.includes(key))
+  if (unexpectedKey !== undefined) {
+    throw new HttpContractError(`Backend field ${path}.${unexpectedKey} is not allowed.`, 200)
+  }
+  return input
 }
 
 /** @brief 断言字符串 / Assert a string. */
@@ -628,5 +646,165 @@ export function parseKnowledgeSourceListDto(value: unknown): PaginatedDto<Knowle
       parseKnowledgeSource(item, `items[${index}]`)
     ),
     page: parseCursorPage(input.page)
+  }
+}
+
+/** @brief 校验 Knowledge ingestion Job / Validate a Knowledge ingestion Job. */
+export function parseKnowledgeIngestionJobDto(value: unknown): KnowledgeIngestionJobDto {
+  const input = exactRecord(value, 'knowledgeJob', [
+    'id',
+    'job_type',
+    'status',
+    'progress',
+    'created_at',
+    'started_at',
+    'finished_at',
+    'expires_at',
+    'error',
+    'request_id',
+    'extensions',
+    'source_id',
+    'source_version_id',
+    'stats'
+  ])
+  const status = string(input.status, 'knowledgeJob.status')
+  const statuses: readonly KnowledgeIngestionJobDto['status'][] = [
+    'queued',
+    'running',
+    'succeeded',
+    'failed',
+    'cancelled',
+    'expired'
+  ]
+  if (!statuses.includes(status as KnowledgeIngestionJobDto['status'])) {
+    throw new HttpContractError('Backend returned an unsupported Knowledge Job status.', 200)
+  }
+  const jobType = string(input.job_type, 'knowledgeJob.job_type')
+  const jobTypes: readonly KnowledgeIngestionJobDto['job_type'][] = [
+    'knowledge.ingest',
+    'knowledge.sync',
+    'knowledge.delete'
+  ]
+  if (!jobTypes.includes(jobType as KnowledgeIngestionJobDto['job_type'])) {
+    throw new HttpContractError('Backend returned an unsupported Knowledge Job type.', 200)
+  }
+  const progress = exactRecord(input.progress, 'knowledgeJob.progress', [
+    'phase',
+    'completed_units',
+    'total_units',
+    'percent',
+    'message'
+  ])
+  const stats = exactRecord(input.stats, 'knowledgeJob.stats', [
+    'documents',
+    'chunks',
+    'embedded_tokens',
+    'skipped'
+  ])
+  const errorInput = nullableRecord(input.error, 'knowledgeJob.error')
+  return {
+    created_at: string(input.created_at, 'knowledgeJob.created_at'),
+    error:
+      errorInput === null
+        ? null
+        : {
+            code: string(errorInput.code, 'knowledgeJob.error.code'),
+            detail: nullableString(errorInput.detail, 'knowledgeJob.error.detail'),
+            status: number(errorInput.status, 'knowledgeJob.error.status'),
+            title: string(errorInput.title, 'knowledgeJob.error.title')
+          },
+    expires_at: nullableString(input.expires_at, 'knowledgeJob.expires_at'),
+    finished_at: nullableString(input.finished_at, 'knowledgeJob.finished_at'),
+    id: string(input.id, 'knowledgeJob.id'),
+    job_type: jobType as KnowledgeIngestionJobDto['job_type'],
+    progress: {
+      completed_units: number(progress.completed_units, 'knowledgeJob.progress.completed_units'),
+      percent: nullableNumber(progress.percent, 'knowledgeJob.progress.percent'),
+      phase: string(progress.phase, 'knowledgeJob.progress.phase'),
+      total_units: nullableNumber(progress.total_units, 'knowledgeJob.progress.total_units')
+    },
+    request_id: nullableString(input.request_id, 'knowledgeJob.request_id'),
+    source_id: string(input.source_id, 'knowledgeJob.source_id'),
+    source_version_id: nullableString(input.source_version_id, 'knowledgeJob.source_version_id'),
+    started_at: nullableString(input.started_at, 'knowledgeJob.started_at'),
+    stats: {
+      chunks: number(stats.chunks, 'knowledgeJob.stats.chunks'),
+      documents: number(stats.documents, 'knowledgeJob.stats.documents'),
+      embedded_tokens: number(stats.embedded_tokens, 'knowledgeJob.stats.embedded_tokens'),
+      skipped: number(stats.skipped, 'knowledgeJob.stats.skipped')
+    },
+    status: status as KnowledgeIngestionJobDto['status']
+  }
+}
+
+/** @brief 校验临时直接上传响应 / Validate a temporary direct-upload response. */
+export function parseKnowledgeFileUploadResponseDto(
+  value: unknown
+): KnowledgeFileUploadResponseDto {
+  const input = exactRecord(value, 'knowledgeUpload', ['source', 'ingestion_job'])
+  return {
+    ingestion_job: parseKnowledgeIngestionJobDto(input.ingestion_job),
+    source: parseKnowledgeSource(input.source, 'knowledgeUpload.source')
+  }
+}
+
+/** @brief 校验 Knowledge search result / Validate a Knowledge search result. */
+function parseKnowledgeSearchResult(value: unknown, path: string): KnowledgeSearchResultDto {
+  const input = exactRecord(value, path, ['result_id', 'citation', 'text', 'score', 'metadata'])
+  const citation = exactRecord(input.citation, `${path}.citation`, [
+    'citation_id',
+    'source_id',
+    'source_version_id',
+    'title',
+    'uri',
+    'locator',
+    'quote',
+    'score'
+  ])
+  const locator = exactRecord(citation.locator, `${path}.citation.locator`, [
+    'page',
+    'line_start',
+    'line_end',
+    'time_start_ms',
+    'time_end_ms',
+    'symbol',
+    'path'
+  ])
+  return {
+    citation: {
+      citation_id: string(citation.citation_id, `${path}.citation.citation_id`),
+      locator: {
+        line_end: nullableNumber(locator.line_end, `${path}.citation.locator.line_end`),
+        line_start: nullableNumber(locator.line_start, `${path}.citation.locator.line_start`),
+        page: nullableNumber(locator.page, `${path}.citation.locator.page`),
+        path: nullableString(locator.path, `${path}.citation.locator.path`),
+        symbol: nullableString(locator.symbol, `${path}.citation.locator.symbol`),
+        time_end_ms: nullableNumber(locator.time_end_ms, `${path}.citation.locator.time_end_ms`),
+        time_start_ms: nullableNumber(
+          locator.time_start_ms,
+          `${path}.citation.locator.time_start_ms`
+        )
+      },
+      quote: nullableString(citation.quote, `${path}.citation.quote`),
+      score: nullableNumber(citation.score, `${path}.citation.score`),
+      source_id: string(citation.source_id, `${path}.citation.source_id`),
+      source_version_id: string(citation.source_version_id, `${path}.citation.source_version_id`),
+      title: string(citation.title, `${path}.citation.title`),
+      uri: nullableString(citation.uri, `${path}.citation.uri`)
+    },
+    metadata: record(input.metadata, `${path}.metadata`),
+    result_id: string(input.result_id, `${path}.result_id`),
+    score: number(input.score, `${path}.score`),
+    text: string(input.text, `${path}.text`)
+  }
+}
+
+/** @brief 校验当前 Knowledge search wrapper / Validate the current Knowledge search wrapper. */
+export function parseKnowledgeSearchResponseDto(value: unknown): KnowledgeSearchResponseDto {
+  const input = exactRecord(value, 'knowledgeSearch', ['items'])
+  return {
+    items: array(input.items, 'knowledgeSearch.items').map((item, index) =>
+      parseKnowledgeSearchResult(item, `knowledgeSearch.items[${index}]`)
+    )
   }
 }

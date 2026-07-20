@@ -20,8 +20,15 @@ import type {
   UiInterviewScenario,
   UiInterviewSetupModel,
   UiInterviewSessionId,
+  UiKnowledgeIngestionJob,
+  UiKnowledgeIngestionJobId,
+  UiKnowledgeSearchInput,
+  UiKnowledgeSearchResult,
   UiKnowledgeSource,
   UiKnowledgeSourceId,
+  UiKnowledgeUploadInput,
+  UiKnowledgeUploadResult,
+  UiKnowledgeVersionUploadInput,
   UiKnowledgeVisibilityModel,
   UiLiveInterviewModel,
   UiResumeCard,
@@ -769,6 +776,15 @@ export class MockInterviewGateway extends MockGatewayBase implements InterviewGa
  * @note 它只展示 KnowledgeSource 与 VisibilityPolicy 投影，不模拟上传、索引或 PATCH。
  */
 export class MockKnowledgeGateway extends MockGatewayBase implements KnowledgeGateway {
+  /** @brief 当前实例拥有的可变知识来源投影 / Mutable knowledge-source projection owned by this instance. */
+  private knowledgeSources: UiKnowledgeSource[] = cloneMockValue([...MOCK_KNOWLEDGE_SOURCES])
+
+  /** @brief 当前实例的摄取任务 / Ingestion Jobs owned by this instance. */
+  private readonly ingestionJobs = new Map<UiKnowledgeIngestionJobId, UiKnowledgeIngestionJob>()
+
+  /** @brief 确定性的上传序号 / Deterministic upload sequence. */
+  private uploadSequence = 0
+
   /**
    * @brief 构造知识库 Mock 网关 / Construct the knowledge Mock gateway.
    * @param options Mock 行为选项 / Mock behavior options.
@@ -788,7 +804,126 @@ export class MockKnowledgeGateway extends MockGatewayBase implements KnowledgeGa
       return []
     }
 
-    return cloneMockValue(MOCK_KNOWLEDGE_SOURCES)
+    return cloneMockValue(this.knowledgeSources)
+  }
+
+  /** @brief 上传一个 Mock 文件知识来源 / Upload a Mock file knowledge source. */
+  async uploadKnowledgeSource(input: UiKnowledgeUploadInput): Promise<UiKnowledgeUploadResult> {
+    this.throwIfAborted(input.signal)
+    await this.prepareMockRead()
+    this.throwIfAborted(input.signal)
+
+    const sequence = ++this.uploadSequence
+    const sourceId = asUiOpaqueId<'knowledge-source'>(`mock-knowledge-source-${sequence}`)
+    const source: UiKnowledgeSource = {
+      id: sourceId,
+      workspaceId: MOCK_WORKSPACE_ID,
+      name: input.name?.trim() || input.file.name,
+      sourceType: 'file',
+      originLabel: input.file.name,
+      ingestionStatus: 'queued',
+      documentCount: 0,
+      chunkCount: 0,
+      enabled: true,
+      visibility: cloneMockValue(MOCK_KNOWLEDGE_SOURCES[0]!.visibility),
+      lastSuccessAt: null,
+      updatedAt: '2026-07-20T00:00:00.000Z'
+    }
+    const ingestionJob = this.createIngestionJob(sourceId, sequence)
+
+    this.knowledgeSources = [...this.knowledgeSources, source]
+    this.ingestionJobs.set(ingestionJob.id, ingestionJob)
+    return cloneMockValue({ source, ingestionJob })
+  }
+
+  /** @brief 为已有来源上传一个 Mock 新版本 / Upload a Mock version for an existing source. */
+  async uploadKnowledgeSourceVersion(
+    input: UiKnowledgeVersionUploadInput
+  ): Promise<UiKnowledgeUploadResult> {
+    this.throwIfAborted(input.signal)
+    await this.prepareMockRead()
+    this.throwIfAborted(input.signal)
+
+    const sourceIndex = this.knowledgeSources.findIndex((source) => source.id === input.sourceId)
+    const current = this.knowledgeSources[sourceIndex]
+    if (current === undefined) {
+      return this.throwMockNotFound('knowledge source')
+    }
+
+    const sequence = ++this.uploadSequence
+    const source: UiKnowledgeSource = {
+      ...current,
+      originLabel: input.file.name,
+      ingestionStatus: 'queued',
+      updatedAt: '2026-07-20T00:00:00.000Z'
+    }
+    const ingestionJob = this.createIngestionJob(source.id, sequence)
+
+    this.knowledgeSources[sourceIndex] = source
+    this.ingestionJobs.set(ingestionJob.id, ingestionJob)
+    return cloneMockValue({ source, ingestionJob })
+  }
+
+  /** @brief 查询并完成一个 Mock 摄取任务 / Get and complete a Mock ingestion Job. */
+  async getKnowledgeIngestionJob(
+    jobId: UiKnowledgeIngestionJobId,
+    signal?: AbortSignal
+  ): Promise<UiKnowledgeIngestionJob> {
+    this.throwIfAborted(signal)
+    await this.prepareMockRead()
+    this.throwIfAborted(signal)
+
+    const current = this.ingestionJobs.get(jobId)
+    if (current === undefined) {
+      return this.throwMockNotFound('knowledge ingestion job')
+    }
+
+    const completed: UiKnowledgeIngestionJob = {
+      ...current,
+      status: 'succeeded',
+      progressPercent: 100
+    }
+    this.ingestionJobs.set(jobId, completed)
+    this.knowledgeSources = this.knowledgeSources.map((source) =>
+      source.id === completed.sourceId
+        ? {
+            ...source,
+            ingestionStatus: 'ready',
+            documentCount: Math.max(source.documentCount, 1),
+            chunkCount: Math.max(source.chunkCount, 1),
+            lastSuccessAt: '2026-07-20T00:00:01.000Z',
+            updatedAt: '2026-07-20T00:00:01.000Z'
+          }
+        : source
+    )
+    return cloneMockValue(completed)
+  }
+
+  /** @brief 搜索已就绪的 Mock 知识来源 / Search ready Mock knowledge sources. */
+  async searchKnowledge(
+    input: UiKnowledgeSearchInput
+  ): Promise<readonly UiKnowledgeSearchResult[]> {
+    this.throwIfAborted(input.signal)
+    const mode = await this.prepareMockRead()
+    this.throwIfAborted(input.signal)
+    if (mode === 'empty') {
+      return []
+    }
+
+    const selectedSourceIds = new Set(input.sourceIds)
+    const sources = this.knowledgeSources.filter(
+      (source) => selectedSourceIds.size === 0 || selectedSourceIds.has(source.id)
+    )
+    return cloneMockValue(
+      sources.slice(0, 3).map((source, index) => ({
+        id: `mock-search-result-${index + 1}`,
+        sourceId: source.id,
+        title: source.name,
+        locatorLabel: source.originLabel,
+        quote: `Mock result for “${input.query}” from ${source.name}.`,
+        score: 1 - index * 0.1
+      }))
+    )
   }
 
   /**
@@ -799,7 +934,7 @@ export class MockKnowledgeGateway extends MockGatewayBase implements KnowledgeGa
   async getKnowledgeVisibility(sourceId: UiKnowledgeSourceId): Promise<UiKnowledgeVisibilityModel> {
     const mode = await this.prepareMockRead()
     /** @brief 与路由来源 ID 匹配的 Mock 来源 / Mock source matching the route source ID. */
-    const source = MOCK_KNOWLEDGE_SOURCES.find((candidate) => candidate.id === sourceId)
+    const source = this.knowledgeSources.find((candidate) => candidate.id === sourceId)
 
     if (mode === 'empty' || source === undefined) {
       return this.throwMockNotFound('knowledge visibility')
@@ -809,5 +944,27 @@ export class MockKnowledgeGateway extends MockGatewayBase implements KnowledgeGa
       source,
       availableAgentScopes: MOCK_KNOWLEDGE_VISIBILITY.availableAgentScopes
     })
+  }
+
+  /** @brief 创建确定性的排队摄取任务 / Create a deterministic queued ingestion Job. */
+  private createIngestionJob(
+    sourceId: UiKnowledgeSourceId,
+    sequence: number
+  ): UiKnowledgeIngestionJob {
+    return {
+      id: asUiOpaqueId<'knowledge-ingestion-job'>(`mock-knowledge-job-${sequence}`),
+      sourceId,
+      status: 'queued',
+      progressPercent: 0,
+      errorCode: null,
+      errorDetail: null
+    }
+  }
+
+  /** @brief 在 Mock 边界遵守请求取消 / Honor request cancellation at the Mock boundary. */
+  private throwIfAborted(signal?: AbortSignal): void {
+    if (signal?.aborted === true) {
+      throw new DOMException('The operation was aborted.', 'AbortError')
+    }
   }
 }

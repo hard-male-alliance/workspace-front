@@ -53,6 +53,9 @@ export type UiInterviewReportId = UiOpaqueId<'interview-report'>
 /** @brief 知识来源标识符 / Knowledge source identifier. */
 export type UiKnowledgeSourceId = UiOpaqueId<'knowledge-source'>
 
+/** @brief 知识摄取任务标识符 / Knowledge ingestion Job identifier. */
+export type UiKnowledgeIngestionJobId = UiOpaqueId<'knowledge-ingestion-job'>
+
 /** @brief Agent 作用域标识符 / Agent scope identifier. */
 export type UiAgentScope =
   | 'resume_assistant'
@@ -1138,6 +1141,57 @@ export interface UiKnowledgeSource {
   readonly lastSuccessAt: string | null
   /** @brief 最近更新时间 / Last update time. */
   readonly updatedAt: string
+}
+
+/** @brief 上传新知识文件的领域输入 / Domain input for uploading a new knowledge file. */
+export interface UiKnowledgeUploadInput {
+  readonly file: File
+  readonly name?: string | undefined
+  readonly signal?: AbortSignal | undefined
+}
+
+/** @brief 为已有来源上传新版本的领域输入 / Domain input for uploading a new source version. */
+export interface UiKnowledgeVersionUploadInput {
+  readonly sourceId: UiKnowledgeSourceId
+  readonly file: File
+  readonly signal?: AbortSignal | undefined
+}
+
+/** @brief 知识摄取任务状态 / Knowledge ingestion Job status. */
+export type UiKnowledgeJobStatus =
+  'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'expired'
+
+/** @brief 知识摄取任务展示模型 / Knowledge ingestion Job display model. */
+export interface UiKnowledgeIngestionJob {
+  readonly id: UiKnowledgeIngestionJobId
+  readonly sourceId: UiKnowledgeSourceId
+  readonly status: UiKnowledgeJobStatus
+  readonly progressPercent: number | null
+  readonly errorCode: string | null
+  readonly errorDetail: string | null
+}
+
+/** @brief 文件上传被接受后的领域结果 / Domain result after a file upload is accepted. */
+export interface UiKnowledgeUploadResult {
+  readonly source: UiKnowledgeSource
+  readonly ingestionJob: UiKnowledgeIngestionJob
+}
+
+/** @brief 知识搜索领域输入 / Knowledge search domain input. */
+export interface UiKnowledgeSearchInput {
+  readonly query: string
+  readonly sourceIds: readonly UiKnowledgeSourceId[]
+  readonly signal?: AbortSignal | undefined
+}
+
+/** @brief 知识搜索结果展示模型 / Knowledge search result display model. */
+export interface UiKnowledgeSearchResult {
+  readonly id: string
+  readonly sourceId: UiKnowledgeSourceId
+  readonly title: string
+  readonly locatorLabel: string
+  readonly quote: string | null
+  readonly score: number
 }
 
 /** @brief 知识可见性页面模型 / Knowledge-visibility page model. */

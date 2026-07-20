@@ -5,7 +5,9 @@ import type {
   UiColorValue,
   UiAgentScope,
   UiKnowledgeIngestionStatus,
+  UiKnowledgeIngestionJob,
   UiKnowledgeOperation,
+  UiKnowledgeSearchResult,
   UiKnowledgeSensitivity,
   UiKnowledgeSource,
   UiKnowledgeSourceType,
@@ -26,6 +28,8 @@ import type {
 import { HttpContractError } from './http-client'
 import type {
   ColorValueDto,
+  KnowledgeIngestionJobDto,
+  KnowledgeSearchResultDto,
   KnowledgeSourceDto,
   MeasurementDto,
   ResumeDocumentDto,
@@ -460,5 +464,48 @@ export function mapKnowledgeSourceDto(dto: KnowledgeSourceDto): UiKnowledgeSourc
       sessionOverrideAllowed: dto.visibility.session_override_allowed
     },
     workspaceId: asUiOpaqueId<'workspace'>(dto.workspace_id)
+  }
+}
+
+/** @brief 映射 Knowledge ingestion Job / Map a Knowledge ingestion Job. */
+export function mapKnowledgeIngestionJobDto(
+  dto: KnowledgeIngestionJobDto
+): UiKnowledgeIngestionJob {
+  return {
+    errorCode: dto.error?.code ?? null,
+    errorDetail: dto.error?.detail ?? null,
+    id: asUiOpaqueId<'knowledge-ingestion-job'>(dto.id),
+    progressPercent: dto.progress.percent,
+    sourceId: asUiOpaqueId<'knowledge-source'>(dto.source_id),
+    status: dto.status
+  }
+}
+
+/** @brief 生成契约允许的安全引用位置文本 / Build a safe locator label from contract fields. */
+function knowledgeLocatorLabel(dto: KnowledgeSearchResultDto): string {
+  const { locator, title } = dto.citation
+  if (locator.page !== null) return `${title} · page ${locator.page}`
+  if (locator.symbol !== null) return `${title} · ${locator.symbol}`
+  if (locator.line_start !== null) {
+    const lineRange =
+      locator.line_end === null || locator.line_end === locator.line_start
+        ? `line ${locator.line_start}`
+        : `lines ${locator.line_start}–${locator.line_end}`
+    return `${locator.path ?? title} · ${lineRange}`
+  }
+  return locator.path ?? title
+}
+
+/** @brief 映射 Knowledge search result / Map a Knowledge search result. */
+export function mapKnowledgeSearchResultDto(
+  dto: KnowledgeSearchResultDto
+): UiKnowledgeSearchResult {
+  return {
+    id: dto.result_id,
+    locatorLabel: knowledgeLocatorLabel(dto),
+    quote: dto.citation.quote,
+    score: dto.score,
+    sourceId: asUiOpaqueId<'knowledge-source'>(dto.citation.source_id),
+    title: dto.citation.title
   }
 }

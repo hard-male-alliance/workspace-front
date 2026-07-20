@@ -16,6 +16,13 @@ import type {
   UiInterviewSessionId,
   UiKnowledgeSource,
   UiKnowledgeSourceId,
+  UiKnowledgeIngestionJob,
+  UiKnowledgeIngestionJobId,
+  UiKnowledgeSearchInput,
+  UiKnowledgeSearchResult,
+  UiKnowledgeUploadInput,
+  UiKnowledgeUploadResult,
+  UiKnowledgeVersionUploadInput,
   UiKnowledgeVisibilityModel,
   UiLiveInterviewModel,
   UiResumeCard,
@@ -192,6 +199,23 @@ export interface KnowledgeGateway {
    * @return 知识来源展示模型列表 / Knowledge-source display models.
    */
   listKnowledgeSources(workspaceId: UiWorkspaceId): Promise<readonly UiKnowledgeSource[]>
+
+  /** @brief 上传新的文件知识来源 / Upload a new file knowledge source. */
+  uploadKnowledgeSource(input: UiKnowledgeUploadInput): Promise<UiKnowledgeUploadResult>
+
+  /** @brief 为已有文件来源上传新版本 / Upload a new version for an existing file source. */
+  uploadKnowledgeSourceVersion(
+    input: UiKnowledgeVersionUploadInput
+  ): Promise<UiKnowledgeUploadResult>
+
+  /** @brief 查询知识摄取任务 / Get a Knowledge ingestion Job. */
+  getKnowledgeIngestionJob(
+    jobId: UiKnowledgeIngestionJobId,
+    signal?: AbortSignal
+  ): Promise<UiKnowledgeIngestionJob>
+
+  /** @brief 执行知识搜索 / Search indexed knowledge. */
+  searchKnowledge(input: UiKnowledgeSearchInput): Promise<readonly UiKnowledgeSearchResult[]>
 
   /**
    * @brief 获取知识可见性设置页数据 / Get knowledge-visibility settings page data.
