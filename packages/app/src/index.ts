@@ -8,6 +8,8 @@ export * from './app/WorkspaceApp'
 export * from './domain'
 /** @brief i18n 导出 / i18n exports. */
 export * from './i18n'
+/** @brief 真实 HTTP 基础设施导出 / Real HTTP infrastructure exports. */
+export * from './infrastructure/http'
 /** @brief 明确标注的 Mock 适配器导出 / Explicitly marked Mock adapter exports. */
 export * from './infrastructure/mock'
 /** @brief 共享 UI 原语导出 / Shared UI primitive exports. */

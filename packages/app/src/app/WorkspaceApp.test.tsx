@@ -2,7 +2,29 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup } from '@testing-library/react'
 import { appI18n, appI18nReady } from '../i18n'
-import { WorkspaceApp } from './WorkspaceApp'
+import {
+  MockInterviewGateway,
+  MockKnowledgeGateway,
+  MockResumeGateway,
+  MockWorkspaceGateway
+} from '../infrastructure/mock'
+import type { WorkspaceAppProps } from './WorkspaceApp'
+import { WorkspaceApp as SharedWorkspaceApp } from './WorkspaceApp'
+
+/** @brief 为每次渲染创建隔离的测试 Gateway / Create isolated test gateways for each render. */
+function WorkspaceApp(props: Omit<WorkspaceAppProps, 'gateways'>): React.JSX.Element {
+  return (
+    <SharedWorkspaceApp
+      {...props}
+      gateways={{
+        workspace: new MockWorkspaceGateway(),
+        resume: new MockResumeGateway(),
+        interview: new MockInterviewGateway(),
+        knowledge: new MockKnowledgeGateway()
+      }}
+    />
+  )
+}
 
 /** @brief 每个测试后的 DOM 清理 / DOM cleanup after every test. */
 afterEach((): void => {
