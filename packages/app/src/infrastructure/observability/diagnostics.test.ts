@@ -499,4 +499,43 @@ describe('createBufferedDiagnosticsSink', (): void => {
     retryExport.resolve(true)
     await retryFlush
   })
+
+  it('drops a failed in-flight batch when disposal wins the race', async (): Promise<void> => {
+    /** @brief 手工定时器 / Manual timer boundary. */
+    const scheduler = createManualScheduler()
+    /** @brief 导出器延迟返回的失败 / Failure returned by the exporter after disposal. */
+    const delayedExport = createDeferred<boolean>()
+    /** @brief 可观察 exporter / Observable exporter. */
+    const exportBatch = vi
+      .fn<(batch: DiagnosticBatch) => Promise<boolean>>()
+      .mockReturnValue(delayedExport.promise)
+    /** @brief 有界 sink / Bounded sink under test. */
+    const sink = createBufferedDiagnosticsSink({
+      cancelSchedule: scheduler.cancel,
+      clock: (): Date => TEST_TIME,
+      exporter: { export: exportBatch },
+      flushIntervalMilliseconds: 100,
+      maxBatchSize: 1,
+      maxQueueSize: 2,
+      resource: TEST_RESOURCE,
+      schedule: scheduler.schedule
+    })
+    /** @brief 可调用的 flush / Required flush function. */
+    const flush = requireFlush(sink)
+
+    sink.emit(createRouteRecord('event-disposed'))
+    await Promise.resolve()
+    expect(exportBatch).toHaveBeenCalledTimes(1)
+
+    sink.dispose?.()
+    /** @brief 销毁后才发生的网络失败 / Network failure occurring after disposal. */
+    const inFlightFlush = flush()
+    delayedExport.reject(new Error('Sensitive network failure after disposal.'))
+    await inFlightFlush
+    await Promise.resolve()
+
+    expect(scheduler.tasks.filter((task) => !task.cancelled)).toHaveLength(0)
+    await flush()
+    expect(exportBatch).toHaveBeenCalledTimes(1)
+  })
 })
