@@ -18,6 +18,7 @@ import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 
 import { useAppGateways, useAsyncResource } from '../../app/AppData'
+import { runDiagnosticCommand, useDiagnostics } from '../../app/Diagnostics'
 import type { KnowledgeGateway } from '../../domain'
 import type {
   UiKnowledgeSearchResult,
@@ -90,6 +91,7 @@ function KnowledgeFileForm({
   sourceId
 }: KnowledgeFileFormProps): React.JSX.Element {
   const { t } = useTranslation()
+  const diagnostics = useDiagnostics()
   const [file, setFile] = useState<File | null>(null)
   const [name, setName] = useState('')
   const [phase, setPhase] = useState<'idle' | 'uploading' | 'ingesting' | 'succeeded' | 'error'>(
@@ -132,25 +134,37 @@ function KnowledgeFileForm({
     setPhase('uploading')
     setMessage(t('knowledge.uploading'))
 
-    const upload =
-      sourceId === undefined
-        ? gateway.uploadKnowledgeSource({
-            file,
-            ...(name.trim().length === 0 ? {} : { name: name.trim() }),
-            signal: controller.signal
-          })
-        : gateway.uploadKnowledgeSourceVersion({ sourceId, file, signal: controller.signal })
+    const upload = runDiagnosticCommand(
+      diagnostics,
+      {
+        operation: sourceId === undefined ? 'knowledge.upload' : 'knowledge.version_upload',
+        scope: 'knowledge'
+      },
+      (): Promise<Awaited<ReturnType<KnowledgeGateway['uploadKnowledgeSource']>>> =>
+        sourceId === undefined
+          ? gateway.uploadKnowledgeSource({
+              file,
+              ...(name.trim().length === 0 ? {} : { name: name.trim() }),
+              signal: controller.signal
+            })
+          : gateway.uploadKnowledgeSourceVersion({ sourceId, file, signal: controller.signal })
+    )
 
     void upload
       .then(async (accepted) => {
         if (controller.signal.aborted) return
         setPhase('ingesting')
         setMessage(t('knowledge.ingesting'))
-        const completed = await pollKnowledgeIngestion({
-          gateway,
-          jobId: accepted.ingestionJob.id,
-          signal: controller.signal
-        })
+        const completed = await runDiagnosticCommand(
+          diagnostics,
+          { operation: 'knowledge.ingestion_poll', scope: 'knowledge' },
+          () =>
+            pollKnowledgeIngestion({
+              gateway,
+              jobId: accepted.ingestionJob.id,
+              signal: controller.signal
+            })
+        )
         if (controller.signal.aborted) return
         if (completed.status !== 'succeeded') {
           setPhase('error')
@@ -255,6 +269,7 @@ function KnowledgeSearch({
   readonly selectedSourceId: UiKnowledgeSourceId | null
 }): React.JSX.Element {
   const { t } = useTranslation()
+  const diagnostics = useDiagnostics()
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle')
   const [results, setResults] = useState<readonly UiKnowledgeSearchResult[]>([])
@@ -278,12 +293,16 @@ function KnowledgeSearch({
     controllerRef.current = controller
     setStatus('loading')
     setErrorMessage('')
-    void gateway
-      .searchKnowledge({
-        query: normalizedQuery,
-        sourceIds: selectedSourceId === null ? [] : [selectedSourceId],
-        signal: controller.signal
-      })
+    void runDiagnosticCommand(
+      diagnostics,
+      { operation: 'knowledge.search', scope: 'knowledge' },
+      () =>
+        gateway.searchKnowledge({
+          query: normalizedQuery,
+          sourceIds: selectedSourceId === null ? [] : [selectedSourceId],
+          signal: controller.signal
+        })
+    )
       .then((items): void => {
         if (controller.signal.aborted) return
         setResults(items)
@@ -597,7 +616,7 @@ export function KnowledgePage(): React.JSX.Element {
     }
     return knowledge.listKnowledgeSources(currentWorkspace.id)
   }, [knowledge, reloadRevision, workspace])
-  const sources = useAsyncResource(loadSources)
+  const sources = useAsyncResource('knowledge.sources', loadSources)
   const reloadSources = useCallback((sourceId: UiKnowledgeSourceId | null): void => {
     setRequestedSourceId(sourceId)
     setReloadRevision((current) => current + 1)

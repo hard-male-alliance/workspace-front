@@ -542,7 +542,7 @@ export function TemplateSettingsPage(): React.JSX.Element {
     return resume.getTemplateSettings(requestedResumeId)
   }, [requestedResumeId, resume, resumeId])
   /** @brief 模板设置异步资源 / Template-settings async resource. */
-  const templateSettings = useAsyncResource(loadTemplateSettings)
+  const templateSettings = useAsyncResource('resume.template_settings', loadTemplateSettings)
 
   if (templateSettings.status === 'loading') {
     return (

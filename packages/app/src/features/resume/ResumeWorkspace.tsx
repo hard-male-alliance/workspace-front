@@ -18,6 +18,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
+import { runDiagnosticCommand, useDiagnostics } from '../../app/Diagnostics'
 import type { ResumeGateway } from '../../domain'
 import { asUiOpaqueId } from '../../domain'
 import type {
@@ -228,6 +229,7 @@ function ResumeAssistantPanel({
   readonly proposals: readonly UiResumeProposal[]
 }): React.JSX.Element {
   const { t } = useTranslation()
+  const diagnostics = useDiagnostics()
   const [draft, setDraft] = useState('')
   const [isSending, setSending] = useState(false)
   const [decidingProposalId, setDecidingProposalId] = useState<string | null>(null)
@@ -242,10 +244,15 @@ function ResumeAssistantPanel({
     setSending(true)
     setError(null)
     try {
-      const proposal = await gateway.createResumeProposal({
-        resumeId: editor.resume.id,
-        message
-      })
+      const proposal = await runDiagnosticCommand(
+        diagnostics,
+        { operation: 'resume.proposal_create', scope: 'resume' },
+        () =>
+          gateway.createResumeProposal({
+            resumeId: editor.resume.id,
+            message
+          })
+      )
       onProposalsChange([...proposals, proposal])
       setDraft('')
     } catch (reason: unknown) {
@@ -268,13 +275,18 @@ function ResumeAssistantPanel({
     setDecidingProposalId(proposal.id)
     setError(null)
     try {
-      await gateway.decideResumeProposal({
-        decision,
-        proposalId: proposal.id
-      })
-      if (decision === 'accept') {
-        onEditorChange(await gateway.getResumeEditor(editor.resume.id))
-      }
+      const nextEditor = await runDiagnosticCommand(
+        diagnostics,
+        { operation: 'resume.proposal_decide', scope: 'resume' },
+        async (): Promise<UiResumeEditorModel | null> => {
+          await gateway.decideResumeProposal({
+            decision,
+            proposalId: proposal.id
+          })
+          return decision === 'accept' ? gateway.getResumeEditor(editor.resume.id) : null
+        }
+      )
+      if (nextEditor !== null) onEditorChange(nextEditor)
       onProposalsChange(proposals.filter((item) => item.id !== proposal.id))
     } catch (reason: unknown) {
       if (onMutationError(reason)) return
@@ -406,6 +418,7 @@ function ResumeSectionsEditor({
   readonly onUserMutation: () => void
 }): React.JSX.Element {
   const { t } = useTranslation()
+  const diagnostics = useDiagnostics()
   const [focusedSectionId, setFocusedSectionId] = useState<UiResumeSectionId | null>(
     editor.resume.sections.at(0)?.id ?? null
   )
@@ -433,12 +446,17 @@ function ResumeSectionsEditor({
 
   const persistSection = async (section: UiResumeSection): Promise<void> => {
     try {
-      const next = await gateway.updateResumeSection({
-        resumeId: editor.resume.id,
-        sectionId: section.id,
-        title: section.title,
-        content: getSectionContent(section)
-      })
+      const next = await runDiagnosticCommand(
+        diagnostics,
+        { operation: 'resume.section_update', scope: 'resume' },
+        () =>
+          gateway.updateResumeSection({
+            resumeId: editor.resume.id,
+            sectionId: section.id,
+            title: section.title,
+            content: getSectionContent(section)
+          })
+      )
       onEditorChange(next)
     } catch (reason: unknown) {
       if (onMutationError(reason)) return
@@ -450,10 +468,15 @@ function ResumeSectionsEditor({
 
   const reorder = async (orderedIds: readonly UiResumeSectionId[]): Promise<void> => {
     try {
-      const next = await gateway.reorderResumeSections({
-        resumeId: editor.resume.id,
-        orderedSectionIds: orderedIds
-      })
+      const next = await runDiagnosticCommand(
+        diagnostics,
+        { operation: 'resume.section_reorder', scope: 'resume' },
+        () =>
+          gateway.reorderResumeSections({
+            resumeId: editor.resume.id,
+            orderedSectionIds: orderedIds
+          })
+      )
       onEditorChange(next)
       onUserMutation()
     } catch (reason: unknown) {
@@ -485,7 +508,11 @@ function ResumeSectionsEditor({
       return
     }
     try {
-      const next = await gateway.deleteResumeSection({ resumeId: editor.resume.id, sectionId })
+      const next = await runDiagnosticCommand(
+        diagnostics,
+        { operation: 'resume.section_delete', scope: 'resume' },
+        () => gateway.deleteResumeSection({ resumeId: editor.resume.id, sectionId })
+      )
       onEditorChange(next)
       onUserMutation()
       setFocusedSectionId(next.resume.sections.at(0)?.id ?? null)
@@ -703,6 +730,7 @@ function ResumePreviewPanel({
   readonly initialArtifact: UiResumePdfArtifact | null
 }): React.JSX.Element {
   const { t } = useTranslation()
+  const diagnostics = useDiagnostics()
   const [artifact, setArtifact] = useState<UiResumePdfArtifact | null>(initialArtifact)
   const [job, setJob] = useState<UiResumeRenderJob | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -737,31 +765,37 @@ function ResumePreviewPanel({
     setRendering(true)
     setError(null)
     try {
-      let current = await gateway.startResumePdfRender({
-        resumeId: editor.resume.id,
-        resumeRevision: editor.resume.revision,
-        signal: controller.signal
-      })
-      setJob(current)
-      for (
-        let attempt = 0;
-        attempt < 60 && ['queued', 'running'].includes(current.status);
-        attempt += 1
-      ) {
-        current = await gateway.getResumeRenderJob(current.id, controller.signal)
-        setJob(current)
-        if (['queued', 'running'].includes(current.status)) {
-          await waitForNextPoll(controller.signal)
+      await runDiagnosticCommand(
+        diagnostics,
+        { operation: 'resume.pdf_render', scope: 'resume' },
+        async (): Promise<void> => {
+          let current = await gateway.startResumePdfRender({
+            resumeId: editor.resume.id,
+            resumeRevision: editor.resume.revision,
+            signal: controller.signal
+          })
+          setJob(current)
+          for (
+            let attempt = 0;
+            attempt < 60 && ['queued', 'running'].includes(current.status);
+            attempt += 1
+          ) {
+            current = await gateway.getResumeRenderJob(current.id, controller.signal)
+            setJob(current)
+            if (['queued', 'running'].includes(current.status)) {
+              await waitForNextPoll(controller.signal)
+            }
+          }
+          if (current.status !== 'succeeded') {
+            throw new Error('Resume PDF rendering did not complete successfully.')
+          }
+          const completedArtifact = current.artifacts.at(0)
+          if (completedArtifact === undefined) {
+            throw new Error('Resume PDF rendering completed without a PDF artifact.')
+          }
+          setArtifact(completedArtifact)
         }
-      }
-      if (current.status !== 'succeeded') {
-        throw new Error('Resume PDF rendering did not complete successfully.')
-      }
-      const completedArtifact = current.artifacts.at(0)
-      if (completedArtifact === undefined) {
-        throw new Error('Resume PDF rendering completed without a PDF artifact.')
-      }
-      setArtifact(completedArtifact)
+      )
     } catch (reason: unknown) {
       if (!controller.signal.aborted) {
         setError(
@@ -852,6 +886,7 @@ export function ResumeWorkspace({
   readonly templates: readonly UiTemplateManifest[]
 }): React.JSX.Element {
   const { t } = useTranslation()
+  const diagnostics = useDiagnostics()
   const [editor, setEditor] = useState(initialEditor)
   const [visiblePanes, setVisiblePanes] = useState<Readonly<Record<ResumePane, boolean>>>({
     assistant: true,
@@ -890,12 +925,19 @@ export function ResumeWorkspace({
     setReloadingAuthority(true)
     setAuthorityReloadError(false)
     try {
-      const [nextEditor, nextProposals, artifacts] = await Promise.all([
-        gateway.getResumeEditor(editor.resume.id),
-        gateway.listResumeProposals(editor.resume.id),
-        gateway.listResumePdfArtifacts(editor.resume.id)
-      ])
-      const nextTemplates = await gateway.listTemplateManifests(nextEditor.resume.locale)
+      const { artifacts, nextEditor, nextProposals, nextTemplates } = await runDiagnosticCommand(
+        diagnostics,
+        { operation: 'resume.authority_reload', scope: 'resume' },
+        async () => {
+          const [nextEditor, nextProposals, artifacts] = await Promise.all([
+            gateway.getResumeEditor(editor.resume.id),
+            gateway.listResumeProposals(editor.resume.id),
+            gateway.listResumePdfArtifacts(editor.resume.id)
+          ])
+          const nextTemplates = await gateway.listTemplateManifests(nextEditor.resume.locale)
+          return { artifacts, nextEditor, nextProposals, nextTemplates }
+        }
+      )
       const nextArtifact =
         [...artifacts].sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0] ??
         null
@@ -928,10 +970,15 @@ export function ResumeWorkspace({
   const selectTemplate = async (templateId: string): Promise<void> => {
     if (conflictStatus !== null) return
     try {
-      const next = await gateway.selectResumeTemplate({
-        resumeId: editor.resume.id,
-        templateId: asUiOpaqueId<'template'>(templateId)
-      })
+      const next = await runDiagnosticCommand(
+        diagnostics,
+        { operation: 'resume.template_select', scope: 'resume' },
+        () =>
+          gateway.selectResumeTemplate({
+            resumeId: editor.resume.id,
+            templateId: asUiOpaqueId<'template'>(templateId)
+          })
+      )
       setEditor(next)
     } catch (reason: unknown) {
       handleMutationError(reason)

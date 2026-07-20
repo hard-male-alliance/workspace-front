@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 
+import { useDiagnostics } from './Diagnostics'
 import { useRuntimeInfo } from './runtime'
 
 /** @brief 主导航项 / Primary navigation item. */
@@ -52,19 +53,30 @@ type ThemeMode = 'dark' | 'light'
 /** @brief 本地主题偏好键 / Local theme-preference key. */
 const THEME_STORAGE_KEY = 'inkwell-theme'
 
+/** @brief 初始主题读取结果 / Result of reading the initial theme. */
+interface InitialThemeResult {
+  /** @brief 可用的初始主题 / Usable initial theme. */
+  readonly theme: ThemeMode
+  /** @brief 浏览器主题存储是否可访问 / Whether browser theme storage was accessible. */
+  readonly storageAvailable: boolean
+}
+
 /**
- * @brief 读取本地主题，未设置时固定使用深色 / Read the local theme, defaulting to dark.
- * @return 当前可用主题 / Current usable theme.
+ * @brief 读取本地主题与存储可用性，未设置时固定使用深色 / Read the local theme and storage availability, defaulting to dark.
+ * @return 初始主题与存储状态 / Initial theme and storage state.
  */
-function readInitialTheme(): ThemeMode {
+function readInitialTheme(): InitialThemeResult {
   if (typeof window === 'undefined') {
-    return 'dark'
+    return { storageAvailable: true, theme: 'dark' }
   }
 
   try {
-    return window.localStorage.getItem(THEME_STORAGE_KEY) === 'light' ? 'light' : 'dark'
+    return {
+      storageAvailable: true,
+      theme: window.localStorage.getItem(THEME_STORAGE_KEY) === 'light' ? 'light' : 'dark'
+    }
   } catch {
-    return 'dark'
+    return { storageAvailable: false, theme: 'dark' }
   }
 }
 
@@ -127,13 +139,23 @@ export function WorkspaceShell(): React.JSX.Element {
   const nextLocale = i18n.language === 'en-US' ? 'zh-SG' : 'en-US'
   /** @brief 当前 renderer 已确认的宿主信息 / Host information confirmed for the current renderer. */
   const runtimeInfo = useRuntimeInfo()
+  /** @brief 应用诊断端口 / Application diagnostics port. */
+  const diagnostics = useDiagnostics()
+  /** @brief 主题存储的首次读取结果 / First theme-storage read result. */
+  const [initialTheme] = useState<InitialThemeResult>(readInitialTheme)
   /** @brief 当前界面主题 / Current interface theme. */
-  const [theme, setTheme] = useState<ThemeMode>(readInitialTheme)
+  const [theme, setTheme] = useState<ThemeMode>(initialTheme.theme)
 
   useEffect((): void => {
     document.documentElement.dataset.theme = theme
     document.documentElement.style.colorScheme = theme
   }, [theme])
+
+  useEffect((): void => {
+    if (!initialTheme.storageAvailable) {
+      diagnostics.emit('preference.theme_storage_unavailable', {})
+    }
+  }, [diagnostics, initialTheme.storageAvailable])
 
   /** @brief 切换并保存本地主题 / Toggle and persist the local theme. */
   const toggleTheme = (): void => {
@@ -144,8 +166,9 @@ export function WorkspaceShell(): React.JSX.Element {
     try {
       window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme)
     } catch {
-      // Storage can be unavailable in privacy-restricted renderers; the in-memory theme still works.
+      diagnostics.emit('preference.theme_storage_unavailable', {})
     }
+    diagnostics.emit('preference.theme_changed', { theme: nextTheme })
   }
 
   return (

@@ -292,7 +292,7 @@ export function WorkspaceHomePage(): React.JSX.Element {
     return { home, resumeCard }
   }, [resume, workspace])
   /** @brief 首页异步资源 / Home async resource. */
-  const home = useAsyncResource(loadHome)
+  const home = useAsyncResource('workspace.home', loadHome)
 
   if (home.status === 'loading') {
     return (

@@ -18,7 +18,7 @@ export function ResumeEntryPage(): React.JSX.Element {
       [...cards].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ?? null
     )
   }, [resume, workspace])
-  const latestResume = useAsyncResource(loadLatestResume)
+  const latestResume = useAsyncResource('resume.entry', loadLatestResume)
 
   if (latestResume.status === 'loading') {
     return (

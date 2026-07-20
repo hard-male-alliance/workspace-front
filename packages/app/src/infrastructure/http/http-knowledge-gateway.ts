@@ -90,7 +90,10 @@ export class HttpKnowledgeGateway implements KnowledgeGateway {
   ): Promise<UiKnowledgeIngestionJob> {
     const response = await this.#client.getJson(
       `/knowledge-ingestion-jobs/${encodeURIComponent(jobId)}`,
-      signal === undefined ? {} : { signal }
+      {
+        diagnostics: 'suppress',
+        ...(signal === undefined ? {} : { signal })
+      }
     )
     return mapKnowledgeIngestionJobDto(parseKnowledgeIngestionJobDto(response.data))
   }

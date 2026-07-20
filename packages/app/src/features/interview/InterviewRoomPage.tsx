@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router-dom'
 
 import { useAppGateways, useAsyncResource } from '../../app/AppData'
+import { runDiagnosticCommand, useDiagnostics } from '../../app/Diagnostics'
 import { asUiOpaqueId } from '../../domain'
 import type { UiInterviewRuntimeModel, UiTranscriptEntry } from '../../domain'
 import { ErrorState, LoadingState } from '../../ui'
@@ -36,6 +37,7 @@ function InterviewMessage({ entry }: { readonly entry: UiTranscriptEntry }): Rea
 function InterviewRoom({ initialRuntime }: { readonly initialRuntime: UiInterviewRuntimeModel }) {
   const { t } = useTranslation()
   const { interview } = useAppGateways()
+  const diagnostics = useDiagnostics()
   const [runtime, setRuntime] = useState(initialRuntime)
   const [isSubmitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -47,8 +49,11 @@ function InterviewRoom({ initialRuntime }: { readonly initialRuntime: UiIntervie
     if (isSubmitting || runtime.currentTranscript.trim().length === 0) return
     setSubmitting(true)
     setSubmitError(null)
-    void interview
-      .submitInterviewAnswer(runtime.session.id)
+    void runDiagnosticCommand(
+      diagnostics,
+      { operation: 'interview.answer_submit', scope: 'interview' },
+      () => interview.submitInterviewAnswer(runtime.session.id)
+    )
       .then((nextRuntime) => {
         setRuntime(nextRuntime)
         setSubmitting(false)
@@ -223,7 +228,7 @@ export function InterviewRoomPage(): React.JSX.Element {
     () => interview.getInterviewRuntime(asUiOpaqueId<'interview-session'>(sessionId)),
     [interview, sessionId]
   )
-  const runtime = useAsyncResource(loadRuntime)
+  const runtime = useAsyncResource('interview.runtime', loadRuntime)
 
   if (runtime.status === 'loading')
     return (

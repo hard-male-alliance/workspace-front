@@ -49,7 +49,7 @@ export function ResumeEditorPage(): React.JSX.Element {
       [...artifacts].sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0] ?? null
     return { editor, pdfArtifact, proposals, templates }
   }, [requestedResumeId, resume, resumeId])
-  const workspace = useAsyncResource(loadWorkspace)
+  const workspace = useAsyncResource('resume.editor', loadWorkspace)
 
   if (workspace.status === 'loading') {
     return (

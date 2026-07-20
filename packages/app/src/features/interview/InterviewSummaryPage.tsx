@@ -260,7 +260,7 @@ export function InterviewSummaryPage(): React.JSX.Element {
     const knowledgeSources = await knowledge.listKnowledgeSources(runtime.session.workspaceId)
     return { report, runtime, knowledgeSources }
   }, [interview, knowledge, sessionId])
-  const summary = useAsyncResource(loadSummary)
+  const summary = useAsyncResource('interview.summary', loadSummary)
 
   if (summary.status === 'loading')
     return (

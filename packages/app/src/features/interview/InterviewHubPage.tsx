@@ -90,7 +90,7 @@ export function InterviewHubPage(): React.JSX.Element {
     }
     return interview.listCompletedInterviews(currentWorkspace.id)
   }, [interview, workspace])
-  const history = useAsyncResource(loadHistory)
+  const history = useAsyncResource('interview.history', loadHistory)
 
   return (
     <div className="aw-page aw-interview-hub">
