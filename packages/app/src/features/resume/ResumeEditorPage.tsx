@@ -3,7 +3,12 @@ import { useTranslation } from 'react-i18next'
 import { useParams } from 'react-router-dom'
 import { useAppGateways, useAsyncResource } from '../../app/AppData'
 import { asUiOpaqueId } from '../../domain'
-import type { UiResumeEditorModel, UiTemplateManifest } from '../../domain'
+import type {
+  UiResumeEditorModel,
+  UiResumePdfArtifact,
+  UiResumeProposal,
+  UiTemplateManifest
+} from '../../domain'
 import { ErrorState, LoadingState } from '../../ui'
 import { ResumeWorkspace } from './ResumeWorkspace'
 
@@ -13,6 +18,10 @@ interface ResumeWorkspaceResources {
   readonly editor: UiResumeEditorModel
   /** @brief 可用模板 / Available templates. */
   readonly templates: readonly UiTemplateManifest[]
+  /** @brief 页面刷新后恢复的待审批 Proposal / Pending Proposals recovered after reload. */
+  readonly proposals: readonly UiResumeProposal[]
+  /** @brief 最近的 PDF artifact / Latest PDF artifact. */
+  readonly pdfArtifact: UiResumePdfArtifact | null
 }
 
 /**
@@ -30,9 +39,15 @@ export function ResumeEditorPage(): React.JSX.Element {
       throw new Error('A resume identifier is required to open the editor.')
     }
 
-    const editor = await resume.getResumeEditor(requestedResumeId)
+    const [editor, proposals, artifacts] = await Promise.all([
+      resume.getResumeEditor(requestedResumeId),
+      resume.listResumeProposals(requestedResumeId),
+      resume.listResumePdfArtifacts(requestedResumeId)
+    ])
     const templates = await resume.listTemplateManifests(editor.resume.locale)
-    return { editor, templates }
+    const pdfArtifact =
+      [...artifacts].sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0] ?? null
+    return { editor, pdfArtifact, proposals, templates }
   }, [requestedResumeId, resume, resumeId])
   const workspace = useAsyncResource(loadWorkspace)
 
@@ -61,6 +76,8 @@ export function ResumeEditorPage(): React.JSX.Element {
     <ResumeWorkspace
       gateway={resume}
       initialEditor={workspace.data.editor}
+      initialPdfArtifact={workspace.data.pdfArtifact}
+      initialProposals={workspace.data.proposals}
       templates={workspace.data.templates}
     />
   )

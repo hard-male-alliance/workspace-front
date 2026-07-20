@@ -8,17 +8,14 @@ import { createDesktopSmokeLaunch } from './desktop-smoke-launch.mjs'
 /** @brief 仓库根目录 / Repository root directory. */
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
-/** @brief 当前平台的 Electron CLI 文件名 / Electron CLI filename for the current platform. */
-const electronCliName = process.platform === 'win32' ? 'electron.cmd' : 'electron'
-
-/** @brief desktop workspace 依赖提供的 Electron CLI / Electron CLI supplied by desktop workspace dependencies. */
-const electronCliPath = path.join(
+/** @brief desktop workspace 依赖提供的 Electron CLI 脚本 / Electron CLI script supplied by desktop workspace dependencies. */
+const electronCliScriptPath = path.join(
   repositoryRoot,
   'apps',
   'desktop',
   'node_modules',
-  '.bin',
-  electronCliName
+  'electron',
+  'cli.js'
 )
 
 /** @brief 已构建的 Electron main 入口 / Built Electron main entrypoint. */
@@ -41,9 +38,8 @@ delete smokeEnvironment.ELECTRON_RUN_AS_NODE
 
 /** @brief 当前平台适配后的 Electron 启动描述 / Electron launch descriptor adapted to the current platform. */
 const desktopSmokeLaunch = createDesktopSmokeLaunch(
-  process.platform,
-  process.env.ComSpec,
-  electronCliPath,
+  process.execPath,
+  electronCliScriptPath,
   desktopMainPath
 )
 

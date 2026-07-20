@@ -67,6 +67,77 @@ describe('Mock gateways', () => {
     )
   })
 
+  it('uploads and completes a deterministic Mock knowledge file', async () => {
+    const knowledgeGateway = new MockKnowledgeGateway()
+
+    const accepted = await knowledgeGateway.uploadKnowledgeSource({
+      file: new File(['knowledge'], 'notes.md', { type: 'text/markdown' }),
+      name: 'Project notes'
+    })
+
+    expect(accepted.source).toMatchObject({
+      name: 'Project notes',
+      originLabel: 'notes.md',
+      ingestionStatus: 'queued'
+    })
+    expect(accepted.ingestionJob.status).toBe('queued')
+
+    const completed = await knowledgeGateway.getKnowledgeIngestionJob(accepted.ingestionJob.id)
+    const sources = await knowledgeGateway.listKnowledgeSources(MOCK_WORKSPACE_ID)
+
+    expect(completed.status).toBe('succeeded')
+    expect(sources.find((source) => source.id === accepted.source.id)?.ingestionStatus).toBe(
+      'ready'
+    )
+  })
+
+  it('keeps a source ID stable when uploading a Mock knowledge version', async () => {
+    const knowledgeGateway = new MockKnowledgeGateway()
+    const source = MOCK_KNOWLEDGE_SOURCES[0]
+
+    if (source === undefined) {
+      throw new Error('Expected a Mock knowledge source.')
+    }
+
+    const accepted = await knowledgeGateway.uploadKnowledgeSourceVersion({
+      sourceId: source.id,
+      file: new File(['updated'], 'resume-v2.md', { type: 'text/markdown' })
+    })
+
+    expect(accepted.source.id).toBe(source.id)
+    expect(accepted.ingestionJob.sourceId).toBe(source.id)
+  })
+
+  it('returns source-linked Mock knowledge search results', async () => {
+    const knowledgeGateway = new MockKnowledgeGateway()
+    const source = MOCK_KNOWLEDGE_SOURCES[0]
+
+    if (source === undefined) {
+      throw new Error('Expected a Mock knowledge source.')
+    }
+
+    const results = await knowledgeGateway.searchKnowledge({
+      query: 'platform engineering',
+      sourceIds: [source.id]
+    })
+
+    expect(results).toHaveLength(1)
+    expect(results[0]).toMatchObject({ sourceId: source.id, title: source.name })
+  })
+
+  it('honors an aborted signal for Mock knowledge jobs', async () => {
+    const knowledgeGateway = new MockKnowledgeGateway()
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(
+      knowledgeGateway.getKnowledgeIngestionJob(
+        'mock-job' as Parameters<MockKnowledgeGateway['getKnowledgeIngestionJob']>[0],
+        controller.signal
+      )
+    ).rejects.toMatchObject({ name: 'AbortError' })
+  })
+
   it('makes empty and error states explicit for page-state testing', async () => {
     /** @brief 空态简历 Mock 网关 / Empty-state resume Mock gateway. */
     const emptyGateway = new MockResumeGateway({ mode: 'empty' })
@@ -113,6 +184,46 @@ describe('Mock gateways', () => {
         ].includes(section.kind)
       )
     ).toBe(true)
+  })
+
+  it('keeps a Mock Proposal pending until the user accepts or rejects it', async () => {
+    const resumeGateway = new MockResumeGateway()
+    const before = await resumeGateway.getResumeEditor(MOCK_RESUME_ID)
+
+    const proposal = await resumeGateway.createResumeProposal({
+      message: '把职业摘要改得更突出量化成果',
+      resumeId: MOCK_RESUME_ID
+    })
+
+    expect(await resumeGateway.listResumeProposals(MOCK_RESUME_ID)).toEqual([proposal])
+    expect((await resumeGateway.getResumeEditor(MOCK_RESUME_ID)).resume.revision).toBe(
+      before.resume.revision
+    )
+
+    const accepted = await resumeGateway.decideResumeProposal({
+      decision: 'accept',
+      proposalId: proposal.id
+    })
+    expect(accepted.status).toBe('accepted')
+    expect((await resumeGateway.getResumeEditor(MOCK_RESUME_ID)).resume.revision).toBeGreaterThan(
+      before.resume.revision
+    )
+  })
+
+  it('keeps Mock PDF rendering split into start, status, and artifact recovery', async () => {
+    const resumeGateway = new MockResumeGateway()
+
+    const started = await resumeGateway.startResumePdfRender({
+      resumeId: MOCK_RESUME_ID,
+      resumeRevision: 18
+    })
+    const completed = await resumeGateway.getResumeRenderJob(started.id)
+    const artifacts = await resumeGateway.listResumePdfArtifacts(MOCK_RESUME_ID)
+
+    expect(started.status).toBe('queued')
+    expect(completed.status).toBe('succeeded')
+    expect(completed.artifacts).toHaveLength(1)
+    expect(artifacts).toEqual(completed.artifacts)
   })
 
   it('applies an assistant revision immediately and can undo the latest AI change', async () => {

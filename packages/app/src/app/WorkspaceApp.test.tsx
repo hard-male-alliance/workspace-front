@@ -1,27 +1,36 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup } from '@testing-library/react'
 import { appI18n, appI18nReady } from '../i18n'
+import type { WorkspaceAppProps } from './WorkspaceApp'
+import { WorkspaceApp as SharedWorkspaceApp } from './WorkspaceApp'
 import {
+  MOCK_KNOWLEDGE_SOURCES,
+  MOCK_RESUME_ID,
   MockInterviewGateway,
   MockKnowledgeGateway,
   MockResumeGateway,
   MockWorkspaceGateway
 } from '../infrastructure/mock'
-import type { WorkspaceAppProps } from './WorkspaceApp'
-import { WorkspaceApp as SharedWorkspaceApp } from './WorkspaceApp'
+import { HttpProblemError } from '../infrastructure/http/http-client'
 
-/** @brief 为每次渲染创建隔离的测试 Gateway / Create isolated test gateways for each render. */
-function WorkspaceApp(props: Omit<WorkspaceAppProps, 'gateways'>): React.JSX.Element {
+type TestWorkspaceAppProps = Omit<WorkspaceAppProps, 'gateways'> & {
+  readonly gateways?: WorkspaceAppProps['gateways']
+}
+
+/** @brief 为测试渲染提供隔离的默认 Mock Gateway / Provide isolated default Mock Gateways for tests. */
+function WorkspaceApp({ gateways, ...props }: TestWorkspaceAppProps): React.JSX.Element {
   return (
     <SharedWorkspaceApp
       {...props}
-      gateways={{
-        workspace: new MockWorkspaceGateway(),
-        resume: new MockResumeGateway(),
-        interview: new MockInterviewGateway(),
-        knowledge: new MockKnowledgeGateway()
-      }}
+      gateways={
+        gateways ?? {
+          workspace: new MockWorkspaceGateway(),
+          resume: new MockResumeGateway(),
+          interview: new MockInterviewGateway(),
+          knowledge: new MockKnowledgeGateway()
+        }
+      }
     />
   )
 }
@@ -81,10 +90,7 @@ describe('WorkspaceApp', (): void => {
     expect(screen.getByRole('heading', { name: '最近活动' })).toBeInTheDocument()
 
     expect(screen.getByRole('link', { name: '工作台' })).toHaveAttribute('href', '/')
-    expect(screen.getByRole('link', { name: '简历' })).toHaveAttribute(
-      'href',
-      '/resumes/res_mock_ai_platform/edit'
-    )
+    expect(screen.getByRole('link', { name: '简历' })).toHaveAttribute('href', '/resumes')
     expect(screen.getByRole('link', { name: '模拟面试' })).toHaveAttribute('href', '/interviews')
     expect(screen.getByRole('link', { name: '知识库' })).toHaveAttribute('href', '/knowledge')
     expect(screen.queryByRole('link', { name: '可见性' })).not.toBeInTheDocument()
@@ -98,10 +104,7 @@ describe('WorkspaceApp', (): void => {
     render(<WorkspaceApp initialPath="/" />)
 
     expect(await screen.findByRole('heading', { name: "Today's workspace" })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Resume' })).toHaveAttribute(
-      'href',
-      '/resumes/res_mock_ai_platform/edit'
-    )
+    expect(screen.getByRole('link', { name: 'Resume' })).toHaveAttribute('href', '/resumes')
     expect(screen.getByRole('link', { name: 'Mock interview' })).toHaveAttribute(
       'href',
       '/interviews'
@@ -146,7 +149,7 @@ describe('WorkspaceApp', (): void => {
     expect(screen.queryAllByRole('separator')).toHaveLength(0)
   })
 
-  it('applies an AI revision immediately and lets the student undo the latest change', async (): Promise<void> => {
+  it('keeps an AI Proposal pending until the student explicitly accepts it', async (): Promise<void> => {
     await resetChineseLocale()
 
     render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
@@ -157,24 +160,147 @@ describe('WorkspaceApp', (): void => {
     })
     fireEvent.click(screen.getByRole('button', { name: '发送消息' }))
 
-    expect(
-      await screen.findByText('已直接更新职业摘要，突出可验证的工程结果。')
-    ).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '职业摘要修改建议' })).toBeInTheDocument()
     expect(
       screen.getByDisplayValue(
+        '面向生产环境构建可靠的 AI 平台与开发者工具，专注检索、推理编排和可观测性。'
+      )
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '接受建议' }))
+    expect(
+      await screen.findByDisplayValue(
         '将模型推理延迟从 1.8 秒降低至 620 毫秒，并建立可复用的 AI 平台能力。'
       )
     ).toBeInTheDocument()
-    expect(
-      screen.getAllByText('将模型推理延迟从 1.8 秒降低至 620 毫秒，并建立可复用的 AI 平台能力。')
-    ).toHaveLength(2)
+  })
 
-    fireEvent.click(screen.getByRole('button', { name: '撤销本次 AI 修改' }))
+  it('rejects a pending AI Proposal without changing the Resume', async (): Promise<void> => {
+    await resetChineseLocale()
+
+    render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
+    await screen.findByRole('heading', { name: 'Klee Chen' })
+    fireEvent.change(screen.getByRole('textbox', { name: '询问简历助手' }), {
+      target: { value: '把职业摘要改得更突出量化成果' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }))
+    await screen.findByRole('heading', { name: '职业摘要修改建议' })
+
+    fireEvent.click(screen.getByRole('button', { name: '拒绝建议' }))
+
     expect(
       await screen.findByDisplayValue(
         '面向生产环境构建可靠的 AI 平台与开发者工具，专注检索、推理编排和可观测性。'
       )
     ).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '职业摘要修改建议' })).not.toBeInTheDocument()
+  })
+
+  it('starts a PDF Render Job and displays the completed artifact', async (): Promise<void> => {
+    await resetChineseLocale()
+
+    render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
+    await screen.findByRole('heading', { name: 'Klee Chen' })
+
+    fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
+
+    expect(await screen.findByTitle('简历 PDF 预览')).toHaveAttribute(
+      'src',
+      'about:blank#mock-resume-pdf'
+    )
+    expect(screen.getByRole('link', { name: '下载 PDF' })).toHaveAttribute(
+      'href',
+      'about:blank#mock-resume-pdf'
+    )
+  })
+
+  it.each([412, 409] as const)(
+    'locks stale resume writes after HTTP %i and reloads the authoritative revision',
+    async (status) => {
+      await appI18nReady
+      await appI18n.changeLanguage('en-US')
+      const resume = new MockResumeGateway()
+      await resume.createResumeProposal({
+        message: 'Make the summary more specific',
+        resumeId: MOCK_RESUME_ID
+      })
+      const initial = await resume.getResumeEditor(MOCK_RESUME_ID)
+      const authoritative = {
+        ...initial,
+        resume: { ...initial.resume, revision: status === 412 ? 99 : 77 }
+      }
+      vi.spyOn(resume, 'getResumeEditor')
+        .mockResolvedValueOnce(initial)
+        .mockResolvedValue(authoritative)
+      const update = vi.spyOn(resume, 'updateResumeSection').mockRejectedValue(
+        new HttpProblemError({
+          code: status === 412 ? 'resume.precondition_failed' : 'resume.conflict',
+          detail: 'The Resume ETag is stale.',
+          requestId: null,
+          status,
+          title: 'Resume changed elsewhere'
+        })
+      )
+
+      render(
+        <WorkspaceApp
+          gateways={{
+            interview: new MockInterviewGateway(),
+            knowledge: new MockKnowledgeGateway(),
+            resume,
+            workspace: new MockWorkspaceGateway()
+          }}
+          initialPath="/resumes/res_mock_ai_platform/edit"
+        />
+      )
+      await screen.findByRole('heading', { name: 'Klee Chen' })
+      const content = screen.getByRole('textbox', { name: 'Semantic content' })
+      fireEvent.change(content, { target: { value: 'A stale local edit' } })
+      fireEvent.blur(content)
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'This resume changed on the server. Reload the authoritative version before editing.'
+      )
+      expect(content).toBeDisabled()
+      expect(screen.getByRole('button', { name: 'Accept suggestion' })).toBeDisabled()
+      expect(
+        screen.getByRole('combobox', { name: 'Quickly switch resume template' })
+      ).toBeDisabled()
+      expect(screen.getByText('Revision 18')).toBeInTheDocument()
+      expect(update).toHaveBeenCalledTimes(1)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Reload server version' }))
+      expect(await screen.findByText(`Revision ${status === 412 ? 99 : 77}`)).toBeInTheDocument()
+      expect(screen.queryByText('A stale local edit')).not.toBeInTheDocument()
+    }
+  )
+
+  it('aborts PDF polling when the Resume page unmounts', async (): Promise<void> => {
+    await resetChineseLocale()
+    const resume = new MockResumeGateway()
+    let pollingSignal: AbortSignal | undefined
+    vi.spyOn(resume, 'getResumeRenderJob').mockImplementation((_jobId, signal): Promise<never> => {
+      pollingSignal = signal
+      return new Promise<never>(() => undefined)
+    })
+    const view = render(
+      <WorkspaceApp
+        gateways={{
+          interview: new MockInterviewGateway(),
+          knowledge: new MockKnowledgeGateway(),
+          resume,
+          workspace: new MockWorkspaceGateway()
+        }}
+        initialPath="/resumes/res_mock_ai_platform/edit"
+      />
+    )
+    await screen.findByRole('heading', { name: 'Klee Chen' })
+    fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
+    await vi.waitFor((): void => expect(pollingSignal).toBeDefined())
+
+    view.unmount()
+
+    expect(pollingSignal?.aborted).toBe(true)
   })
 
   it('offers section ordering, deletion, and quick template selection in the workspace', async (): Promise<void> => {
@@ -361,6 +487,207 @@ describe('WorkspaceApp', (): void => {
 
     expect(screen.getAllByText('portfolio-engineering')).toHaveLength(2)
     expect(screen.queryByText('AI 平台工程师 · 中文简历')).not.toBeInTheDocument()
+  })
+
+  it('validates knowledge files before upload and prevents duplicate submission', async () => {
+    await appI18nReady
+    await appI18n.changeLanguage('en-US')
+    const knowledge = new MockKnowledgeGateway()
+    const upload = vi.spyOn(knowledge, 'uploadKnowledgeSource')
+    const gateways = {
+      interview: new MockInterviewGateway(),
+      knowledge,
+      resume: new MockResumeGateway(),
+      workspace: new MockWorkspaceGateway()
+    }
+
+    render(<WorkspaceApp gateways={gateways} initialPath="/knowledge" />)
+    await screen.findByRole('heading', { name: 'Personal memory & knowledge' })
+    fireEvent.click(screen.getByRole('button', { name: 'Add source' }))
+
+    const fileInput = screen.getByLabelText('Knowledge file')
+    fireEvent.change(fileInput, { target: { files: [new File(['unsafe'], 'program.exe')] } })
+    fireEvent.click(screen.getByRole('button', { name: 'Upload file' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Choose a TXT, Markdown, PDF, or DOCX file.'
+    )
+    expect(upload).not.toHaveBeenCalled()
+
+    const oversized = new File([new Uint8Array(10 * 1024 * 1024 + 1)], 'large.pdf', {
+      type: 'application/pdf'
+    })
+    fireEvent.change(fileInput, { target: { files: [oversized] } })
+    fireEvent.click(screen.getByRole('button', { name: 'Upload file' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('File must be 10 MiB or smaller.')
+    expect(upload).not.toHaveBeenCalled()
+
+    upload.mockReturnValue(new Promise(() => undefined))
+    fireEvent.change(fileInput, {
+      target: { files: [new File(['notes'], 'notes.md', { type: 'text/markdown' })] }
+    })
+    const submit = screen.getByRole('button', { name: 'Upload file' })
+    fireEvent.click(submit)
+    fireEvent.click(submit)
+
+    expect(upload).toHaveBeenCalledTimes(1)
+    expect(submit).toBeDisabled()
+  })
+
+  it('polls an accepted knowledge upload and aborts it on unmount', async () => {
+    await appI18nReady
+    await appI18n.changeLanguage('en-US')
+    const knowledge = new MockKnowledgeGateway()
+    const accepted = await knowledge.uploadKnowledgeSource({
+      file: new File(['notes'], 'notes.md', { type: 'text/markdown' })
+    })
+    vi.spyOn(knowledge, 'uploadKnowledgeSource').mockResolvedValue(accepted)
+    let pollingSignal: AbortSignal | undefined
+    vi.spyOn(knowledge, 'getKnowledgeIngestionJob').mockImplementation((_jobId, signal) => {
+      pollingSignal = signal
+      return new Promise(() => undefined)
+    })
+
+    const view = render(
+      <WorkspaceApp
+        gateways={{
+          interview: new MockInterviewGateway(),
+          knowledge,
+          resume: new MockResumeGateway(),
+          workspace: new MockWorkspaceGateway()
+        }}
+        initialPath="/knowledge"
+      />
+    )
+    await screen.findByRole('heading', { name: 'Personal memory & knowledge' })
+    fireEvent.click(screen.getByRole('button', { name: 'Add source' }))
+    fireEvent.change(screen.getByLabelText('Knowledge file'), {
+      target: { files: [new File(['notes'], 'notes.md', { type: 'text/markdown' })] }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Upload file' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Ingesting file')
+    await vi.waitFor(() => expect(pollingSignal).toBeDefined())
+    view.unmount()
+    expect(pollingSignal?.aborted).toBe(true)
+  })
+
+  it('uses the selected real source ID for policy review and version upload', async () => {
+    await appI18nReady
+    await appI18n.changeLanguage('en-US')
+    const knowledge = new MockKnowledgeGateway()
+    const uploaded = await knowledge.uploadKnowledgeSource({
+      file: new File(['first'], 'project.md', { type: 'text/markdown' }),
+      name: 'Project file'
+    })
+    const versionUpload = vi
+      .spyOn(knowledge, 'uploadKnowledgeSourceVersion')
+      .mockReturnValue(new Promise(() => undefined))
+
+    render(
+      <WorkspaceApp
+        gateways={{
+          interview: new MockInterviewGateway(),
+          knowledge,
+          resume: new MockResumeGateway(),
+          workspace: new MockWorkspaceGateway()
+        }}
+        initialPath="/knowledge"
+      />
+    )
+    await screen.findByRole('heading', { name: 'Personal memory & knowledge' })
+    fireEvent.click(screen.getByRole('button', { name: 'View details for Project file' }))
+
+    expect(
+      screen.getByRole('link', { name: 'Review this source authorization matrix' })
+    ).toHaveAttribute('href', `/knowledge/${uploaded.source.id}/visibility`)
+    const replacement = new File(['second'], 'project-v2.md', { type: 'text/markdown' })
+    fireEvent.change(screen.getByLabelText('Replacement file'), {
+      target: { files: [replacement] }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Upload new version' }))
+
+    expect(versionUpload).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceId: uploaded.source.id, file: replacement })
+    )
+  })
+
+  it('searches knowledge through the gateway and displays safe result fields', async () => {
+    await appI18nReady
+    await appI18n.changeLanguage('en-US')
+    const knowledge = new MockKnowledgeGateway()
+    vi.spyOn(knowledge, 'searchKnowledge').mockResolvedValue([
+      {
+        id: 'result-1',
+        sourceId: MOCK_KNOWLEDGE_SOURCES[0]!.id,
+        title: 'Platform notes',
+        locatorLabel: 'Page 3',
+        quote: 'Use a bounded queue for ingestion.',
+        score: 0.92
+      }
+    ])
+
+    render(
+      <WorkspaceApp
+        gateways={{
+          interview: new MockInterviewGateway(),
+          knowledge,
+          resume: new MockResumeGateway(),
+          workspace: new MockWorkspaceGateway()
+        }}
+        initialPath="/knowledge"
+      />
+    )
+    await screen.findByRole('heading', { name: 'Personal memory & knowledge' })
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search indexed knowledge' }), {
+      target: { value: 'bounded queue' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Search knowledge' }))
+
+    expect(await screen.findByText('Platform notes')).toBeInTheDocument()
+    expect(screen.getByText('Page 3')).toBeInTheDocument()
+    expect(screen.getByText('Use a bounded queue for ingestion.')).toBeInTheDocument()
+  })
+
+  it('shows knowledge search loading, empty, and safe error states', async () => {
+    await appI18nReady
+    await appI18n.changeLanguage('en-US')
+    const knowledge = new MockKnowledgeGateway()
+    let finishSearch!: (value: readonly never[]) => void
+    const pendingSearch = new Promise<readonly never[]>((resolve) => {
+      finishSearch = resolve
+    })
+    vi.spyOn(knowledge, 'searchKnowledge')
+      .mockReturnValueOnce(pendingSearch)
+      .mockRejectedValueOnce(new Error('private backend URL'))
+
+    render(
+      <WorkspaceApp
+        gateways={{
+          interview: new MockInterviewGateway(),
+          knowledge,
+          resume: new MockResumeGateway(),
+          workspace: new MockWorkspaceGateway()
+        }}
+        initialPath="/knowledge"
+      />
+    )
+    await screen.findByRole('heading', { name: 'Personal memory & knowledge' })
+    const search = screen.getByRole('searchbox', { name: 'Search indexed knowledge' })
+    fireEvent.change(search, { target: { value: 'missing topic' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Search knowledge' }))
+
+    expect(screen.getByRole('button', { name: 'Searching…' })).toBeDisabled()
+    finishSearch([])
+    expect(
+      await screen.findByText('No relevant knowledge passages were found.')
+    ).toBeInTheDocument()
+
+    fireEvent.change(search, { target: { value: 'retry topic' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Search knowledge' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The server could not be reached. Check your connection and try again.'
+    )
+    expect(screen.queryByText('private backend URL')).not.toBeInTheDocument()
   })
 
   it('localizes visibility policy enums instead of rendering transport values', async (): Promise<void> => {

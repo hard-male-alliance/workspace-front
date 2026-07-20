@@ -24,22 +24,25 @@ export const MOCK_PENDING_CONTRACT_ITEMS: readonly MockPendingContractItem[] = [
     id: 'resume-preview-artifact',
     domain: 'resume',
     question:
-      '真实 PDF RenderArtifact、短期签名 URL 与 PdfSourceMap 的前端获取时机尚待服务端接入确认。',
-    mockHandling: '使用无二进制内容的 UiResumePreviewModel 作为语义预览占位。'
+      'Render Job 轮询、PDF RenderArtifact 恢复与同源 content URL 已接入；Render SSE、取消接口、轮询建议与 PdfSourceMap 交互仍待冻结。',
+    mockHandling:
+      'Web 通过正式 Job/artifact 路由显示 PDF；尚未生成时使用语义预览，Electron 使用可取消的三段式 Mock Job。'
   },
   {
     id: 'resume-editor-mutations',
     domain: 'resume',
-    question: 'ResumeOperationBatch 的提交、If-Match/ETag 与离线重放队列尚未接入。',
-    mockHandling: '编辑器仅让本地草稿驱动视觉预览，不伪造保存、冲突解决或网络请求。'
+    question:
+      'ResumeOperationBatch、If-Match 与幂等键已由 Web HTTP adapter 接入；整份 Resume 删除、正式创建 DTO 与离线重放队列仍未冻结。',
+    mockHandling:
+      '板块编辑、排序、板块删除和模板切换走正式 operation 路由；409/412 会锁定后续写入并要求重读权威 Resume，不自动覆盖或重放旧 revision。'
   },
   {
     id: 'resume-assistant-generation',
     domain: 'resume',
     question:
-      '简历助手的消息提交、Agent Run 绑定、结构化变更结果、单步撤销、取消以及 SSE 事件与恢复语义尚未冻结。',
+      'Proposal 列表与 decision 已接入；Proposal create 仍是明确的 Mock adapter，Agent Run、取消、SSE 与恢复语义尚未冻结。',
     mockHandling:
-      '通过 ResumeGateway 返回确定性的结构化编辑器投影和变更标识；不定义 HTTP 路径、DTO、鉴权头或流事件格式。'
+      'Web 明确展示待审批 Proposal，只有接受后才重读权威 Resume；不伪造 undo、Agent Run 或流事件。'
   },
   {
     id: 'interview-media-transport',
@@ -66,9 +69,32 @@ export const MOCK_PENDING_CONTRACT_ITEMS: readonly MockPendingContractItem[] = [
       '直接提供明确标注的 100 分制 Mock UiInterviewReport，用于总结页面布局验收，不宣称为正式评分。'
   },
   {
+    id: 'knowledge-file-ingestion-transport',
+    domain: 'knowledge',
+    question:
+      '当前 multipart 新建/版本上传路径与 202 { source, ingestion_job } 包装是临时路径级绑定；正式 UploadSession、上传响应、幂等重放与共享环境行为仍待冻结和 smoke 验证。',
+    mockHandling:
+      'Web 通过 KnowledgeGateway 的 HTTP adapter 调用当前直传端点并有界轮询，Electron 使用同一领域端口的可取消 Mock；冻结 UploadSession 后只替换 adapter，不重写页面。'
+  },
+  {
+    id: 'knowledge-search-transport',
+    domain: 'knowledge',
+    question:
+      '当前 POST /knowledge-searches 与临时 { items: [...] } 响应包装尚不是完整冻结的路径契约；分页、授权审计、错误集合和共享环境结果仍待确认。',
+    mockHandling:
+      'Web 在 HTTP adapter 内验证临时包装并映射为 UiKnowledgeSearchResult，Electron 返回确定性的来源关联 Mock；页面不依赖 transport DTO。'
+  },
+  {
     id: 'knowledge-write-policy',
     domain: 'knowledge',
     question: 'KnowledgeVisibilityPolicy 的 PATCH、审计解释与服务端 EffectiveAccess 计算尚未接入。',
     mockHandling: '仅允许本地 Mock 草稿预览，且明确以 default deny 语义为默认；不会发送 PATCH。'
+  },
+  {
+    id: 'workspace-resume-navigation',
+    domain: 'workspace',
+    question: 'Workspace 首页投影仍来自 Mock；正式 Workspace/首页聚合 API 尚未冻结。',
+    mockHandling:
+      '首页与稳定 /resumes 入口组合真实 Resume 列表选择最近简历，不再生成或映射固定 Mock Resume ID。'
   }
 ]

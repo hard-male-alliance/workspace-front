@@ -1,7 +1,7 @@
-/** @file Resume HTTP Gateway / Resume HTTP gateway. */
+/** @file Resume 与模板只读 HTTP Gateway / Read-only HTTP Gateway for Resume and templates. */
 
-import type { ResumeGateway } from '../../domain'
 import type {
+  ResumeGateway,
   UiContentLocale,
   UiResumeAssistantMessageInput,
   UiResumeAssistantTurnResult,
@@ -10,6 +10,11 @@ import type {
   UiResumeCard,
   UiResumeEditorModel,
   UiResumeId,
+  UiResumeProposal,
+  UiResumeProposalDecisionInput,
+  UiResumePdfArtifact,
+  UiResumeRenderJob,
+  UiStartResumePdfRenderInput,
   UiResumeSectionDeleteInput,
   UiResumeSectionsReorderInput,
   UiResumeSectionUpdateInput,
@@ -18,211 +23,102 @@ import type {
   UiTemplateSettingsModel,
   UiWorkspaceId
 } from '../../domain'
+import type { HttpClient } from './http-client'
+import { HttpContractError } from './http-client'
+import { mapResumeDocumentDto, mapTemplateManifestDto } from './mappers'
+import {
+  parseResumeDocumentDto,
+  parseResumeListDto,
+  parseResumeOperationBatchResultDto,
+  parseResumeProposalDto,
+  parseResumeProposalListDto,
+  parseRenderArtifactListDto,
+  parseResumeRenderJobDto,
+  parseTemplateManifestListDto
+} from './validators'
+import type {
+  RenderArtifactDto,
+  ResumeDocumentDto,
+  ResumeProposalDto,
+  ResumeRenderJobDto
+} from './transport-types'
 import { asUiOpaqueId } from '../../domain'
-import type { ApiClient, ApiResponse } from './api-client'
-import type { CursorPageResponseDto, ResumeDocumentDto, TemplateManifestDto } from './dto'
-import { mapResumeDocument, mapTemplateManifest } from './mappers'
 
-/** @brief 已读取简历的并发元数据 / Concurrency metadata for a loaded Resume. */
-interface ResumeState {
-  readonly dto: ResumeDocumentDto
-  readonly etag: string
-}
+/** @brief 第一阶段尚未接入的写能力错误 / Write capability not connected in phase one. */
+export class HttpReadOnlyCapabilityError extends Error {
+  override readonly name = 'HttpReadOnlyCapabilityError'
 
-/** @brief Resume 领域操作 / Resume domain operation. */
-type ResumeOperation = Readonly<Record<string, unknown>>
-
-/** @brief 生成一次性客户端标识 / Generate a one-use client identifier. */
-const createClientId = (prefix: string): string => `${prefix}_${crypto.randomUUID()}`
-
-/** @brief 构造纯文本 RichText / Build a plain-text RichText value. */
-function plainRichText(text: string): Readonly<Record<string, unknown>> | null {
-  if (text.trim() === '') {
-    return null
-  }
-  return {
-    schema_version: '1.0',
-    blocks: [
-      {
-        block_id: createClientId('block'),
-        type: 'paragraph',
-        spans: [{ text }]
-      }
-    ],
-    plain_text: text
+  constructor() {
+    super('This Resume action is not connected to the backend in the current integration stage.')
   }
 }
 
-/** @brief 通过正式 REST API 访问 Resume 与模板 / Access Resumes and templates via the formal REST API. */
+/** @brief Resume 与模板 HTTP Gateway / Resume and template HTTP Gateway. */
 export class HttpResumeGateway implements ResumeGateway {
-  /** @brief 共享 API 客户端 / Shared API client. */
-  private readonly api: ApiClient
-  /** @brief Resume ID 到最近 ETag/DTO 的映射 / Latest ETag/DTO by Resume ID. */
-  private readonly states = new Map<string, ResumeState>()
-  /** @brief 最近读取的模板目录 / Most recently loaded template catalog. */
-  private templates: readonly UiTemplateManifest[] = []
+  readonly #client: HttpClient
+  readonly #etagByResumeId = new Map<string, string>()
+  readonly #resumeById = new Map<string, ResumeDocumentDto>()
 
-  /**
-   * @brief 构造 Resume HTTP Gateway / Construct a Resume HTTP gateway.
-   * @param api 共享 API 客户端 / Shared API client.
-   */
-  constructor(api: ApiClient) {
-    this.api = api
+  constructor(client: HttpClient) {
+    this.#client = client
   }
 
-  /** @inheritdoc */
+  async listTemplateManifests(locale: UiContentLocale): Promise<readonly UiTemplateManifest[]> {
+    const results: UiTemplateManifest[] = []
+    const seenCursors = new Set<string>()
+    let cursor: string | null = null
+
+    do {
+      const response = await this.#client.getJson('/resume-templates', {
+        query: { cursor, limit: 20, locale }
+      })
+      const page = parseTemplateManifestListDto(response.data)
+      results.push(...page.items.map(mapTemplateManifestDto))
+      cursor = page.page.next_cursor
+      if (cursor !== null && seenCursors.has(cursor)) {
+        throw new Error('Backend repeated a template pagination cursor.')
+      }
+      if (cursor !== null) seenCursors.add(cursor)
+    } while (cursor !== null)
+
+    return results
+  }
+
   async listResumeCards(workspaceId: UiWorkspaceId): Promise<readonly UiResumeCard[]> {
     void workspaceId
-    const documents = await this.readAllPages<ResumeDocumentDto>('/resumes')
-    if (this.templates.length === 0) {
-      await this.listTemplateManifests('zh-CN')
-    }
-    return documents.map((document) => ({
-      id: asUiOpaqueId<'resume'>(document.id),
-      title: document.title,
+    const documents = await this.#listResumeDocuments()
+    const locales = [...new Set(documents.map((document) => document.locale))]
+    const manifests = (
+      await Promise.all(locales.map((locale) => this.listTemplateManifests(locale)))
+    ).flat()
+    const names = new Map<string, string>(
+      manifests.map((manifest) => [`${manifest.id}@${manifest.version}`, manifest.name] as const)
+    )
+
+    return documents.map((dto) => ({
+      id: mapResumeDocumentDto(dto).id,
+      revision: dto.revision,
       templateName:
-        this.templates.find(
-          (template) =>
-            template.id === document.template.template_id &&
-            template.version === document.template.template_version
-        )?.name ?? document.template.template_id,
-      revision: document.revision,
-      updatedAt: document.updated_at
+        names.get(`${dto.template.template_id}@${dto.template.template_version}`) ??
+        dto.template.template_id,
+      title: dto.title,
+      updatedAt: dto.updated_at
     }))
   }
 
-  /** @inheritdoc */
   async getResumeEditor(resumeId: UiResumeId): Promise<UiResumeEditorModel> {
-    const response = await this.api.request<ResumeDocumentDto>(
-      `/resumes/${encodeURIComponent(resumeId)}`
-    )
+    const response = await this.#client.getJson(`/resumes/${encodeURIComponent(resumeId)}`)
+    const dto = parseResumeDocumentDto(response.data)
+    this.#resumeById.set(dto.id, dto)
     const etag = response.headers.get('ETag')
-    if (etag === null) {
-      throw new Error('Resume response is missing the required ETag header.')
-    }
-    this.states.set(resumeId, { dto: response.data, etag })
-    return this.toEditor(response.data)
-  }
-
-  /** @inheritdoc */
-  async sendAssistantMessage(
-    input: UiResumeAssistantMessageInput
-  ): Promise<UiResumeAssistantTurnResult> {
-    const message = input.message.trim()
-    if (message === '') {
-      throw new Error('Resume assistant message cannot be empty.')
-    }
-    const response = await this.api.request<Readonly<Record<string, unknown>>>(
-      `/resumes/${encodeURIComponent(input.resumeId)}/proposals`,
-      {
-        method: 'POST',
-        headers: { 'Idempotency-Key': createClientId('proposal') },
-        body: { instruction: message, source_ids: [], render_hint: 'preview' },
-        signal: input.signal
-      }
-    )
-    const editor = await this.getResumeEditor(input.resumeId)
+    if (etag !== null) this.#etagByResumeId.set(dto.id, etag)
     return {
-      editor,
-      assistantMessage: {
-        id: typeof response.data.id === 'string' ? response.data.id : createClientId('message'),
-        role: 'assistant',
-        text: '修改建议已创建；确认前不会改动简历。',
-        createdAt:
-          typeof response.data.created_at === 'string'
-            ? response.data.created_at
-            : new Date().toISOString(),
-        isStreaming: false
-      },
-      changeId: null,
-      canUndo: false
+      assistantMessages: [],
+      preview: { diagnostic: null, pageCount: 0, renderedAt: null, state: 'ready' },
+      resume: mapResumeDocumentDto(dto)
     }
   }
 
-  /** @inheritdoc */
-  undoAssistantChange(input: UiResumeAssistantUndoInput): Promise<UiResumeAssistantUndoResult> {
-    void input
-    return Promise.reject(
-      new Error('Accepted Resume changes do not support undo; use an explicit revision restore.')
-    )
-  }
-
-  /** @inheritdoc */
-  async updateResumeSection(input: UiResumeSectionUpdateInput): Promise<UiResumeEditorModel> {
-    const state = await this.requireState(input.resumeId)
-    const section = state.dto.sections.find((item) => item.section_id === input.sectionId)
-    if (section === undefined) {
-      throw new Error('Resume section was not found.')
-    }
-    return this.applyOperations(
-      input.resumeId,
-      [
-        {
-          operation_id: createClientId('operation'),
-          op: 'upsert_section',
-          section: { ...section, title: input.title, content: plainRichText(input.content) }
-        }
-      ],
-      input.signal
-    )
-  }
-
-  /** @inheritdoc */
-  async reorderResumeSections(input: UiResumeSectionsReorderInput): Promise<UiResumeEditorModel> {
-    const operations = input.orderedSectionIds.map((sectionId, index) => ({
-      operation_id: createClientId('operation'),
-      op: 'move_section',
-      section_id: sectionId,
-      after_section_id: index === 0 ? null : input.orderedSectionIds[index - 1]
-    }))
-    return this.applyOperations(input.resumeId, operations, input.signal)
-  }
-
-  /** @inheritdoc */
-  async deleteResumeSection(input: UiResumeSectionDeleteInput): Promise<UiResumeEditorModel> {
-    return this.applyOperations(
-      input.resumeId,
-      [
-        {
-          operation_id: createClientId('operation'),
-          op: 'remove_section',
-          section_id: input.sectionId
-        }
-      ],
-      input.signal
-    )
-  }
-
-  /** @inheritdoc */
-  async selectResumeTemplate(input: UiResumeTemplateSelectionInput): Promise<UiResumeEditorModel> {
-    if (this.templates.length === 0) {
-      await this.listTemplateManifests('zh-CN')
-    }
-    const template = this.templates.find((candidate) => candidate.id === input.templateId)
-    if (template === undefined) {
-      throw new Error('Resume template was not found.')
-    }
-    return this.applyOperations(
-      input.resumeId,
-      [
-        {
-          operation_id: createClientId('operation'),
-          op: 'set_template',
-          template: { template_id: template.id, template_version: template.version }
-        }
-      ],
-      input.signal
-    )
-  }
-
-  /** @inheritdoc */
-  async listTemplateManifests(locale: UiContentLocale): Promise<readonly UiTemplateManifest[]> {
-    const dtos = await this.readAllPages<TemplateManifestDto>('/resume-templates', { locale })
-    this.templates = dtos.map(mapTemplateManifest)
-    return this.templates
-  }
-
-  /** @inheritdoc */
   async getTemplateSettings(resumeId: UiResumeId): Promise<UiTemplateSettingsModel> {
     const editor = await this.getResumeEditor(resumeId)
     const templates = await this.listTemplateManifests(editor.resume.locale)
@@ -232,72 +128,366 @@ export class HttpResumeGateway implements ResumeGateway {
         template.version === editor.resume.template.templateVersion
     )
     if (selected === undefined) {
-      throw new Error('The Resume references a template absent from the template catalog.')
+      throw new Error('The Resume template is not available in the backend template catalog.')
     }
     return {
+      availableTemplates: templates,
       resumeId,
       selectedTemplate: selected,
-      availableTemplates: templates,
       styleIntent: editor.resume.styleIntent
     }
   }
 
-  /** @brief 确保已读取 Resume 与 ETag / Ensure a Resume and ETag have been loaded. */
-  private async requireState(resumeId: UiResumeId): Promise<ResumeState> {
-    const state = this.states.get(resumeId)
-    if (state !== undefined) {
-      return state
-    }
-    await this.getResumeEditor(resumeId)
-    return this.states.get(resumeId)!
+  async listResumeProposals(
+    resumeId: UiResumeId,
+    signal?: AbortSignal
+  ): Promise<readonly UiResumeProposal[]> {
+    const results: UiResumeProposal[] = []
+    const seenCursors = new Set<string>()
+    let cursor: string | null = null
+    do {
+      const response = await this.#client.getJson(
+        `/resumes/${encodeURIComponent(resumeId)}/proposals`,
+        {
+          query: { cursor, limit: 20, status: 'pending' },
+          ...(signal === undefined ? {} : { signal })
+        }
+      )
+      const page = parseResumeProposalListDto(response.data)
+      results.push(...page.items.map((proposal) => this.#mapProposal(proposal)))
+      cursor = page.page.next_cursor
+      if (cursor !== null && seenCursors.has(cursor)) {
+        throw new Error('Backend repeated a Proposal pagination cursor.')
+      }
+      if (cursor !== null) seenCursors.add(cursor)
+    } while (cursor !== null)
+    return results
   }
 
-  /** @brief 提交一个原子 Resume 操作批次 / Submit one atomic Resume operation batch. */
-  private async applyOperations(
+  async createResumeProposal(input: UiResumeAssistantMessageInput): Promise<UiResumeProposal> {
+    const instruction = input.message.trim()
+    if (instruction.length === 0) throw new Error('Resume Proposal instructions cannot be empty.')
+    const idempotencyKey = this.#id('proposal')
+    const response = await this.#client.postJson(
+      `/resumes/${encodeURIComponent(input.resumeId)}/proposals`,
+      {
+        draft_text: null,
+        field_path: ['summary'],
+        instruction,
+        render_hint: 'preview',
+        source_ids: [],
+        target: { entity_type: 'profile' },
+        title: null
+      },
+      { idempotencyKey, ...(input.signal === undefined ? {} : { signal: input.signal }) }
+    )
+    return this.#mapProposal(parseResumeProposalDto(response.data))
+  }
+
+  async decideResumeProposal(input: UiResumeProposalDecisionInput): Promise<UiResumeProposal> {
+    const idempotencyKey = this.#id('proposal-decision')
+    const response = await this.#client.postJson(
+      `/resume-proposals/${encodeURIComponent(input.proposalId)}/decisions`,
+      {
+        comment: null,
+        conflict_strategy: 'reject',
+        decision: input.decision === 'accept' ? 'accept_all' : 'reject',
+        operation_ids: []
+      },
+      { idempotencyKey, ...(input.signal === undefined ? {} : { signal: input.signal }) }
+    )
+    return this.#mapProposal(parseResumeProposalDto(response.data))
+  }
+
+  async startResumePdfRender(input: UiStartResumePdfRenderInput): Promise<UiResumeRenderJob> {
+    const idempotencyKey = this.#id('render')
+    const response = await this.#client.postJson(
+      `/resumes/${encodeURIComponent(input.resumeId)}/render-jobs`,
+      {
+        formats: ['pdf'],
+        include_accessibility_tree: false,
+        include_source_map: true,
+        locale: null,
+        mode: 'preview',
+        page_range: null,
+        resume_revision: input.resumeRevision
+      },
+      { idempotencyKey, ...(input.signal === undefined ? {} : { signal: input.signal }) }
+    )
+    return this.#mapRenderJob(parseResumeRenderJobDto(response.data))
+  }
+
+  async getResumeRenderJob(
+    jobId: UiResumeRenderJob['id'],
+    signal?: AbortSignal
+  ): Promise<UiResumeRenderJob> {
+    const response = await this.#client.getJson(
+      `/resume-render-jobs/${encodeURIComponent(jobId)}`,
+      signal === undefined ? {} : { signal }
+    )
+    return this.#mapRenderJob(parseResumeRenderJobDto(response.data))
+  }
+
+  async listResumePdfArtifacts(
     resumeId: UiResumeId,
-    operations: readonly ResumeOperation[],
+    signal?: AbortSignal
+  ): Promise<readonly UiResumePdfArtifact[]> {
+    const results: UiResumePdfArtifact[] = []
+    const seenCursors = new Set<string>()
+    let cursor: string | null = null
+    do {
+      const response = await this.#client.getJson(
+        `/resumes/${encodeURIComponent(resumeId)}/render-artifacts`,
+        { query: { cursor, limit: 20 }, ...(signal === undefined ? {} : { signal }) }
+      )
+      const page = parseRenderArtifactListDto(response.data)
+      results.push(
+        ...page.items
+          .filter((artifact) => artifact.format === 'pdf')
+          .map((artifact) => this.#mapArtifact(artifact))
+      )
+      cursor = page.page.next_cursor
+      if (cursor !== null && seenCursors.has(cursor)) {
+        throw new Error('Backend repeated a Render artifact pagination cursor.')
+      }
+      if (cursor !== null) seenCursors.add(cursor)
+    } while (cursor !== null)
+    return results
+  }
+
+  sendAssistantMessage(input: UiResumeAssistantMessageInput): Promise<UiResumeAssistantTurnResult> {
+    void input
+    return Promise.reject(new HttpReadOnlyCapabilityError())
+  }
+
+  undoAssistantChange(input: UiResumeAssistantUndoInput): Promise<UiResumeAssistantUndoResult> {
+    void input
+    return Promise.reject(new HttpReadOnlyCapabilityError())
+  }
+
+  async updateResumeSection(input: UiResumeSectionUpdateInput): Promise<UiResumeEditorModel> {
+    const target = { entity_type: 'section', section_id: input.sectionId }
+    return this.#applyOperations(
+      input.resumeId,
+      [
+        {
+          field_path: ['title'],
+          op: 'set_field',
+          operation_id: this.#id('op'),
+          target,
+          value: input.title
+        },
+        {
+          field_path: ['content'],
+          op: 'set_field',
+          operation_id: this.#id('op'),
+          target,
+          value: {
+            blocks:
+              input.content.length === 0
+                ? []
+                : [
+                    {
+                      block_id: this.#id('block'),
+                      spans: [{ text: input.content }],
+                      type: 'paragraph'
+                    }
+                  ],
+            plain_text: input.content,
+            schema_version: '1.0'
+          }
+        }
+      ],
+      input.signal
+    )
+  }
+
+  async reorderResumeSections(input: UiResumeSectionsReorderInput): Promise<UiResumeEditorModel> {
+    const snapshot = await this.#ensureWritableSnapshot(input.resumeId, input.signal)
+    const expected = new Set(snapshot.sections.map((section) => section.section_id))
+    const received = new Set<string>(input.orderedSectionIds)
+    if (
+      expected.size !== received.size ||
+      input.orderedSectionIds.length !== expected.size ||
+      [...expected].some((sectionId) => !received.has(sectionId))
+    ) {
+      throw new Error('Resume section order must contain every current section exactly once.')
+    }
+    return this.#applyOperations(
+      input.resumeId,
+      input.orderedSectionIds.map((sectionId, index) => ({
+        after_section_id: index === 0 ? null : input.orderedSectionIds[index - 1],
+        op: 'move_section',
+        operation_id: this.#id('op'),
+        section_id: sectionId
+      })),
+      input.signal
+    )
+  }
+
+  async deleteResumeSection(input: UiResumeSectionDeleteInput): Promise<UiResumeEditorModel> {
+    return this.#applyOperations(
+      input.resumeId,
+      [
+        {
+          op: 'remove_section',
+          operation_id: this.#id('op'),
+          section_id: input.sectionId
+        }
+      ],
+      input.signal
+    )
+  }
+
+  async selectResumeTemplate(input: UiResumeTemplateSelectionInput): Promise<UiResumeEditorModel> {
+    const snapshot = await this.#ensureWritableSnapshot(input.resumeId, input.signal)
+    const templates = await this.listTemplateManifests(snapshot.locale)
+    const template = templates.find((item) => item.id === input.templateId)
+    if (template === undefined) {
+      throw new Error('The selected Resume template is not available.')
+    }
+    return this.#applyOperations(
+      input.resumeId,
+      [
+        {
+          op: 'set_template',
+          operation_id: this.#id('op'),
+          template: {
+            template_id: template.id,
+            template_version: template.version
+          }
+        }
+      ],
+      input.signal
+    )
+  }
+
+  async #applyOperations(
+    resumeId: UiResumeId,
+    operations: readonly Readonly<Record<string, unknown>>[],
     signal?: AbortSignal
   ): Promise<UiResumeEditorModel> {
-    const state = await this.requireState(resumeId)
-    const batchId = createClientId('batch')
-    await this.api.request(`/resumes/${encodeURIComponent(resumeId)}/operations`, {
-      method: 'POST',
-      headers: { 'Idempotency-Key': batchId, 'If-Match': state.etag },
-      body: {
-        client_batch_id: batchId,
-        base_revision: state.dto.revision,
+    const snapshot = await this.#ensureWritableSnapshot(resumeId, signal)
+    const etag = this.#etagByResumeId.get(resumeId)
+    if (etag === undefined) {
+      throw new HttpContractError('Resume writes require an ETag from the backend.', 200)
+    }
+    const clientBatchId = this.#id('batch')
+    const response = await this.#client.postJson(
+      `/resumes/${encodeURIComponent(resumeId)}/operations`,
+      {
+        base_revision: snapshot.revision,
+        client_batch_id: clientBatchId,
         conflict_strategy: 'reject',
         operations,
         render_hint: 'preview'
       },
-      signal
-    })
-    return this.getResumeEditor(resumeId)
+      {
+        idempotencyKey: clientBatchId,
+        ifMatch: etag,
+        ...(signal === undefined ? {} : { signal })
+      }
+    )
+    const result = parseResumeOperationBatchResultDto(response.data)
+    if (result.resume_id !== resumeId || result.previous_revision !== snapshot.revision) {
+      throw new HttpContractError(
+        'Backend operation result does not match the requested Resume.',
+        200
+      )
+    }
+    this.#etagByResumeId.delete(resumeId)
+    if (result.normalized_document === null) {
+      return this.getResumeEditor(resumeId)
+    }
+    this.#resumeById.set(resumeId, result.normalized_document)
+    return this.#toEditor(result.normalized_document)
   }
 
-  /** @brief 读取完整游标集合 / Read a complete cursor-paginated collection. */
-  private async readAllPages<TItem>(
-    path: `/${string}`,
-    query: Readonly<Record<string, string>> = {}
-  ): Promise<readonly TItem[]> {
-    const items: TItem[] = []
+  async #ensureWritableSnapshot(
+    resumeId: UiResumeId,
+    signal?: AbortSignal
+  ): Promise<ResumeDocumentDto> {
+    if (!this.#resumeById.has(resumeId) || !this.#etagByResumeId.has(resumeId)) {
+      const response = await this.#client.getJson(
+        `/resumes/${encodeURIComponent(resumeId)}`,
+        signal === undefined ? {} : { signal }
+      )
+      const dto = parseResumeDocumentDto(response.data)
+      this.#resumeById.set(dto.id, dto)
+      const etag = response.headers.get('ETag')
+      if (etag !== null) this.#etagByResumeId.set(dto.id, etag)
+    }
+    const snapshot = this.#resumeById.get(resumeId)
+    if (snapshot === undefined) {
+      throw new HttpContractError('Resume snapshot is unavailable for this write.', 200)
+    }
+    return snapshot
+  }
+
+  #toEditor(dto: ResumeDocumentDto): UiResumeEditorModel {
+    return {
+      assistantMessages: [],
+      preview: { diagnostic: null, pageCount: 0, renderedAt: null, state: 'ready' },
+      resume: mapResumeDocumentDto(dto)
+    }
+  }
+
+  #id(prefix: string): string {
+    return `${prefix}_${globalThis.crypto.randomUUID()}`
+  }
+
+  #mapProposal(dto: ResumeProposalDto): UiResumeProposal {
+    return {
+      baseRevision: dto.base_revision,
+      changes: dto.operations.map((operation) => operation.op),
+      createdAt: dto.created_at,
+      id: asUiOpaqueId<'resume-proposal'>(dto.id),
+      resumeId: asUiOpaqueId<'resume'>(dto.resume_id),
+      status: dto.status,
+      summary: dto.summary?.plain_text ?? null,
+      title: dto.title
+    }
+  }
+
+  #mapArtifact(dto: RenderArtifactDto): UiResumePdfArtifact {
+    return {
+      contentUrl: this.#client.resolveProductUrl(dto.download_url),
+      createdAt: dto.created_at,
+      id: asUiOpaqueId<'resume-pdf-artifact'>(dto.id),
+      pageCount: dto.page_count,
+      resumeId: asUiOpaqueId<'resume'>(dto.resume_id),
+      resumeRevision: dto.resume_revision
+    }
+  }
+
+  #mapRenderJob(dto: ResumeRenderJobDto): UiResumeRenderJob {
+    return {
+      artifacts: dto.artifacts
+        .filter((artifact) => artifact.format === 'pdf')
+        .map((artifact) => this.#mapArtifact(artifact)),
+      diagnostic: dto.diagnostic,
+      id: asUiOpaqueId<'resume-render-job'>(dto.id),
+      progressPercent: dto.progress.percent,
+      resumeId: asUiOpaqueId<'resume'>(dto.resume_id),
+      resumeRevision: dto.resume_revision,
+      status: dto.status
+    }
+  }
+
+  async #listResumeDocuments(): Promise<readonly ReturnType<typeof parseResumeDocumentDto>[]> {
+    const results: ReturnType<typeof parseResumeDocumentDto>[] = []
+    const seenCursors = new Set<string>()
     let cursor: string | null = null
     do {
-      const response: ApiResponse<CursorPageResponseDto<TItem>> = await this.api.request(path, {
-        query: { ...query, limit: 100, cursor }
-      })
-      items.push(...response.data.items)
-      cursor = response.data.page.has_more ? response.data.page.next_cursor : null
+      const response = await this.#client.getJson('/resumes', { query: { cursor, limit: 20 } })
+      const page = parseResumeListDto(response.data)
+      results.push(...page.items)
+      cursor = page.page.next_cursor
+      if (cursor !== null && seenCursors.has(cursor)) {
+        throw new Error('Backend repeated a Resume pagination cursor.')
+      }
+      if (cursor !== null) seenCursors.add(cursor)
     } while (cursor !== null)
-    return items
-  }
-
-  /** @brief 构建编辑器投影 / Build an editor projection. */
-  private toEditor(dto: ResumeDocumentDto): UiResumeEditorModel {
-    return {
-      resume: mapResumeDocument(dto),
-      preview: { state: 'ready', pageCount: 1, renderedAt: null, diagnostic: null },
-      assistantMessages: []
-    }
+    return results
   }
 }

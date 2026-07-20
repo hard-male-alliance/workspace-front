@@ -122,7 +122,7 @@ export const zhSGTranslation = {
       knowledgeCount: '已就绪知识源',
       resumeTitle: 'AI 平台工程师简历',
       resumeMeta: 'Dawn 模板 · 语义修订 v18 · 本地草稿',
-      resumeActionMeta: '继续编辑内容与查看 Mock 预览',
+      resumeActionMeta: '继续编辑内容与生成 PDF 预览',
       continueTitle: '继续处理',
       continueDescription: '从上次停下的位置继续，不需要重新寻找入口。',
       nextTitle: '下一步',
@@ -134,7 +134,7 @@ export const zhSGTranslation = {
       visibilityMeta: '简历以外的资料默认拒绝访问',
       activityTitle: '最近活动',
       activityDescription: '当前 Mock 工作区中已记录的操作。',
-      mockNotice: '当前为 v0.1 Mock 展示；不会向后端发送任何简历、媒体或知识数据。'
+      mockNotice: '工作区与面试仍为 Mock；简历读取、写入、Proposal 审批和 PDF 已连接当前项目后端。'
     }
   },
   resume: {
@@ -192,11 +192,18 @@ export const zhSGTranslation = {
       moveDown: '下移{{name}}',
       deleteSection: '删除{{name}}',
       structuredItems: '包含 {{count}} 条结构化经历',
-      assistantError: 'Mock 助手暂时无法处理这条消息，请重试。',
+      acceptProposal: '接受建议',
+      rejectProposal: '拒绝建议',
+      assistantError: '暂时无法生成修改建议，请重试。',
       undoError: '这次 AI 修改已经无法撤销。',
-      sectionError: '板块修改未能保存到 Mock 状态。',
+      sectionError: '板块修改未能保存，请重试；若版本冲突请重新加载。',
       reorderError: '无法调整板块顺序。',
-      deleteError: '无法删除这个板块。'
+      deleteError: '无法删除这个板块。',
+      conflictTitle: '简历版本已过期',
+      conflictDescription: '服务器上的简历已发生变化。请先重新加载权威版本，再继续编辑。',
+      reloadAuthority: '重新加载服务器版本',
+      reloadingAuthority: '正在重新加载…',
+      reloadAuthorityError: '无法重新加载服务器版本，请重试。'
     }
   },
   template: {
@@ -498,6 +505,44 @@ export const zhSGTranslation = {
     visibilityForSource: '{{sourceName}} 的可见性设置',
     denied: '拒绝',
     off: '关闭',
+    fileLabel: '知识文件',
+    replacementFileLabel: '替换文件',
+    optionalName: '来源名称（可选）',
+    fileHelp: '支持 TXT、Markdown、PDF 和 DOCX，单个文件不超过 10 MiB。',
+    uploadFile: '上传文件',
+    uploadVersion: '上传新版本',
+    uploading: '正在上传文件…',
+    ingesting: '正在摄取文件…',
+    uploadSucceeded: '文件已完成摄取。',
+    ingestionFailed: '文件摄取未完成，请重试。',
+    reloadSources: '重新加载来源',
+    semanticSearch: '语义搜索',
+    semanticSearchHelp: '在当前选择的已索引来源中检索安全引用。',
+    searchLabel: '搜索已索引知识',
+    searchPlaceholder: '输入要查找的概念或问题…',
+    searchAction: '搜索知识',
+    searching: '正在搜索…',
+    searchEmpty: '没有找到相关知识片段。',
+    reviewSelectedPolicy: '查看当前来源的授权矩阵',
+    validation: {
+      fileRequired: '请先选择文件。',
+      fileType: '请选择 TXT、Markdown、PDF 或 DOCX 文件。',
+      fileSize: '文件必须不大于 10 MiB。'
+    },
+    errors: {
+      fileTooLarge: '文件超过 10 MiB 限制。',
+      fileTypeUnsupported: '不支持这种文件类型。',
+      fileTypeMismatch: '文件内容与扩展名不匹配。',
+      duplicateRequest: '这个上传请求已提交，请稍后查看状态。',
+      conflict: '来源状态已变化，请重新加载后再试。',
+      preconditionFailed: '来源版本已过期，请重新加载后再试。',
+      validation: '文件或输入未通过服务器校验。',
+      pollingTimeout: '摄取仍在进行，请稍后重新加载来源。',
+      cancelled: '操作已取消。',
+      invalidResponse: '服务器返回了无法识别的响应。',
+      requestFailed: '请求未完成，请重试。',
+      network: '无法连接服务器，请检查网络后重试。'
+    },
     status: {
       notStarted: '尚未开始',
       fetching: '正在获取',
@@ -706,7 +751,7 @@ export const enUSTranslation = {
       knowledgeCount: 'Ready knowledge sources',
       resumeTitle: 'AI Platform Engineer resume',
       resumeMeta: 'Dawn template · semantic revision v18 · local draft',
-      resumeActionMeta: 'Continue editing content and reviewing the Mock preview',
+      resumeActionMeta: 'Continue editing content and generating a PDF preview',
       continueTitle: 'Continue working',
       continueDescription: 'Resume where you stopped without searching for the right entry point.',
       nextTitle: 'Next steps',
@@ -719,7 +764,7 @@ export const enUSTranslation = {
       activityTitle: 'Recent activity',
       activityDescription: 'Recorded actions from the current Mock workspace.',
       mockNotice:
-        'This is a v0.1 Mock experience; no resume, media, or knowledge data is sent to a backend.'
+        'Workspace and interviews still use Mock data; Resume reads, writes, Proposal decisions, and PDF rendering use the project backend.'
     }
   },
   resume: {
@@ -780,11 +825,19 @@ export const enUSTranslation = {
       moveDown: 'Move {{name}} down',
       deleteSection: 'Delete {{name}}',
       structuredItems: 'Contains {{count}} structured entries',
-      assistantError: 'The Mock assistant could not process this message. Try again.',
+      acceptProposal: 'Accept suggestion',
+      rejectProposal: 'Reject suggestion',
+      assistantError: 'A change Proposal could not be generated. Try again.',
       undoError: 'This AI change can no longer be undone.',
-      sectionError: 'The section change could not be saved to Mock state.',
+      sectionError: 'The section could not be saved. Reload first if its revision has changed.',
       reorderError: 'The section order could not be changed.',
-      deleteError: 'This section could not be deleted.'
+      deleteError: 'This section could not be deleted.',
+      conflictTitle: 'Resume version is stale',
+      conflictDescription:
+        'This resume changed on the server. Reload the authoritative version before editing.',
+      reloadAuthority: 'Reload server version',
+      reloadingAuthority: 'Reloading…',
+      reloadAuthorityError: 'The server version could not be reloaded. Try again.'
     }
   },
   template: {
@@ -1109,6 +1162,44 @@ export const enUSTranslation = {
     visibilityForSource: 'Visibility settings for {{sourceName}}',
     denied: 'Denied',
     off: 'Off',
+    fileLabel: 'Knowledge file',
+    replacementFileLabel: 'Replacement file',
+    optionalName: 'Source name (optional)',
+    fileHelp: 'TXT, Markdown, PDF, and DOCX are supported up to 10 MiB per file.',
+    uploadFile: 'Upload file',
+    uploadVersion: 'Upload new version',
+    uploading: 'Uploading file…',
+    ingesting: 'Ingesting file…',
+    uploadSucceeded: 'File ingestion completed.',
+    ingestionFailed: 'File ingestion did not complete. Try again.',
+    reloadSources: 'Reload sources',
+    semanticSearch: 'Semantic search',
+    semanticSearchHelp: 'Retrieve safe citations from the currently selected indexed source.',
+    searchLabel: 'Search indexed knowledge',
+    searchPlaceholder: 'Enter a concept or question…',
+    searchAction: 'Search knowledge',
+    searching: 'Searching…',
+    searchEmpty: 'No relevant knowledge passages were found.',
+    reviewSelectedPolicy: 'Review this source authorization matrix',
+    validation: {
+      fileRequired: 'Choose a file first.',
+      fileType: 'Choose a TXT, Markdown, PDF, or DOCX file.',
+      fileSize: 'File must be 10 MiB or smaller.'
+    },
+    errors: {
+      fileTooLarge: 'The file exceeds the 10 MiB limit.',
+      fileTypeUnsupported: 'This file type is not supported.',
+      fileTypeMismatch: 'The file content does not match its extension.',
+      duplicateRequest: 'This upload was already submitted. Check its status shortly.',
+      conflict: 'The source changed. Reload it before trying again.',
+      preconditionFailed: 'The source version is stale. Reload it before trying again.',
+      validation: 'The file or input did not pass server validation.',
+      pollingTimeout: 'Ingestion is still running. Reload the sources shortly.',
+      cancelled: 'The operation was cancelled.',
+      invalidResponse: 'The server returned an unrecognised response.',
+      requestFailed: 'The request did not complete. Try again.',
+      network: 'The server could not be reached. Check your connection and try again.'
+    },
     status: {
       notStarted: 'Not started',
       fetching: 'Fetching',

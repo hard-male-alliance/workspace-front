@@ -8,26 +8,28 @@ import {
   GripVertical,
   List,
   Quote,
-  RotateCcw,
   Send,
   Settings2,
   Sparkles,
   Trash2,
   X
 } from 'lucide-react'
-import { Fragment, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import type { ResumeGateway } from '../../domain'
 import { asUiOpaqueId } from '../../domain'
 import type {
-  UiResumeAssistantChangeId,
   UiResumeEditorModel,
+  UiResumePdfArtifact,
+  UiResumeProposal,
+  UiResumeRenderJob,
   UiResumeSection,
   UiResumeSectionId,
   UiTemplateManifest
 } from '../../domain'
+import { HttpProblemError } from '../../infrastructure/http/http-client'
 
 /** @brief 桌面简历工作台窗口 / Desktop resume-workspace pane. */
 type ResumePane = 'assistant' | 'editor' | 'preview'
@@ -43,6 +45,15 @@ const INITIAL_PANE_SIZES: Readonly<Record<ResumePane, number>> = {
   assistant: 1,
   editor: 1,
   preview: 1
+}
+
+type ResumeConflictStatus = 409 | 412
+
+function getResumeConflictStatus(error: unknown): ResumeConflictStatus | null {
+  if (error instanceof HttpProblemError && (error.status === 409 || error.status === 412)) {
+    return error.status
+  }
+  return null
 }
 
 /** @brief 获取板块可编辑纯文本 / Get editable plain text for a section. */
@@ -200,44 +211,48 @@ function ResumePaneSeparator({
 function ResumeAssistantPanel({
   editor,
   gateway,
-  lastChangeId,
+  isWriteLocked,
   onCloseMobile,
   onEditorChange,
-  onLastChange
+  onMutationError,
+  onProposalsChange,
+  proposals
 }: {
   readonly editor: UiResumeEditorModel
   readonly gateway: ResumeGateway
-  readonly lastChangeId: UiResumeAssistantChangeId | null
+  readonly isWriteLocked: boolean
   readonly onCloseMobile: () => void
   readonly onEditorChange: (editor: UiResumeEditorModel) => void
-  readonly onLastChange: (changeId: UiResumeAssistantChangeId | null) => void
+  readonly onMutationError: (error: unknown) => boolean
+  readonly onProposalsChange: (proposals: readonly UiResumeProposal[]) => void
+  readonly proposals: readonly UiResumeProposal[]
 }): React.JSX.Element {
   const { t } = useTranslation()
   const [draft, setDraft] = useState('')
   const [isSending, setSending] = useState(false)
-  const [isUndoing, setUndoing] = useState(false)
+  const [decidingProposalId, setDecidingProposalId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const submitMessage = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault()
     const message = draft.trim()
-    if (message.length === 0 || isSending) {
+    if (message.length === 0 || isSending || isWriteLocked) {
       return
     }
     setSending(true)
     setError(null)
     try {
-      const result = await gateway.sendAssistantMessage({
+      const proposal = await gateway.createResumeProposal({
         resumeId: editor.resume.id,
         message
       })
-      onEditorChange(result.editor)
-      onLastChange(result.canUndo ? result.changeId : null)
+      onProposalsChange([...proposals, proposal])
       setDraft('')
-    } catch {
+    } catch (reason: unknown) {
+      if (onMutationError(reason)) return
       setError(
         t('resume.workspace.assistantError', {
-          defaultValue: 'Mock 助手暂时无法处理这条消息，请重试。'
+          defaultValue: '暂时无法生成修改建议，请重试。'
         })
       )
     } finally {
@@ -245,33 +260,33 @@ function ResumeAssistantPanel({
     }
   }
 
-  const undoLatestChange = async (): Promise<void> => {
-    if (lastChangeId === null || isUndoing) {
-      return
-    }
-    setUndoing(true)
+  const decideProposal = async (
+    proposal: UiResumeProposal,
+    decision: 'accept' | 'reject'
+  ): Promise<void> => {
+    if (decidingProposalId !== null || isWriteLocked) return
+    setDecidingProposalId(proposal.id)
     setError(null)
     try {
-      const result = await gateway.undoAssistantChange({
-        resumeId: editor.resume.id,
-        changeId: lastChangeId
+      await gateway.decideResumeProposal({
+        decision,
+        proposalId: proposal.id
       })
-      onEditorChange(result.editor)
-      onLastChange(null)
-    } catch {
+      if (decision === 'accept') {
+        onEditorChange(await gateway.getResumeEditor(editor.resume.id))
+      }
+      onProposalsChange(proposals.filter((item) => item.id !== proposal.id))
+    } catch (reason: unknown) {
+      if (onMutationError(reason)) return
       setError(
-        t('resume.workspace.undoError', {
-          defaultValue: '这次 AI 修改已经无法撤销。'
+        t('resume.workspace.proposalDecisionError', {
+          defaultValue: '建议状态已经变化，请刷新后重试。'
         })
       )
     } finally {
-      setUndoing(false)
+      setDecidingProposalId(null)
     }
   }
-
-  const lastAssistantMessageId = editor.assistantMessages
-    .filter((message) => message.role === 'assistant')
-    .at(-1)?.id
 
   return (
     <aside aria-label={t('resume.workspace.assistant', { defaultValue: 'AI 对话' })}>
@@ -290,27 +305,53 @@ function ResumeAssistantPanel({
       <div className="aw-chat-messages" aria-live="polite">
         <p className="aw-workspace-context">
           <Sparkles aria-hidden="true" size={14} />
-          {t('resume.workspace.mockContext', {
-            defaultValue: 'Mock 对话会返回结构化简历变更；真实模型与知识检索尚未接入。'
+          {t('resume.workspace.proposalContext', {
+            defaultValue: '建议在你明确接受前不会写入简历。'
           })}
         </p>
         {editor.assistantMessages.map((message) => (
           <div className={`aw-message aw-message--${message.role}`} key={message.id}>
             <p>{message.text}</p>
-            {message.id === lastAssistantMessageId && lastChangeId !== null ? (
+          </div>
+        ))}
+        {proposals.map((proposal) => (
+          <article className="aw-proposal" key={proposal.id}>
+            <h3 className="aw-proposal-title">{proposal.title}</h3>
+            <p className="aw-proposal-reason">
+              {proposal.summary ??
+                t('resume.workspace.proposalSummary', {
+                  defaultValue: '后端返回了结构化变更，请确认是否应用。'
+                })}
+            </p>
+            <p>
+              {t('resume.workspace.proposalRevision', {
+                defaultValue: '基于简历版本 {{revision}}',
+                revision: proposal.baseRevision
+              })}
+            </p>
+            <div className="aw-inline-actions">
               <button
-                className="aw-undo-change"
-                disabled={isUndoing}
+                className="aw-primary-button"
+                disabled={decidingProposalId !== null || isWriteLocked}
                 onClick={(): void => {
-                  void undoLatestChange()
+                  void decideProposal(proposal, 'accept')
                 }}
                 type="button"
               >
-                <RotateCcw aria-hidden="true" size={13} />
-                {t('resume.workspace.undoAiChange', { defaultValue: '撤销本次 AI 修改' })}
+                {t('resume.workspace.acceptProposal', { defaultValue: '接受建议' })}
               </button>
-            ) : null}
-          </div>
+              <button
+                className="aw-quiet-button"
+                disabled={decidingProposalId !== null || isWriteLocked}
+                onClick={(): void => {
+                  void decideProposal(proposal, 'reject')
+                }}
+                type="button"
+              >
+                {t('resume.workspace.rejectProposal', { defaultValue: '拒绝建议' })}
+              </button>
+            </div>
+          </article>
         ))}
         {error !== null ? (
           <div className="aw-inline-error" role="alert">
@@ -328,7 +369,7 @@ function ResumeAssistantPanel({
         <textarea
           aria-label={t('resume.workspace.askAssistantLabel', { defaultValue: '询问简历助手' })}
           className="aw-textarea"
-          disabled={isSending}
+          disabled={isSending || isWriteLocked}
           onChange={(event): void => setDraft(event.target.value)}
           placeholder={t('resume.askAssistant', {
             defaultValue: '描述你想生成或修改的简历内容…'
@@ -338,7 +379,7 @@ function ResumeAssistantPanel({
         <button
           aria-label={t('resume.sendMessage', { defaultValue: '发送消息' })}
           className="aw-icon-button aw-send-button"
-          disabled={draft.trim().length === 0 || isSending}
+          disabled={draft.trim().length === 0 || isSending || isWriteLocked}
           type="submit"
         >
           <Send aria-hidden="true" size={16} />
@@ -352,12 +393,16 @@ function ResumeAssistantPanel({
 function ResumeSectionsEditor({
   editor,
   gateway,
+  isWriteLocked,
   onEditorChange,
+  onMutationError,
   onUserMutation
 }: {
   readonly editor: UiResumeEditorModel
   readonly gateway: ResumeGateway
+  readonly isWriteLocked: boolean
   readonly onEditorChange: (editor: UiResumeEditorModel) => void
+  readonly onMutationError: (error: unknown) => boolean
   readonly onUserMutation: () => void
 }): React.JSX.Element {
   const { t } = useTranslation()
@@ -368,7 +413,12 @@ function ResumeSectionsEditor({
   const [draggedSectionId, setDraggedSectionId] = useState<UiResumeSectionId | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const updateLocalSection = (sectionId: UiResumeSectionId, field: 'title' | 'content', value: string) => {
+  const updateLocalSection = (
+    sectionId: UiResumeSectionId,
+    field: 'title' | 'content',
+    value: string
+  ) => {
+    if (isWriteLocked) return
     const sections = editor.resume.sections.map((section) =>
       section.id === sectionId
         ? {
@@ -390,8 +440,11 @@ function ResumeSectionsEditor({
         content: getSectionContent(section)
       })
       onEditorChange(next)
-    } catch {
-      setError(t('resume.workspace.sectionError', { defaultValue: '板块修改未能保存到 Mock 状态。' }))
+    } catch (reason: unknown) {
+      if (onMutationError(reason)) return
+      setError(
+        t('resume.workspace.sectionError', { defaultValue: '板块修改未能保存到 Mock 状态。' })
+      )
     }
   }
 
@@ -403,12 +456,14 @@ function ResumeSectionsEditor({
       })
       onEditorChange(next)
       onUserMutation()
-    } catch {
+    } catch (reason: unknown) {
+      if (onMutationError(reason)) return
       setError(t('resume.workspace.reorderError', { defaultValue: '无法调整板块顺序。' }))
     }
   }
 
   const moveSection = (sectionId: UiResumeSectionId, offset: -1 | 1): void => {
+    if (isWriteLocked) return
     const currentIndex = editor.resume.sections.findIndex((section) => section.id === sectionId)
     const targetIndex = currentIndex + offset
     if (currentIndex < 0 || targetIndex < 0 || targetIndex >= editor.resume.sections.length) {
@@ -424,6 +479,7 @@ function ResumeSectionsEditor({
   }
 
   const deleteSection = async (sectionId: UiResumeSectionId): Promise<void> => {
+    if (isWriteLocked) return
     if (deleteCandidate !== sectionId) {
       setDeleteCandidate(sectionId)
       return
@@ -434,12 +490,14 @@ function ResumeSectionsEditor({
       onUserMutation()
       setFocusedSectionId(next.resume.sections.at(0)?.id ?? null)
       setDeleteCandidate(null)
-    } catch {
+    } catch (reason: unknown) {
+      if (onMutationError(reason)) return
       setError(t('resume.workspace.deleteError', { defaultValue: '无法删除这个板块。' }))
     }
   }
 
   const dropBefore = (targetId: UiResumeSectionId): void => {
+    if (isWriteLocked) return
     if (draggedSectionId === null || draggedSectionId === targetId) {
       return
     }
@@ -457,11 +515,22 @@ function ResumeSectionsEditor({
       <div className="aw-resume-editor-intro">
         <div>
           <strong>{editor.resume.title}</strong>
-          <span>{t('resume.revision', { defaultValue: '版本 {{revision}}', revision: editor.resume.revision })}</span>
+          <span>
+            {t('resume.revision', {
+              defaultValue: '版本 {{revision}}',
+              revision: editor.resume.revision
+            })}
+          </span>
         </div>
-        <p>{t('resume.workspace.editorHint', { defaultValue: '浏览全部板块，点击后聚焦编辑。' })}</p>
+        <p>
+          {t('resume.workspace.editorHint', { defaultValue: '浏览全部板块，点击后聚焦编辑。' })}
+        </p>
       </div>
-      {error !== null ? <div className="aw-inline-error" role="alert">{error}</div> : null}
+      {error !== null ? (
+        <div className="aw-inline-error" role="alert">
+          {error}
+        </div>
+      ) : null}
       <div className="aw-resume-sections">
         {editor.resume.sections.map((section, index) => {
           const isFocused = section.id === focusedSectionId
@@ -469,7 +538,7 @@ function ResumeSectionsEditor({
           return (
             <article
               className={`aw-resume-section-editor ${isFocused ? 'is-focused' : ''}`}
-              draggable
+              draggable={!isWriteLocked}
               key={section.id}
               onClick={(): void => setFocusedSectionId(section.id)}
               onDragOver={(event): void => event.preventDefault()}
@@ -491,7 +560,7 @@ function ResumeSectionsEditor({
                       name: section.title
                     })}
                     className="aw-icon-button"
-                    disabled={index === 0}
+                    disabled={index === 0 || isWriteLocked}
                     onClick={(event): void => {
                       event.stopPropagation()
                       moveSection(section.id, -1)
@@ -506,7 +575,7 @@ function ResumeSectionsEditor({
                       name: section.title
                     })}
                     className="aw-icon-button"
-                    disabled={index === editor.resume.sections.length - 1}
+                    disabled={index === editor.resume.sections.length - 1 || isWriteLocked}
                     onClick={(event): void => {
                       event.stopPropagation()
                       moveSection(section.id, 1)
@@ -521,6 +590,7 @@ function ResumeSectionsEditor({
                       name: section.title
                     })}
                     className={`aw-icon-button ${deleteCandidate === section.id ? 'aw-danger-button' : ''}`}
+                    disabled={isWriteLocked}
                     onClick={(event): void => {
                       event.stopPropagation()
                       void deleteSection(section.id)
@@ -537,8 +607,11 @@ function ResumeSectionsEditor({
                     <span>{t('resume.editor.sectionTitle', { defaultValue: '区段标题' })}</span>
                     <input
                       className="aw-text-input"
+                      disabled={isWriteLocked}
                       onBlur={(): void => {
-                        const current = editor.resume.sections.find((item) => item.id === section.id)
+                        const current = editor.resume.sections.find(
+                          (item) => item.id === section.id
+                        )
                         if (current !== undefined) void persistSection(current)
                       }}
                       onChange={(event): void =>
@@ -551,19 +624,47 @@ function ResumeSectionsEditor({
                     <span>{t('resume.editor.semanticContent', { defaultValue: '语义内容' })}</span>
                     <div className="aw-rich-text-shell">
                       <div
-                        aria-label={t('resume.editor.formatting', { defaultValue: '富文本格式工具' })}
+                        aria-label={t('resume.editor.formatting', {
+                          defaultValue: '富文本格式工具'
+                        })}
                         className="aw-rich-text-toolbar"
                         role="toolbar"
                       >
-                        <button className="aw-icon-button" onClick={(): void => applyLocalRichTextCommand('bold')} type="button"><Bold aria-hidden="true" size={14} /></button>
-                        <button className="aw-icon-button" onClick={(): void => applyLocalRichTextCommand('formatBlock')} type="button"><Quote aria-hidden="true" size={14} /></button>
-                        <button className="aw-icon-button" onClick={(): void => applyLocalRichTextCommand('insertUnorderedList')} type="button"><List aria-hidden="true" size={14} /></button>
+                        <button
+                          className="aw-icon-button"
+                          disabled={isWriteLocked}
+                          onClick={(): void => applyLocalRichTextCommand('bold')}
+                          type="button"
+                        >
+                          <Bold aria-hidden="true" size={14} />
+                        </button>
+                        <button
+                          className="aw-icon-button"
+                          disabled={isWriteLocked}
+                          onClick={(): void => applyLocalRichTextCommand('formatBlock')}
+                          type="button"
+                        >
+                          <Quote aria-hidden="true" size={14} />
+                        </button>
+                        <button
+                          className="aw-icon-button"
+                          disabled={isWriteLocked}
+                          onClick={(): void => applyLocalRichTextCommand('insertUnorderedList')}
+                          type="button"
+                        >
+                          <List aria-hidden="true" size={14} />
+                        </button>
                       </div>
                       <textarea
-                        aria-label={t('resume.editor.semanticContent', { defaultValue: '语义内容' })}
+                        aria-label={t('resume.editor.semanticContent', {
+                          defaultValue: '语义内容'
+                        })}
                         className="aw-section-textarea"
+                        disabled={isWriteLocked}
                         onBlur={(): void => {
-                          const current = editor.resume.sections.find((item) => item.id === section.id)
+                          const current = editor.resume.sections.find(
+                            (item) => item.id === section.id
+                          )
                           if (current !== undefined) void persistSection(current)
                         }}
                         onChange={(event): void =>
@@ -576,7 +677,11 @@ function ResumeSectionsEditor({
                 </div>
               ) : (
                 <p className="aw-section-summary">
-                  {sectionContent || t('resume.workspace.structuredItems', { defaultValue: '包含 {{count}} 条结构化经历', count: section.items.length })}
+                  {sectionContent ||
+                    t('resume.workspace.structuredItems', {
+                      defaultValue: '包含 {{count}} 条结构化经历',
+                      count: section.items.length
+                    })}
                 </p>
               )}
             </article>
@@ -588,28 +693,145 @@ function ResumeSectionsEditor({
 }
 
 /** @brief PDF 视觉预览窗口 / PDF visual-preview pane. */
-function ResumePreviewPanel({ editor }: { readonly editor: UiResumeEditorModel }): React.JSX.Element {
+function ResumePreviewPanel({
+  editor,
+  gateway,
+  initialArtifact
+}: {
+  readonly editor: UiResumeEditorModel
+  readonly gateway: ResumeGateway
+  readonly initialArtifact: UiResumePdfArtifact | null
+}): React.JSX.Element {
   const { t } = useTranslation()
+  const [artifact, setArtifact] = useState<UiResumePdfArtifact | null>(initialArtifact)
+  const [job, setJob] = useState<UiResumeRenderJob | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [isRendering, setRendering] = useState(false)
+  const renderAbortRef = useRef<AbortController | null>(null)
+
+  useEffect(
+    (): (() => void) => (): void => {
+      renderAbortRef.current?.abort()
+    },
+    []
+  )
+
+  const waitForNextPoll = (signal: AbortSignal): Promise<void> =>
+    new Promise((resolve, reject): void => {
+      const timer = window.setTimeout(resolve, 1000)
+      signal.addEventListener(
+        'abort',
+        (): void => {
+          window.clearTimeout(timer)
+          reject(new DOMException('PDF polling was aborted.', 'AbortError'))
+        },
+        { once: true }
+      )
+    })
+
+  const renderPdf = async (): Promise<void> => {
+    if (isRendering) return
+    renderAbortRef.current?.abort()
+    const controller = new AbortController()
+    renderAbortRef.current = controller
+    setRendering(true)
+    setError(null)
+    try {
+      let current = await gateway.startResumePdfRender({
+        resumeId: editor.resume.id,
+        resumeRevision: editor.resume.revision,
+        signal: controller.signal
+      })
+      setJob(current)
+      for (
+        let attempt = 0;
+        attempt < 60 && ['queued', 'running'].includes(current.status);
+        attempt += 1
+      ) {
+        current = await gateway.getResumeRenderJob(current.id, controller.signal)
+        setJob(current)
+        if (['queued', 'running'].includes(current.status)) {
+          await waitForNextPoll(controller.signal)
+        }
+      }
+      if (current.status !== 'succeeded') {
+        throw new Error('Resume PDF rendering did not complete successfully.')
+      }
+      const completedArtifact = current.artifacts.at(0)
+      if (completedArtifact === undefined) {
+        throw new Error('Resume PDF rendering completed without a PDF artifact.')
+      }
+      setArtifact(completedArtifact)
+    } catch (reason: unknown) {
+      if (!controller.signal.aborted) {
+        setError(
+          reason instanceof Error
+            ? reason.message
+            : t('resume.workspace.renderError', { defaultValue: 'PDF 预览生成失败。' })
+        )
+      }
+    } finally {
+      if (!controller.signal.aborted) setRendering(false)
+    }
+  }
+
   return (
     <section aria-label={t('resume.workspace.preview', { defaultValue: 'PDF 预览' })}>
-      <div className="aw-editor-scroll aw-editor-preview">
-        <article
-          aria-label={t('resume.pdfPreviewAria', { defaultValue: '简历 PDF 视觉预览（Mock）' })}
-          className="aw-paper"
+      <div className="aw-inline-actions">
+        <button
+          className="aw-primary-button"
+          disabled={isRendering}
+          onClick={(): void => {
+            void renderPdf()
+          }}
+          type="button"
         >
-          <header className="aw-paper-header">
-            <h2 className="aw-paper-name">{editor.resume.profile.fullName}</h2>
-            {editor.resume.profile.headline !== null ? (
-              <p className="aw-paper-role">{editor.resume.profile.headline}</p>
-            ) : null}
-            <p className="aw-paper-contact">
-              {editor.resume.profile.contacts.map((contact) => contact.value).join(' · ')}
-            </p>
-          </header>
-          {editor.resume.sections
-            .filter((section) => section.visible)
-            .map((section) => <ResumePaperSection key={section.id} section={section} />)}
-        </article>
+          {isRendering
+            ? t('resume.workspace.renderingPdf', { defaultValue: '正在生成 PDF…' })
+            : t('resume.workspace.renderPdf', { defaultValue: '生成 PDF 预览' })}
+        </button>
+        {job?.progressPercent !== null && job?.progressPercent !== undefined ? (
+          <span aria-live="polite">{Math.round(job.progressPercent)}%</span>
+        ) : null}
+        {artifact !== null ? (
+          <a className="aw-quiet-button" download href={artifact.contentUrl}>
+            {t('resume.workspace.downloadPdf', { defaultValue: '下载 PDF' })}
+          </a>
+        ) : null}
+      </div>
+      {error !== null ? (
+        <div className="aw-inline-error" role="alert">
+          {error}
+        </div>
+      ) : null}
+      <div className="aw-editor-scroll aw-editor-preview">
+        {artifact !== null ? (
+          <iframe
+            className="aw-paper"
+            src={artifact.contentUrl}
+            title={t('resume.workspace.pdfFrameTitle', { defaultValue: '简历 PDF 预览' })}
+          />
+        ) : (
+          <article
+            aria-label={t('resume.semanticPreviewAria', { defaultValue: '简历语义预览' })}
+            className="aw-paper"
+          >
+            <header className="aw-paper-header">
+              <h2 className="aw-paper-name">{editor.resume.profile.fullName}</h2>
+              {editor.resume.profile.headline !== null ? (
+                <p className="aw-paper-role">{editor.resume.profile.headline}</p>
+              ) : null}
+              <p className="aw-paper-contact">
+                {editor.resume.profile.contacts.map((contact) => contact.value).join(' · ')}
+              </p>
+            </header>
+            {editor.resume.sections
+              .filter((section) => section.visible)
+              .map((section) => (
+                <ResumePaperSection key={section.id} section={section} />
+              ))}
+          </article>
+        )}
       </div>
     </section>
   )
@@ -618,10 +840,14 @@ function ResumePreviewPanel({ editor }: { readonly editor: UiResumeEditorModel }
 /** @brief 已加载的三窗口简历工作台 / Loaded three-window resume workspace. */
 export function ResumeWorkspace({
   initialEditor,
+  initialPdfArtifact,
+  initialProposals,
   gateway,
   templates
 }: {
   readonly initialEditor: UiResumeEditorModel
+  readonly initialPdfArtifact: UiResumePdfArtifact | null
+  readonly initialProposals: readonly UiResumeProposal[]
   readonly gateway: ResumeGateway
   readonly templates: readonly UiTemplateManifest[]
 }): React.JSX.Element {
@@ -633,7 +859,14 @@ export function ResumeWorkspace({
     preview: true
   })
   const [paneSizes, setPaneSizes] = useState(INITIAL_PANE_SIZES)
-  const [lastChangeId, setLastChangeId] = useState<UiResumeAssistantChangeId | null>(null)
+  const [proposals, setProposals] = useState<readonly UiResumeProposal[]>(initialProposals)
+  const [availableTemplates, setAvailableTemplates] =
+    useState<readonly UiTemplateManifest[]>(templates)
+  const [pdfArtifact, setPdfArtifact] = useState<UiResumePdfArtifact | null>(initialPdfArtifact)
+  const [conflictStatus, setConflictStatus] = useState<ResumeConflictStatus | null>(null)
+  const [isReloadingAuthority, setReloadingAuthority] = useState(false)
+  const [authorityReloadError, setAuthorityReloadError] = useState(false)
+  const [authorityReloadRevision, setAuthorityReloadRevision] = useState(0)
   const [mobilePane, setMobilePane] = useState<MobileResumePane>('preview')
   const [mobileAssistantOpen, setMobileAssistantOpen] = useState(false)
 
@@ -641,9 +874,43 @@ export function ResumeWorkspace({
     () => RESUME_PANES.filter((pane) => visiblePanes[pane]),
     [visiblePanes]
   )
-  const selectedTemplate = templates.find(
+  const selectedTemplate = availableTemplates.find(
     (template) => template.id === editor.resume.template.templateId
   )
+
+  const handleMutationError = (error: unknown): boolean => {
+    const status = getResumeConflictStatus(error)
+    if (status === null) return false
+    setConflictStatus(status)
+    return true
+  }
+
+  const reloadAuthoritativeWorkspace = async (): Promise<void> => {
+    if (isReloadingAuthority) return
+    setReloadingAuthority(true)
+    setAuthorityReloadError(false)
+    try {
+      const [nextEditor, nextProposals, artifacts] = await Promise.all([
+        gateway.getResumeEditor(editor.resume.id),
+        gateway.listResumeProposals(editor.resume.id),
+        gateway.listResumePdfArtifacts(editor.resume.id)
+      ])
+      const nextTemplates = await gateway.listTemplateManifests(nextEditor.resume.locale)
+      const nextArtifact =
+        [...artifacts].sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0] ??
+        null
+      setEditor(nextEditor)
+      setProposals(nextProposals)
+      setAvailableTemplates(nextTemplates)
+      setPdfArtifact(nextArtifact)
+      setAuthorityReloadRevision((current) => current + 1)
+      setConflictStatus(null)
+    } catch {
+      setAuthorityReloadError(true)
+    } finally {
+      setReloadingAuthority(false)
+    }
+  }
 
   const togglePane = (pane: ResumePane): void => {
     setVisiblePanes((current) => ({ ...current, [pane]: !current[pane] }))
@@ -659,12 +926,16 @@ export function ResumeWorkspace({
   }
 
   const selectTemplate = async (templateId: string): Promise<void> => {
-    const next = await gateway.selectResumeTemplate({
-      resumeId: editor.resume.id,
-      templateId: asUiOpaqueId<'template'>(templateId)
-    })
-    setEditor(next)
-    setLastChangeId(null)
+    if (conflictStatus !== null) return
+    try {
+      const next = await gateway.selectResumeTemplate({
+        resumeId: editor.resume.id,
+        templateId: asUiOpaqueId<'template'>(templateId)
+      })
+      setEditor(next)
+    } catch (reason: unknown) {
+      handleMutationError(reason)
+    }
   }
 
   const panelByKey: Record<ResumePane, React.ReactNode> = {
@@ -672,34 +943,100 @@ export function ResumeWorkspace({
       <ResumeAssistantPanel
         editor={editor}
         gateway={gateway}
-        lastChangeId={lastChangeId}
+        isWriteLocked={conflictStatus !== null}
         onCloseMobile={(): void => setMobileAssistantOpen(false)}
         onEditorChange={setEditor}
-        onLastChange={setLastChangeId}
+        onMutationError={handleMutationError}
+        onProposalsChange={setProposals}
+        proposals={proposals}
       />
     ),
     editor: (
       <ResumeSectionsEditor
         editor={editor}
         gateway={gateway}
+        isWriteLocked={conflictStatus !== null}
         onEditorChange={setEditor}
-        onUserMutation={(): void => setLastChangeId(null)}
+        onMutationError={handleMutationError}
+        onUserMutation={(): void => undefined}
       />
     ),
-    preview: <ResumePreviewPanel editor={editor} />
+    preview: (
+      <ResumePreviewPanel
+        editor={editor}
+        gateway={gateway}
+        initialArtifact={pdfArtifact}
+        key={authorityReloadRevision}
+      />
+    )
   }
 
   return (
     <>
-      <div aria-label={t('resume.mobileTabs', { defaultValue: '移动端面板切换' })} className="aw-mobile-tabs">
-        <button aria-pressed={mobilePane === 'edit'} className="aw-tab" onClick={(): void => setMobilePane('edit')} type="button">{t('resume.form', { defaultValue: '内容' })}</button>
-        <button aria-pressed={mobilePane === 'preview'} className="aw-tab" onClick={(): void => setMobilePane('preview')} type="button">{t('resume.preview', { defaultValue: '预览' })}</button>
-        <button className="aw-tab" onClick={(): void => setMobileAssistantOpen(true)} type="button">{t('resume.assistant', { defaultValue: '简历助手' })}</button>
+      {conflictStatus === null ? null : (
+        <div className="aw-inline-error aw-resume-conflict" role="alert">
+          <div>
+            <strong>{t('resume.workspace.conflictTitle')}</strong>
+            <p>{t('resume.workspace.conflictDescription')}</p>
+          </div>
+          <button
+            className="aw-quiet-button"
+            disabled={isReloadingAuthority}
+            onClick={(): void => {
+              void reloadAuthoritativeWorkspace()
+            }}
+            type="button"
+          >
+            {isReloadingAuthority
+              ? t('resume.workspace.reloadingAuthority')
+              : t('resume.workspace.reloadAuthority')}
+          </button>
+          {authorityReloadError ? <span>{t('resume.workspace.reloadAuthorityError')}</span> : null}
+        </div>
+      )}
+      <div
+        aria-label={t('resume.mobileTabs', { defaultValue: '移动端面板切换' })}
+        className="aw-mobile-tabs"
+      >
+        <button
+          aria-pressed={mobilePane === 'edit'}
+          className="aw-tab"
+          onClick={(): void => setMobilePane('edit')}
+          type="button"
+        >
+          {t('resume.form', { defaultValue: '内容' })}
+        </button>
+        <button
+          aria-pressed={mobilePane === 'preview'}
+          className="aw-tab"
+          onClick={(): void => setMobilePane('preview')}
+          type="button"
+        >
+          {t('resume.preview', { defaultValue: '预览' })}
+        </button>
+        <button className="aw-tab" onClick={(): void => setMobileAssistantOpen(true)} type="button">
+          {t('resume.assistant', { defaultValue: '简历助手' })}
+        </button>
       </div>
-      <div className={`aw-editor-page aw-editor-page--mobile-${mobilePane} ${mobileAssistantOpen ? 'aw-editor-page--mobile-assistant-open' : ''}`}>
-        <div aria-label={t('resume.workspace.windowControls', { defaultValue: '简历窗口控制' })} className="aw-resume-window-bar" role="toolbar">
-          <ResumeWindowTitle expanded={visiblePanes.assistant} label={t('resume.workspace.assistant', { defaultValue: 'AI 对话' })} onToggle={(): void => togglePane('assistant')} />
-          <ResumeWindowTitle expanded={visiblePanes.editor} label={t('resume.workspace.editor', { defaultValue: '内容编辑' })} onToggle={(): void => togglePane('editor')} trailing={<span className="aw-window-meta">{editor.resume.sections.length}</span>} />
+      <div
+        className={`aw-editor-page aw-editor-page--mobile-${mobilePane} ${mobileAssistantOpen ? 'aw-editor-page--mobile-assistant-open' : ''}`}
+      >
+        <div
+          aria-label={t('resume.workspace.windowControls', { defaultValue: '简历窗口控制' })}
+          className="aw-resume-window-bar"
+          role="toolbar"
+        >
+          <ResumeWindowTitle
+            expanded={visiblePanes.assistant}
+            label={t('resume.workspace.assistant', { defaultValue: 'AI 对话' })}
+            onToggle={(): void => togglePane('assistant')}
+          />
+          <ResumeWindowTitle
+            expanded={visiblePanes.editor}
+            label={t('resume.workspace.editor', { defaultValue: '内容编辑' })}
+            onToggle={(): void => togglePane('editor')}
+            trailing={<span className="aw-window-meta">{editor.resume.sections.length}</span>}
+          />
           <ResumeWindowTitle
             expanded={visiblePanes.preview}
             label={t('resume.workspace.preview', { defaultValue: 'PDF 预览' })}
@@ -707,13 +1044,40 @@ export function ResumeWorkspace({
             trailing={
               <>
                 <label className="aw-template-quick-select">
-                  <span className="aw-sr-only">{t('resume.workspace.quickTemplate', { defaultValue: '快速切换简历模板' })}</span>
-                  <select aria-label={t('resume.workspace.quickTemplate', { defaultValue: '快速切换简历模板' })} onChange={(event): void => { void selectTemplate(event.target.value) }} value={editor.resume.template.templateId}>
-                    {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+                  <span className="aw-sr-only">
+                    {t('resume.workspace.quickTemplate', { defaultValue: '快速切换简历模板' })}
+                  </span>
+                  <select
+                    aria-label={t('resume.workspace.quickTemplate', {
+                      defaultValue: '快速切换简历模板'
+                    })}
+                    disabled={conflictStatus !== null}
+                    onChange={(event): void => {
+                      void selectTemplate(event.target.value)
+                    }}
+                    value={editor.resume.template.templateId}
+                  >
+                    {availableTemplates.map((template) => (
+                      <option key={template.id} value={template.id}>
+                        {template.name}
+                      </option>
+                    ))}
                   </select>
                 </label>
-                <span className="aw-current-template" aria-live="polite">{selectedTemplate?.name ?? ''}</span>
-                <Link aria-label={t('resume.templateSettings', { defaultValue: '模板设置' })} className="aw-icon-button" to={`/resumes/${editor.resume.id}/template`}><Settings2 aria-hidden="true" size={15} /></Link>
+                <span className="aw-current-template" aria-live="polite">
+                  {selectedTemplate?.name ?? ''}
+                </span>
+                <Link
+                  aria-disabled={conflictStatus !== null}
+                  aria-label={t('resume.templateSettings', { defaultValue: '模板设置' })}
+                  className="aw-icon-button"
+                  onClick={(event): void => {
+                    if (conflictStatus !== null) event.preventDefault()
+                  }}
+                  to={`/resumes/${editor.resume.id}/template`}
+                >
+                  <Settings2 aria-hidden="true" size={15} />
+                </Link>
               </>
             }
           />
@@ -721,14 +1085,24 @@ export function ResumeWorkspace({
         <div className="aw-resume-workspace-content">
           {visiblePaneOrder.map((pane, index) => {
             const nextPane = visiblePaneOrder[index + 1]
-            const totalVisibleSize = visiblePaneOrder.reduce((total, key) => total + paneSizes[key], 0)
+            const totalVisibleSize = visiblePaneOrder.reduce(
+              (total, key) => total + paneSizes[key],
+              0
+            )
             return (
               <Fragment key={pane}>
-                <div className={`aw-resume-workspace-panel aw-resume-workspace-panel--${pane}`} style={{ flexGrow: paneSizes[pane] }}>
+                <div
+                  className={`aw-resume-workspace-panel aw-resume-workspace-panel--${pane}`}
+                  style={{ flexGrow: paneSizes[pane] }}
+                >
                   {panelByKey[pane]}
                 </div>
                 {nextPane !== undefined ? (
-                  <ResumePaneSeparator leftPane={pane} onResize={(delta): void => resizeAdjacentPanes(pane, nextPane, delta)} value={paneSizes[pane] / Math.max(totalVisibleSize, 1)} />
+                  <ResumePaneSeparator
+                    leftPane={pane}
+                    onResize={(delta): void => resizeAdjacentPanes(pane, nextPane, delta)}
+                    value={paneSizes[pane] / Math.max(totalVisibleSize, 1)}
+                  />
                 ) : null}
               </Fragment>
             )

@@ -8,7 +8,7 @@ import {
 } from './renderer-protocol'
 
 /** @brief 测试 renderer 构建目录 / Test renderer build directory. */
-const rendererDirectory = path.join('/opt', 'ai-job-workspace', 'renderer')
+const rendererDirectory = path.resolve('/opt', 'ai-job-workspace', 'renderer')
 
 describe('resolveRendererFilePath', () => {
   it('只解析受信任 host 下的构建资源', () => {
