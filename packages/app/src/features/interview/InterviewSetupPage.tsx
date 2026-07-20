@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { Link, useNavigate } from 'react-router-dom'
 
 import { useAppGateways, useAsyncResource } from '../../app/AppData'
+import { runDiagnosticCommand, useDiagnostics } from '../../app/Diagnostics'
 import type {
   UiInterviewDifficulty,
   UiInterviewSetupModel,
@@ -33,6 +34,7 @@ const customJobValue = '__custom__'
 
 function InterviewSetupForm({ data }: { readonly data: InterviewSetupData }): React.JSX.Element {
   const { t } = useTranslation()
+  const diagnostics = useDiagnostics()
   const navigate = useNavigate()
   const { interview } = useAppGateways()
   const initialJob = data.setup.jobTargets.at(0)
@@ -68,22 +70,26 @@ function InterviewSetupForm({ data }: { readonly data: InterviewSetupData }): Re
     if (jobTitle.trim().length === 0 || isSubmitting) return
     setSubmitting(true)
     setSubmitError(null)
-    void interview
-      .createInterview({
-        workspaceId: data.workspaceId,
-        jobTarget: selectedJob ?? {
-          title: jobTitle.trim(),
-          company: null,
-          location: null,
-          seniority: null,
-          skills: []
-        },
-        interviewType,
-        difficulty,
-        durationMinutes,
-        knowledgeSourceIds: [...selectedKnowledge],
-        focusPrompt: focusPrompt.trim() || null
-      })
+    void runDiagnosticCommand(
+      diagnostics,
+      { operation: 'interview.create', scope: 'interview' },
+      () =>
+        interview.createInterview({
+          workspaceId: data.workspaceId,
+          jobTarget: selectedJob ?? {
+            title: jobTitle.trim(),
+            company: null,
+            location: null,
+            seniority: null,
+            skills: []
+          },
+          interviewType,
+          difficulty,
+          durationMinutes,
+          knowledgeSourceIds: [...selectedKnowledge],
+          focusPrompt: focusPrompt.trim() || null
+        })
+    )
       .then(({ sessionId }) => navigate(`/interviews/${sessionId}`))
       .catch(() => {
         setSubmitError(
@@ -320,7 +326,7 @@ export function InterviewSetupPage(): React.JSX.Element {
     ])
     return { workspaceId: currentWorkspace.id, setup, knowledgeSources }
   }, [interview, knowledge, workspace])
-  const setup = useAsyncResource(loadSetup)
+  const setup = useAsyncResource('interview.setup', loadSetup)
 
   if (setup.status === 'loading')
     return (

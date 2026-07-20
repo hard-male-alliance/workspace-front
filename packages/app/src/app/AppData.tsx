@@ -1,6 +1,9 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { InterviewGateway, KnowledgeGateway, ResumeGateway, WorkspaceGateway } from '../domain'
+import { classifyDiagnosticError } from '../observability'
+import type { DiagnosticResourceName } from '../observability'
+import { useDiagnostics } from './Diagnostics'
 
 /** @brief 共享页面需要的 gateway 集合 / Gateway collection required by shared pages. */
 export interface AppGateways {
@@ -57,24 +60,43 @@ export type AsyncResource<TValue> =
   | { readonly status: 'error'; readonly error: Error }
 
 /**
+ * @brief 读取单调时钟的毫秒值 / Read a monotonic clock value in milliseconds.
+ * @return 适用于时长计算的当前毫秒值 / Current milliseconds suitable for duration calculations.
+ */
+function nowMilliseconds(): number {
+  return globalThis.performance?.now() ?? Date.now()
+}
+
+/**
  * @brief 加载 gateway 返回的异步资源 / Load an asynchronous resource returned by a gateway.
  * @template TValue 成功资源类型 / Successful resource type.
  * @param load 稳定的异步加载函数 / Stable async loader function.
  * @return 加载中、成功或失败的资源状态 / Loading, ready, or failed resource state.
  * @note 调用方应以 useCallback 包装 load，避免无意重复请求。
  */
-export function useAsyncResource<TValue>(load: () => Promise<TValue>): AsyncResource<TValue> {
+export function useAsyncResource<TValue>(
+  resourceName: DiagnosticResourceName,
+  load: () => Promise<TValue>
+): AsyncResource<TValue> {
   /** @brief 资源当前状态 / Current resource state. */
   const [resource, setResource] = useState<AsyncResource<TValue>>({ status: 'loading' })
+  /** @brief 应用诊断端口 / Application diagnostics port. */
+  const diagnostics = useDiagnostics()
 
   useEffect((): (() => void) => {
     /** @brief effect 是否仍然存活 / Whether the effect is still active. */
     let active = true
+    /** @brief 资源读取的起始单调时间 / Monotonic start time for the resource read. */
+    const startedAt = nowMilliseconds()
 
     void load()
       .then((data): void => {
         if (active) {
           setResource({ status: 'ready', data })
+          diagnostics.emit('resource.load_completed', {
+            duration_ms: Math.max(0, Math.round(nowMilliseconds() - startedAt)),
+            resource: resourceName
+          })
         }
       })
       .catch((reason: unknown): void => {
@@ -83,13 +105,18 @@ export function useAsyncResource<TValue>(load: () => Promise<TValue>): AsyncReso
             status: 'error',
             error: reason instanceof Error ? reason : new Error('Unable to load workspace data.')
           })
+          diagnostics.emit('resource.load_failed', {
+            duration_ms: Math.max(0, Math.round(nowMilliseconds() - startedAt)),
+            error_kind: classifyDiagnosticError(reason),
+            resource: resourceName
+          })
         }
       })
 
     return (): void => {
       active = false
     }
-  }, [load])
+  }, [diagnostics, load, resourceName])
 
   return resource
 }

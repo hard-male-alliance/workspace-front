@@ -223,7 +223,10 @@ export class HttpResumeGateway implements ResumeGateway {
   ): Promise<UiResumeRenderJob> {
     const response = await this.#client.getJson(
       `/resume-render-jobs/${encodeURIComponent(jobId)}`,
-      signal === undefined ? {} : { signal }
+      {
+        diagnostics: 'suppress',
+        ...(signal === undefined ? {} : { signal })
+      }
     )
     return this.#mapRenderJob(parseResumeRenderJobDto(response.data))
   }

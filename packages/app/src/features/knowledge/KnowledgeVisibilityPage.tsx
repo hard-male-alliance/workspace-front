@@ -480,7 +480,7 @@ export function KnowledgeVisibilityPage(): React.JSX.Element {
     return knowledge.getKnowledgeVisibility(requestedSourceId)
   }, [knowledge, requestedSourceId, sourceId])
   /** @brief 可见性异步资源 / Visibility async resource. */
-  const visibility = useAsyncResource(loadVisibility)
+  const visibility = useAsyncResource('knowledge.visibility', loadVisibility)
 
   if (visibility.status === 'loading') {
     return (
