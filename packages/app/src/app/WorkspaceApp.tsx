@@ -1,16 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { BrowserRouter, MemoryRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AppDataProvider } from './AppData'
 import type { AppGateways } from './AppData'
 import { WorkspaceShell } from './WorkspaceShell'
 import { appI18n, appI18nReady } from '../i18n'
-import {
-  MockInterviewGateway,
-  MockKnowledgeGateway,
-  MockResumeGateway,
-  MockWorkspaceGateway
-} from '../infrastructure/mock'
 import { InterviewRoomPage } from '../features/interview/InterviewRoomPage'
 import { InterviewSummaryPage } from '../features/interview/InterviewSummaryPage'
 import { InterviewHubPage } from '../features/interview/InterviewHubPage'
@@ -24,20 +18,6 @@ import { StateGalleryPage } from '../features/states/StateGalleryPage'
 import { WorkspaceHomePage } from '../features/workspace/WorkspaceHomePage'
 import { LoadingState } from '../ui'
 import '../styles/app.css'
-
-/**
- * @brief 创建默认的演示数据 gateway / Create the default demo data gateways.
- * @return 明确标注为 Mock 的 gateway 集合 / Gateway collection explicitly marked as Mock.
- * @note 真实 HTTP/SSE/WebRTC 适配器须在正式契约入口冻结后通过 props 注入；此函数不伪造 transport。
- */
-function createMockGateways(): AppGateways {
-  return {
-    workspace: new MockWorkspaceGateway(),
-    resume: new MockResumeGateway(),
-    interview: new MockInterviewGateway(),
-    knowledge: new MockKnowledgeGateway()
-  }
-}
 
 /** @brief i18n 初始化边界属性 / i18n bootstrap-boundary properties. */
 interface I18nBootstrapProps {
@@ -86,8 +66,8 @@ function I18nBootstrap({ children }: I18nBootstrapProps): React.JSX.Element {
 
 /** @brief 共享工作区应用属性 / Shared workspace-app properties. */
 export interface WorkspaceAppProps {
-  /** @brief 可替换的数据 gateway；缺省时使用明确的 Mock 实现 / Replaceable data gateways; explicit Mocks are used by default. */
-  readonly gateways?: AppGateways
+  /** @brief 由运行时显式装配的数据 gateway / Data gateways explicitly composed by the runtime. */
+  readonly gateways: AppGateways
   /** @brief 测试或嵌入场景中的初始路径 / Initial path for tests or embedding. */
   readonly initialPath?: string
 }
@@ -99,12 +79,10 @@ export interface WorkspaceAppProps {
  * @note Electron renderer 不直接访问 Node.js；所有平台能力需经窄 bridge 另行注入。
  */
 export function WorkspaceApp({ gateways, initialPath }: WorkspaceAppProps): React.JSX.Element {
-  /** @brief 当前运行时的数据 gateway / Data gateways for the current runtime. */
-  const resolvedGateways = useMemo(() => gateways ?? createMockGateways(), [gateways])
   /** @brief 不依赖具体 router 的应用树 / Application tree independent of a concrete router. */
   const application = (
     <I18nBootstrap>
-      <AppDataProvider gateways={resolvedGateways}>
+      <AppDataProvider gateways={gateways}>
         <Routes>
           <Route element={<WorkspaceShell />}>
             <Route element={<WorkspaceHomePage />} path="/" />

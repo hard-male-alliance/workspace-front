@@ -2,7 +2,8 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup } from '@testing-library/react'
 import { appI18n, appI18nReady } from '../i18n'
-import { WorkspaceApp } from './WorkspaceApp'
+import type { WorkspaceAppProps } from './WorkspaceApp'
+import { WorkspaceApp as SharedWorkspaceApp } from './WorkspaceApp'
 import {
   MOCK_KNOWLEDGE_SOURCES,
   MOCK_RESUME_ID,
@@ -12,6 +13,27 @@ import {
   MockWorkspaceGateway
 } from '../infrastructure/mock'
 import { HttpProblemError } from '../infrastructure/http/http-client'
+
+type TestWorkspaceAppProps = Omit<WorkspaceAppProps, 'gateways'> & {
+  readonly gateways?: WorkspaceAppProps['gateways']
+}
+
+/** @brief 为测试渲染提供隔离的默认 Mock Gateway / Provide isolated default Mock Gateways for tests. */
+function WorkspaceApp({ gateways, ...props }: TestWorkspaceAppProps): React.JSX.Element {
+  return (
+    <SharedWorkspaceApp
+      {...props}
+      gateways={
+        gateways ?? {
+          workspace: new MockWorkspaceGateway(),
+          resume: new MockResumeGateway(),
+          interview: new MockInterviewGateway(),
+          knowledge: new MockKnowledgeGateway()
+        }
+      }
+    />
+  )
+}
 
 /** @brief 每个测试后的 DOM 清理 / DOM cleanup after every test. */
 afterEach((): void => {

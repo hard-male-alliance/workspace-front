@@ -1,6 +1,12 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { WorkspaceApp } from '@ai-job-workspace/app'
+import {
+  MockInterviewGateway,
+  MockKnowledgeGateway,
+  MockResumeGateway,
+  MockWorkspaceGateway,
+  WorkspaceApp
+} from '@ai-job-workspace/app'
 
 /** @brief React 挂载根节点 / React mounting root element. */
 const rootElement = document.getElementById('root')
@@ -11,6 +17,13 @@ if (rootElement === null) {
 
 createRoot(rootElement).render(
   <StrictMode>
-    <WorkspaceApp />
+    <WorkspaceApp
+      gateways={{
+        workspace: new MockWorkspaceGateway(),
+        resume: new MockResumeGateway(),
+        interview: new MockInterviewGateway(),
+        knowledge: new MockKnowledgeGateway()
+      }}
+    />
   </StrictMode>
 )
