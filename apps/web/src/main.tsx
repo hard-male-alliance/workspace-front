@@ -1,7 +1,8 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { WorkspaceApp } from '@ai-job-workspace/app'
-import { createWebGateways, WebConfigurationError } from './create-web-gateways'
+import { ApiConfigurationError, resolveApiBaseUrl } from './api-config'
+import { createWebGateways } from './create-web-gateways'
 import { WebConfigurationErrorPage } from './WebConfigurationErrorPage'
 
 /** @brief Web renderer 根节点 / Web renderer root element. */
@@ -13,15 +14,17 @@ if (rootElement === null) {
 
 /** @brief Web 应用内容 / Web application content. */
 let application: React.JSX.Element
-/** @brief 未经信任的 Vite 公开环境值 / Untrusted public Vite environment value. */
-const apiBaseUrlValue: unknown = import.meta.env.VITE_API_BASE_URL
-/** @brief 已收窄的后端公开根地址 / Narrowed public backend root URL. */
-const apiBaseUrl = typeof apiBaseUrlValue === 'string' ? apiBaseUrlValue : undefined
 
 try {
+  const apiBaseUrl = resolveApiBaseUrl({
+    VITE_API_BASE_URL: import.meta.env.VITE_API_BASE_URL,
+    VITE_API_PROTOCOL: import.meta.env.VITE_API_PROTOCOL,
+    VITE_API_HOSTNAME: import.meta.env.VITE_API_HOSTNAME,
+    VITE_API_PORT: import.meta.env.VITE_API_PORT
+  })
   application = <WorkspaceApp gateways={createWebGateways(apiBaseUrl)} />
 } catch (error: unknown) {
-  if (!(error instanceof WebConfigurationError)) {
+  if (!(error instanceof ApiConfigurationError)) {
     throw error
   }
   application = <WebConfigurationErrorPage />

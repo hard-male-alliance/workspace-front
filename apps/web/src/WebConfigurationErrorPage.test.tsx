@@ -10,6 +10,7 @@ describe('WebConfigurationErrorPage', (): void => {
     expect(screen.getByRole('alert')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '无法启动 Web 联调' })).toBeInTheDocument()
     expect(screen.getByText(/VITE_API_BASE_URL/u)).toBeInTheDocument()
+    expect(screen.getByText(/VITE_API_HOSTNAME/u)).toBeInTheDocument()
     expect(screen.getByText(/\.env\.local/u)).toBeInTheDocument()
   })
 })
