@@ -34,7 +34,7 @@ export const MOCK_PENDING_CONTRACT_ITEMS: readonly MockPendingContractItem[] = [
     question:
       'ResumeOperationBatch、If-Match 与幂等键已由 Web HTTP adapter 接入；整份 Resume 删除、正式创建 DTO 与离线重放队列仍未冻结。',
     mockHandling:
-      '板块编辑、排序、板块删除和模板切换走正式 operation 路由；409/412 保留为服务端 ProblemDetails，不自动覆盖权威 revision。'
+      '板块编辑、排序、板块删除和模板切换走正式 operation 路由；409/412 会锁定后续写入并要求重读权威 Resume，不自动覆盖或重放旧 revision。'
   },
   {
     id: 'resume-assistant-generation',
@@ -67,6 +67,22 @@ export const MOCK_PENDING_CONTRACT_ITEMS: readonly MockPendingContractItem[] = [
       '报告 Job 的轮询或流式进度、失败诊断、最终资源、评分上下限和 100 分归一化规则尚未接入。',
     mockHandling:
       '直接提供明确标注的 100 分制 Mock UiInterviewReport，用于总结页面布局验收，不宣称为正式评分。'
+  },
+  {
+    id: 'knowledge-file-ingestion-transport',
+    domain: 'knowledge',
+    question:
+      '当前 multipart 新建/版本上传路径与 202 { source, ingestion_job } 包装是临时路径级绑定；正式 UploadSession、上传响应、幂等重放与共享环境行为仍待冻结和 smoke 验证。',
+    mockHandling:
+      'Web 通过 KnowledgeGateway 的 HTTP adapter 调用当前直传端点并有界轮询，Electron 使用同一领域端口的可取消 Mock；冻结 UploadSession 后只替换 adapter，不重写页面。'
+  },
+  {
+    id: 'knowledge-search-transport',
+    domain: 'knowledge',
+    question:
+      '当前 POST /knowledge-searches 与临时 { items: [...] } 响应包装尚不是完整冻结的路径契约；分页、授权审计、错误集合和共享环境结果仍待确认。',
+    mockHandling:
+      'Web 在 HTTP adapter 内验证临时包装并映射为 UiKnowledgeSearchResult，Electron 返回确定性的来源关联 Mock；页面不依赖 transport DTO。'
   },
   {
     id: 'knowledge-write-policy',
