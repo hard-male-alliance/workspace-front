@@ -192,11 +192,18 @@ export const zhSGTranslation = {
       moveDown: '下移{{name}}',
       deleteSection: '删除{{name}}',
       structuredItems: '包含 {{count}} 条结构化经历',
+      acceptProposal: '接受建议',
+      rejectProposal: '拒绝建议',
       assistantError: '暂时无法生成修改建议，请重试。',
       undoError: '这次 AI 修改已经无法撤销。',
       sectionError: '板块修改未能保存，请重试；若版本冲突请重新加载。',
       reorderError: '无法调整板块顺序。',
-      deleteError: '无法删除这个板块。'
+      deleteError: '无法删除这个板块。',
+      conflictTitle: '简历版本已过期',
+      conflictDescription: '服务器上的简历已发生变化。请先重新加载权威版本，再继续编辑。',
+      reloadAuthority: '重新加载服务器版本',
+      reloadingAuthority: '正在重新加载…',
+      reloadAuthorityError: '无法重新加载服务器版本，请重试。'
     }
   },
   template: {
@@ -818,11 +825,19 @@ export const enUSTranslation = {
       moveDown: 'Move {{name}} down',
       deleteSection: 'Delete {{name}}',
       structuredItems: 'Contains {{count}} structured entries',
+      acceptProposal: 'Accept suggestion',
+      rejectProposal: 'Reject suggestion',
       assistantError: 'A change Proposal could not be generated. Try again.',
       undoError: 'This AI change can no longer be undone.',
       sectionError: 'The section could not be saved. Reload first if its revision has changed.',
       reorderError: 'The section order could not be changed.',
-      deleteError: 'This section could not be deleted.'
+      deleteError: 'This section could not be deleted.',
+      conflictTitle: 'Resume version is stale',
+      conflictDescription:
+        'This resume changed on the server. Reload the authoritative version before editing.',
+      reloadAuthority: 'Reload server version',
+      reloadingAuthority: 'Reloading…',
+      reloadAuthorityError: 'The server version could not be reloaded. Try again.'
     }
   },
   template: {

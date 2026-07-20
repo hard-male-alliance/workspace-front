@@ -5,11 +5,13 @@ import { appI18n, appI18nReady } from '../i18n'
 import { WorkspaceApp } from './WorkspaceApp'
 import {
   MOCK_KNOWLEDGE_SOURCES,
+  MOCK_RESUME_ID,
   MockInterviewGateway,
   MockKnowledgeGateway,
   MockResumeGateway,
   MockWorkspaceGateway
 } from '../infrastructure/mock'
+import { HttpProblemError } from '../infrastructure/http/http-client'
 
 /** @brief 每个测试后的 DOM 清理 / DOM cleanup after every test. */
 afterEach((): void => {
@@ -189,6 +191,67 @@ describe('WorkspaceApp', (): void => {
       'about:blank#mock-resume-pdf'
     )
   })
+
+  it.each([412, 409] as const)(
+    'locks stale resume writes after HTTP %i and reloads the authoritative revision',
+    async (status) => {
+      await appI18nReady
+      await appI18n.changeLanguage('en-US')
+      const resume = new MockResumeGateway()
+      await resume.createResumeProposal({
+        message: 'Make the summary more specific',
+        resumeId: MOCK_RESUME_ID
+      })
+      const initial = await resume.getResumeEditor(MOCK_RESUME_ID)
+      const authoritative = {
+        ...initial,
+        resume: { ...initial.resume, revision: status === 412 ? 99 : 77 }
+      }
+      vi.spyOn(resume, 'getResumeEditor')
+        .mockResolvedValueOnce(initial)
+        .mockResolvedValue(authoritative)
+      const update = vi.spyOn(resume, 'updateResumeSection').mockRejectedValue(
+        new HttpProblemError({
+          code: status === 412 ? 'resume.precondition_failed' : 'resume.conflict',
+          detail: 'The Resume ETag is stale.',
+          requestId: null,
+          status,
+          title: 'Resume changed elsewhere'
+        })
+      )
+
+      render(
+        <WorkspaceApp
+          gateways={{
+            interview: new MockInterviewGateway(),
+            knowledge: new MockKnowledgeGateway(),
+            resume,
+            workspace: new MockWorkspaceGateway()
+          }}
+          initialPath="/resumes/res_mock_ai_platform/edit"
+        />
+      )
+      await screen.findByRole('heading', { name: 'Klee Chen' })
+      const content = screen.getByRole('textbox', { name: 'Semantic content' })
+      fireEvent.change(content, { target: { value: 'A stale local edit' } })
+      fireEvent.blur(content)
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'This resume changed on the server. Reload the authoritative version before editing.'
+      )
+      expect(content).toBeDisabled()
+      expect(screen.getByRole('button', { name: 'Accept suggestion' })).toBeDisabled()
+      expect(
+        screen.getByRole('combobox', { name: 'Quickly switch resume template' })
+      ).toBeDisabled()
+      expect(screen.getByText('Revision 18')).toBeInTheDocument()
+      expect(update).toHaveBeenCalledTimes(1)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Reload server version' }))
+      expect(await screen.findByText(`Revision ${status === 412 ? 99 : 77}`)).toBeInTheDocument()
+      expect(screen.queryByText('A stale local edit')).not.toBeInTheDocument()
+    }
+  )
 
   it('aborts PDF polling when the Resume page unmounts', async (): Promise<void> => {
     await resetChineseLocale()
