@@ -646,17 +646,17 @@ export function createBufferedDiagnosticsSink(
         // Exporters are required to isolate failures, but the sink protects the product a second time.
       })
       .finally((): void => {
-        if (!accepted) {
-          queue.unshift(...records)
-        }
         inFlightRecords = undefined
         inFlight = undefined
+        if (disposed) return
+
         if (accepted) {
           consecutiveExportFailures = 0
           scheduleFlush()
           return
         }
 
+        queue.unshift(...records)
         consecutiveExportFailures += 1
         scheduleFlush(getRetryDelayMilliseconds())
       })
