@@ -74,6 +74,64 @@ describe('createHttpClient', (): void => {
     )
   })
 
+  it('posts FormData without setting a multipart Content-Type boundary', async (): Promise<void> => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ accepted: true }), {
+        headers: { 'Content-Type': 'application/json' },
+        status: 202
+      })
+    )
+    const client = createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
+    const controller = new AbortController()
+    const body = new FormData()
+    body.append('file', new File(['hello'], 'notes.md', { type: 'text/markdown' }))
+
+    await client.postForm('/knowledge-sources/uploads', body, {
+      idempotencyKey: 'upload_12345678',
+      signal: controller.signal
+    })
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'http://127.0.0.1:8000/api/v1/knowledge-sources/uploads',
+      {
+        body,
+        headers: { 'Idempotency-Key': 'upload_12345678' },
+        method: 'POST',
+        signal: controller.signal
+      }
+    )
+    const headers = fetchImpl.mock.calls[0]?.[1]?.headers as Record<string, string>
+    expect(headers).not.toHaveProperty('Content-Type')
+  })
+
+  it('preserves structured upload Problem Details', async (): Promise<void> => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          code: 'knowledge.file_too_large',
+          detail: 'The uploaded file exceeds the configured limit.',
+          status: 413,
+          title: 'Knowledge file is too large'
+        }),
+        {
+          headers: { 'Content-Type': 'application/problem+json' },
+          status: 413
+        }
+      )
+    )
+    const client = createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
+
+    await expect(
+      client.postForm('/knowledge-sources/uploads', new FormData(), {
+        idempotencyKey: 'upload_12345678'
+      })
+    ).rejects.toMatchObject({
+      code: 'knowledge.file_too_large',
+      detail: 'The uploaded file exceeds the configured limit.',
+      status: 413
+    })
+  })
+
   it('accepts only same-origin product API artifact URLs', (): void => {
     const client = createHttpClient({ baseUrl: 'https://api.example.test' })
 

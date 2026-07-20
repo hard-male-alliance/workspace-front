@@ -29,6 +29,14 @@ export interface PostJsonOptions {
   readonly signal?: AbortSignal
 }
 
+/** @brief multipart command 选项 / Multipart command options. */
+export interface PostFormOptions {
+  /** @brief 当前用户动作的幂等键 / Idempotency key for the current user action. */
+  readonly idempotencyKey: string
+  /** @brief 请求取消信号 / Request cancellation signal. */
+  readonly signal?: AbortSignal
+}
+
 /** @brief 已解析的 JSON 响应及必要元数据 / Parsed JSON response with required metadata. */
 export interface HttpJsonResponse {
   /** @brief 未经信任的外部 JSON / Untrusted external JSON. */
@@ -86,6 +94,8 @@ export interface HttpClient {
   getJson(path: string, options?: GetJsonOptions): Promise<HttpJsonResponse>
   /** @brief 发送并解析 JSON command / Send and parse a JSON command. */
   postJson(path: string, body: unknown, options?: PostJsonOptions): Promise<HttpJsonResponse>
+  /** @brief 发送并解析 multipart command / Send and parse a multipart command. */
+  postForm(path: string, body: FormData, options: PostFormOptions): Promise<HttpJsonResponse>
   /** @brief 校验并解析同源产品 API URL / Validate and resolve a same-origin product API URL. */
   resolveProductUrl(value: string): string
 }
@@ -171,6 +181,17 @@ export function createHttpClient({ baseUrl, fetchImpl = fetch }: HttpClientOptio
       const response = await fetchImpl(requestUrl.toString(), {
         body: JSON.stringify(body),
         headers,
+        method: 'POST',
+        ...(options.signal === undefined ? {} : { signal: options.signal })
+      })
+      return parseJsonResponse(response)
+    },
+
+    async postForm(path, body, options): Promise<HttpJsonResponse> {
+      const requestUrl = new URL(path.replace(/^\//u, ''), apiBaseUrl)
+      const response = await fetchImpl(requestUrl.toString(), {
+        body,
+        headers: { 'Idempotency-Key': options.idempotencyKey },
         method: 'POST',
         ...(options.signal === undefined ? {} : { signal: options.signal })
       })
