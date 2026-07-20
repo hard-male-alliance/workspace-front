@@ -20,6 +20,88 @@
   text-rendering: optimizeLegibility;
 }
 
+.aw-knowledge-upload,
+.aw-knowledge-search {
+  margin-bottom: 18px;
+}
+
+.aw-knowledge-section-heading {
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.aw-knowledge-file-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.aw-knowledge-file-form input[type='file'] {
+  width: 100%;
+  padding: 10px 12px;
+  color: var(--color-ink);
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  background: var(--color-surface-subtle);
+}
+
+.aw-knowledge-message {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 12px 0 0;
+  color: var(--color-muted);
+}
+
+.aw-knowledge-message--error {
+  color: var(--ui-color-danger);
+}
+
+.aw-knowledge-search-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.aw-knowledge-search-results {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.aw-knowledge-search-result {
+  padding: 14px;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  background: var(--color-surface-subtle);
+}
+
+.aw-knowledge-search-result blockquote {
+  margin: 10px 0 0;
+  color: var(--color-muted);
+}
+
+.aw-knowledge-policy-link {
+  margin-bottom: 0;
+}
+
+.aw-knowledge-policy-link a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+@media (max-width: 680px) {
+  .aw-knowledge-search-form {
+    grid-template-columns: 1fr;
+  }
+
+  .aw-knowledge-search-form .aw-primary-button {
+    width: 100%;
+  }
+}
+
 /* Mock interview workspace */
 .aw-page.aw-interview-hub,
 .aw-page.aw-interview-setup-page,

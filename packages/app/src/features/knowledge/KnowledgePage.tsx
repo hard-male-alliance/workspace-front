@@ -7,86 +7,60 @@ import {
   Globe2,
   Link2,
   Plus,
-  RefreshCw,
   Search,
   ShieldCheck,
   UploadCloud
 } from 'lucide-react'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
+
 import { useAppGateways, useAsyncResource } from '../../app/AppData'
-import type { UiKnowledgeSource, UiKnowledgeSourceType } from '../../domain'
+import type { KnowledgeGateway } from '../../domain'
+import type {
+  UiKnowledgeSearchResult,
+  UiKnowledgeSource,
+  UiKnowledgeSourceId,
+  UiKnowledgeSourceType
+} from '../../domain'
 import { EmptyState, ErrorState, LoadingState } from '../../ui'
+import { getKnowledgeErrorMessage } from './knowledge-errors'
+import { pollKnowledgeIngestion } from './knowledge-polling'
 
-/**
- * @brief 知识来源类型对应的图标 / Icon matching a knowledge-source type.
- * @param sourceType 知识来源类型 / Knowledge-source type.
- * @return 对应的图标组件 / Matching icon component.
- */
+const MAX_KNOWLEDGE_FILE_BYTES = 10 * 1024 * 1024
+const SUPPORTED_KNOWLEDGE_FILE_EXTENSIONS = new Set(['txt', 'md', 'markdown', 'pdf', 'docx'])
+
 function getSourceIcon(sourceType: UiKnowledgeSourceType): React.JSX.Element {
-  if (sourceType === 'git_repository') {
-    return <FolderGit2 aria-hidden="true" size={19} />
-  }
-
+  if (sourceType === 'git_repository') return <FolderGit2 aria-hidden="true" size={19} />
   if (sourceType === 'blog_feed' || sourceType === 'website' || sourceType === 'url') {
     return <Globe2 aria-hidden="true" size={19} />
   }
-
-  if (sourceType === 'resume') {
-    return <BookOpenCheck aria-hidden="true" size={19} />
-  }
-
+  if (sourceType === 'resume') return <BookOpenCheck aria-hidden="true" size={19} />
   return <FileText aria-hidden="true" size={19} />
 }
 
-/**
- * @brief 根据摄取状态选择视觉样式 / Select a visual style for ingestion status.
- * @param status 摄取状态 / Ingestion status.
- * @return 对应的 CSS 状态类 / Corresponding CSS status class.
- */
 function getIngestionTone(status: UiKnowledgeSource['ingestionStatus']): string {
-  if (status === 'ready') {
-    return 'aw-status--ready'
-  }
-
-  if (status === 'failed') {
-    return 'aw-status--error'
-  }
-
+  if (status === 'ready') return 'aw-status--ready'
+  if (status === 'failed') return 'aw-status--error'
   return 'aw-status--active'
 }
 
-/**
- * @brief 翻译知识来源敏感度 / Translate a knowledge-source sensitivity.
- * @param sensitivity 知识来源敏感度 / Knowledge-source sensitivity.
- * @return 对应的 i18n key / Corresponding i18n key.
- */
 function getSensitivityLabelKey(
   sensitivity: UiKnowledgeSource['visibility']['sensitivity']
 ): string {
-  /** @brief 敏感度到资源 key 的映射 / Mapping from sensitivity to resource key. */
-  const labelKeys: Readonly<Record<UiKnowledgeSource['visibility']['sensitivity'], string>> = {
+  return {
     normal: 'visibility.sensitivity.normal',
     confidential: 'visibility.sensitivity.confidential',
     highly_confidential: 'visibility.sensitivity.highlyConfidential'
-  }
-  return labelKeys[sensitivity]
+  }[sensitivity]
 }
 
-/**
- * @brief 翻译摄取状态 / Translate an ingestion status.
- * @param status 摄取状态 / Ingestion status.
- * @param translate i18n 翻译函数 / i18n translation function.
- * @return 用户可见状态 / User-visible status.
- */
 function getIngestionLabel(
   status: UiKnowledgeSource['ingestionStatus'],
   translate: TFunction
 ): string {
-  /** @brief 状态到本地化 key 的映射 / Mapping from status to localization key. */
   const keys: Readonly<Record<UiKnowledgeSource['ingestionStatus'], string>> = {
     not_started: 'knowledge.status.notStarted',
     queued: 'status.queued',
@@ -102,152 +76,320 @@ function getIngestionLabel(
   return translate(keys[status], { defaultValue: status })
 }
 
-/**
- * @brief 添加来源的演示表单 / Demo form for adding a source.
- * @param props 关闭回调 / Close callback.
- * @return 无网络副作用的来源表单 / Source form without network side effects.
- */
-function MockSourceForm({ onClose }: { readonly onClose: () => void }): React.JSX.Element {
-  /** @brief 翻译函数 / Translation function. */
-  const { t } = useTranslation()
-  /** @brief 提交后的演示确认状态 / Demo confirmation after submit. */
-  const [isSubmitted, setSubmitted] = useState(false)
+interface KnowledgeFileFormProps {
+  readonly gateway: KnowledgeGateway
+  readonly onClose?: (() => void) | undefined
+  readonly onComplete: (sourceId: UiKnowledgeSourceId) => void
+  readonly sourceId?: UiKnowledgeSourceId | undefined
+}
 
-  /**
-   * @brief 提交 Mock 来源表单 / Submit the Mock source form.
-   * @param event 表单提交事件 / Form submit event.
-   * @return 无返回值 / No return value.
-   * @note 真实上传遵循 UploadSession + 对象存储直传，v0.1 不伪造该协议。
-   */
-  const submitMockSource = (event: FormEvent<HTMLFormElement>): void => {
+function KnowledgeFileForm({
+  gateway,
+  onClose,
+  onComplete,
+  sourceId
+}: KnowledgeFileFormProps): React.JSX.Element {
+  const { t } = useTranslation()
+  const [file, setFile] = useState<File | null>(null)
+  const [name, setName] = useState('')
+  const [phase, setPhase] = useState<'idle' | 'uploading' | 'ingesting' | 'succeeded' | 'error'>(
+    'idle'
+  )
+  const [message, setMessage] = useState<string | null>(null)
+  const controllerRef = useRef<AbortController | null>(null)
+
+  useEffect(
+    (): (() => void) => (): void => {
+      controllerRef.current?.abort()
+    },
+    []
+  )
+
+  const submit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault()
-    setSubmitted(true)
+    if (phase === 'uploading' || phase === 'ingesting') return
+    if (file === null) {
+      setPhase('error')
+      setMessage(t('knowledge.validation.fileRequired'))
+      return
+    }
+
+    const extension = file.name.split('.').at(-1)?.toLocaleLowerCase() ?? ''
+    if (!SUPPORTED_KNOWLEDGE_FILE_EXTENSIONS.has(extension)) {
+      setPhase('error')
+      setMessage(t('knowledge.validation.fileType'))
+      return
+    }
+    if (file.size > MAX_KNOWLEDGE_FILE_BYTES) {
+      setPhase('error')
+      setMessage(t('knowledge.validation.fileSize'))
+      return
+    }
+
+    controllerRef.current?.abort()
+    const controller = new AbortController()
+    controllerRef.current = controller
+    setPhase('uploading')
+    setMessage(t('knowledge.uploading'))
+
+    const upload =
+      sourceId === undefined
+        ? gateway.uploadKnowledgeSource({
+            file,
+            ...(name.trim().length === 0 ? {} : { name: name.trim() }),
+            signal: controller.signal
+          })
+        : gateway.uploadKnowledgeSourceVersion({ sourceId, file, signal: controller.signal })
+
+    void upload
+      .then(async (accepted) => {
+        if (controller.signal.aborted) return
+        setPhase('ingesting')
+        setMessage(t('knowledge.ingesting'))
+        const completed = await pollKnowledgeIngestion({
+          gateway,
+          jobId: accepted.ingestionJob.id,
+          signal: controller.signal
+        })
+        if (controller.signal.aborted) return
+        if (completed.status !== 'succeeded') {
+          setPhase('error')
+          setMessage(t('knowledge.ingestionFailed'))
+          return
+        }
+        setPhase('succeeded')
+        setMessage(t('knowledge.uploadSucceeded'))
+        onComplete(accepted.source.id)
+      })
+      .catch((error: unknown): void => {
+        if (controller.signal.aborted) return
+        setPhase('error')
+        setMessage(getKnowledgeErrorMessage(error, (key) => t(key)))
+      })
   }
 
+  const busy = phase === 'uploading' || phase === 'ingesting'
+  const title = sourceId === undefined ? t('knowledge.addSource') : t('knowledge.uploadVersion')
+
   return (
-    <section
-      aria-labelledby="add-source-title"
-      className="aw-card aw-card-pad"
-      style={{ marginBottom: 18 }}
-    >
-      <div className="aw-inline-actions" style={{ justifyContent: 'space-between' }}>
+    <section className="aw-card aw-card-pad aw-knowledge-upload">
+      <div className="aw-inline-actions aw-knowledge-section-heading">
         <div>
-          <h2 className="aw-card-title" id="add-source-title">
-            {t('knowledge.addSource', { defaultValue: '添加知识来源' })}
-          </h2>
-          <p className="aw-card-description">
-            {t('knowledge.addSourceDescription', {
-              defaultValue: '支持博客、代码库、URL 和文件；真实上传和连接授权尚待后端接入。'
-            })}
-          </p>
+          <h2 className="aw-card-title">{title}</h2>
+          <p className="aw-card-description">{t('knowledge.fileHelp')}</p>
         </div>
-        <button className="aw-quiet-button" onClick={onClose} type="button">
-          {t('common.close', { defaultValue: '关闭' })}
-        </button>
+        {onClose === undefined ? null : (
+          <button className="aw-quiet-button" disabled={busy} onClick={onClose} type="button">
+            {t('common.close')}
+          </button>
+        )}
       </div>
-      {isSubmitted ? (
-        <div className="aw-proposal" style={{ marginTop: 14 }}>
-          <p className="aw-proposal-title">
-            <CheckCircle2
-              aria-hidden="true"
-              size={14}
-              style={{ marginRight: 5, verticalAlign: 'text-bottom' }}
+      <form className="aw-knowledge-file-form" onSubmit={submit}>
+        {sourceId === undefined ? (
+          <label className="aw-editor-field">
+            <span className="aw-editor-label">{t('knowledge.optionalName')}</span>
+            <input
+              className="aw-text-input"
+              disabled={busy}
+              onChange={(event): void => setName(event.target.value)}
+              value={name}
             />
-            {t('knowledge.mockSubmitted', { defaultValue: '已记录为 Mock 操作' })}
-          </p>
-          <p className="aw-muted" style={{ margin: 0 }}>
-            {t('knowledge.mockSubmittedDescription', {
-              defaultValue: '不会上传文件、抓取 URL 或创建正式 KnowledgeSource。'
-            })}
-          </p>
-        </div>
-      ) : (
-        <form onSubmit={submitMockSource}>
-          <div
-            className="aw-form-row"
-            style={{ alignItems: 'end', flexWrap: 'wrap', marginTop: 14 }}
-          >
-            <label className="aw-editor-field" style={{ flex: '1 1 160px', margin: 0 }}>
-              <span className="aw-editor-label">
-                {t('knowledge.sourceType', { defaultValue: '来源类型' })}
-              </span>
-              <select className="aw-select" defaultValue="git_repository">
-                <option value="git_repository">
-                  {t('knowledge.gitRepository', { defaultValue: '代码仓库' })}
-                </option>
-                <option value="blog_feed">
-                  {t('knowledge.blog', { defaultValue: '博客订阅' })}
-                </option>
-                <option value="url">{t('knowledge.url', { defaultValue: '网页 URL' })}</option>
-                <option value="file">{t('knowledge.file', { defaultValue: '文件' })}</option>
-              </select>
-            </label>
-            <label className="aw-editor-field" style={{ flex: '2 1 250px', margin: 0 }}>
-              <span className="aw-editor-label">
-                {t('knowledge.sourceLocation', { defaultValue: '链接或文件名' })}
-              </span>
-              <input className="aw-text-input" placeholder="https://…" required />
-            </label>
-            <button className="aw-primary-button" type="submit">
-              <Plus aria-hidden="true" size={15} />
-              {t('knowledge.addAsMock', { defaultValue: '添加到演示' })}
+          </label>
+        ) : null}
+        <label className="aw-editor-field">
+          <span className="aw-editor-label">
+            {sourceId === undefined
+              ? t('knowledge.fileLabel')
+              : t('knowledge.replacementFileLabel')}
+          </span>
+          <input
+            accept=".txt,.md,.markdown,.pdf,.docx"
+            disabled={busy}
+            onChange={(event): void => setFile(event.target.files?.[0] ?? null)}
+            type="file"
+          />
+        </label>
+        <div className="aw-inline-actions">
+          <button className="aw-primary-button" disabled={busy} type="submit">
+            <UploadCloud aria-hidden="true" size={15} />
+            {sourceId === undefined ? t('knowledge.uploadFile') : t('knowledge.uploadVersion')}
+          </button>
+          {busy ? (
+            <button
+              className="aw-quiet-button"
+              onClick={(): void => {
+                controllerRef.current?.abort()
+                setPhase('idle')
+                setMessage(t('knowledge.errors.cancelled'))
+              }}
+              type="button"
+            >
+              {t('common.cancel')}
             </button>
-          </div>
-        </form>
+          ) : null}
+        </div>
+      </form>
+      {message === null ? null : (
+        <p
+          aria-live="polite"
+          className={
+            phase === 'error'
+              ? 'aw-knowledge-message aw-knowledge-message--error'
+              : 'aw-knowledge-message'
+          }
+          role={phase === 'error' ? 'alert' : 'status'}
+        >
+          {phase === 'succeeded' ? <CheckCircle2 aria-hidden="true" size={15} /> : null}
+          {message}
+        </p>
       )}
     </section>
   )
 }
 
-/**
- * @brief 已就绪的知识来源管理页 / Ready knowledge-source management page.
- * @param props 知识来源列表 / Knowledge-source list.
- * @return 知识来源管理页面 / Knowledge-source management page.
- */
-function KnowledgeContent({
-  sources
+function KnowledgeSearch({
+  gateway,
+  selectedSourceId
 }: {
-  readonly sources: readonly UiKnowledgeSource[]
+  readonly gateway: KnowledgeGateway
+  readonly selectedSourceId: UiKnowledgeSourceId | null
 }): React.JSX.Element {
-  /** @brief 翻译函数 / Translation function. */
   const { t } = useTranslation()
-  /** @brief 添加来源面板是否展开 / Whether the add-source panel is expanded. */
+  const [query, setQuery] = useState('')
+  const [status, setStatus] = useState<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle')
+  const [results, setResults] = useState<readonly UiKnowledgeSearchResult[]>([])
+  const [errorMessage, setErrorMessage] = useState('')
+  const controllerRef = useRef<AbortController | null>(null)
+
+  useEffect(
+    (): (() => void) => (): void => {
+      controllerRef.current?.abort()
+    },
+    []
+  )
+
+  const submit = (event: FormEvent<HTMLFormElement>): void => {
+    event.preventDefault()
+    const normalizedQuery = query.trim()
+    if (normalizedQuery.length === 0 || status === 'loading') return
+
+    controllerRef.current?.abort()
+    const controller = new AbortController()
+    controllerRef.current = controller
+    setStatus('loading')
+    setErrorMessage('')
+    void gateway
+      .searchKnowledge({
+        query: normalizedQuery,
+        sourceIds: selectedSourceId === null ? [] : [selectedSourceId],
+        signal: controller.signal
+      })
+      .then((items): void => {
+        if (controller.signal.aborted) return
+        setResults(items)
+        setStatus(items.length === 0 ? 'empty' : 'ready')
+      })
+      .catch((error: unknown): void => {
+        if (controller.signal.aborted) return
+        setErrorMessage(getKnowledgeErrorMessage(error, (key) => t(key)))
+        setStatus('error')
+      })
+  }
+
+  return (
+    <section
+      aria-labelledby="knowledge-search-title"
+      className="aw-card aw-card-pad aw-knowledge-search"
+    >
+      <div>
+        <h2 className="aw-card-title" id="knowledge-search-title">
+          {t('knowledge.semanticSearch')}
+        </h2>
+        <p className="aw-card-description">{t('knowledge.semanticSearchHelp')}</p>
+      </div>
+      <form className="aw-knowledge-search-form" onSubmit={submit}>
+        <label className="aw-search-field">
+          <Search aria-hidden="true" size={15} />
+          <input
+            aria-label={t('knowledge.searchLabel')}
+            disabled={status === 'loading'}
+            onChange={(event): void => setQuery(event.target.value)}
+            placeholder={t('knowledge.searchPlaceholder')}
+            type="search"
+            value={query}
+          />
+        </label>
+        <button className="aw-primary-button" disabled={status === 'loading'} type="submit">
+          {status === 'loading' ? t('knowledge.searching') : t('knowledge.searchAction')}
+        </button>
+      </form>
+      {status === 'empty' ? <p className="aw-muted">{t('knowledge.searchEmpty')}</p> : null}
+      {status === 'error' ? (
+        <p className="aw-knowledge-message aw-knowledge-message--error" role="alert">
+          {errorMessage}
+        </p>
+      ) : null}
+      {status === 'ready' ? (
+        <div className="aw-knowledge-search-results">
+          {results.map((result) => (
+            <article className="aw-knowledge-search-result" key={result.id}>
+              <div className="aw-inline-actions aw-knowledge-section-heading">
+                <h3 className="aw-list-row-title">{result.title}</h3>
+                <span className="aw-status">{result.locatorLabel}</span>
+              </div>
+              {result.quote === null ? null : <blockquote>{result.quote}</blockquote>}
+            </article>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+interface KnowledgeContentProps {
+  readonly gateway: KnowledgeGateway
+  readonly initialSelectedSourceId: UiKnowledgeSourceId | null
+  readonly onReload: (sourceId: UiKnowledgeSourceId | null) => void
+  readonly sources: readonly UiKnowledgeSource[]
+}
+
+function KnowledgeContent({
+  gateway,
+  initialSelectedSourceId,
+  onReload,
+  sources
+}: KnowledgeContentProps): React.JSX.Element {
+  const { t } = useTranslation()
   const [isAddSourceOpen, setAddSourceOpen] = useState(false)
-  /** @brief 是否已记录本地刷新请求 / Whether a local refresh request was recorded. */
-  const [hasRefreshRequested, setRefreshRequested] = useState(false)
-  /** @brief 本地来源筛选文本 / Local source-filter query. */
   const [sourceQuery, setSourceQuery] = useState('')
-  /** @brief 当前选中的来源 / Currently selected source. */
-  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(sources.at(0)?.id ?? null)
-  /** @brief 与筛选文本匹配的来源 / Sources matching the local query. */
+  const [selectedSourceId, setSelectedSourceId] = useState<UiKnowledgeSourceId | null>(
+    initialSelectedSourceId ?? sources.at(0)?.id ?? null
+  )
+
   const filteredSources = useMemo(() => {
     const normalizedQuery = sourceQuery.trim().toLocaleLowerCase()
-    if (normalizedQuery.length === 0) {
-      return sources
-    }
+    if (normalizedQuery.length === 0) return sources
     return sources.filter((source) =>
       `${source.name} ${source.originLabel}`.toLocaleLowerCase().includes(normalizedQuery)
     )
   }, [sourceQuery, sources])
-  /** @brief 详情面板展示的来源 / Source shown in the detail panel. */
   const selectedSource =
     filteredSources.find((source) => source.id === selectedSourceId) ??
     filteredSources.at(0) ??
     null
 
+  const completeUpload = (sourceId: UiKnowledgeSourceId): void => {
+    setSelectedSourceId(sourceId)
+    onReload(sourceId)
+  }
+
   return (
     <div className="aw-page">
       <div className="aw-page-header">
         <div>
-          <p className="aw-eyebrow">{t('knowledge.memory', { defaultValue: '个人记忆' })}</p>
-          <h1 className="aw-page-title">
-            {t('knowledge.title', { defaultValue: '个人记忆与知识库' })}
-          </h1>
-          <p className="aw-page-description">
-            {t('knowledge.resumeAutoSync', {
-              defaultValue: '简历会自动作为知识来源加入；删除简历后不会保留幽灵索引。'
-            })}
-          </p>
+          <p className="aw-eyebrow">{t('knowledge.memory')}</p>
+          <h1 className="aw-page-title">{t('knowledge.title')}</h1>
+          <p className="aw-page-description">{t('knowledge.resumeAutoSync')}</p>
         </div>
         <button
           className="aw-primary-button"
@@ -255,21 +397,27 @@ function KnowledgeContent({
           type="button"
         >
           <Plus aria-hidden="true" size={15} />
-          {t('knowledge.addSource', { defaultValue: '添加知识来源' })}
+          {t('knowledge.addSource')}
         </button>
       </div>
 
-      {isAddSourceOpen ? <MockSourceForm onClose={(): void => setAddSourceOpen(false)} /> : null}
+      {isAddSourceOpen ? (
+        <KnowledgeFileForm
+          gateway={gateway}
+          onClose={(): void => setAddSourceOpen(false)}
+          onComplete={completeUpload}
+        />
+      ) : null}
+
+      <KnowledgeSearch gateway={gateway} selectedSourceId={selectedSource?.id ?? null} />
 
       <div className="aw-knowledge-toolbar">
         <label className="aw-search-field">
           <Search aria-hidden="true" size={15} />
           <input
-            aria-label={t('knowledge.filterSources', { defaultValue: '筛选知识来源' })}
+            aria-label={t('knowledge.filterSources')}
             onChange={(event): void => setSourceQuery(event.target.value)}
-            placeholder={t('knowledge.filterPlaceholder', {
-              defaultValue: '按名称或地址筛选…'
-            })}
+            placeholder={t('knowledge.filterPlaceholder')}
             type="search"
             value={sourceQuery}
           />
@@ -278,41 +426,26 @@ function KnowledgeContent({
           {t('knowledge.filteredCount', {
             count: filteredSources.length,
             total: sources.length,
-            defaultValue: `${filteredSources.length} / ${sources.length} 个来源`
+            defaultValue: `${filteredSources.length} / ${sources.length}`
           })}
         </span>
       </div>
 
       <div className="aw-knowledge-layout">
         <section aria-labelledby="knowledge-sources-title">
-          <div
-            className="aw-inline-actions"
-            style={{ justifyContent: 'space-between', marginBottom: 12 }}
-          >
+          <div className="aw-inline-actions aw-knowledge-section-heading">
             <div>
               <h2 className="aw-card-title" id="knowledge-sources-title">
-                {sources.length} {t('knowledge.sources', { defaultValue: '个来源' })}
+                {sources.length} {t('knowledge.sources')}
               </h2>
-              <p className="aw-card-description">
-                {t('knowledge.sourceDescription', {
-                  defaultValue: '来源资源表示可同步资料，不暴露 chunk 或向量实现。'
-                })}
-              </p>
-              {hasRefreshRequested ? (
-                <p aria-live="polite" className="aw-setting-help" role="status">
-                  {t('knowledge.refreshRecorded', {
-                    defaultValue: 'Refresh request recorded (Mock; no source sync was started).'
-                  })}
-                </p>
-              ) : null}
+              <p className="aw-card-description">{t('knowledge.sourceDescription')}</p>
             </div>
             <button
-              aria-label={t('knowledge.refreshSources', { defaultValue: '刷新知识来源（Mock）' })}
-              className="aw-icon-button"
-              onClick={(): void => setRefreshRequested(true)}
+              className="aw-quiet-button"
+              onClick={(): void => onReload(selectedSource?.id ?? null)}
               type="button"
             >
-              <RefreshCw aria-hidden="true" size={15} />
+              {t('knowledge.reloadSources')}
             </button>
           </div>
           {filteredSources.length === 0 ? (
@@ -323,13 +456,11 @@ function KnowledgeContent({
                   onClick={(): void => setAddSourceOpen(true)}
                   type="button"
                 >
-                  {t('knowledge.addSource', { defaultValue: '添加知识来源' })}
+                  {t('knowledge.addSource')}
                 </button>
               }
-              description={t('knowledge.noMatchingSources', {
-                defaultValue: '没有匹配的知识来源，请调整筛选条件。'
-              })}
-              title={t('common.empty', { defaultValue: '这里还没有内容' })}
+              description={t('knowledge.noMatchingSources')}
+              title={t('common.empty')}
               visual={<UploadCloud aria-hidden="true" size={21} />}
             />
           ) : (
@@ -346,25 +477,18 @@ function KnowledgeContent({
                     <div className="aw-inline-actions">
                       <h3 className="aw-list-row-title">{source.name}</h3>
                       {source.sourceType === 'resume' ? (
-                        <span className="aw-chip">
-                          {t('knowledge.autoManaged', { defaultValue: '自动加入' })}
-                        </span>
+                        <span className="aw-chip">{t('knowledge.autoManaged')}</span>
                       ) : null}
                     </div>
                     <p className="aw-list-row-meta">{source.originLabel}</p>
                     <div className="aw-source-meta">
                       <span>
-                        {source.documentCount}{' '}
-                        {t('knowledge.documents', { defaultValue: '份文档' })}
+                        {source.documentCount} {t('knowledge.documents')}
                       </span>
                       <span>
-                        {source.chunkCount} {t('knowledge.chunks', { defaultValue: '个片段' })}
+                        {source.chunkCount} {t('knowledge.chunks')}
                       </span>
-                      <span>
-                        {t(getSensitivityLabelKey(source.visibility.sensitivity), {
-                          defaultValue: source.visibility.sensitivity
-                        })}
-                      </span>
+                      <span>{t(getSensitivityLabelKey(source.visibility.sensitivity))}</span>
                     </div>
                   </div>
                   <div className="aw-inline-actions">
@@ -372,25 +496,19 @@ function KnowledgeContent({
                       {getIngestionLabel(source.ingestionStatus, t)}
                     </span>
                     <Link
-                      aria-label={t('knowledge.visibilityForSource', {
-                        sourceName: source.name,
-                        defaultValue: `${source.name} 的可见性设置`
-                      })}
+                      aria-label={t('knowledge.visibilityForSource', { sourceName: source.name })}
                       className="aw-icon-button"
                       to={`/knowledge/${source.id}/visibility`}
                     >
                       <ShieldCheck aria-hidden="true" size={15} />
                     </Link>
                     <button
-                      aria-label={t('knowledge.viewSourceDetails', {
-                        sourceName: source.name,
-                        defaultValue: `查看 ${source.name} 详情`
-                      })}
+                      aria-label={t('knowledge.viewSourceDetails', { sourceName: source.name })}
                       className="aw-quiet-button aw-source-detail-button"
                       onClick={(): void => setSelectedSourceId(source.id)}
                       type="button"
                     >
-                      {t('common.review', { defaultValue: '查看' })}
+                      {t('common.review')}
                     </button>
                   </div>
                 </article>
@@ -401,67 +519,60 @@ function KnowledgeContent({
 
         <aside className="aw-card aw-card-pad aw-source-detail">
           <div>
-            <p className="aw-sidebar-label">
-              {t('knowledge.selectedSource', { defaultValue: '当前选择' })}
-            </p>
-            <h2 className="aw-card-title">
-              {t('knowledge.sourceDetails', { defaultValue: '来源详情' })}
-            </h2>
-            {selectedSource !== null ? (
+            <p className="aw-sidebar-label">{t('knowledge.selectedSource')}</p>
+            <h2 className="aw-card-title">{t('knowledge.sourceDetails')}</h2>
+            {selectedSource === null ? null : (
               <>
                 <p className="aw-source-detail-name">{selectedSource.name}</p>
                 <p className="aw-card-description">{selectedSource.originLabel}</p>
                 <div className="aw-source-detail-stats">
                   <span>
                     <strong>{selectedSource.documentCount}</strong>
-                    {t('knowledge.documents', { defaultValue: '份文档' })}
+                    {t('knowledge.documents')}
                   </span>
                   <span>
                     <strong>{selectedSource.chunkCount}</strong>
-                    {t('knowledge.chunks', { defaultValue: '个片段' })}
+                    {t('knowledge.chunks')}
                   </span>
                 </div>
+                {selectedSource.sourceType === 'file' ? (
+                  <KnowledgeFileForm
+                    gateway={gateway}
+                    key={selectedSource.id}
+                    onComplete={completeUpload}
+                    sourceId={selectedSource.id}
+                  />
+                ) : null}
               </>
-            ) : null}
+            )}
           </div>
           <div className="aw-source-detail-boundary">
             <div className="aw-inline-actions">
               <Bot aria-hidden="true" className="aw-accent-icon" size={18} />
               <div>
-                <h2 className="aw-card-title">
-                  {t('knowledge.agentBoundary', { defaultValue: 'Agent 访问边界' })}
-                </h2>
-                <p className="aw-card-description">
-                  {t('knowledge.agentBoundaryDescription', {
-                    defaultValue: '策略和会话选择共同决定有效可见性。'
-                  })}
-                </p>
+                <h2 className="aw-card-title">{t('knowledge.agentBoundary')}</h2>
+                <p className="aw-card-description">{t('knowledge.agentBoundaryDescription')}</p>
               </div>
             </div>
             <div className="aw-list-row">
-              <span className="aw-muted">
-                {t('knowledge.defaultPolicy', { defaultValue: '默认策略' })}
-              </span>
-              <span className="aw-status aw-status--active">
-                {t('knowledge.denied', { defaultValue: '拒绝' })}
-              </span>
+              <span className="aw-muted">{t('knowledge.defaultPolicy')}</span>
+              <span className="aw-status aw-status--active">{t('knowledge.denied')}</span>
             </div>
             <div className="aw-list-row">
-              <span className="aw-muted">
-                {t('knowledge.externalModel', { defaultValue: '外部模型处理' })}
-              </span>
-              <span className="aw-status">{t('knowledge.off', { defaultValue: '关闭' })}</span>
+              <span className="aw-muted">{t('knowledge.externalModel')}</span>
+              <span className="aw-status">{t('knowledge.off')}</span>
             </div>
-            <p className="aw-setting-help" style={{ marginBottom: 0 }}>
-              <Link to="/knowledge/ks_mock_git/visibility">
-                <Link2
-                  aria-hidden="true"
-                  size={13}
-                  style={{ marginRight: 4, verticalAlign: 'text-bottom' }}
-                />
-                {t('knowledge.reviewPolicy', { defaultValue: '查看一个来源的授权矩阵' })}
-              </Link>
-            </p>
+            {selectedSource === null ? null : (
+              <p className="aw-setting-help aw-knowledge-policy-link">
+                <Link
+                  aria-label={t('knowledge.reviewSelectedPolicy')}
+                  to={`/knowledge/${selectedSource.id}/visibility`}
+                >
+                  <Link2 aria-hidden="true" size={13} />
+                  {t('knowledge.reviewSelectedPolicy')}
+                </Link>
+              </p>
+            )}
           </div>
         </aside>
       </div>
@@ -469,54 +580,50 @@ function KnowledgeContent({
   )
 }
 
-/**
- * @brief 知识库管理路由页 / Knowledge-management route page.
- * @return 含 loading、error 与知识来源列表的路由页 / Route page with loading, error, and source list.
- */
 export function KnowledgePage(): React.JSX.Element {
-  /** @brief 翻译函数 / Translation function. */
   const { t } = useTranslation()
-  /** @brief 工作区 gateway / Workspace gateway. */
   const { knowledge, workspace } = useAppGateways()
-  /** @brief 稳定的知识来源加载器 / Stable knowledge-source loader. */
+  const [reloadRevision, setReloadRevision] = useState(0)
+  const [requestedSourceId, setRequestedSourceId] = useState<UiKnowledgeSourceId | null>(null)
   const loadSources = useCallback(async (): Promise<readonly UiKnowledgeSource[]> => {
-    /** @brief 可访问工作区 / Accessible workspaces. */
     const workspaces = await workspace.listWorkspaces()
-    /** @brief 当前工作区 / Current workspace. */
     const currentWorkspace = workspaces.at(0)
-
     if (currentWorkspace === undefined) {
-      throw new Error('No workspace is available for knowledge sources.')
+      throw new Error(
+        reloadRevision === 0
+          ? 'No workspace is available for knowledge sources.'
+          : 'No workspace is available after reloading knowledge sources.'
+      )
     }
-
     return knowledge.listKnowledgeSources(currentWorkspace.id)
-  }, [knowledge, workspace])
-  /** @brief 知识来源异步资源 / Knowledge-source async resource. */
+  }, [knowledge, reloadRevision, workspace])
   const sources = useAsyncResource(loadSources)
+  const reloadSources = useCallback((sourceId: UiKnowledgeSourceId | null): void => {
+    setRequestedSourceId(sourceId)
+    setReloadRevision((current) => current + 1)
+  }, [])
 
   if (sources.status === 'loading') {
     return (
       <div className="aw-page">
-        <LoadingState
-          label={t('status.loadingKnowledge', { defaultValue: '正在加载个人知识库…' })}
-        />
+        <LoadingState label={t('status.loadingKnowledge')} />
       </div>
     )
   }
-
   if (sources.status === 'error') {
     return (
       <div className="aw-page">
-        <ErrorState
-          description={t('status.errorDescription', {
-            defaultValue:
-              'Demo data is temporarily unavailable. Try again or return to the workspace.'
-          })}
-          title={t('status.errorKnowledge', { defaultValue: '无法加载知识来源' })}
-        />
+        <ErrorState description={t('status.errorDescription')} title={t('status.errorKnowledge')} />
       </div>
     )
   }
-
-  return <KnowledgeContent sources={sources.data} />
+  return (
+    <KnowledgeContent
+      gateway={knowledge}
+      initialSelectedSourceId={requestedSourceId}
+      key={reloadRevision}
+      onReload={reloadSources}
+      sources={sources.data}
+    />
+  )
 }

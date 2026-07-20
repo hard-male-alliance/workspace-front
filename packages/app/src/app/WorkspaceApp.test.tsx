@@ -4,6 +4,7 @@ import { cleanup } from '@testing-library/react'
 import { appI18n, appI18nReady } from '../i18n'
 import { WorkspaceApp } from './WorkspaceApp'
 import {
+  MOCK_KNOWLEDGE_SOURCES,
   MockInterviewGateway,
   MockKnowledgeGateway,
   MockResumeGateway,
@@ -401,6 +402,207 @@ describe('WorkspaceApp', (): void => {
 
     expect(screen.getAllByText('portfolio-engineering')).toHaveLength(2)
     expect(screen.queryByText('AI 平台工程师 · 中文简历')).not.toBeInTheDocument()
+  })
+
+  it('validates knowledge files before upload and prevents duplicate submission', async () => {
+    await appI18nReady
+    await appI18n.changeLanguage('en-US')
+    const knowledge = new MockKnowledgeGateway()
+    const upload = vi.spyOn(knowledge, 'uploadKnowledgeSource')
+    const gateways = {
+      interview: new MockInterviewGateway(),
+      knowledge,
+      resume: new MockResumeGateway(),
+      workspace: new MockWorkspaceGateway()
+    }
+
+    render(<WorkspaceApp gateways={gateways} initialPath="/knowledge" />)
+    await screen.findByRole('heading', { name: 'Personal memory & knowledge' })
+    fireEvent.click(screen.getByRole('button', { name: 'Add source' }))
+
+    const fileInput = screen.getByLabelText('Knowledge file')
+    fireEvent.change(fileInput, { target: { files: [new File(['unsafe'], 'program.exe')] } })
+    fireEvent.click(screen.getByRole('button', { name: 'Upload file' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Choose a TXT, Markdown, PDF, or DOCX file.'
+    )
+    expect(upload).not.toHaveBeenCalled()
+
+    const oversized = new File([new Uint8Array(10 * 1024 * 1024 + 1)], 'large.pdf', {
+      type: 'application/pdf'
+    })
+    fireEvent.change(fileInput, { target: { files: [oversized] } })
+    fireEvent.click(screen.getByRole('button', { name: 'Upload file' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('File must be 10 MiB or smaller.')
+    expect(upload).not.toHaveBeenCalled()
+
+    upload.mockReturnValue(new Promise(() => undefined))
+    fireEvent.change(fileInput, {
+      target: { files: [new File(['notes'], 'notes.md', { type: 'text/markdown' })] }
+    })
+    const submit = screen.getByRole('button', { name: 'Upload file' })
+    fireEvent.click(submit)
+    fireEvent.click(submit)
+
+    expect(upload).toHaveBeenCalledTimes(1)
+    expect(submit).toBeDisabled()
+  })
+
+  it('polls an accepted knowledge upload and aborts it on unmount', async () => {
+    await appI18nReady
+    await appI18n.changeLanguage('en-US')
+    const knowledge = new MockKnowledgeGateway()
+    const accepted = await knowledge.uploadKnowledgeSource({
+      file: new File(['notes'], 'notes.md', { type: 'text/markdown' })
+    })
+    vi.spyOn(knowledge, 'uploadKnowledgeSource').mockResolvedValue(accepted)
+    let pollingSignal: AbortSignal | undefined
+    vi.spyOn(knowledge, 'getKnowledgeIngestionJob').mockImplementation((_jobId, signal) => {
+      pollingSignal = signal
+      return new Promise(() => undefined)
+    })
+
+    const view = render(
+      <WorkspaceApp
+        gateways={{
+          interview: new MockInterviewGateway(),
+          knowledge,
+          resume: new MockResumeGateway(),
+          workspace: new MockWorkspaceGateway()
+        }}
+        initialPath="/knowledge"
+      />
+    )
+    await screen.findByRole('heading', { name: 'Personal memory & knowledge' })
+    fireEvent.click(screen.getByRole('button', { name: 'Add source' }))
+    fireEvent.change(screen.getByLabelText('Knowledge file'), {
+      target: { files: [new File(['notes'], 'notes.md', { type: 'text/markdown' })] }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Upload file' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Ingesting file')
+    await vi.waitFor(() => expect(pollingSignal).toBeDefined())
+    view.unmount()
+    expect(pollingSignal?.aborted).toBe(true)
+  })
+
+  it('uses the selected real source ID for policy review and version upload', async () => {
+    await appI18nReady
+    await appI18n.changeLanguage('en-US')
+    const knowledge = new MockKnowledgeGateway()
+    const uploaded = await knowledge.uploadKnowledgeSource({
+      file: new File(['first'], 'project.md', { type: 'text/markdown' }),
+      name: 'Project file'
+    })
+    const versionUpload = vi
+      .spyOn(knowledge, 'uploadKnowledgeSourceVersion')
+      .mockReturnValue(new Promise(() => undefined))
+
+    render(
+      <WorkspaceApp
+        gateways={{
+          interview: new MockInterviewGateway(),
+          knowledge,
+          resume: new MockResumeGateway(),
+          workspace: new MockWorkspaceGateway()
+        }}
+        initialPath="/knowledge"
+      />
+    )
+    await screen.findByRole('heading', { name: 'Personal memory & knowledge' })
+    fireEvent.click(screen.getByRole('button', { name: 'View details for Project file' }))
+
+    expect(
+      screen.getByRole('link', { name: 'Review this source authorization matrix' })
+    ).toHaveAttribute('href', `/knowledge/${uploaded.source.id}/visibility`)
+    const replacement = new File(['second'], 'project-v2.md', { type: 'text/markdown' })
+    fireEvent.change(screen.getByLabelText('Replacement file'), {
+      target: { files: [replacement] }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Upload new version' }))
+
+    expect(versionUpload).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceId: uploaded.source.id, file: replacement })
+    )
+  })
+
+  it('searches knowledge through the gateway and displays safe result fields', async () => {
+    await appI18nReady
+    await appI18n.changeLanguage('en-US')
+    const knowledge = new MockKnowledgeGateway()
+    vi.spyOn(knowledge, 'searchKnowledge').mockResolvedValue([
+      {
+        id: 'result-1',
+        sourceId: MOCK_KNOWLEDGE_SOURCES[0]!.id,
+        title: 'Platform notes',
+        locatorLabel: 'Page 3',
+        quote: 'Use a bounded queue for ingestion.',
+        score: 0.92
+      }
+    ])
+
+    render(
+      <WorkspaceApp
+        gateways={{
+          interview: new MockInterviewGateway(),
+          knowledge,
+          resume: new MockResumeGateway(),
+          workspace: new MockWorkspaceGateway()
+        }}
+        initialPath="/knowledge"
+      />
+    )
+    await screen.findByRole('heading', { name: 'Personal memory & knowledge' })
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search indexed knowledge' }), {
+      target: { value: 'bounded queue' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Search knowledge' }))
+
+    expect(await screen.findByText('Platform notes')).toBeInTheDocument()
+    expect(screen.getByText('Page 3')).toBeInTheDocument()
+    expect(screen.getByText('Use a bounded queue for ingestion.')).toBeInTheDocument()
+  })
+
+  it('shows knowledge search loading, empty, and safe error states', async () => {
+    await appI18nReady
+    await appI18n.changeLanguage('en-US')
+    const knowledge = new MockKnowledgeGateway()
+    let finishSearch!: (value: readonly never[]) => void
+    const pendingSearch = new Promise<readonly never[]>((resolve) => {
+      finishSearch = resolve
+    })
+    vi.spyOn(knowledge, 'searchKnowledge')
+      .mockReturnValueOnce(pendingSearch)
+      .mockRejectedValueOnce(new Error('private backend URL'))
+
+    render(
+      <WorkspaceApp
+        gateways={{
+          interview: new MockInterviewGateway(),
+          knowledge,
+          resume: new MockResumeGateway(),
+          workspace: new MockWorkspaceGateway()
+        }}
+        initialPath="/knowledge"
+      />
+    )
+    await screen.findByRole('heading', { name: 'Personal memory & knowledge' })
+    const search = screen.getByRole('searchbox', { name: 'Search indexed knowledge' })
+    fireEvent.change(search, { target: { value: 'missing topic' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Search knowledge' }))
+
+    expect(screen.getByRole('button', { name: 'Searching…' })).toBeDisabled()
+    finishSearch([])
+    expect(
+      await screen.findByText('No relevant knowledge passages were found.')
+    ).toBeInTheDocument()
+
+    fireEvent.change(search, { target: { value: 'retry topic' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Search knowledge' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The server could not be reached. Check your connection and try again.'
+    )
+    expect(screen.queryByText('private backend URL')).not.toBeInTheDocument()
   })
 
   it('localizes visibility policy enums instead of rendering transport values', async (): Promise<void> => {
