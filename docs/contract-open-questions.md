@@ -1,10 +1,10 @@
 # v0.1.0 契约待确认项
 
-本文件不定义、替代或修改 `contract/` 中的正式前后端契约。Web 对已由后端实现并逐项核对的子集装配 `Http*Gateway`，Electron 仍装配名字明确的 `Mock*Gateway`；未冻结条目不得被当作可调用接口。
+本文件不定义、替代或修改 `workspace-shared-docs/contracts/v1/` 中的正式前后端契约。Web 对已由后端实现并逐项核对的子集装配 `Http*Gateway`，Electron 仍装配名字明确的 `Mock*Gateway`；未冻结条目不得被当作可调用接口。
 
 ## 已确认的边界
 
-- `contract/ai-job-workspace.contract.schema.json` 是唯一的机器可读正式契约；其版本为 `1.0.0`。
+- `workspace-shared-docs/contracts/v1/ai-job-workspace.contract.schema.json` 是唯一的机器可读正式契约；其版本为 `1.0.0`。
 - 简历的权威数据是语义中间表示（Semantic Intermediate Representation, SIR）；前端不得提交 HTML、CSS、LaTeX 或模板渲染器内部指令。
 - 模板页面只表达 `TemplateManifest` 与 `ResumeStyleIntent` 中的语义意图。
 - 面试以 REST 资源、实时 JSON 控制面和 WebRTC 媒体面分层；v0.1 不模拟或伪造它们的网络协议。

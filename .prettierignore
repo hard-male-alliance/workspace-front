@@ -1,5 +1,5 @@
-# Formal contracts are externally authored and consumed read-only.
-contract/**
+# Shared documents are externally authored and consumed read-only.
+workspace-shared-docs/**
 
 # Dependency lockfile ordering and generated outputs are not source formatting targets.
 pnpm-lock.yaml

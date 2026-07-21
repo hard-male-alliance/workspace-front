@@ -1,6 +1,6 @@
 # 前端诊断数据协议
 
-本文定义前端运行时（Web renderer 与 Electron renderer）向独立诊断接收器发送的最小协议。它不属于 `contract/` 中的业务 API，也不携带业务资源、用户内容或认证信息。
+本文定义前端运行时（Web renderer 与 Electron renderer）向独立诊断接收器发送的最小协议。它不属于 `workspace-shared-docs/contracts/v1/` 中的业务 API，也不携带业务资源、用户内容或认证信息。
 
 ## 启用规则
 

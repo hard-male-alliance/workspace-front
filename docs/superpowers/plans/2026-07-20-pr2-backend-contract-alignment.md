@@ -641,8 +641,8 @@ git commit -m "fix(frontend): recover from stale resume revisions"
 **Files:**
 - Modify: `packages/app/src/domain/pending.ts`
 - Modify if evidence requires: `docs/contract-open-questions.md`
-- Verify only: `contract/ai-job-workspace.contract.schema.json`
-- Verify only: `contract/ai-job-workspace-api-contract.md`
+- Verify only: `workspace-shared-docs/contracts/v1/ai-job-workspace.contract.schema.json`
+- Verify only: `workspace-shared-docs/contracts/v1/ai-job-workspace-api-contract.md`
 
 **Interfaces:**
 - Consumes: all previous tasks.
