@@ -3,11 +3,11 @@
 import {
   createHttpClient,
   HttpKnowledgeGateway,
-  HttpResumeGateway,
-  MockInterviewGateway,
-  MockWorkspaceGateway
-} from '@ai-job-workspace/app'
-import type { AppGateways, Diagnostics } from '@ai-job-workspace/app'
+  HttpResumeGateway
+} from '@ai-job-workspace/app/http'
+import { MockInterviewGateway, MockWorkspaceGateway } from '@ai-job-workspace/app/testing'
+import type { AppGateways } from '@ai-job-workspace/app/application'
+import type { Diagnostics } from '@ai-job-workspace/app/diagnostics'
 
 /**
  * @brief 创建 Web 的混合 Gateway 集合 / Create the mixed Web Gateway collection.

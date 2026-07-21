@@ -4,7 +4,14 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./application": "./src/application.ts",
+    "./diagnostics": "./src/diagnostics.ts",
+    "./domain": "./src/domain/index.ts",
+    "./http": "./src/http.ts",
+    "./testing": "./src/testing.ts",
+    "./i18n": "./src/i18n/index.ts",
+    "./ui": "./src/ui/index.ts"
   },
   "dependencies": {
     "@ai-job-workspace/platform": "workspace:*",

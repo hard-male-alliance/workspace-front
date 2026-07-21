@@ -6,13 +6,13 @@ import {
   createDiagnostics,
   createDiagnosticsSessionId,
   createHttpDiagnosticBatchExporter
-} from '@ai-job-workspace/app'
+} from '@ai-job-workspace/app/diagnostics'
 import type {
   DiagnosticResource,
   DiagnosticSink,
   Diagnostics,
   DiagnosticsConsole
-} from '@ai-job-workspace/app'
+} from '@ai-job-workspace/app/diagnostics'
 import { APPLICATION_VERSION } from '@ai-job-workspace/platform'
 
 import type { DiagnosticsUploadConfiguration } from './diagnostics-config'

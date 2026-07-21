@@ -1,21 +1,9 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { InterviewGateway, KnowledgeGateway, ResumeGateway, WorkspaceGateway } from '../domain'
+import type { AppGateways } from '../application'
 import { classifyDiagnosticError } from '../observability'
 import type { DiagnosticResourceName } from '../observability'
 import { useDiagnostics } from './Diagnostics'
-
-/** @brief 共享页面需要的 gateway 集合 / Gateway collection required by shared pages. */
-export interface AppGateways {
-  /** @brief 工作区数据 gateway / Workspace data gateway. */
-  readonly workspace: WorkspaceGateway
-  /** @brief 简历数据 gateway / Resume data gateway. */
-  readonly resume: ResumeGateway
-  /** @brief 面试数据 gateway / Interview data gateway. */
-  readonly interview: InterviewGateway
-  /** @brief 知识库数据 gateway / Knowledge data gateway. */
-  readonly knowledge: KnowledgeGateway
-}
 
 /** @brief gateway 依赖注入上下文 / Gateway dependency-injection context. */
 const AppGatewayContext = createContext<AppGateways | null>(null)

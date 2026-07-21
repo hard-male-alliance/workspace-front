@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import {
-  createDiagnostics,
-  HttpKnowledgeGateway,
-  HttpResumeGateway,
-  MockInterviewGateway,
-  MockWorkspaceGateway
-} from '@ai-job-workspace/app'
+import { HttpKnowledgeGateway, HttpResumeGateway } from '@ai-job-workspace/app/http'
+import { MockInterviewGateway, MockWorkspaceGateway } from '@ai-job-workspace/app/testing'
+import { createDiagnostics } from '@ai-job-workspace/app/diagnostics'
 
 import { createWebGateways } from './create-web-gateways'
 

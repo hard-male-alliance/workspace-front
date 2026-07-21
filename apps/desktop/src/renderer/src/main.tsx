@@ -1,12 +1,12 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { WorkspaceApp } from '@ai-job-workspace/app'
 import {
   MockInterviewGateway,
   MockKnowledgeGateway,
   MockResumeGateway,
-  MockWorkspaceGateway,
-  WorkspaceApp
-} from '@ai-job-workspace/app'
+  MockWorkspaceGateway
+} from '@ai-job-workspace/app/testing'
 import { APPLICATION_VERSION, createWebPlatformBridge } from '@ai-job-workspace/platform'
 import type { RuntimeInfo } from '@ai-job-workspace/platform'
 

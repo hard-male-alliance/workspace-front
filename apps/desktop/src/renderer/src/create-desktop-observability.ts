@@ -6,8 +6,12 @@ import {
   createDiagnostics,
   createDiagnosticsSessionId,
   createHttpDiagnosticBatchExporter
-} from '@ai-job-workspace/app'
-import type { DiagnosticResource, DiagnosticSink, Diagnostics } from '@ai-job-workspace/app'
+} from '@ai-job-workspace/app/diagnostics'
+import type {
+  DiagnosticResource,
+  DiagnosticSink,
+  Diagnostics
+} from '@ai-job-workspace/app/diagnostics'
 import { APPLICATION_VERSION } from '@ai-job-workspace/platform'
 
 /**

@@ -8,8 +8,8 @@ const directory = path.dirname(fileURLToPath(import.meta.url))
 
 /** @brief 工作区共享包别名 / Workspace shared-package aliases. */
 const workspaceAliases = {
-  '@ai-job-workspace/app': path.resolve(directory, '../../packages/app/src/index.ts'),
-  '@ai-job-workspace/platform': path.resolve(directory, '../../packages/platform/src/index.ts')
+  '@ai-job-workspace/app': path.resolve(directory, '../../packages/app/src'),
+  '@ai-job-workspace/platform': path.resolve(directory, '../../packages/platform/src')
 }
 
 /**
