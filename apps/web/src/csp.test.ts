@@ -16,6 +16,7 @@ describe('Web Content Security Policy', (): void => {
     expect(policy).toContain(
       "connect-src 'self' https://api.example.test:9443 https://diagnostics.example.test:8443"
     )
+    expect(policy).toContain("frame-src 'self' https://api.example.test:9443")
     expect(policy).not.toContain('localhost')
     expect(policy).not.toContain('*')
   })

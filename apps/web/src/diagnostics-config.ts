@@ -56,8 +56,10 @@ export function resolveDiagnosticsUploadConfiguration(
  * @note 运行时不能放宽 CSP；构建时仅加入已验证的 API/diagnostics origin。
  */
 export function createWebContentSecurityPolicy(options: WebContentSecurityPolicyOptions): string {
+  /** @brief 已校验的产品 API 源，同时用于网络请求和 PDF iframe / Validated product API origin for requests and PDF frames. */
+  const apiOrigin = resolveApiBaseUrl(options.environment)
   /** @brief 去重后的 connect-src allowlist / Deduplicated connect-src allowlist. */
-  const connectSources = new Set<string>(["'self'", resolveApiBaseUrl(options.environment)])
+  const connectSources = new Set<string>(["'self'", apiOrigin])
   /** @brief 诊断上传的三态解析结果 / Three-state diagnostics-upload resolution. */
   const diagnostics = resolveDiagnosticsUploadConfiguration(options.environment)
 
@@ -69,5 +71,5 @@ export function createWebContentSecurityPolicy(options: WebContentSecurityPolicy
     connectSources.add('ws://127.0.0.1:5173')
   }
 
-  return `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src ${[...connectSources].join(' ')}; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'`
+  return `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src ${[...connectSources].join(' ')}; frame-src 'self' ${apiOrigin}; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'`
 }
