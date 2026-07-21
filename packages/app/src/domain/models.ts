@@ -2,7 +2,7 @@
  * @file 共享页面领域投影 / Shared page-domain projections.
  * @remarks
  * 本文件仅定义 v0.1.0 前端展示与交互所需的稳定语义模型（UI projection），
- * 不是 HTTP DTO，也不替代 `contract/` 中的正式契约。
+ * 不是 HTTP DTO，也不替代 `workspace-shared-docs/contracts/v1/` 中的正式契约。
  */
 
 /** @brief 前端支持的界面语言 / UI locales supported by the frontend. */

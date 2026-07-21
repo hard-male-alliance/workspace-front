@@ -11,7 +11,8 @@ apps/
 packages/
   app/             共享领域、mock、i18n、页面与 UI
   platform/        无 Node.js 依赖的平台桥接类型
-contract/          已提交的前后端正式契约（只读消费）
+workspace-shared-docs/
+                   前后端共享文档 submodule（只读消费）
 docs/              决策和待确认项
 ```
 
@@ -22,6 +23,7 @@ docs/              决策和待确认项
 需要 Node.js `>=22.12.0` 与 pnpm `>=10`。
 
 ```bash
+git submodule update --init --recursive
 pnpm install
 pnpm dev:web
 pnpm dev:desktop
@@ -44,6 +46,6 @@ pnpm package
 
 ## 契约纪律
 
-`contract/` 是唯一正式 API 语义来源。v0.1 因尚未接入后端，使用明确命名为 `Mock*Gateway` 的本地适配器；它们不是临时 REST 协议。详情见 [契约待确认项](docs/contract-open-questions.md)。
+`workspace-shared-docs/contracts/v1/` 是唯一正式 API 语义来源。v0.1 因尚未接入后端，使用明确命名为 `Mock*Gateway` 的本地适配器；它们不是临时 REST 协议。详情见 [契约待确认项](docs/contract-open-questions.md)。上游变更合并后，可运行 `./update-shared.sh` 审阅新 revision。
 
 Web 使用客户端路由；生产静态宿主需要为产品路径配置入口回退，详见 [Web 单页应用部署](docs/web-deployment.md)。

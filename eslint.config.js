@@ -13,7 +13,13 @@ const typeCheckedTypeScriptConfigs = tseslint.configs.recommendedTypeChecked.map
 /** @brief ESLint flat config / ESLint 扁平化配置。 */
 export default tseslint.config(
   {
-    ignores: ['**/node_modules/**', '**/dist/**', '**/out/**', '**/coverage/**', 'contract/**']
+    ignores: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/out/**',
+      '**/coverage/**',
+      'workspace-shared-docs/**'
+    ]
   },
   eslint.configs.recommended,
   ...typeCheckedTypeScriptConfigs,

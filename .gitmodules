@@ -1,0 +1,4 @@
+[submodule "workspace-shared-docs"]
+	path = workspace-shared-docs
+	url = https://github.com/hard-male-alliance/workspace-shared-docs.git
+	branch = main

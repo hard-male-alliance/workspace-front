@@ -1,17 +1,6 @@
-# 前端仓库补充约束
+# 仓库说明
 
-本文件补充上级 `AGENTS.md`，只配置工程技能使用的仓库信息；其余项目约束继续以上级文件为准。
-
-## Agent skills
-
-### Issue tracker
-
-Issues and PRDs are tracked in GitHub Issues for `TwoJie2/workspace-front`. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Use the five default triage label names without aliases. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-This is a single-context frontend repository. See `docs/agents/domain.md`.
+- `workspace-shared-docs` 是只读 submodule，也是共享 API 契约的唯一事实来源；禁止在其中编辑、建分支、commit 或 push。
+- 修改契约必须在本仓库外单独 clone、审阅并合并；随后仅在本仓库更新 gitlink。发现 submodule 有本地修改时停止，不得代用户处理。
+- 契约只从 `workspace-shared-docs/contracts/v1/` 读取，不得创建副本或缺失时回退；clone、CI、测试和构建必须初始化父仓库固定的 revision。
+- `./update-shared.sh` 可在上游变更合并后更新 revision；测试通过后，gitlink 由用户在父仓库单独提交。
