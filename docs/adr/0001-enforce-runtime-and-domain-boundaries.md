@@ -55,6 +55,7 @@ Web 与 Desktop 共享业务模型、用例、React UI 与可复用 HTTP adapter
 - domain -> UI/adapter/host edges = 0；
 - presentation -> infrastructure edges = 0；
 - cross-context deep imports = 0；
+- context presentation 直接读取其它 context gateway 或不属于自身的命名查询 = 0；
 - production dependency cycles = 0；
 - 每个测试文件只匹配一个 Test Project；
 - Desktop production composition 不装配 Mock；

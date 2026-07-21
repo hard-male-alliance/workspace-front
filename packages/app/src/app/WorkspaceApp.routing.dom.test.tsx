@@ -48,4 +48,15 @@ describe('WorkspaceApp routing', (): void => {
       currentRender.unmount()
     }
   })
+
+  it.each(['/resumes/unknown/path', '/interviews/unknown/path', '/knowledge/unknown/path'])(
+    '将域内未知路由 %s 退回工作区首页',
+    async (initialPath): Promise<void> => {
+      await setWorkspaceAppTestLocale('zh-SG')
+
+      render(<WorkspaceApp initialPath={initialPath} />)
+
+      expect(await screen.findByRole('heading', { name: '今日工作台' })).toBeInTheDocument()
+    }
+  )
 })

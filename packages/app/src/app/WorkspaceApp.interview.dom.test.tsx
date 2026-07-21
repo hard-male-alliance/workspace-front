@@ -21,7 +21,7 @@ describe('WorkspaceApp interview workflow', (): void => {
       'href',
       '/interviews/new'
     )
-    expect(screen.getByText('AI Platform Engineer')).toBeInTheDocument()
+    expect(await screen.findByText('AI Platform Engineer')).toBeInTheDocument()
     expect(screen.getByText('82')).toBeInTheDocument()
   })
 

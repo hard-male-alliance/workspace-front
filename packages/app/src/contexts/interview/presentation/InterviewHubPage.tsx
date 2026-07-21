@@ -3,7 +3,7 @@ import { useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 
-import { useAppGateways, useAsyncResource } from '../../../app/AppData'
+import { useAsyncResource, useInterviewGateway, useWorkspaceSession } from '../../../app/AppData'
 import { EmptyState, ErrorState, LoadingState } from '../../../ui'
 import type { UiInterviewHistoryItem } from '../domain/models'
 
@@ -82,14 +82,15 @@ function InterviewHistory({ items }: { readonly items: readonly UiInterviewHisto
 
 export function InterviewHubPage(): React.JSX.Element {
   const { t } = useTranslation()
-  const { interview, workspace } = useAppGateways()
+  const interview = useInterviewGateway()
+  const { getCurrentWorkspace } = useWorkspaceSession()
   const loadHistory = useCallback(async () => {
-    const currentWorkspace = (await workspace.listWorkspaces()).at(0)
+    const currentWorkspace = await getCurrentWorkspace()
     if (currentWorkspace === undefined) {
       throw new Error('No workspace is available for interview history.')
     }
     return interview.listCompletedInterviews(currentWorkspace.id)
-  }, [interview, workspace])
+  }, [getCurrentWorkspace, interview])
   const history = useAsyncResource('interview.history', loadHistory)
 
   return (

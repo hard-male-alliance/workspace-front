@@ -6,6 +6,7 @@ dist/
 out/
 coverage/
 release/
+.vitest-attachments/
 
 # Local environment / 本地环境文件
 .env

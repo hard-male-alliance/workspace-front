@@ -1,19 +1,32 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { APPLICATION_VERSION } from '@ai-job-workspace/platform'
+import type { WebRuntimeInfo } from '@ai-job-workspace/platform'
 
 import { WorkspaceApp } from '../../../app/WorkspaceApp'
 import { createDiagnostics } from '../../../diagnostics'
 import {
-  MockInterviewGateway,
+  DemoInterviewGateway,
   MockKnowledgeGateway,
   MockResumeGateway,
-  MockWorkspaceGateway
+  DemoWorkspaceGateway
 } from '../../../testing'
 import { appI18n, appI18nReady } from '../../../i18n'
 import { asUiOpaqueId } from '../../../shared-kernel/identity'
 
 /** @brief 工作区页面测试使用的无输出 Diagnostics / No-output Diagnostics used by workspace-page tests. */
 const testDiagnostics = createDiagnostics({ sinks: [] })
+
+/** @brief Workspace 页面测试的显式 Web 宿主信息 / Explicit Web-host information for Workspace page tests. */
+const testRuntimeInfo: WebRuntimeInfo = {
+  appVersion: APPLICATION_VERSION,
+  platform: 'web'
+}
+
+/** @brief 页面测试使用的无副作用保存端口 / Side-effect-free artifact-save port used by page tests. */
+const testArtifactSave = {
+  saveArtifact: (): Promise<{ readonly status: 'saved' }> => Promise.resolve({ status: 'saved' })
+}
 
 afterEach((): void => {
   cleanup()
@@ -30,14 +43,16 @@ async function renderHomeWithResumeCards(
 
   render(
     <WorkspaceApp
+      artifactSave={testArtifactSave}
       diagnostics={testDiagnostics}
       gateways={{
-        interview: new MockInterviewGateway(),
+        interview: new DemoInterviewGateway(),
         knowledge: new MockKnowledgeGateway(),
         resume,
-        workspace: new MockWorkspaceGateway()
+        workspace: new DemoWorkspaceGateway()
       }}
       initialPath="/"
+      runtimeInfo={testRuntimeInfo}
     />
   )
 }
@@ -74,6 +89,11 @@ describe('WorkspaceHomePage Resume navigation', (): void => {
     expect(await screen.findByRole('heading', { name: '还没有可编辑的简历' })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: '继续编辑简历' })).not.toBeInTheDocument()
     expect(document.querySelector('a[href*="res_mock"]')).not.toBeInTheDocument()
+    expect(
+      screen.getByText(
+        '工作区与面试使用本地 Demo（模拟面试不采集真实麦克风）；简历与知识库会连接当前配置的项目后端。'
+      )
+    ).toBeInTheDocument()
   })
 
   it('uses a stable Resume entry route in the application navigation', async (): Promise<void> => {
@@ -90,14 +110,16 @@ describe('WorkspaceHomePage Resume navigation', (): void => {
 
     render(
       <WorkspaceApp
+        artifactSave={testArtifactSave}
         diagnostics={testDiagnostics}
         gateways={{
-          interview: new MockInterviewGateway(),
+          interview: new DemoInterviewGateway(),
           knowledge: new MockKnowledgeGateway(),
           resume,
-          workspace: new MockWorkspaceGateway()
+          workspace: new DemoWorkspaceGateway()
         }}
         initialPath="/resumes"
+        runtimeInfo={testRuntimeInfo}
       />
     )
 

@@ -19,6 +19,8 @@ import type { FormEvent, KeyboardEvent, PointerEvent as ReactPointerEvent } from
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { runDiagnosticCommand, useDiagnostics } from '../../../app/Diagnostics'
+import { useArtifactSave } from '../../../app/Host'
+import { sanitizePdfFileName } from '@ai-job-workspace/platform'
 import { asUiOpaqueId } from '../../../shared-kernel/identity'
 import { getResumeConflictStatus, type ResumeConflictStatus } from '../application/errors'
 import type { ResumeGateway } from '../application/gateway'
@@ -722,10 +724,17 @@ function ResumePreviewPanel({
 }): React.JSX.Element {
   const { t } = useTranslation()
   const diagnostics = useDiagnostics()
+  const artifactSave = useArtifactSave()
   const [artifact, setArtifact] = useState<UiResumePdfArtifact | null>(initialArtifact)
   const [job, setJob] = useState<UiResumeRenderJob | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isRendering, setRendering] = useState(false)
+  /** @brief PDF 产物是否正在由宿主保存 / Whether the PDF artifact is being saved by the host. */
+  const [isSaving, setSaving] = useState(false)
+  /** @brief 产物保存的可访问状态 / Accessible artifact-save status. */
+  const [saveStatus, setSaveStatus] = useState<string | null>(null)
+  /** @brief 产物保存失败消息 / Artifact-save failure message. */
+  const [saveError, setSaveError] = useState<string | null>(null)
   const renderAbortRef = useRef<AbortController | null>(null)
 
   useEffect(
@@ -800,6 +809,38 @@ function ResumePreviewPanel({
     }
   }
 
+  /**
+   * @brief 请求当前宿主保存已生成的 PDF / Ask the current host to save the generated PDF.
+   * @return 保存流程结束后的 Promise / Promise fulfilled after the save flow ends.
+   */
+  const savePdf = async (): Promise<void> => {
+    if (artifact === null || isSaving) return
+
+    setSaving(true)
+    setSaveError(null)
+    setSaveStatus(null)
+    try {
+      /** @brief 宿主返回的保存判别结果 / Discriminated save result returned by the host. */
+      const result = await artifactSave.saveArtifact({
+        contentUrl: artifact.contentUrl,
+        suggestedFileName: sanitizePdfFileName(`${editor.resume.profile.fullName} Resume`)
+      })
+      if (result.status === 'saved') {
+        setSaveStatus(t('resume.workspace.pdfSaved', { defaultValue: 'PDF 已保存。' }))
+      } else if (result.status === 'started') {
+        setSaveStatus(
+          t('resume.workspace.pdfDownloadStarted', { defaultValue: 'PDF 下载已开始。' })
+        )
+      } else {
+        setSaveStatus(t('resume.workspace.pdfSaveCancelled', { defaultValue: '已取消保存。' }))
+      }
+    } catch {
+      setSaveError(t('resume.workspace.pdfSaveError', { defaultValue: 'PDF 保存失败，请重试。' }))
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <section aria-label={t('resume.workspace.preview', { defaultValue: 'PDF 预览' })}>
       <div className="aw-inline-actions">
@@ -819,11 +860,30 @@ function ResumePreviewPanel({
           <span aria-live="polite">{Math.round(job.progressPercent)}%</span>
         ) : null}
         {artifact !== null ? (
-          <a className="aw-quiet-button" download href={artifact.contentUrl}>
-            {t('resume.workspace.downloadPdf', { defaultValue: '下载 PDF' })}
-          </a>
+          <button
+            className="aw-quiet-button"
+            disabled={isSaving}
+            onClick={(): void => {
+              void savePdf()
+            }}
+            type="button"
+          >
+            {isSaving
+              ? t('resume.workspace.savingPdf', { defaultValue: '正在保存 PDF…' })
+              : t('resume.workspace.downloadPdf', { defaultValue: '下载 PDF' })}
+          </button>
         ) : null}
       </div>
+      {saveStatus !== null ? (
+        <span aria-live="polite" className="aw-sr-only">
+          {saveStatus}
+        </span>
+      ) : null}
+      {saveError !== null ? (
+        <div className="aw-inline-error" role="alert">
+          {saveError}
+        </div>
+      ) : null}
       {error !== null ? (
         <div className="aw-inline-error" role="alert">
           {error}

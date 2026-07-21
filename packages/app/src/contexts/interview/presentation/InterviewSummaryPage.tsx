@@ -11,17 +11,10 @@ import { useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router-dom'
 
-import { useAppGateways, useAsyncResource } from '../../../app/AppData'
+import { useAsyncResource, useInterviewSummaryQuery } from '../../../app/AppData'
+import type { InterviewSummaryQueryResult } from '../../../app/AppQueries'
 import { asUiOpaqueId } from '../../../shared-kernel/identity'
 import { ErrorState, LoadingState } from '../../../ui'
-import type { UiKnowledgeSource } from '../../knowledge'
-import type { UiInterviewReport, UiInterviewRuntimeModel } from '../domain/models'
-
-interface InterviewSummaryData {
-  readonly report: UiInterviewReport
-  readonly runtime: UiInterviewRuntimeModel
-  readonly knowledgeSources: readonly UiKnowledgeSource[]
-}
 
 function getDimensionLabel(
   dimensionId: string,
@@ -41,7 +34,11 @@ function getDimensionLabel(
   return labels[dimensionId] ?? dimensionId
 }
 
-function InterviewSummary({ data }: { readonly data: InterviewSummaryData }): React.JSX.Element {
+function InterviewSummary({
+  data
+}: {
+  readonly data: InterviewSummaryQueryResult
+}): React.JSX.Element {
   const { t } = useTranslation()
   const { report, runtime } = data
 
@@ -251,16 +248,12 @@ function InterviewSummary({ data }: { readonly data: InterviewSummaryData }): Re
 export function InterviewSummaryPage(): React.JSX.Element {
   const { t } = useTranslation()
   const { sessionId = '' } = useParams()
-  const { interview, knowledge } = useAppGateways()
-  const loadSummary = useCallback(async (): Promise<InterviewSummaryData> => {
-    const typedSessionId = asUiOpaqueId<'interview-session'>(sessionId)
-    const [report, runtime] = await Promise.all([
-      interview.getInterviewReport(typedSessionId),
-      interview.getInterviewRuntime(typedSessionId)
-    ])
-    const knowledgeSources = await knowledge.listKnowledgeSources(runtime.session.workspaceId)
-    return { report, runtime, knowledgeSources }
-  }, [interview, knowledge, sessionId])
+  /** @brief 应用层聚合后的 Interview 总结查询 / Interview-summary query aggregated by the application layer. */
+  const query = useInterviewSummaryQuery()
+  const loadSummary = useCallback(
+    () => query.load(asUiOpaqueId<'interview-session'>(sessionId)),
+    [query, sessionId]
+  )
   const summary = useAsyncResource('interview.summary', loadSummary)
 
   if (summary.status === 'loading')

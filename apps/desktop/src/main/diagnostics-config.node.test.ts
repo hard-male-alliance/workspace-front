@@ -86,18 +86,42 @@ describe('createProductionContentSecurityPolicy', (): void => {
       AI_JOB_WORKSPACE_DIAGNOSTICS_PORT: '8443'
     })
     /** @brief 生产 renderer 使用的 CSP / CSP used by the production renderer. */
-    const policy = createProductionContentSecurityPolicy(configuration)
+    const policy = createProductionContentSecurityPolicy(configuration, 'https://api.example.test')
 
-    expect(policy).toContain("connect-src 'self' https://diagnostics.example.test:8443;")
+    expect(policy).toContain(
+      "connect-src 'self' https://api.example.test https://diagnostics.example.test:8443;"
+    )
+    expect(policy).toContain('frame-src https://api.example.test;')
+    expect(policy).not.toContain('frame-src https://diagnostics.example.test:8443')
+    expect(policy).toContain("object-src 'none';")
     expect(policy).not.toContain('/api/v1/frontend-diagnostics/batches')
     expect(policy).not.toContain('*')
   })
 
-  it('未配置诊断服务时保持仅 self 的连接策略', (): void => {
+  it('未配置诊断服务时只允许 self 与产品 API origin', (): void => {
     /** @brief 未配置诊断服务时的 CSP / CSP when no diagnostics service is configured. */
-    const policy = createProductionContentSecurityPolicy({ kind: 'disabled' })
+    const policy = createProductionContentSecurityPolicy(
+      { kind: 'disabled' },
+      'https://api.example.test'
+    )
 
-    expect(policy).toContain("connect-src 'self';")
+    expect(policy).toContain("connect-src 'self' https://api.example.test;")
+    expect(policy).toContain('frame-src https://api.example.test;')
     expect(policy).not.toContain('*')
+  })
+
+  it('产品与诊断共用 origin 时不重复放宽 CSP', (): void => {
+    /** @brief 共用后端 origin 的 CSP / CSP with a shared backend origin. */
+    const policy = createProductionContentSecurityPolicy(
+      {
+        endpoint: 'https://api.example.test/api/v1/frontend-diagnostics/batches',
+        kind: 'enabled',
+        origin: 'https://api.example.test'
+      },
+      'https://api.example.test'
+    )
+
+    expect(policy).toContain("connect-src 'self' https://api.example.test;")
+    expect(policy).not.toContain('https://api.example.test https://api.example.test')
   })
 })

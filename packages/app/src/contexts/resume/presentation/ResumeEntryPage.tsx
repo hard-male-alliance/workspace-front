@@ -2,22 +2,23 @@ import { useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, Navigate } from 'react-router-dom'
 
-import { useAppGateways, useAsyncResource } from '../../../app/AppData'
+import { useAsyncResource, useResumeGateway, useWorkspaceSession } from '../../../app/AppData'
 import { ErrorState, LoadingState } from '../../../ui'
 import type { UiResumeCard } from '../domain/models'
 
 /** @brief 将稳定 Resume 入口解析为最近编辑的真实 Resume / Resolve the stable Resume entry to the latest real Resume. */
 export function ResumeEntryPage(): React.JSX.Element {
   const { t } = useTranslation()
-  const { resume, workspace } = useAppGateways()
+  const resume = useResumeGateway()
+  const { getCurrentWorkspace } = useWorkspaceSession()
   const loadLatestResume = useCallback(async (): Promise<UiResumeCard | null> => {
-    const firstWorkspace = (await workspace.listWorkspaces()).at(0)
+    const firstWorkspace = await getCurrentWorkspace()
     if (firstWorkspace === undefined) return null
     const cards = await resume.listResumeCards(firstWorkspace.id)
     return (
       [...cards].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ?? null
     )
-  }, [resume, workspace])
+  }, [getCurrentWorkspace, resume])
   const latestResume = useAsyncResource('resume.entry', loadLatestResume)
 
   if (latestResume.status === 'loading') {

@@ -2,10 +2,11 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { WorkspaceApp } from '@ai-job-workspace/app'
 import { APPLICATION_VERSION } from '@ai-job-workspace/platform'
+import { createProductGateways } from '@ai-job-workspace/product-runtime'
 import { resolveApiBaseUrl } from './api-config'
 import { createWebDiagnostics } from './create-web-observability'
-import { createWebGateways } from './create-web-gateways'
 import { resolveDiagnosticsUploadConfiguration } from './diagnostics-config'
+import { createBrowserArtifactSavePort } from './browser-artifact-save'
 
 /** @brief Web renderer 根节点 / Web renderer root element. */
 const rootElement = document.getElementById('root')
@@ -39,7 +40,12 @@ const apiBaseUrl = resolveApiBaseUrl({
 
 /** @brief 使用已验证依赖组合出的 Web 应用 / Web application composed with validated dependencies. */
 const application = (
-  <WorkspaceApp diagnostics={diagnostics} gateways={createWebGateways(apiBaseUrl, diagnostics)} />
+  <WorkspaceApp
+    artifactSave={createBrowserArtifactSavePort()}
+    diagnostics={diagnostics}
+    gateways={createProductGateways(apiBaseUrl, diagnostics)}
+    runtimeInfo={{ appVersion: APPLICATION_VERSION, platform: 'web' }}
+  />
 )
 
 /** @brief 挂载 React Web 应用 / Mount the React Web application. */

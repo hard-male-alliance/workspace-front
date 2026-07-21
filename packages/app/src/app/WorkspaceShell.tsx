@@ -3,9 +3,9 @@ import { BookOpenText, BriefcaseBusiness, Database, LayoutDashboard, Moon, Sun }
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
+import type { RuntimeInfo } from '@ai-job-workspace/platform'
 
 import { useDiagnostics } from './Diagnostics'
-import { useRuntimeInfo } from './runtime'
 
 /** @brief 主导航项 / Primary navigation item. */
 interface NavigationItem {
@@ -125,20 +125,25 @@ function getBreadcrumbKey(pathname: string): string {
   return 'breadcrumbs.workspace'
 }
 
+/** @brief 共享工作区页面框架属性 / Shared workspace-shell properties. */
+export interface WorkspaceShellProps {
+  /** @brief 由宿主组合根确认的运行时信息 / Runtime information confirmed by the host composition root. */
+  readonly runtimeInfo: RuntimeInfo
+}
+
 /**
  * @brief 共享工作区页面框架 / Shared workspace page shell.
+ * @param props 页面框架属性 / Shell properties.
  * @return 含导航、语言切换与路由出口的跨端框架 / Cross-platform shell with navigation, locale switcher and route outlet.
- * @note 桌面 renderer 与 Web 均复用此组件；不依赖 Electron 或 Node.js API。
+ * @note 桌面 renderer 与 Web 均复用此组件；不依赖 Electron、全局 bridge 或 Node.js API。
  */
-export function WorkspaceShell(): React.JSX.Element {
+export function WorkspaceShell({ runtimeInfo }: WorkspaceShellProps): React.JSX.Element {
   /** @brief i18n 翻译实例 / i18n translation instance. */
   const { i18n, t } = useTranslation()
   /** @brief 当前路由位置 / Current route location. */
   const location = useLocation()
   /** @brief 待切换到的 UI 语言 / UI locale to switch to. */
   const nextLocale = i18n.language === 'en-US' ? 'zh-SG' : 'en-US'
-  /** @brief 当前 renderer 已确认的宿主信息 / Host information confirmed for the current renderer. */
-  const runtimeInfo = useRuntimeInfo()
   /** @brief 应用诊断端口 / Application diagnostics port. */
   const diagnostics = useDiagnostics()
   /** @brief 主题存储的首次读取结果 / First theme-storage read result. */
@@ -174,8 +179,8 @@ export function WorkspaceShell(): React.JSX.Element {
   return (
     <div
       className="aw-shell"
-      data-runtime-platform={runtimeInfo?.platform ?? 'loading'}
-      data-runtime-version={runtimeInfo?.appVersion ?? ''}
+      data-runtime-platform={runtimeInfo.platform}
+      data-runtime-version={runtimeInfo.appVersion}
     >
       <aside aria-label={t('nav.primary', { defaultValue: '主导航' })} className="aw-sidebar">
         <Link

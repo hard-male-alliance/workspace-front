@@ -1,0 +1,38 @@
+appId: org.hmalliances.ai-job-workspace
+productName: AI Job Workspace
+
+directories:
+  output: release
+
+files:
+  - out/**/*
+  - package.json
+
+asar: true
+compression: normal
+npmRebuild: false
+
+# electron-builder 26 的内建映射尚未覆盖 Electron 43 的全部 Fuse。
+# 使用官方 @electron/fuses 的严格 afterPack hook，新增 Fuse 未显式决策时让构建失败。
+afterPack: ../../scripts/desktop-fuses.mjs
+
+artifactName: AI-Job-Workspace-${version}-${os}-${arch}.${ext}
+
+mac:
+  category: public.app-category.productivity
+  target:
+    - dmg
+    - zip
+
+win:
+  executableName: ai-job-workspace
+  target:
+    - nsis
+
+linux:
+  executableName: ai-job-workspace
+  category: Office
+  target:
+    - AppImage
+
+publish: null

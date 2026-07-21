@@ -3,7 +3,7 @@ import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router-dom'
 
-import { useAppGateways, useAsyncResource } from '../../../app/AppData'
+import { useAsyncResource, useInterviewGateway } from '../../../app/AppData'
 import { runDiagnosticCommand, useDiagnostics } from '../../../app/Diagnostics'
 import { asUiOpaqueId } from '../../../shared-kernel/identity'
 import { ErrorState, LoadingState } from '../../../ui'
@@ -36,7 +36,7 @@ function InterviewMessage({ entry }: { readonly entry: UiTranscriptEntry }): Rea
 
 function InterviewRoom({ initialRuntime }: { readonly initialRuntime: UiInterviewRuntimeModel }) {
   const { t } = useTranslation()
-  const { interview } = useAppGateways()
+  const interview = useInterviewGateway()
   const diagnostics = useDiagnostics()
   const [runtime, setRuntime] = useState(initialRuntime)
   const [isSubmitting, setSubmitting] = useState(false)
@@ -223,7 +223,7 @@ function InterviewRoom({ initialRuntime }: { readonly initialRuntime: UiIntervie
 export function InterviewRoomPage(): React.JSX.Element {
   const { t } = useTranslation()
   const { sessionId = '' } = useParams()
-  const { interview } = useAppGateways()
+  const interview = useInterviewGateway()
   const loadRuntime = useCallback(
     () => interview.getInterviewRuntime(asUiOpaqueId<'interview-session'>(sessionId)),
     [interview, sessionId]

@@ -1,0 +1,24 @@
+{
+  "node": [
+    {
+      "roots": ["apps", "packages"],
+      "extensions": ["ts", "tsx"]
+    },
+    {
+      "roots": ["scripts"],
+      "extensions": ["mjs"]
+    }
+  ],
+  "dom": [
+    {
+      "roots": ["apps", "packages"],
+      "extensions": ["ts", "tsx"]
+    }
+  ],
+  "browser": [
+    {
+      "roots": ["packages/app/src"],
+      "extensions": ["ts", "tsx"]
+    }
+  ]
+}

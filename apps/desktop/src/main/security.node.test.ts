@@ -1,6 +1,24 @@
 import { describe, expect, it } from 'vitest'
 
-import { isAllowedRendererUrl, isTrustedRendererIpcSender } from './security'
+import {
+  createHardenedWebPreferences,
+  isAllowedRendererUrl,
+  isTrustedRendererIpcSender
+} from './security'
+
+describe('createHardenedWebPreferences', (): void => {
+  it('显式启用隔离与沙箱并关闭 Node、WebView 和不安全内容', (): void => {
+    expect(createHardenedWebPreferences('/trusted/preload.cjs')).toEqual({
+      allowRunningInsecureContent: false,
+      contextIsolation: true,
+      nodeIntegration: false,
+      preload: '/trusted/preload.cjs',
+      sandbox: true,
+      webSecurity: true,
+      webviewTag: false
+    })
+  })
+})
 
 describe('isAllowedRendererUrl', () => {
   it('开发环境只允许同源导航', () => {

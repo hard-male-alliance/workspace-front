@@ -1,7 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
+  createTestGateways,
   installWorkspaceAppTestCleanup,
   setWorkspaceAppTestLocale,
   WorkspaceApp
@@ -11,6 +12,45 @@ installWorkspaceAppTestCleanup()
 
 /** @brief 应用外壳与工作台用户行为测试 / App-shell and workspace user-behaviour tests. */
 describe('WorkspaceApp app shell', (): void => {
+  it('keeps one current workspace selection while navigating across contexts', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+
+    /** @brief 跨路由复用的测试 Gateway / Test gateways reused across routes. */
+    const gateways = createTestGateways()
+    /** @brief 工作区列表读取记录 / Workspace-list read record. */
+    const listWorkspaces = vi.spyOn(gateways.workspace, 'listWorkspaces')
+
+    render(<WorkspaceApp gateways={gateways} initialPath="/" />)
+
+    await screen.findByRole('heading', { name: '今日工作台' })
+    fireEvent.click(screen.getByRole('link', { name: '简历' }))
+    await screen.findByRole('heading', { name: 'Klee Chen' })
+    fireEvent.click(screen.getByRole('link', { name: '模拟面试' }))
+    await screen.findByRole('heading', { name: '模拟面试' })
+
+    expect(listWorkspaces).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders only the runtime identity injected by its host composition root', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+
+    /** @brief 显式注入的 Electron 测试运行时 / Explicitly injected Electron test runtime. */
+    const { container } = render(
+      <WorkspaceApp
+        initialPath="/"
+        runtimeInfo={{
+          apiBaseUrl: 'https://api.example.test',
+          appVersion: '9.9.9-test',
+          platform: 'electron'
+        }}
+      />
+    )
+
+    expect(await screen.findByRole('heading', { name: '今日工作台' })).toBeInTheDocument()
+    expect(container.firstElementChild).toHaveAttribute('data-runtime-platform', 'electron')
+    expect(container.firstElementChild).toHaveAttribute('data-runtime-version', '9.9.9-test')
+  })
+
   it('renders the shared workspace home through Mock gateways', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
 

@@ -4,7 +4,9 @@ import { describe, expect, it } from 'vitest'
 import {
   rendererProtocolHost,
   rendererProtocolScheme,
-  resolveRendererFilePath
+  resolveRendererFilePath,
+  selectTrustedRendererUrl,
+  validateDevelopmentRendererUrl
 } from './renderer-protocol'
 
 /** @brief 测试 renderer 构建目录 / Test renderer build directory. */
@@ -52,5 +54,42 @@ describe('resolveRendererFilePath', () => {
         rendererDirectory
       )
     ).toBeUndefined()
+  })
+})
+
+describe('selectTrustedRendererUrl', (): void => {
+  /** @brief 生产自定义协议 URL / Production custom-protocol URL. */
+  const productionUrl = `${rendererProtocolScheme}://${rendererProtocolHost}/index.html`
+
+  it('已打包应用忽略环境变量中的开发服务器 URL', (): void => {
+    expect(selectTrustedRendererUrl(true, 'http://untrusted.example', productionUrl)).toBe(
+      productionUrl
+    )
+  })
+
+  it('仅在未打包开发态选择 Vite renderer URL', (): void => {
+    expect(selectTrustedRendererUrl(false, 'http://localhost:5173/', productionUrl)).toBe(
+      'http://localhost:5173'
+    )
+    expect(selectTrustedRendererUrl(false, 'https://127.0.0.1:5173', productionUrl)).toBe(
+      'https://127.0.0.1:5173'
+    )
+    expect(selectTrustedRendererUrl(false, undefined, productionUrl)).toBe(productionUrl)
+  })
+
+  it.each([
+    'https://untrusted.example',
+    'http://localhost.evil.example:5173',
+    'http://user:secret@localhost:5173',
+    'http://localhost:5173/source',
+    'http://localhost:5173/?debug=1',
+    'http://localhost:5173/#debug',
+    'file:///tmp/index.html',
+    'not-a-url'
+  ])('拒绝非回环或携带额外 URL 状态的开发 renderer：%s', (candidate): void => {
+    expect(() => validateDevelopmentRendererUrl(candidate)).toThrow(/development renderer URL/u)
+    expect(() => selectTrustedRendererUrl(false, candidate, productionUrl)).toThrow(
+      /development renderer URL/u
+    )
   })
 })

@@ -17,7 +17,7 @@ import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 
-import { useAppGateways, useAsyncResource } from '../../../app/AppData'
+import { useAsyncResource, useKnowledgeGateway, useWorkspaceSession } from '../../../app/AppData'
 import { runDiagnosticCommand, useDiagnostics } from '../../../app/Diagnostics'
 import type { UiKnowledgeSourceId } from '../../../shared-kernel/identity'
 import { EmptyState, ErrorState, LoadingState } from '../../../ui'
@@ -601,12 +601,12 @@ function KnowledgeContent({
 
 export function KnowledgePage(): React.JSX.Element {
   const { t } = useTranslation()
-  const { knowledge, workspace } = useAppGateways()
+  const knowledge = useKnowledgeGateway()
+  const { getCurrentWorkspace } = useWorkspaceSession()
   const [reloadRevision, setReloadRevision] = useState(0)
   const [requestedSourceId, setRequestedSourceId] = useState<UiKnowledgeSourceId | null>(null)
   const loadSources = useCallback(async (): Promise<readonly UiKnowledgeSource[]> => {
-    const workspaces = await workspace.listWorkspaces()
-    const currentWorkspace = workspaces.at(0)
+    const currentWorkspace = await getCurrentWorkspace()
     if (currentWorkspace === undefined) {
       throw new Error(
         reloadRevision === 0
@@ -615,7 +615,7 @@ export function KnowledgePage(): React.JSX.Element {
       )
     }
     return knowledge.listKnowledgeSources(currentWorkspace.id)
-  }, [knowledge, reloadRevision, workspace])
+  }, [getCurrentWorkspace, knowledge, reloadRevision])
   const sources = useAsyncResource('knowledge.sources', loadSources)
   const reloadSources = useCallback((sourceId: UiKnowledgeSourceId | null): void => {
     setRequestedSourceId(sourceId)

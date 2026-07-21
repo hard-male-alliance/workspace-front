@@ -13,6 +13,8 @@
     "packages/app/src/**/*.tsx",
     "packages/platform/src/**/*.ts",
     "packages/platform/src/**/*.tsx",
+    "packages/product-runtime/src/**/*.ts",
+    "packages/product-runtime/src/**/*.tsx",
     "tests/**/*.ts",
     "tests/**/*.tsx"
   ],

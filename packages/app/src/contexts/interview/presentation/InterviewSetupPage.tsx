@@ -1,25 +1,15 @@
 import { ArrowLeft, BookOpenCheck, Check, Mic, ShieldCheck } from 'lucide-react'
-import { useCallback, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate } from 'react-router-dom'
 
-import { useAppGateways, useAsyncResource } from '../../../app/AppData'
+import { useAsyncResource, useInterviewGateway, useInterviewSetupQuery } from '../../../app/AppData'
+import type { InterviewSetupQueryResult } from '../../../app/AppQueries'
 import { runDiagnosticCommand, useDiagnostics } from '../../../app/Diagnostics'
-import type { UiKnowledgeSource, UiKnowledgeSourceId } from '../../knowledge'
-import type { UiWorkspaceId } from '../../../shared-kernel/identity'
+import type { UiKnowledgeSourceId } from '../../knowledge'
 import { ErrorState, LoadingState } from '../../../ui'
-import type {
-  UiInterviewDifficulty,
-  UiInterviewSetupModel,
-  UiInterviewType
-} from '../domain/models'
-
-interface InterviewSetupData {
-  readonly workspaceId: UiWorkspaceId
-  readonly setup: UiInterviewSetupModel
-  readonly knowledgeSources: readonly UiKnowledgeSource[]
-}
+import type { UiInterviewDifficulty, UiInterviewType } from '../domain/models'
 
 const durationOptions = [15, 30, 45, 60] as const
 const typeOptions: readonly UiInterviewType[] = [
@@ -31,11 +21,15 @@ const typeOptions: readonly UiInterviewType[] = [
 const difficultyOptions: readonly UiInterviewDifficulty[] = ['introductory', 'standard', 'advanced']
 const customJobValue = '__custom__'
 
-function InterviewSetupForm({ data }: { readonly data: InterviewSetupData }): React.JSX.Element {
+function InterviewSetupForm({
+  data
+}: {
+  readonly data: InterviewSetupQueryResult
+}): React.JSX.Element {
   const { t } = useTranslation()
   const diagnostics = useDiagnostics()
   const navigate = useNavigate()
-  const { interview } = useAppGateways()
+  const interview = useInterviewGateway()
   const initialJob = data.setup.jobTargets.at(0)
   const [jobTitle, setJobTitle] = useState(initialJob?.title ?? '')
   const [selectedJobValue, setSelectedJobValue] = useState(initialJob?.title ?? customJobValue)
@@ -314,18 +308,9 @@ function InterviewSetupForm({ data }: { readonly data: InterviewSetupData }): Re
 
 export function InterviewSetupPage(): React.JSX.Element {
   const { t } = useTranslation()
-  const { interview, knowledge, workspace } = useAppGateways()
-  const loadSetup = useCallback(async (): Promise<InterviewSetupData> => {
-    const currentWorkspace = (await workspace.listWorkspaces()).at(0)
-    if (currentWorkspace === undefined)
-      throw new Error('No workspace is available for interview setup.')
-    const [setup, knowledgeSources] = await Promise.all([
-      interview.getInterviewSetup(currentWorkspace.id),
-      knowledge.listKnowledgeSources(currentWorkspace.id)
-    ])
-    return { workspaceId: currentWorkspace.id, setup, knowledgeSources }
-  }, [interview, knowledge, workspace])
-  const setup = useAsyncResource('interview.setup', loadSetup)
+  /** @brief 应用层聚合后的 Interview 配置查询 / Interview-setup query aggregated by the application layer. */
+  const query = useInterviewSetupQuery()
+  const setup = useAsyncResource('interview.setup', query.load)
 
   if (setup.status === 'loading')
     return (

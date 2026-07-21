@@ -10,7 +10,7 @@ import {
 import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router-dom'
-import { useAppGateways, useAsyncResource } from '../../../app/AppData'
+import { useAsyncResource, useResumeGateway } from '../../../app/AppData'
 import { asUiOpaqueId } from '../../../shared-kernel/identity'
 import { ErrorState, LoadingState } from '../../../ui'
 import type {
@@ -530,7 +530,7 @@ export function TemplateSettingsPage(): React.JSX.Element {
   /** @brief 路由参数 / Route parameters. */
   const { resumeId } = useParams()
   /** @brief 简历 gateway / Resume gateway. */
-  const { resume } = useAppGateways()
+  const resume = useResumeGateway()
   /** @brief 路由 ID 的不透明 UI 表达 / Opaque UI representation of route ID. */
   const requestedResumeId = useMemo(() => asUiOpaqueId<'resume'>(resumeId ?? ''), [resumeId])
   /** @brief 稳定的模板设置加载器 / Stable template-settings loader. */

@@ -12,7 +12,7 @@ import {
 import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router-dom'
-import { useAppGateways, useAsyncResource } from '../../../app/AppData'
+import { useAsyncResource, useKnowledgeGateway } from '../../../app/AppData'
 import { asUiOpaqueId } from '../../../shared-kernel/identity'
 import type { UiAgentScope } from '../../../shared-kernel/agent-scope'
 import { ErrorState, LoadingState } from '../../../ui'
@@ -465,7 +465,7 @@ export function KnowledgeVisibilityPage(): React.JSX.Element {
   /** @brief 路由参数 / Route parameters. */
   const { sourceId } = useParams()
   /** @brief 知识库 gateway / Knowledge gateway. */
-  const { knowledge } = useAppGateways()
+  const knowledge = useKnowledgeGateway()
   /** @brief 路由 ID 的不透明 UI 表达 / Opaque UI representation of route ID. */
   const requestedSourceId = useMemo(
     () => asUiOpaqueId<'knowledge-source'>(sourceId ?? ''),

@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams } from 'react-router-dom'
-import { useAppGateways, useAsyncResource } from '../../../app/AppData'
+import { useAsyncResource, useResumeGateway } from '../../../app/AppData'
 import { asUiOpaqueId } from '../../../shared-kernel/identity'
 import { ErrorState, LoadingState } from '../../../ui'
 import type {
@@ -31,7 +31,7 @@ interface ResumeWorkspaceResources {
 export function ResumeEditorPage(): React.JSX.Element {
   const { t } = useTranslation()
   const { resumeId } = useParams()
-  const { resume } = useAppGateways()
+  const resume = useResumeGateway()
   const requestedResumeId = useMemo(() => asUiOpaqueId<'resume'>(resumeId ?? ''), [resumeId])
 
   const loadWorkspace = useCallback(async (): Promise<ResumeWorkspaceResources> => {

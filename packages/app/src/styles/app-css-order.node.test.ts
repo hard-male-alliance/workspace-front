@@ -38,11 +38,11 @@ const expectedImportPaths = [
 ] as const
 
 /**
- * @brief 拆分前规则正文的 SHA-256 摘要 / SHA-256 digest of the pre-split rule body.
- * @note 此摘要锁定选择器、声明、空白及相对顺序 / This digest locks selectors, declarations, whitespace, and relative order.
+ * @brief 已批准规则正文的 SHA-256 摘要 / SHA-256 digest of the approved rule body.
+ * @note 此摘要锁定经响应式修复后的选择器、声明、空白及相对顺序 / This digest locks selectors, declarations, whitespace, and relative order after responsive fixes.
  */
 const expectedMigratedBodyDigest =
-  'd901f86eec4c504ac2dd8439a4cbdf0dae0fe0ef61cadbbac1be7928f53ac711'
+  'c9e3c704f83063c572a1ba83376688dedc1aabb480e585fc6f5d86c3b2ad066f'
 
 /**
  * @brief 递归收集目录中的 CSS 文件 / Recursively collect CSS files in a directory.

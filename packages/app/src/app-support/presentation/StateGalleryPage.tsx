@@ -7,7 +7,7 @@ import { EmptyState, ErrorState, LoadingState } from '../../ui'
  * @brief 空、加载、错误状态展示页 / Empty, loading, and error state gallery.
  * @return 可供验收的三类共享状态 / Three shared states available for acceptance.
  */
-export function StateGalleryPage(): React.JSX.Element {
+export default function StateGalleryPage(): React.JSX.Element {
   /** @brief 翻译函数 / Translation function. */
   const { t } = useTranslation()
   /** @brief 错误状态是否已重新尝试 / Whether the error state was retried. */

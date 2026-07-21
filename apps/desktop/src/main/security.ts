@@ -24,6 +24,23 @@ export interface IpcSenderIdentity {
 }
 
 /**
+ * @brief 构造产品主窗口的加固 WebPreferences / Build hardened WebPreferences for the product main window.
+ * @param preloadPath 可信 preload 构建文件的绝对路径 / Absolute path to the trusted preload build file.
+ * @return 显式关闭 Node 与 WebView 能力的安全偏好 / Security preferences that explicitly disable Node and WebView capabilities.
+ */
+export function createHardenedWebPreferences(preloadPath: string): HardenedWebPreferences {
+  return {
+    preload: preloadPath,
+    nodeIntegration: false,
+    contextIsolation: true,
+    sandbox: true,
+    webSecurity: true,
+    allowRunningInsecureContent: false,
+    webviewTag: false
+  }
+}
+
+/**
  * @brief 安全解析 URL / Safely parse a URL.
  * @param value 待解析的 URL 字符串 / URL string to parse.
  * @return 成功时返回 URL，失败时返回 undefined / A URL on success, or undefined on failure.
@@ -76,3 +93,18 @@ export function isTrustedRendererIpcSender(
     isAllowedRendererUrl(sender.frameUrl, trustedRenderer.rendererUrl)
   )
 }
+import type { WebPreferences } from 'electron'
+
+/** @brief 主窗口必须显式固定的安全偏好 / Security preferences that the main window must pin explicitly. */
+export type HardenedWebPreferences = Required<
+  Pick<
+    WebPreferences,
+    | 'allowRunningInsecureContent'
+    | 'contextIsolation'
+    | 'nodeIntegration'
+    | 'preload'
+    | 'sandbox'
+    | 'webSecurity'
+    | 'webviewTag'
+  >
+>

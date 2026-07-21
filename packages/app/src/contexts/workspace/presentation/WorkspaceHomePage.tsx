@@ -1,10 +1,10 @@
 import { ArrowRight, BookOpenText, BriefcaseBusiness, FileText, GraduationCap } from 'lucide-react'
-import { useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 
-import { useAppGateways, useAsyncResource } from '../../../app/AppData'
+import { useAsyncResource, useWorkspaceHomeQuery } from '../../../app/AppData'
 import { ErrorState, LoadingState } from '../../../ui'
+import type { UiInterviewSessionId } from '../../interview'
 import type { UiResumeCard } from '../../resume'
 import type { UiWorkspaceActivity, UiWorkspaceHomeModel } from '../domain/models'
 
@@ -39,9 +39,11 @@ function getActivityTone(activity: UiWorkspaceActivity): string {
  */
 function WorkspaceHomeContent({
   home,
+  interviewSessionId,
   resumeCard
 }: {
   readonly home: UiWorkspaceHomeModel
+  readonly interviewSessionId: UiInterviewSessionId | null
   readonly resumeCard: UiResumeCard | null
 }): React.JSX.Element {
   /** @brief 翻译函数 / Translation function. */
@@ -181,7 +183,10 @@ function WorkspaceHomeContent({
                 <ArrowRight aria-hidden="true" size={16} />
               </Link>
             )}
-            <Link className="aw-action-row" to="/interviews/int_mock_system_design">
+            <Link
+              className="aw-action-row"
+              to={interviewSessionId === null ? '/interviews' : `/interviews/${interviewSessionId}`}
+            >
               <span className="aw-action-icon">
                 <BriefcaseBusiness aria-hidden="true" size={18} />
               </span>
@@ -253,7 +258,8 @@ function WorkspaceHomeContent({
       <p className="aw-workbench-notice">
         <GraduationCap aria-hidden="true" size={15} />
         {t('workspace.home.mockNotice', {
-          defaultValue: '当前为 v0.1 Mock 展示；不会向后端发送简历、媒体或知识数据。'
+          defaultValue:
+            '工作区与面试使用本地 Demo（模拟面试不采集真实麦克风）；简历与知识库会连接当前配置的项目后端。'
         })}
       </p>
     </div>
@@ -267,33 +273,10 @@ function WorkspaceHomeContent({
 export function WorkspaceHomePage(): React.JSX.Element {
   /** @brief 翻译函数 / Translation function. */
   const { t } = useTranslation()
-  /** @brief 工作区 gateway / Workspace gateway. */
-  const { resume, workspace } = useAppGateways()
-  /** @brief 稳定的首页加载器 / Stable home-data loader. */
-  const loadHome = useCallback(async (): Promise<{
-    readonly home: UiWorkspaceHomeModel
-    readonly resumeCard: UiResumeCard | null
-  }> => {
-    /** @brief 可访问的工作区列表 / Accessible workspace list. */
-    const workspaces = await workspace.listWorkspaces()
-    /** @brief 当前演示工作区 / Current demo workspace. */
-    const firstWorkspace = workspaces.at(0)
-
-    if (firstWorkspace === undefined) {
-      throw new Error('No workspace is available for the current user.')
-    }
-
-    const [home, resumeCards] = await Promise.all([
-      workspace.getWorkspaceHome(firstWorkspace.id),
-      resume.listResumeCards(firstWorkspace.id)
-    ])
-    const resumeCard =
-      [...resumeCards].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ??
-      null
-    return { home, resumeCard }
-  }, [resume, workspace])
+  /** @brief 应用层聚合后的 Workspace 首页查询 / Workspace-home query aggregated by the application layer. */
+  const query = useWorkspaceHomeQuery()
   /** @brief 首页异步资源 / Home async resource. */
-  const home = useAsyncResource('workspace.home', loadHome)
+  const home = useAsyncResource('workspace.home', query.load)
 
   if (home.status === 'loading') {
     return (
@@ -316,5 +299,11 @@ export function WorkspaceHomePage(): React.JSX.Element {
     )
   }
 
-  return <WorkspaceHomeContent home={home.data.home} resumeCard={home.data.resumeCard} />
+  return (
+    <WorkspaceHomeContent
+      home={home.data.home}
+      interviewSessionId={home.data.interviewSessionId}
+      resumeCard={home.data.resumeCard}
+    />
+  )
 }

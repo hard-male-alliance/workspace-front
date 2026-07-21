@@ -1,12 +1,29 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { AppGateways } from '../application'
 import { classifyDiagnosticError } from '../observability'
 import type { DiagnosticResourceName } from '../observability'
 import { useDiagnostics } from './Diagnostics'
+import { createAppQueries, createWorkspaceSession } from './AppQueries'
+import type { AppQueries, WorkspaceSession } from './AppQueries'
 
-/** @brief gateway 依赖注入上下文 / Gateway dependency-injection context. */
-const AppGatewayContext = createContext<AppGateways | null>(null)
+/** @brief Workspace gateway 依赖注入上下文 / Workspace-gateway dependency-injection context. */
+const WorkspaceGatewayContext = createContext<AppGateways['workspace'] | null>(null)
+
+/** @brief Resume gateway 依赖注入上下文 / Resume-gateway dependency-injection context. */
+const ResumeGatewayContext = createContext<AppGateways['resume'] | null>(null)
+
+/** @brief Interview gateway 依赖注入上下文 / Interview-gateway dependency-injection context. */
+const InterviewGatewayContext = createContext<AppGateways['interview'] | null>(null)
+
+/** @brief Knowledge gateway 依赖注入上下文 / Knowledge-gateway dependency-injection context. */
+const KnowledgeGatewayContext = createContext<AppGateways['knowledge'] | null>(null)
+
+/** @brief 当前工作区会话上下文 / Current-workspace session context. */
+const WorkspaceSessionContext = createContext<WorkspaceSession | null>(null)
+
+/** @brief 跨上下文只读应用查询上下文 / Cross-context read application-query context. */
+const AppQueriesContext = createContext<AppQueries | null>(null)
 
 /** @brief 应用数据提供器属性 / App data-provider properties. */
 export interface AppDataProviderProps {
@@ -22,23 +39,130 @@ export interface AppDataProviderProps {
  * @return 数据依赖上下文提供器 / Data-dependency context provider.
  */
 export function AppDataProvider({ children, gateways }: AppDataProviderProps): React.JSX.Element {
-  return <AppGatewayContext.Provider value={gateways}>{children}</AppGatewayContext.Provider>
+  /** @brief 在 provider 生命周期内稳定的当前工作区选择 / Current-workspace selection stable for the provider lifecycle. */
+  const workspaceSession = useMemo(
+    () => createWorkspaceSession(gateways.workspace),
+    [gateways.workspace]
+  )
+  /** @brief 将跨上下文编排收敛在应用层的命名查询 / Named queries containing cross-context orchestration in the application layer. */
+  const appQueries = useMemo(
+    () => createAppQueries(gateways, workspaceSession),
+    [gateways, workspaceSession]
+  )
+
+  return (
+    <AppQueriesContext.Provider value={appQueries}>
+      <WorkspaceGatewayContext.Provider value={gateways.workspace}>
+        <ResumeGatewayContext.Provider value={gateways.resume}>
+          <InterviewGatewayContext.Provider value={gateways.interview}>
+            <KnowledgeGatewayContext.Provider value={gateways.knowledge}>
+              <WorkspaceSessionContext.Provider value={workspaceSession}>
+                {children}
+              </WorkspaceSessionContext.Provider>
+            </KnowledgeGatewayContext.Provider>
+          </InterviewGatewayContext.Provider>
+        </ResumeGatewayContext.Provider>
+      </WorkspaceGatewayContext.Provider>
+    </AppQueriesContext.Provider>
+  )
 }
 
 /**
- * @brief 读取当前页面的数据 gateway / Read the current page data gateways.
- * @return 已注入的 gateway 集合 / Injected gateway collection.
+ * @brief 读取 Workspace 首页命名查询 / Read the named Workspace-home query.
+ * @return 隔离页面与 Resume/Interview gateway 的应用查询 / Application query isolating the page from Resume and Interview gateways.
+ */
+export function useWorkspaceHomeQuery(): AppQueries['workspaceHome'] {
+  /** @brief 当前应用查询集合 / Current application-query collection. */
+  const queries = useContext(AppQueriesContext)
+  if (queries === null) throw new Error('Workspace pages require AppDataProvider.')
+  return queries.workspaceHome
+}
+
+/**
+ * @brief 读取 Interview 配置命名查询 / Read the named Interview-setup query.
+ * @return 隔离页面与 Knowledge gateway 的应用查询 / Application query isolating the page from the Knowledge gateway.
+ */
+export function useInterviewSetupQuery(): AppQueries['interviewSetup'] {
+  /** @brief 当前应用查询集合 / Current application-query collection. */
+  const queries = useContext(AppQueriesContext)
+  if (queries === null) throw new Error('Interview pages require AppDataProvider.')
+  return queries.interviewSetup
+}
+
+/**
+ * @brief 读取 Interview 总结命名查询 / Read the named Interview-summary query.
+ * @return 隔离页面与 Knowledge gateway 的应用查询 / Application query isolating the page from the Knowledge gateway.
+ */
+export function useInterviewSummaryQuery(): AppQueries['interviewSummary'] {
+  /** @brief 当前应用查询集合 / Current application-query collection. */
+  const queries = useContext(AppQueriesContext)
+  if (queries === null) throw new Error('Interview pages require AppDataProvider.')
+  return queries.interviewSummary
+}
+
+/**
+ * @brief 读取 Workspace 上下文端口 / Read the Workspace context port.
+ * @return 已注入的 Workspace gateway / Injected Workspace gateway.
  * @throws 未被 AppDataProvider 包裹时抛出错误 / Throws when not wrapped by AppDataProvider.
  */
-export function useAppGateways(): AppGateways {
-  /** @brief 当前 gateway 依赖 / Current gateway dependency. */
-  const gateways = useContext(AppGatewayContext)
+export function useWorkspaceGateway(): AppGateways['workspace'] {
+  /** @brief 当前 Workspace gateway / Current Workspace gateway. */
+  const gateway = useContext(WorkspaceGatewayContext)
 
-  if (gateways === null) {
-    throw new Error('Workspace pages require AppDataProvider.')
-  }
+  if (gateway === null) throw new Error('Workspace pages require AppDataProvider.')
+  return gateway
+}
 
-  return gateways
+/**
+ * @brief 读取 Resume 上下文端口 / Read the Resume context port.
+ * @return 已注入的 Resume gateway / Injected Resume gateway.
+ * @throws 未被 AppDataProvider 包裹时抛出错误 / Throws when not wrapped by AppDataProvider.
+ */
+export function useResumeGateway(): AppGateways['resume'] {
+  /** @brief 当前 Resume gateway / Current Resume gateway. */
+  const gateway = useContext(ResumeGatewayContext)
+
+  if (gateway === null) throw new Error('Resume pages require AppDataProvider.')
+  return gateway
+}
+
+/**
+ * @brief 读取 Interview 上下文端口 / Read the Interview context port.
+ * @return 已注入的 Interview gateway / Injected Interview gateway.
+ * @throws 未被 AppDataProvider 包裹时抛出错误 / Throws when not wrapped by AppDataProvider.
+ */
+export function useInterviewGateway(): AppGateways['interview'] {
+  /** @brief 当前 Interview gateway / Current Interview gateway. */
+  const gateway = useContext(InterviewGatewayContext)
+
+  if (gateway === null) throw new Error('Interview pages require AppDataProvider.')
+  return gateway
+}
+
+/**
+ * @brief 读取 Knowledge 上下文端口 / Read the Knowledge context port.
+ * @return 已注入的 Knowledge gateway / Injected Knowledge gateway.
+ * @throws 未被 AppDataProvider 包裹时抛出错误 / Throws when not wrapped by AppDataProvider.
+ */
+export function useKnowledgeGateway(): AppGateways['knowledge'] {
+  /** @brief 当前 Knowledge gateway / Current Knowledge gateway. */
+  const gateway = useContext(KnowledgeGatewayContext)
+
+  if (gateway === null) throw new Error('Knowledge pages require AppDataProvider.')
+  return gateway
+}
+
+/**
+ * @brief 读取应用会话的当前工作区端口 / Read the current-workspace port for this application session.
+ * @return 稳定的当前工作区会话 / Stable current-workspace session.
+ * @throws 未被 AppDataProvider 包裹时抛出错误 / Throws when not wrapped by AppDataProvider.
+ */
+export function useWorkspaceSession(): WorkspaceSession {
+  /** @brief 当前工作区会话 / Current workspace session. */
+  const session = useContext(WorkspaceSessionContext)
+
+  if (session === null) throw new Error('Workspace pages require AppDataProvider.')
+  return session
 }
 
 /** @brief 异步资源状态 / Async resource state. */

@@ -1,4 +1,5 @@
 import type { DiagnosticsConfigurationErrorReason } from './diagnostics'
+import type { ArtifactSavePort } from './artifact-save'
 
 /**
  * @brief 运行时宿主类型 / Runtime host type.
@@ -26,6 +27,8 @@ export interface WebRuntimeInfo extends BaseRuntimeInfo {
 export interface ElectronRuntimeInfo extends BaseRuntimeInfo {
   /** @brief Electron 宿主标识 / Electron-host discriminator. */
   readonly platform: 'electron'
+  /** @brief 主进程验证后的产品 API origin / Product API origin validated by the main process. */
+  readonly apiBaseUrl: string
   /** @brief 主进程校验后可选的诊断批量上传 endpoint / Optional diagnostics batch-upload endpoint validated by the main process. */
   readonly diagnosticsEndpoint?: string
   /** @brief 主进程拒绝诊断上传配置时的无敏感原因 / Non-sensitive reason when the main process rejected diagnostics upload configuration. */
@@ -40,7 +43,7 @@ export type RuntimeInfo = ElectronRuntimeInfo | WebRuntimeInfo
  *
  * @note 此接口刻意不暴露 Node.js、Electron IPC 或文件系统对象。
  */
-export interface PlatformBridge {
+export interface PlatformBridge extends ArtifactSavePort {
   /**
    * @brief 获取经过主进程确认的运行时信息 / Get runtime information verified by the main process.
    * @return 异步返回最小运行时信息 / A promise for minimal runtime information.
@@ -58,25 +61,3 @@ declare global {
 
 /** @brief 运行时信息 IPC 通道 / Runtime information IPC channel. */
 export const RUNTIME_INFO_CHANNEL = 'platform:get-runtime-info' as const
-
-/**
- * @brief 创建浏览器宿主桥接 / Create a browser-host bridge.
- * @param appVersion 应用语义版本 / Semantic application version.
- * @return 仅报告 Web 运行时的窄桥接 / A narrow bridge reporting the Web runtime only.
- */
-export function createWebPlatformBridge(appVersion: string): PlatformBridge {
-  /**
-   * @brief 获取浏览器运行时信息 / Get browser runtime information.
-   * @return 已兑现的浏览器运行时信息 Promise / A fulfilled promise for browser runtime information.
-   */
-  function getRuntimeInfo(): Promise<WebRuntimeInfo> {
-    return Promise.resolve({
-      platform: 'web',
-      appVersion
-    })
-  }
-
-  return {
-    getRuntimeInfo
-  }
-}

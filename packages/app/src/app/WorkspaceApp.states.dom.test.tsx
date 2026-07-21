@@ -16,7 +16,7 @@ describe('WorkspaceApp visual states', (): void => {
 
     render(<WorkspaceApp initialPath="/states" />)
 
-    expect(screen.getByText('仅供开发与验收')).toBeInTheDocument()
+    expect(await screen.findByText('仅供开发与验收')).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: '从一个小动作开始' })).toBeInTheDocument()
     expect(screen.getByRole('status')).toBeInTheDocument()
     expect(screen.getByRole('alert')).toBeInTheDocument()

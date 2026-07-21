@@ -62,4 +62,10 @@ describe('resolveApiBaseUrl', (): void => {
       })
     ).toThrowError(ApiConfigurationError)
   })
+
+  it('rejects plaintext HTTP for non-loopback product APIs', (): void => {
+    expect(() => resolveApiBaseUrl({ VITE_API_BASE_URL: 'http://api.example.test' })).toThrowError(
+      ApiConfigurationError
+    )
+  })
 })

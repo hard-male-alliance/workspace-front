@@ -104,20 +104,6 @@ export interface UiKnowledgeSource {
   readonly updatedAt: string
 }
 
-/** @brief 上传新知识文件的领域输入 / Domain input for uploading a new knowledge file. */
-export interface UiKnowledgeUploadInput {
-  readonly file: File
-  readonly name?: string | undefined
-  readonly signal?: AbortSignal | undefined
-}
-
-/** @brief 为已有来源上传新版本的领域输入 / Domain input for uploading a new source version. */
-export interface UiKnowledgeVersionUploadInput {
-  readonly sourceId: UiKnowledgeSourceId
-  readonly file: File
-  readonly signal?: AbortSignal | undefined
-}
-
 /** @brief 知识摄取任务状态 / Knowledge ingestion Job status. */
 export type UiKnowledgeJobStatus =
   'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'expired'
@@ -136,13 +122,6 @@ export interface UiKnowledgeIngestionJob {
 export interface UiKnowledgeUploadResult {
   readonly source: UiKnowledgeSource
   readonly ingestionJob: UiKnowledgeIngestionJob
-}
-
-/** @brief 知识搜索领域输入 / Knowledge search domain input. */
-export interface UiKnowledgeSearchInput {
-  readonly query: string
-  readonly sourceIds: readonly UiKnowledgeSourceId[]
-  readonly signal?: AbortSignal | undefined
 }
 
 /** @brief 知识搜索结果展示模型 / Knowledge search result display model. */

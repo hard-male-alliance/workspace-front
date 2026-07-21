@@ -9,7 +9,8 @@ const directory = path.dirname(fileURLToPath(import.meta.url))
 /** @brief 工作区共享包别名 / Workspace shared-package aliases. */
 const workspaceAliases = {
   '@ai-job-workspace/app': path.resolve(directory, '../../packages/app/src'),
-  '@ai-job-workspace/platform': path.resolve(directory, '../../packages/platform/src')
+  '@ai-job-workspace/platform': path.resolve(directory, '../../packages/platform/src'),
+  '@ai-job-workspace/product-runtime': path.resolve(directory, '../../packages/product-runtime/src')
 }
 
 /**
@@ -45,6 +46,10 @@ export default defineConfig({
     }
   },
   renderer: {
+    build: {
+      minify: 'esbuild',
+      reportCompressedSize: true
+    },
     plugins: [react()],
     resolve: {
       alias: workspaceAliases

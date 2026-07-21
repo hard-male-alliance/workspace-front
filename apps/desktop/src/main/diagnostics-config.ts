@@ -49,14 +49,22 @@ export function resolveDesktopDiagnosticsConfiguration(
 /**
  * @brief 生成生产 Electron renderer 的 CSP / Build the production Electron-renderer CSP.
  * @param diagnostics 已由主进程验证的诊断配置 / Diagnostics configuration already validated by the main process.
+ * @param apiOrigin 已由主进程验证的产品 API origin / Product API origin already validated by the main process.
  * @return 不使用通配符的最小 CSP / Minimal CSP without wildcards.
- * @note CSP 仅允许诊断 origin，而不是携带路径的 endpoint / CSP permits only the diagnostics origin, not a path-bearing endpoint.
+ * @note CSP 仅允许诊断 origin，而不是携带路径的 endpoint；PDF frame 只允许产品 API origin / CSP permits only the diagnostics origin, not a path-bearing endpoint; PDF frames are limited to the product API origin.
  */
 export function createProductionContentSecurityPolicy(
-  diagnostics: DesktopDiagnosticsResolution
+  diagnostics: DesktopDiagnosticsResolution,
+  apiOrigin: string
 ): string {
   /** @brief 最小网络连接来源列表 / Minimal network connection source list. */
-  const connectSources = diagnostics.kind === 'enabled' ? `'self' ${diagnostics.origin}` : "'self'"
+  const connectSources = [
+    "'self'",
+    apiOrigin,
+    ...(diagnostics.kind === 'enabled' ? [diagnostics.origin] : [])
+  ]
+  /** @brief 去重后的连接来源 / Deduplicated connection sources. */
+  const uniqueConnectSources = [...new Set(connectSources)].join(' ')
 
-  return `default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src ${connectSources}; media-src 'self' blob:; worker-src 'self' blob:`
+  return `default-src 'self'; base-uri 'self'; object-src 'none'; frame-src ${apiOrigin}; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src ${uniqueConnectSources}; media-src 'self' blob:; worker-src 'self' blob:`
 }

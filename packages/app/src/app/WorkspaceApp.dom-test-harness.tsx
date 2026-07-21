@@ -1,21 +1,38 @@
 import { cleanup } from '@testing-library/react'
 import { afterEach } from 'vitest'
+import { APPLICATION_VERSION } from '@ai-job-workspace/platform'
+import type { ArtifactSavePort } from '@ai-job-workspace/platform'
 
 import { appI18n, appI18nReady } from '../i18n'
 import {
-  MockInterviewGateway,
+  DemoInterviewGateway,
   MockKnowledgeGateway,
   MockResumeGateway,
-  MockWorkspaceGateway
+  DemoWorkspaceGateway
 } from '../testing'
 import { createDiagnostics } from '../diagnostics'
 import type { WorkspaceAppProps } from './WorkspaceApp'
 import { WorkspaceApp as SharedWorkspaceApp } from './WorkspaceApp'
 
 /** @brief 测试版应用属性 / Test application properties. */
-export type TestWorkspaceAppProps = Omit<WorkspaceAppProps, 'diagnostics' | 'gateways'> & {
+export type TestWorkspaceAppProps = Omit<
+  WorkspaceAppProps,
+  'artifactSave' | 'diagnostics' | 'gateways' | 'runtimeInfo'
+> & {
+  readonly artifactSave?: WorkspaceAppProps['artifactSave']
   readonly diagnostics?: WorkspaceAppProps['diagnostics']
   readonly gateways?: WorkspaceAppProps['gateways']
+  readonly runtimeInfo?: WorkspaceAppProps['runtimeInfo']
+}
+
+/**
+ * @brief 创建无副作用的测试产物保存端口 / Create a side-effect-free test artifact-save port.
+ * @return 总是报告保存完成且不访问 DOM 或文件系统的端口 / Port that always reports success without touching the DOM or filesystem.
+ */
+export function createTestArtifactSavePort(): ArtifactSavePort {
+  return {
+    saveArtifact: (): Promise<{ readonly status: 'saved' }> => Promise.resolve({ status: 'saved' })
+  }
 }
 
 /** @brief 测试可覆盖的 Gateway 集合 / Gateway overrides available to tests. */
@@ -30,10 +47,10 @@ export function createTestGateways(
   overrides: TestGatewayOverrides = {}
 ): WorkspaceAppProps['gateways'] {
   return {
-    interview: new MockInterviewGateway(),
+    interview: new DemoInterviewGateway(),
     knowledge: new MockKnowledgeGateway(),
     resume: new MockResumeGateway(),
-    workspace: new MockWorkspaceGateway(),
+    workspace: new DemoWorkspaceGateway(),
     ...overrides
   }
 }
@@ -44,15 +61,19 @@ export function createTestGateways(
  * @return 测试用 React 应用元素 / React application element for tests.
  */
 export function WorkspaceApp({
+  artifactSave,
   diagnostics,
   gateways,
+  runtimeInfo,
   ...props
 }: TestWorkspaceAppProps): React.JSX.Element {
   return (
     <SharedWorkspaceApp
       {...props}
+      artifactSave={artifactSave ?? createTestArtifactSavePort()}
       diagnostics={diagnostics ?? createDiagnostics({ sinks: [] })}
       gateways={gateways ?? createTestGateways()}
+      runtimeInfo={runtimeInfo ?? { appVersion: APPLICATION_VERSION, platform: 'web' }}
     />
   )
 }

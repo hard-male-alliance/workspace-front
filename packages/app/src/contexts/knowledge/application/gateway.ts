@@ -2,14 +2,16 @@
 
 import type { UiKnowledgeSourceId, UiWorkspaceId } from '../../../shared-kernel/identity'
 import type {
+  UiKnowledgeSearchInput,
+  UiKnowledgeUploadInput,
+  UiKnowledgeVersionUploadInput
+} from './commands'
+import type {
   UiKnowledgeIngestionJob,
   UiKnowledgeIngestionJobId,
-  UiKnowledgeSearchInput,
   UiKnowledgeSearchResult,
   UiKnowledgeSource,
-  UiKnowledgeUploadInput,
   UiKnowledgeUploadResult,
-  UiKnowledgeVersionUploadInput,
   UiKnowledgeVisibilityModel
 } from '../domain/models'
 

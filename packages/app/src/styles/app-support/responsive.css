@@ -17,7 +17,7 @@
   }
 
   .aw-brand-text,
-  .aw-sidebar-label,
+  .aw-sidebar > .aw-sidebar-label,
   .aw-nav-link span,
   .aw-account > div {
     display: none;
@@ -143,6 +143,7 @@
   .aw-sidebar {
     position: fixed;
     z-index: 30;
+    top: auto;
     right: 0;
     bottom: 0;
     left: 0;
@@ -157,7 +158,7 @@
   }
 
   .aw-brand,
-  .aw-sidebar-label,
+  .aw-sidebar > .aw-sidebar-label,
   .aw-sidebar-spacer,
   .aw-account {
     display: none;

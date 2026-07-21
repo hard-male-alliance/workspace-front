@@ -6,6 +6,59 @@ export const rendererProtocolScheme = 'ai-job-workspace'
 /** @brief 生产 renderer 使用的受限协议主机名 / Restricted protocol hostname used by the production renderer. */
 export const rendererProtocolHost = 'renderer'
 
+/** @brief 开发 renderer 允许使用的回环主机 / Loopback hosts allowed for the development renderer. */
+const allowedDevelopmentRendererHosts = new Set(['127.0.0.1', 'localhost'])
+
+/**
+ * @brief 校验并规范化开发 renderer origin / Validate and normalize the development renderer origin.
+ * @param candidate electron-vite 提供的未受信任 URL / Untrusted URL supplied by electron-vite.
+ * @return 仅含协议、主机与端口的回环 origin / Loopback origin containing only scheme, host, and port.
+ * @throws URL 不是无凭证、无路径的本机 HTTP(S) origin 时抛出 / Throws unless the URL is a credential-free, path-free local HTTP(S) origin.
+ */
+export function validateDevelopmentRendererUrl(candidate: string): string {
+  /** @brief 已解析的开发 renderer URL / Parsed development renderer URL. */
+  let url: URL
+
+  try {
+    url = new URL(candidate)
+  } catch {
+    throw new Error('The development renderer URL must be a valid loopback HTTP(S) origin.')
+  }
+
+  if (
+    (url.protocol !== 'http:' && url.protocol !== 'https:') ||
+    !allowedDevelopmentRendererHosts.has(url.hostname) ||
+    url.username !== '' ||
+    url.password !== '' ||
+    url.pathname !== '/' ||
+    url.search !== '' ||
+    url.hash !== ''
+  ) {
+    throw new Error(
+      'The development renderer URL must be a credential-free localhost or 127.0.0.1 HTTP(S) origin without a path, query, or fragment.'
+    )
+  }
+
+  return url.origin
+}
+
+/**
+ * @brief 选择当前进程唯一可信的 renderer URL / Select the only trusted renderer URL for the current process.
+ * @param isPackaged 应用是否为已打包构建 / Whether the application is a packaged build.
+ * @param developmentRendererUrl 开发服务器 URL / Development-server URL.
+ * @param productionRendererUrl 受限生产协议 URL / Restricted production-protocol URL.
+ * @return 开发态服务器 URL 或生产协议 URL / Development-server URL or production-protocol URL.
+ * @note 已打包应用始终忽略环境变量中的开发服务器 URL / Packaged applications always ignore a development-server URL from the environment.
+ */
+export function selectTrustedRendererUrl(
+  isPackaged: boolean,
+  developmentRendererUrl: string | undefined,
+  productionRendererUrl: string
+): string {
+  if (isPackaged || developmentRendererUrl === undefined) return productionRendererUrl
+  return validateDevelopmentRendererUrl(developmentRendererUrl)
+}
+
 /**
  * @brief 检测 URL 原始路径中的父目录片段 / Detect parent-directory segments in a URL's raw path.
  * @param requestUrl 待检查的请求 URL / Request URL to inspect.

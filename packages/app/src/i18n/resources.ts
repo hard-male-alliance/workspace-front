@@ -134,7 +134,8 @@ export const zhSGTranslation = {
       visibilityMeta: '简历以外的资料默认拒绝访问',
       activityTitle: '最近活动',
       activityDescription: '当前 Mock 工作区中已记录的操作。',
-      mockNotice: '工作区与面试仍为 Mock；简历读取、写入、Proposal 审批和 PDF 已连接当前项目后端。'
+      mockNotice:
+        '工作区与面试使用本地 Demo（模拟面试不采集真实麦克风）；简历与知识库会连接当前配置的项目后端。'
     }
   },
   resume: {
@@ -203,7 +204,13 @@ export const zhSGTranslation = {
       conflictDescription: '服务器上的简历已发生变化。请先重新加载权威版本，再继续编辑。',
       reloadAuthority: '重新加载服务器版本',
       reloadingAuthority: '正在重新加载…',
-      reloadAuthorityError: '无法重新加载服务器版本，请重试。'
+      reloadAuthorityError: '无法重新加载服务器版本，请重试。',
+      downloadPdf: '下载 PDF',
+      savingPdf: '正在保存 PDF…',
+      pdfSaved: 'PDF 已保存。',
+      pdfDownloadStarted: 'PDF 下载已开始。',
+      pdfSaveCancelled: '已取消保存。',
+      pdfSaveError: 'PDF 保存失败，请重试。'
     }
   },
   template: {
@@ -764,7 +771,7 @@ export const enUSTranslation = {
       activityTitle: 'Recent activity',
       activityDescription: 'Recorded actions from the current Mock workspace.',
       mockNotice:
-        'Workspace and interviews still use Mock data; Resume reads, writes, Proposal decisions, and PDF rendering use the project backend.'
+        'Workspace and interviews use local Demo data (interviews do not capture a real microphone); Resume and Knowledge connect to the configured project backend.'
     }
   },
   resume: {
@@ -837,7 +844,13 @@ export const enUSTranslation = {
         'This resume changed on the server. Reload the authoritative version before editing.',
       reloadAuthority: 'Reload server version',
       reloadingAuthority: 'Reloading…',
-      reloadAuthorityError: 'The server version could not be reloaded. Try again.'
+      reloadAuthorityError: 'The server version could not be reloaded. Try again.',
+      downloadPdf: 'Download PDF',
+      savingPdf: 'Saving PDF…',
+      pdfSaved: 'PDF saved.',
+      pdfDownloadStarted: 'PDF download started.',
+      pdfSaveCancelled: 'Save cancelled.',
+      pdfSaveError: 'The PDF could not be saved. Try again.'
     }
   },
   template: {
