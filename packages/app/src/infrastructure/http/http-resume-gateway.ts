@@ -1,8 +1,7 @@
 /** @file Resume 与模板只读 HTTP Gateway / Read-only HTTP Gateway for Resume and templates. */
 
+import type { ResumeGateway } from '../../contexts/resume/application/gateway'
 import type {
-  ResumeGateway,
-  UiContentLocale,
   UiResumeAssistantMessageInput,
   UiResumeAssistantTurnResult,
   UiResumeAssistantUndoInput,
@@ -20,9 +19,10 @@ import type {
   UiResumeSectionUpdateInput,
   UiResumeTemplateSelectionInput,
   UiTemplateManifest,
-  UiTemplateSettingsModel,
-  UiWorkspaceId
-} from '../../domain'
+  UiTemplateSettingsModel
+} from '../../contexts/resume/domain/models'
+import { asUiOpaqueId, type UiWorkspaceId } from '../../shared-kernel/identity'
+import type { UiContentLocale } from '../../shared-kernel/locale'
 import type { HttpClient } from './http-client'
 import { HttpContractError } from './http-client'
 import { mapResumeDocumentDto, mapTemplateManifestDto } from './mappers'
@@ -42,7 +42,6 @@ import type {
   ResumeProposalDto,
   ResumeRenderJobDto
 } from './transport-types'
-import { asUiOpaqueId } from '../../domain'
 
 /** @brief 第一阶段尚未接入的写能力错误 / Write capability not connected in phase one. */
 export class HttpReadOnlyCapabilityError extends Error {

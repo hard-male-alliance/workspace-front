@@ -12,17 +12,16 @@ import {
 import { WorkspaceShell } from './WorkspaceShell'
 import type { Diagnostics } from '../observability'
 import { appI18n, appI18nReady } from '../i18n'
-import { InterviewRoomPage } from '../features/interview/InterviewRoomPage'
-import { InterviewSummaryPage } from '../features/interview/InterviewSummaryPage'
-import { InterviewHubPage } from '../features/interview/InterviewHubPage'
-import { InterviewSetupPage } from '../features/interview/InterviewSetupPage'
-import { KnowledgePage } from '../features/knowledge/KnowledgePage'
-import { KnowledgeVisibilityPage } from '../features/knowledge/KnowledgeVisibilityPage'
-import { ResumeEditorPage } from '../features/resume/ResumeEditorPage'
-import { ResumeEntryPage } from '../features/resume/ResumeEntryPage'
-import { TemplateSettingsPage } from '../features/resume/TemplateSettingsPage'
-import { StateGalleryPage } from '../features/states/StateGalleryPage'
-import { WorkspaceHomePage } from '../features/workspace/WorkspaceHomePage'
+import { StateGalleryPage } from '../app-support/presentation/StateGalleryPage'
+import {
+  InterviewHubPage,
+  InterviewRoomPage,
+  InterviewSetupPage,
+  InterviewSummaryPage
+} from '../contexts/interview'
+import { KnowledgePage, KnowledgeVisibilityPage } from '../contexts/knowledge'
+import { ResumeEditorPage, ResumeEntryPage, TemplateSettingsPage } from '../contexts/resume'
+import { WorkspaceHomePage } from '../contexts/workspace'
 import { LoadingState } from '../ui'
 import '../styles/app.css'
 

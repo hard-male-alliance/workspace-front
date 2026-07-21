@@ -2,8 +2,7 @@
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { DEFAULT_APP_LOCALE } from '../domain/models'
-import { appI18n, appI18nReady, isAppLocale, setAppLocale } from './i18n'
+import { appI18n, appI18nReady, DEFAULT_APP_LOCALE, isAppLocale, setAppLocale } from './i18n'
 
 afterEach(async () => {
   await setAppLocale(DEFAULT_APP_LOCALE)

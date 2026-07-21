@@ -4,14 +4,8 @@
  * 这些类不执行 HTTP、WebRTC、SSE 或 Node.js 调用，且不应被误认为正式服务端客户端。
  */
 
+import type { InterviewGateway } from '../../contexts/interview/application/gateway'
 import type {
-  InterviewGateway,
-  KnowledgeGateway,
-  ResumeGateway,
-  WorkspaceGateway
-} from '../../domain/gateways'
-import type {
-  UiContentLocale,
   UiCreateInterviewInput,
   UiCreateInterviewResult,
   UiInterviewHistoryItem,
@@ -20,23 +14,28 @@ import type {
   UiInterviewScenario,
   UiInterviewSetupModel,
   UiInterviewSessionId,
+  UiLiveInterviewModel
+} from '../../contexts/interview/domain/models'
+import type { KnowledgeGateway } from '../../contexts/knowledge/application/gateway'
+import type {
   UiKnowledgeIngestionJob,
   UiKnowledgeIngestionJobId,
   UiKnowledgeSearchInput,
   UiKnowledgeSearchResult,
   UiKnowledgeSource,
-  UiKnowledgeSourceId,
   UiKnowledgeUploadInput,
   UiKnowledgeUploadResult,
   UiKnowledgeVersionUploadInput,
-  UiKnowledgeVisibilityModel,
-  UiLiveInterviewModel,
-  UiResumeCard,
+  UiKnowledgeVisibilityModel
+} from '../../contexts/knowledge/domain/models'
+import type { ResumeGateway } from '../../contexts/resume/application/gateway'
+import type {
   UiResumeAssistantMessage,
   UiResumeAssistantMessageInput,
   UiResumeAssistantTurnResult,
   UiResumeAssistantUndoInput,
   UiResumeAssistantUndoResult,
+  UiResumeCard,
   UiResumeEditorModel,
   UiResumeId,
   UiResumeProposal,
@@ -49,12 +48,16 @@ import type {
   UiResumeTemplateSelectionInput,
   UiTemplateManifest,
   UiTemplateSettingsModel,
-  UiStartResumePdfRenderInput,
-  UiWorkspace,
-  UiWorkspaceHomeModel,
-  UiWorkspaceId
-} from '../../domain/models'
-import { asUiOpaqueId } from '../../domain/models'
+  UiStartResumePdfRenderInput
+} from '../../contexts/resume/domain/models'
+import type { WorkspaceGateway } from '../../contexts/workspace/application/gateway'
+import type { UiWorkspace, UiWorkspaceHomeModel } from '../../contexts/workspace/domain/models'
+import {
+  asUiOpaqueId,
+  type UiKnowledgeSourceId,
+  type UiWorkspaceId
+} from '../../shared-kernel/identity'
+import type { UiContentLocale } from '../../shared-kernel/locale'
 import {
   MOCK_INTERVIEW_REPORT,
   MOCK_INTERVIEW_HISTORY,

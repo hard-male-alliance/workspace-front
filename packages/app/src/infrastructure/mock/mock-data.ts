@@ -5,23 +5,26 @@
  */
 
 import {
-  asUiOpaqueId,
   type UiInterviewHistoryItem,
   type UiInterviewReport,
   type UiInterviewRuntimeModel,
   type UiInterviewScenario,
   type UiInterviewSession,
-  type UiKnowledgeSource,
-  type UiKnowledgeVisibilityModel,
-  type UiLiveInterviewModel,
-  type UiResumeCard,
-  type UiResumeDocument,
-  type UiResumeEditorModel,
-  type UiTemplateManifest,
-  type UiTemplateSettingsModel,
-  type UiWorkspace,
-  type UiWorkspaceHomeModel
-} from '../../domain/models'
+  type UiLiveInterviewModel
+} from '../../contexts/interview/domain/models'
+import type {
+  UiKnowledgeSource,
+  UiKnowledgeVisibilityModel
+} from '../../contexts/knowledge/domain/models'
+import type {
+  UiResumeCard,
+  UiResumeDocument,
+  UiResumeEditorModel,
+  UiTemplateManifest,
+  UiTemplateSettingsModel
+} from '../../contexts/resume/domain/models'
+import type { UiWorkspace, UiWorkspaceHomeModel } from '../../contexts/workspace/domain/models'
+import { asUiOpaqueId } from '../../shared-kernel/identity'
 
 /** @brief Mock 工作区 ID / Mock workspace ID. */
 export const MOCK_WORKSPACE_ID = asUiOpaqueId<'workspace'>('ws_mock_klee_career_lab')

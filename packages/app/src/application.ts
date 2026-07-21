@@ -1,6 +1,9 @@
 /** @file 应用组合端口 / Application composition ports. */
 
-import type { InterviewGateway, KnowledgeGateway, ResumeGateway, WorkspaceGateway } from './domain'
+import type { InterviewGateway } from './contexts/interview/application/gateway'
+import type { KnowledgeGateway } from './contexts/knowledge/application/gateway'
+import type { ResumeGateway } from './contexts/resume/application/gateway'
+import type { WorkspaceGateway } from './contexts/workspace/application/gateway'
 
 /** @brief 产品应用依赖的上下文端口集合 / Context ports required by the product application. */
 export interface AppGateways {

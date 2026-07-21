@@ -7,8 +7,8 @@ import {
   MockKnowledgeGateway,
   MockResumeGateway,
   MockWorkspaceGateway
-} from '../infrastructure/mock'
-import { createDiagnostics } from '../infrastructure/observability'
+} from '../testing'
+import { createDiagnostics } from '../diagnostics'
 import type { WorkspaceAppProps } from './WorkspaceApp'
 import { WorkspaceApp as SharedWorkspaceApp } from './WorkspaceApp'
 

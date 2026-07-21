@@ -1,9 +1,8 @@
 /** @file Transport DTO 到现有 UI 模型的集中映射 / Central transport-to-UI mapping. */
 
-import { asUiOpaqueId } from '../../domain'
+import type { UiAgentScope } from '../../shared-kernel/agent-scope'
+import { asUiOpaqueId } from '../../shared-kernel/identity'
 import type {
-  UiColorValue,
-  UiAgentScope,
   UiKnowledgeIngestionStatus,
   UiKnowledgeIngestionJob,
   UiKnowledgeOperation,
@@ -11,7 +10,10 @@ import type {
   UiKnowledgeSensitivity,
   UiKnowledgeSource,
   UiKnowledgeSourceType,
-  UiVisibilityEffect,
+  UiVisibilityEffect
+} from '../../contexts/knowledge/domain/models'
+import type {
+  UiColorValue,
   UiMeasurement,
   UiResumeContactKind,
   UiResumeDocument,
@@ -24,7 +26,7 @@ import type {
   UiTemplateSettingControl,
   UiTemplateSettingValue,
   UiTemplateSettingValueType
-} from '../../domain'
+} from '../../contexts/resume/domain/models'
 import { HttpContractError } from './http-client'
 import type {
   ColorValueDto,

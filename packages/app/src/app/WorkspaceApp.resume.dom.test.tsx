@@ -1,8 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
-import { HttpProblemError } from '../infrastructure/http/http-client'
-import { MOCK_RESUME_ID, MockResumeGateway } from '../infrastructure/mock'
+import { HttpProblemError } from '../http'
+import { MOCK_RESUME_ID, MockResumeGateway } from '../testing'
 import {
   createTestGateways,
   installWorkspaceAppTestCleanup,

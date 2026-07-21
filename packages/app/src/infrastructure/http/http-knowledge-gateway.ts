@@ -1,19 +1,18 @@
 /** @file KnowledgeSource 只读 HTTP Gateway / Read-only KnowledgeSource HTTP Gateway. */
 
+import type { KnowledgeGateway } from '../../contexts/knowledge/application/gateway'
 import type {
-  KnowledgeGateway,
   UiKnowledgeIngestionJob,
   UiKnowledgeIngestionJobId,
   UiKnowledgeSearchInput,
   UiKnowledgeSearchResult,
   UiKnowledgeSource,
-  UiKnowledgeSourceId,
   UiKnowledgeUploadInput,
   UiKnowledgeUploadResult,
   UiKnowledgeVersionUploadInput,
-  UiKnowledgeVisibilityModel,
-  UiWorkspaceId
-} from '../../domain'
+  UiKnowledgeVisibilityModel
+} from '../../contexts/knowledge/domain/models'
+import type { UiKnowledgeSourceId, UiWorkspaceId } from '../../shared-kernel/identity'
 import type { HttpClient } from './http-client'
 import { HttpContractError } from './http-client'
 import {
