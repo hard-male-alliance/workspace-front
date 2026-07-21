@@ -1,0 +1,41 @@
+.aw-state-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 15px;
+}
+
+.aw-empty-state,
+.aw-loading-state,
+.aw-error-state {
+  display: grid;
+  min-height: 265px;
+  align-content: center;
+  justify-items: start;
+  gap: 10px;
+  padding: 23px;
+}
+
+.aw-state-icon {
+  display: grid;
+  width: 39px;
+  height: 39px;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--ui-color-accent-subtle);
+  color: var(--ui-color-accent-subtle-foreground);
+}
+
+.aw-skeleton {
+  width: 100%;
+  height: 12px;
+  border-radius: 4px;
+  background: var(--ui-color-surface-muted);
+}
+
+.aw-skeleton--short {
+  width: 56%;
+}
+
+.aw-skeleton--medium {
+  width: 76%;
+}

@@ -1,0 +1,18 @@
+:root {
+  --color-canvas: var(--ui-color-canvas);
+  --color-surface: var(--ui-color-surface);
+  --color-surface-subtle: var(--ui-color-surface-muted);
+  --color-ink: var(--ui-color-ink);
+  --color-muted: var(--ui-color-ink-muted);
+  --color-line: var(--ui-color-border);
+  --color-accent: var(--ui-color-accent);
+  --color-accent-strong: var(--ui-color-accent-hover);
+  --font-sans: var(--ui-font-sans);
+  --font-serif: var(--ui-font-sans);
+
+  color: var(--color-ink);
+  background: var(--color-canvas);
+  font-family: var(--font-sans);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}

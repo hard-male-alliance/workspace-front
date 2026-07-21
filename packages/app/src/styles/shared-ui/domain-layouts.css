@@ -1,0 +1,7 @@
+.aw-template-layout,
+.aw-knowledge-layout,
+.aw-summary-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.4fr);
+  gap: 18px;
+}

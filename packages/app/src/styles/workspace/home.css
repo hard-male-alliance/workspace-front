@@ -1,0 +1,234 @@
+/* Stage one: action-first workspace home. */
+.aw-workbench-page {
+  display: grid;
+  gap: 28px;
+}
+
+.aw-workbench-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.aw-workbench-context {
+  margin: 0 0 8px;
+  color: var(--ui-color-accent-subtle-foreground);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.aw-today-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(300px, 0.65fr);
+  gap: 18px;
+}
+
+.aw-focus-panel,
+.aw-progress-panel,
+.aw-workbench-section {
+  border: 1px solid var(--ui-color-border);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-color-surface);
+}
+
+.aw-focus-panel {
+  display: flex;
+  min-height: 270px;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 32px;
+  padding: 28px;
+  border-color: var(--ui-color-border-strong);
+  background: var(--ui-color-accent-subtle);
+}
+
+.aw-focus-label {
+  margin: 0 0 14px;
+  color: var(--ui-color-accent-subtle-foreground);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.aw-focus-copy h3 {
+  max-width: 24ch;
+  margin: 0;
+  color: var(--ui-color-ink);
+  font-size: 28px;
+  font-weight: 740;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+}
+
+.aw-focus-copy > p:last-child {
+  max-width: 58ch;
+  margin: 12px 0 0;
+  color: var(--ui-color-ink-muted);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.aw-focus-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.aw-focus-meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ui-color-ink-muted);
+  font-size: 12px;
+}
+
+.aw-progress-panel,
+.aw-workbench-section {
+  padding: 22px;
+}
+
+.aw-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.aw-section-heading h2 {
+  margin: 0;
+  color: var(--ui-color-ink);
+  font-size: 15px;
+  font-weight: 720;
+}
+
+.aw-section-heading p {
+  margin: 5px 0 0;
+  color: var(--ui-color-ink-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.aw-progress-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+}
+
+.aw-progress-list > div {
+  display: flex;
+  min-height: 56px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--ui-color-border);
+}
+
+.aw-progress-list > div:last-child {
+  border-bottom: 0;
+}
+
+.aw-progress-list dt {
+  color: var(--ui-color-ink-muted);
+  font-size: 13px;
+}
+
+.aw-progress-list dd {
+  margin: 0;
+  color: var(--ui-color-ink);
+  font-size: 21px;
+  font-weight: 720;
+  letter-spacing: -0.025em;
+}
+
+.aw-workbench-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(340px, 0.85fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.aw-action-list {
+  display: grid;
+}
+
+.aw-action-row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 72px;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--ui-color-border);
+  border-radius: var(--ui-radius-sm);
+  color: var(--ui-color-ink-muted);
+  text-decoration: none;
+  transition:
+    color var(--ui-transition-fast),
+    background var(--ui-transition-fast);
+}
+
+.aw-action-row:last-child {
+  border-bottom: 0;
+}
+
+.aw-action-row:hover {
+  background: var(--ui-color-surface-muted);
+  color: var(--ui-color-accent-subtle-foreground);
+}
+
+.aw-action-icon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-color-accent-subtle);
+  color: var(--ui-color-accent-subtle-foreground);
+}
+
+.aw-action-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.aw-action-copy strong,
+.aw-activity-copy strong {
+  color: var(--ui-color-ink);
+  font-size: 13px;
+  font-weight: 680;
+}
+
+.aw-action-copy small,
+.aw-activity-copy span {
+  color: var(--ui-color-ink-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.aw-workbench-section .aw-timeline-item {
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  padding: 13px 0;
+  border-color: var(--ui-color-border);
+}
+
+.aw-activity-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.aw-workbench-section .aw-status {
+  white-space: nowrap;
+}
+
+.aw-workbench-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -4px 0 0;
+  color: var(--ui-color-ink-subtle);
+  font-size: 12px;
+}
