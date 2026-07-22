@@ -39,6 +39,17 @@ async function readDemoAuthority(): Promise<{
 
 /** @brief 应用外壳与工作台用户行为测试 / App-shell and workspace user-behaviour tests. */
 describe('WorkspaceApp app shell', (): void => {
+  it('仅在宿主提供能力时呈现并调用退出登录', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 宿主登出 spy / Host sign-out spy. */
+    const onSignOut = vi.fn((): Promise<void> => Promise.resolve())
+
+    render(<WorkspaceApp initialPath="/" onSignOut={onSignOut} />)
+    fireEvent.click(await screen.findByRole('button', { name: '退出登录' }))
+
+    await waitFor((): void => expect(onSignOut).toHaveBeenCalledOnce())
+  })
+
   it('keeps one current workspace selection while navigating across contexts', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
 

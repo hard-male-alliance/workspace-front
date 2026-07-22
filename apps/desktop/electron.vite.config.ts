@@ -2,6 +2,9 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
+import { loadEnv } from 'vite'
+
+import { resolveDesktopOAuthConfiguration } from './src/main/native-oauth-config'
 
 /** @brief 当前 Electron 应用目录 / Current Electron application directory. */
 const directory = path.dirname(fileURLToPath(import.meta.url))
@@ -19,41 +22,55 @@ const workspaceAliases = {
  *
  * @note preload 显式输出 CommonJS，以兼容启用 sandbox 的 preload 运行环境。
  */
-export default defineConfig({
-  main: {
-    build: {
-      externalizeDeps: {
-        exclude: ['@ai-job-workspace/platform', '@ai-job-workspace/product-api-v2']
+export default defineConfig(({ mode }) => {
+  /** @brief 当前 mode 的公开桌面构建变量 / Public desktop build variables for the current mode. */
+  const fileEnvironment = loadEnv(mode, directory, 'AI_JOB_WORKSPACE_')
+  /** @brief 由发布环境优先提供并在构建时验证的 public client 配置 / Public-client configuration supplied preferentially by the release environment and validated at build time. */
+  const oauthConfiguration = resolveDesktopOAuthConfiguration({
+    AI_JOB_WORKSPACE_OAUTH_CLIENT_ID:
+      process.env.AI_JOB_WORKSPACE_OAUTH_CLIENT_ID ??
+      fileEnvironment.AI_JOB_WORKSPACE_OAUTH_CLIENT_ID
+  })
+
+  return {
+    main: {
+      define: {
+        __AI_JOB_WORKSPACE_OAUTH_CLIENT_ID__: JSON.stringify(oauthConfiguration.clientId)
+      },
+      build: {
+        externalizeDeps: {
+          exclude: ['@ai-job-workspace/platform', '@ai-job-workspace/product-api-v2']
+        }
+      },
+      resolve: {
+        alias: workspaceAliases
       }
     },
-    resolve: {
-      alias: workspaceAliases
-    }
-  },
-  preload: {
-    resolve: {
-      alias: workspaceAliases
-    },
-    build: {
-      externalizeDeps: {
-        exclude: ['@ai-job-workspace/platform']
+    preload: {
+      resolve: {
+        alias: workspaceAliases
       },
-      rollupOptions: {
-        output: {
-          format: 'cjs',
-          entryFileNames: '[name].cjs'
+      build: {
+        externalizeDeps: {
+          exclude: ['@ai-job-workspace/platform']
+        },
+        rollupOptions: {
+          output: {
+            format: 'cjs',
+            entryFileNames: '[name].cjs'
+          }
         }
       }
-    }
-  },
-  renderer: {
-    build: {
-      minify: 'esbuild',
-      reportCompressedSize: true
     },
-    plugins: [react()],
-    resolve: {
-      alias: workspaceAliases
+    renderer: {
+      build: {
+        minify: 'esbuild',
+        reportCompressedSize: true
+      },
+      plugins: [react()],
+      resolve: {
+        alias: workspaceAliases
+      }
     }
   }
 })

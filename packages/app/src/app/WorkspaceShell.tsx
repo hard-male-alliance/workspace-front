@@ -4,6 +4,7 @@ import {
   BriefcaseBusiness,
   Database,
   LayoutDashboard,
+  LogOut,
   Moon,
   Plus,
   Sun
@@ -161,6 +162,8 @@ function getUserInitial(displayName: string): string {
 export interface WorkspaceShellProps {
   /** @brief 由宿主组合根确认的运行时信息 / Runtime information confirmed by the host composition root. */
   readonly runtimeInfo: RuntimeInfo
+  /** @brief 可选宿主登出动作 / Optional host sign-out action. */
+  readonly onSignOut?: (() => Promise<void>) | undefined
 }
 
 /**
@@ -169,7 +172,7 @@ export interface WorkspaceShellProps {
  * @return 含导航、语言切换与路由出口的跨端框架 / Cross-platform shell with navigation, locale switcher and route outlet.
  * @note 桌面 renderer 与 Web 均复用此组件；不依赖 Electron、全局 bridge 或 Node.js API。
  */
-export function WorkspaceShell({ runtimeInfo }: WorkspaceShellProps): React.JSX.Element {
+export function WorkspaceShell({ onSignOut, runtimeInfo }: WorkspaceShellProps): React.JSX.Element {
   /** @brief i18n 翻译实例 / i18n translation instance. */
   const { i18n, t } = useTranslation()
   /** @brief 当前路由位置 / Current route location. */
@@ -213,6 +216,8 @@ export function WorkspaceShell({ runtimeInfo }: WorkspaceShellProps): React.JSX.
     useState<WorkspacePageLoadState>('idle')
   /** @brief 不触发 Shell 全屏 loading 的追加页快照 / Append-page snapshot that avoids a full-shell loading transition. */
   const [workspaceAccessOverride, setWorkspaceAccessOverride] = useState<WorkspaceAccessOverride>()
+  /** @brief 宿主登出动作状态 / Host sign-out action state. */
+  const [signOutState, setSignOutState] = useState<'error' | 'idle' | 'loading'>('idle')
   /** @brief 当前追加页请求的取消控制器 / Cancellation controller for the current append-page request. */
   const workspacePageController = useRef<AbortController | null>(null)
 
@@ -298,6 +303,16 @@ export function WorkspaceShell({ runtimeInfo }: WorkspaceShellProps): React.JSX.
       diagnostics.emit('preference.theme_storage_unavailable', {})
     }
     diagnostics.emit('preference.theme_changed', { theme: nextTheme })
+  }
+
+  /** @brief 调用宿主登出并在本 shell 未卸载时呈现安全失败 / Invoke host sign-out and present a safe failure if this shell remains mounted. */
+  const signOut = (): void => {
+    if (onSignOut === undefined || signOutState === 'loading') return
+    setSignOutState('loading')
+    void onSignOut().then(
+      (): void => setSignOutState('idle'),
+      (): void => setSignOutState('error')
+    )
   }
 
   return (
@@ -495,6 +510,27 @@ export function WorkspaceShell({ runtimeInfo }: WorkspaceShellProps): React.JSX.
                 <Moon aria-hidden="true" size={16} />
               )}
             </button>
+            {onSignOut === undefined ? null : (
+              <button
+                aria-busy={signOutState === 'loading'}
+                className="aw-quiet-button"
+                disabled={signOutState === 'loading'}
+                onClick={signOut}
+                type="button"
+              >
+                <LogOut aria-hidden="true" size={15} />
+                {signOutState === 'loading'
+                  ? t('account.signingOut', { defaultValue: '正在退出…' })
+                  : t('account.signOut', { defaultValue: '退出登录' })}
+              </button>
+            )}
+            {signOutState === 'error' ? (
+              <span className="aw-sr-only" role="alert">
+                {t('account.signOutFailed', {
+                  defaultValue: '无法完成本地退出，请重试。'
+                })}
+              </span>
+            ) : null}
             <button
               aria-label={t('topbar.changeLocale', { defaultValue: '切换界面语言' })}
               className="aw-locale-button"

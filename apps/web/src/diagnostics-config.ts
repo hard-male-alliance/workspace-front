@@ -5,7 +5,7 @@ import type { DiagnosticsEndpointConfiguration } from '@ai-job-workspace/platfor
 import {
   API_V2_CONTROLLED_TEST_ORIGIN,
   API_V2_PRODUCTION_ORIGIN
-} from '@ai-job-workspace/product-api-v2/origin'
+} from '@ai-job-workspace/product-api-v2'
 
 /** @brief 固定的前端诊断批量上传路径 / Fixed frontend-diagnostics batch upload path. */
 export { FRONTEND_DIAGNOSTICS_BATCH_PATH } from '@ai-job-workspace/platform'

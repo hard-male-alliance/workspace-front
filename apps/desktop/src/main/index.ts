@@ -1,14 +1,24 @@
 /** @file Electron 主进程组合根与应用生命周期 / Electron main-process composition root and application lifecycle. */
 
-import { app, dialog } from 'electron'
+import { app, dialog, safeStorage } from 'electron'
 import type { BrowserWindow } from 'electron'
+import type { DesktopAuthenticationFailureReason } from '@ai-job-workspace/platform'
+import { WebCryptoJwksIdTokenVerifier } from '@ai-job-workspace/product-api-v2/native-oauth'
 
-import { resolveDesktopApiBaseUrl } from './api-config'
+import { createSecureBeforeQuitHandler } from './before-quit'
+import { DESKTOP_BUILD_OAUTH_CLIENT_ID } from './build-public-config'
 import {
   createProductionContentSecurityPolicy,
   resolveDesktopDiagnosticsConfiguration
 } from './diagnostics-config'
 import { configureDefaultPermissionDenial, createMainWindow } from './main-window'
+import { resolveDesktopOAuthConfiguration } from './native-oauth-config'
+import { NativeOAuthController, registerNativeOAuthHandlers } from './native-oauth-ipc'
+import {
+  ElectronNativeRefreshGrantStore,
+  NativeSecureStorageUnavailableError
+} from './native-oauth-secure-store'
+import { NativeOAuthSession } from './native-oauth-session'
 import {
   getTrustedRendererUrl,
   loadTrustedRenderer,
@@ -23,6 +33,9 @@ import { reportDesktopStartupFailure } from './startup-failure'
 
 /** @brief 唯一的产品主窗口 / The single product main window. */
 let mainWindow: BrowserWindow | null = null
+
+/** @brief 当前进程唯一 native OAuth 控制器 / Sole native OAuth controller in this process. */
+let nativeOAuthController: NativeOAuthController | null = null
 
 /**
  * @brief 读取当前可信主窗口身份 / Resolve the current trusted main-window identity.
@@ -72,26 +85,86 @@ async function openMainWindow(): Promise<BrowserWindow> {
  * @return 初始化完成时兑现的 Promise / Promise fulfilled when initialization completes.
  */
 async function initializeDesktopApplication(): Promise<void> {
-  /** @brief 由主进程严格验证的产品 API origin / Product API origin strictly validated by the main process. */
-  const apiBaseUrl = resolveDesktopApiBaseUrl(process.env)
   /** @brief 主进程解析的可选诊断配置 / Optional diagnostics configuration resolved by the main process. */
   const diagnostics = resolveDesktopDiagnosticsConfiguration(process.env)
-  /** @brief 只允许产品 API 与可选诊断 origin 的生产 CSP / Production CSP allowing only the product API and optional diagnostics origin. */
-  const contentSecurityPolicy = createProductionContentSecurityPolicy(diagnostics, apiBaseUrl)
+  /** @brief 只允许固定 API v2 与可选诊断 origin 的生产 CSP / Production CSP allowing only the frozen API v2 and optional diagnostics origin. */
+  const contentSecurityPolicy = createProductionContentSecurityPolicy(diagnostics)
   /** @brief 通过 IPC 下发的不可变运行时信息 / Immutable runtime information exposed through IPC. */
-  const runtimeInfo = createDesktopRuntimeInfo(apiBaseUrl, diagnostics)
+  const runtimeInfo = createDesktopRuntimeInfo(diagnostics)
   /** @brief 当前进程唯一可信的 renderer URL / Sole trusted renderer URL for this process. */
   const rendererUrl = getTrustedRendererUrl()
-
+  /** @brief main 严格验证的 native public-client 配置 / Native public-client configuration strictly validated by main. */
+  const oauthConfiguration = resolveDesktopOAuthConfiguration({
+    AI_JOB_WORKSPACE_OAUTH_CLIENT_ID: DESKTOP_BUILD_OAUTH_CLIENT_ID
+  })
+  /** @brief 仅把加密 Refresh Token 写入 userData 的 OS-backed store / OS-backed store writing only encrypted Refresh Token grants under userData. */
+  const grantStore = new ElectronNativeRefreshGrantStore({
+    safeStorage,
+    userDataDirectory: app.getPath('userData')
+  })
+  /** @brief main-only 会话；Access Token 不持久化 / Main-only session whose Access Token is never persisted. */
+  const nativeOAuthSession = new NativeOAuthSession({
+    clientId: oauthConfiguration.clientId,
+    grantStore,
+    idTokenVerifier: new WebCryptoJwksIdTokenVerifier()
+  })
   configureDefaultPermissionDenial()
   registerRendererProtocol(contentSecurityPolicy)
   registerDevelopmentRendererContentSecurityPolicy(rendererUrl, contentSecurityPolicy)
   registerRuntimeInfoHandler(runtimeInfo, resolveTrustedRendererIdentity)
+  /** @brief 启动恢复失败的低基数投影 / Low-cardinality projection of a startup-restoration failure. */
+  let restoreFailure: DesktopAuthenticationFailureReason | undefined
+  try {
+    await nativeOAuthSession.restore()
+  } catch (error: unknown) {
+    restoreFailure =
+      error instanceof NativeSecureStorageUnavailableError
+        ? error.reason === 'persistent-login-unsupported'
+          ? 'persistent-login-unsupported'
+          : 'secure-storage-unavailable'
+        : 'failed'
+    if (
+      error instanceof NativeSecureStorageUnavailableError &&
+      error.reason === 'persistent-login-unsupported'
+    ) {
+      console.warn('Persistent native OAuth login is disabled on this platform.')
+    } else {
+      console.error('Native OAuth session restoration failed.', error)
+    }
+  }
+  /** @brief renderer 可调用但不拥有长期凭据的认证控制器 / Authentication controller callable by renderer without owning long-lived credentials. */
+  const authentication = new NativeOAuthController({
+    configuration: oauthConfiguration,
+    ...(restoreFailure === undefined ? {} : { initialFailureReason: restoreFailure }),
+    session: nativeOAuthSession
+  })
+  registerNativeOAuthHandlers(authentication, resolveTrustedRendererIdentity)
+  nativeOAuthController = authentication
 
   await openMainWindow()
 
   app.on('activate', recreateMainWindowOnActivate)
 }
+
+/**
+ * @brief 应用退出前等待授权、轮换与持久化静止 / Quiesce authorization, rotation, and persistence before application exit.
+ * @return 静止完成时兑现 / Resolves after quiescence.
+ */
+async function disposeNativeOAuthBeforeQuit(): Promise<void> {
+  /** @brief 当前控制器快照 / Current controller snapshot. */
+  const controller = nativeOAuthController
+  if (controller === null) return
+  await controller.dispose()
+  nativeOAuthController = null
+}
+
+/** @brief 拦截首次退出并在认证生命周期静止后重新退出 / Intercept the first quit and re-enter it after authentication quiescence. */
+const handleBeforeQuit = createSecureBeforeQuitHandler({
+  dispose: disposeNativeOAuthBeforeQuit,
+  quit: (): void => app.quit(),
+  reportFailure: (error: unknown): void =>
+    console.error('Desktop shutdown was blocked because native OAuth did not quiesce.', error)
+})
 
 /**
  * @brief 安全读取原生启动错误所用 locale / Safely read the locale used by the native startup error.
@@ -153,7 +226,25 @@ function recreateMainWindowOnActivate(): void {
   }
 }
 
-if (registerRendererSchemePrivilegesSafely()) {
+/**
+ * @brief 第二个进程启动时聚焦唯一主窗口 / Focus the sole main window when a second process starts.
+ * @return 无返回值 / No return value.
+ */
+function focusMainWindowOnSecondInstance(): void {
+  if (mainWindow === null) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
+
+/** @brief 是否持有单实例锁；防止两个进程并发使用同一 Refresh Token family / Whether this process owns the single-instance lock, preventing concurrent use of one Refresh Token family by two processes. */
+const ownsSingleInstanceLock = app.requestSingleInstanceLock()
+
+if (!ownsSingleInstanceLock) {
+  app.quit()
+} else if (registerRendererSchemePrivilegesSafely()) {
+  app.on('before-quit', handleBeforeQuit)
+  app.on('second-instance', focusMainWindowOnSecondInstance)
   app.on('window-all-closed', quitWhenAllWindowsClose)
   void app.whenReady().then(initializeDesktopApplication).catch(reportStartupFailure)
 }

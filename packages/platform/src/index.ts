@@ -2,5 +2,6 @@
 export * from './artifact-save'
 export * from './contract-formats'
 export * from './diagnostics'
-export * from './product-api'
+export * from './desktop-authentication'
+export * from './hosted-identity'
 export * from './runtime'

@@ -5,6 +5,7 @@ import { APPLICATION_VERSION, type ArtifactSavePort } from '@ai-job-workspace/pl
 import {
   completeWebAuthorization,
   InMemoryWebTokenSession,
+  logoutWebTokenSession,
   WebCryptoJwksIdTokenVerifier,
   type AuthorizationScreenHint
 } from '@ai-job-workspace/product-api-v2'
@@ -71,7 +72,11 @@ function renderAuthentication(configuration: WebOAuthConfiguration, error?: unkn
 
   applicationRoot.render(
     <StrictMode>
-      <WebAuthenticationScreen error={error} locale={navigator.language} onAuthorize={authorize} />
+      <WebAuthenticationScreen
+        failureReason={error === undefined ? undefined : 'failed'}
+        locale={navigator.language}
+        onAuthorize={authorize}
+      />
     </StrictMode>
   )
 }
@@ -147,6 +152,10 @@ async function bootstrapWebApplication(): Promise<void> {
         artifactSave={unavailableArtifactSave}
         diagnostics={diagnostics}
         gateways={gateways}
+        onSignOut={async (): Promise<void> => {
+          await logoutWebTokenSession({ session: tokenSession })
+          renderAuthentication(oauthConfiguration)
+        }}
         runtimeInfo={{ appVersion: APPLICATION_VERSION, platform: 'web' }}
       />
     </StrictMode>

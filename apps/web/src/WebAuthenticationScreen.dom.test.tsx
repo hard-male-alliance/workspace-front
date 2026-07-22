@@ -36,15 +36,11 @@ describe('WebAuthenticationScreen', (): void => {
     const user = userEvent.setup()
 
     render(
-      <WebAuthenticationScreen
-        error={new Error('authorization_code=must-not-render')}
-        locale="en-US"
-        onAuthorize={onAuthorize}
-      />
+      <WebAuthenticationScreen failureReason="failed" locale="en-US" onAuthorize={onAuthorize} />
     )
 
     expect(screen.getByRole('alert')).toHaveTextContent('Authentication was not completed')
-    expect(document.body).not.toHaveTextContent('authorization_code=must-not-render')
+    expect(document.body).not.toHaveTextContent('secure storage')
     await user.click(screen.getByRole('button', { name: 'Create account' }))
     expect(onAuthorize).toHaveBeenCalledWith('signup')
     expect(await screen.findByRole('alert')).toHaveTextContent('Start again')

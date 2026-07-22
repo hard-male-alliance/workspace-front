@@ -1,10 +1,16 @@
 import { spawn } from 'node:child_process'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { createServer } from 'node:net'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 
 import { chromium } from 'playwright'
 
-/** @brief smoke 使用但绝不连接的确定性产品 API origin / Deterministic product API origin configured but never contacted by the smoke. */
-const DESKTOP_SMOKE_API_ORIGIN = 'https://api.desktop-smoke.invalid'
+/** @brief API STANDARD V2 冻结的生产产品 origin / Frozen production product origin from API STANDARD V2. */
+const API_V2_PRODUCTION_ORIGIN = 'https://api.hmalliances.org:8022'
+
+/** @brief smoke 注入但必须被构建期配置忽略的运行时 client ID / Runtime client ID injected by the smoke but required to be ignored by build-time configuration. */
+const DESKTOP_RUNTIME_OAUTH_OVERRIDE = 'runtime-override-must-be-ignored'
 
 /** @brief CSP 必须阻止的外部网络地址 / External network URL that CSP must block. */
 const BLOCKED_NETWORK_URL = 'https://blocked.desktop-smoke.invalid/csp-probe'
@@ -14,10 +20,6 @@ const BLOCKED_NAVIGATION_URL = 'https://navigation.desktop-smoke.invalid/'
 
 /** @brief renderer 必须允许并回退到入口文档的可信深链 / Trusted deep link that the renderer protocol must serve through the entry document. */
 const TRUSTED_DEEP_LINK_URL = 'ai-job-workspace://renderer/startup-boundary/deep-link'
-
-/** @brief 当前桌面组合明确报告的 v2 OAuth 缺失原因 / Explicit v2 OAuth composition reason reported by the current desktop renderer. */
-const DESKTOP_OAUTH_BOUNDARY_MESSAGE =
-  'Desktop startup is closed until the API v2 system-browser OAuth boundary is available.'
 
 /**
  * @brief 取得一个暂时可用的回环 TCP 端口 / Obtain a temporarily available loopback TCP port.
@@ -109,39 +111,39 @@ function assertTrustedRendererUrl(pageUrl) {
 }
 
 /**
- * @brief 读取并验证受控宿主启动失败视图 / Inspect and validate the controlled host-startup failure view.
+ * @brief 读取并验证未进入 Workspace 的 hosted identity 入口 / Inspect and validate the hosted-identity entry before entering the Workspace.
  * @param page 可信 renderer 页面 / Trusted renderer page.
- * @return 可比较的启动失败快照 / Comparable startup-failure snapshot.
+ * @return 可比较的身份入口快照 / Comparable identity-entry snapshot.
  */
-async function inspectControlledStartupFailure(page) {
-  /** @brief 可访问启动失败区域 / Accessible startup-failure region. */
-  const alert = page.getByRole('alert')
-  await alert.waitFor({ state: 'visible', timeout: 10_000 })
-  /** @brief 向用户显示且不泄漏配置的失败文案 / Configuration-safe failure copy shown to the user. */
-  const alertText = (await alert.textContent())?.trim() ?? ''
-  /** @brief 启动失败区域中的显式恢复操作数 / Number of explicit recovery actions in the failure region. */
-  const actionCount = await alert.getByRole('button').count()
+async function inspectAuthenticationEntry(page) {
+  /** @brief 可访问身份入口标题 / Accessible identity-entry heading. */
+  const heading = page.getByRole('heading', {
+    name: /(?:Continue to your job workspace|继续你的求职工作区)/u
+  })
+  await heading.waitFor({ state: 'visible', timeout: 10_000 })
+  /** @brief 登录、注册与恢复三个显式入口 / Three explicit sign-in, registration, and recovery entries. */
+  const actionCount = await page.getByRole('button').count()
   /** @brief renderer 根节点的可见文本长度 / Visible text length of the renderer root. */
   const rootTextLength = (await page.locator('#root').textContent())?.trim().length ?? 0
 
-  if (!/(?:The application cannot start|应用暂时无法启动)/u.test(alertText)) {
+  if (actionCount !== 3 || rootTextLength <= 0) {
     throw new Error(
-      `Desktop renderer did not present the controlled startup failure: ${alertText}.`
-    )
-  }
-  if (actionCount !== 1 || rootTextLength <= 0) {
-    throw new Error(
-      'Desktop startup failure must expose one explicit reload action and visible copy.'
+      'Desktop authentication entry must expose three hosted actions and visible copy.'
     )
   }
   assertTrustedRendererUrl(page.url())
-  return { actionCount, alertText, rootTextLength, url: page.url() }
+  return {
+    actionCount,
+    headingText: (await heading.textContent())?.trim() ?? '',
+    rootTextLength,
+    url: page.url()
+  }
 }
 
 /**
- * @brief 验证 preload 只暴露运行时信息能力 / Verify that preload exposes only the runtime-information capability.
+ * @brief 验证 preload 只暴露运行时与封闭认证能力 / Verify that preload exposes only runtime information and closed authentication capabilities.
  * @param page 可信 renderer 页面 / Trusted renderer page.
- * @return 已验证的 bridge 与运行时信息快照 / Validated bridge and runtime-information snapshot.
+ * @return 已验证的 bridge、匿名会话与运行时快照 / Validated bridge, anonymous session, and runtime snapshot.
  */
 async function inspectPreloadBoundary(page) {
   /** @brief main world 中可观察的 preload 边界 / Preload boundary observable from the main world. */
@@ -154,9 +156,15 @@ async function inspectPreloadBoundary(page) {
 
     /** @brief renderer 可枚举的全部 bridge 能力 / Every enumerable bridge capability visible to the renderer. */
     const bridgeKeys = Object.keys(bridge).sort()
+    /** @brief renderer 可枚举的封闭认证能力 / Enumerable closed authentication capabilities visible to the renderer. */
+    const authenticationKeys = Object.keys(bridge.authentication ?? {}).sort()
+    /** @brief main 启动恢复后的会话投影 / Session projection after main-process startup recovery. */
+    const authenticationSession = await bridge.authentication?.getSession()
     /** @brief 通过固定 IPC 通道取得的运行时信息 / Runtime information obtained through the fixed IPC channel. */
     const runtimeInfo = await bridge.getRuntimeInfo()
     return {
+      authenticationKeys,
+      authenticationSession,
       bridgeKeys,
       kind: 'ready',
       privilegedGlobalTypes: {
@@ -171,9 +179,31 @@ async function inspectPreloadBoundary(page) {
   if (snapshot.kind !== 'ready') {
     throw new Error('Desktop preload bridge is unavailable in the trusted renderer.')
   }
-  if (JSON.stringify(snapshot.bridgeKeys) !== JSON.stringify(['getRuntimeInfo'])) {
+  if (
+    JSON.stringify(snapshot.bridgeKeys) !== JSON.stringify(['authentication', 'getRuntimeInfo'])
+  ) {
     throw new Error(
       `Desktop preload exposed unexpected capabilities: ${snapshot.bridgeKeys.join(', ')}.`
+    )
+  }
+  if (
+    JSON.stringify(snapshot.authenticationKeys) !==
+    JSON.stringify(['authorize', 'getSession', 'refresh', 'signOut'])
+  ) {
+    throw new Error(
+      `Desktop preload exposed an invalid authentication boundary: ${JSON.stringify(snapshot.authenticationSession)}.`
+    )
+  }
+  /** @brief 当前平台期望的启动认证投影 / Startup-authentication projection expected for the current platform. */
+  const hasExpectedAuthenticationProjection =
+    process.platform === 'linux'
+      ? snapshot.authenticationSession?.kind === 'failure' &&
+        snapshot.authenticationSession.reason === 'persistent-login-unsupported'
+      : snapshot.authenticationSession?.kind === 'success' &&
+        snapshot.authenticationSession.session?.kind === 'anonymous'
+  if (!hasExpectedAuthenticationProjection) {
+    throw new Error(
+      `Desktop preload exposed an invalid authentication boundary: ${JSON.stringify(snapshot.authenticationSession)}.`
     )
   }
   if (Object.values(snapshot.privilegedGlobalTypes).some((value) => value !== 'undefined')) {
@@ -181,7 +211,7 @@ async function inspectPreloadBoundary(page) {
   }
   if (
     snapshot.runtimeInfo.platform !== 'electron' ||
-    snapshot.runtimeInfo.apiBaseUrl !== DESKTOP_SMOKE_API_ORIGIN ||
+    snapshot.runtimeInfo.apiBaseUrl !== API_V2_PRODUCTION_ORIGIN ||
     typeof snapshot.runtimeInfo.appVersion !== 'string' ||
     snapshot.runtimeInfo.appVersion.length === 0
   ) {
@@ -240,13 +270,13 @@ async function verifyContentSecurityPolicy(page) {
     ['default-src', ["'self'"]],
     ['base-uri', ["'self'"]],
     ['object-src', ["'none'"]],
-    ['frame-src', [DESKTOP_SMOKE_API_ORIGIN]],
+    ['frame-src', [API_V2_PRODUCTION_ORIGIN]],
     ['form-action', ["'self'"]],
     ['script-src', ["'self'"]],
     ['style-src', ["'self'", "'unsafe-inline'"]],
     ['img-src', ["'self'", 'data:', 'blob:']],
     ['font-src', ["'self'", 'data:']],
-    ['connect-src', ["'self'", DESKTOP_SMOKE_API_ORIGIN]],
+    ['connect-src', ["'self'", API_V2_PRODUCTION_ORIGIN]],
     ['media-src', ["'self'", 'blob:']],
     ['worker-src', ["'self'", 'blob:']]
   ])
@@ -382,12 +412,15 @@ async function navigateToTrustedDeepLink(page) {
 export async function runDesktopRuntimeSmoke(launch) {
   /** @brief 临时 Chromium CDP 端口 / Temporary Chromium CDP port. */
   const debuggingPort = await reserveLoopbackPort()
+  /** @brief 与真实安装资料完全隔离的临时 userData / Temporary userData fully isolated from real installations. */
+  const userDataDirectory = await mkdtemp(path.join(tmpdir(), 'ai-job-workspace-desktop-smoke-'))
   /** @brief packaged Electron 子进程环境 / Packaged Electron child-process environment. */
   const smokeEnvironment = {
     ...process.env,
-    AI_JOB_WORKSPACE_API_BASE_URL: DESKTOP_SMOKE_API_ORIGIN
+    AI_JOB_WORKSPACE_OAUTH_CLIENT_ID: DESKTOP_RUNTIME_OAUTH_OVERRIDE
   }
 
+  delete smokeEnvironment.AI_JOB_WORKSPACE_API_BASE_URL
   delete smokeEnvironment.AI_JOB_WORKSPACE_API_HOSTNAME
   delete smokeEnvironment.AI_JOB_WORKSPACE_API_PORT
   delete smokeEnvironment.AI_JOB_WORKSPACE_API_PROTOCOL
@@ -408,7 +441,8 @@ export async function runDesktopRuntimeSmoke(launch) {
     [
       ...launch.args,
       '--remote-debugging-address=127.0.0.1',
-      `--remote-debugging-port=${String(debuggingPort)}`
+      `--remote-debugging-port=${String(debuggingPort)}`,
+      `--user-data-dir=${userDataDirectory}`
     ],
     {
       cwd: launch.cwd,
@@ -460,8 +494,8 @@ export async function runDesktopRuntimeSmoke(launch) {
       rendererErrors.push(`pageerror: ${error.message}`)
     })
 
-    /** @brief 根入口上的受控失败快照 / Controlled-failure snapshot on the root entry. */
-    const rootResult = await inspectControlledStartupFailure(page)
+    /** @brief 根入口上的身份入口快照 / Identity-entry snapshot on the root entry. */
+    const rootResult = await inspectAuthenticationEntry(page)
     /** @brief 根入口上的 preload 能力快照 / Preload capability snapshot on the root entry. */
     const rootPreload = await inspectPreloadBoundary(page)
     /** @brief 入口响应与浏览器 CSP 执行结果 / Entry-response and browser CSP enforcement result. */
@@ -472,8 +506,8 @@ export async function runDesktopRuntimeSmoke(launch) {
     const navigationDenial = await verifyPopupAndNavigationDenial(page)
 
     await navigateToTrustedDeepLink(page)
-    /** @brief 可信深链上的受控失败快照 / Controlled-failure snapshot on the trusted deep link. */
-    const deepLinkResult = await inspectControlledStartupFailure(page)
+    /** @brief 可信深链上的身份入口快照 / Identity-entry snapshot on the trusted deep link. */
+    const deepLinkResult = await inspectAuthenticationEntry(page)
     /** @brief 可信深链上的 preload 能力快照 / Preload capability snapshot on the trusted deep link. */
     const deepLinkPreload = await inspectPreloadBoundary(page)
 
@@ -483,7 +517,7 @@ export async function runDesktopRuntimeSmoke(launch) {
     )
     if (unexpectedNetworkEvents.length > 0) {
       throw new Error(
-        `Fail-closed desktop renderer emitted unexpected HTTP(S) traffic: ${unexpectedNetworkEvents.join(' | ')}.`
+        `Unauthenticated desktop renderer emitted unexpected HTTP(S) traffic: ${unexpectedNetworkEvents.join(' | ')}.`
       )
     }
 
@@ -496,19 +530,16 @@ export async function runDesktopRuntimeSmoke(launch) {
     if (criticalRendererErrors.length > 0) {
       throw new Error(`Packaged renderer reported errors: ${criticalRendererErrors.join(' | ')}.`)
     }
-    if (!rendererErrors.some((error) => error.includes(DESKTOP_OAUTH_BOUNDARY_MESSAGE))) {
-      throw new Error(
-        'Desktop renderer did not report its explicit API v2 OAuth composition boundary.'
-      )
-    }
     if (deepLinkPreload.runtimeInfo.appVersion !== rootPreload.runtimeInfo.appVersion) {
       throw new Error(
         'Desktop preload returned inconsistent runtime information after a deep link.'
       )
     }
 
+    /** @brief 当前平台的 OAuth smoke 策略 / OAuth smoke policy for the current platform. */
+    const oauthPolicy = process.platform === 'linux' ? 'v2-linux-fail-closed' : 'v2-native-ready'
     console.info(
-      `Desktop runtime smoke passed: root=${String(rootResult.rootTextLength)} chars, deep-link=${deepLinkResult.url}, bridge=${rootPreload.bridgeKeys.join(',')}, CSP=${String(contentSecurityPolicy.contentSecurityPolicy.length)} chars, permission=${permissionState}, popup-pages=${String(navigationDenial.pagesAfterPopup)}, OAuth=v2-fail-closed.`
+      `Desktop runtime smoke passed: root=${String(rootResult.rootTextLength)} chars, deep-link=${deepLinkResult.url}, bridge=${rootPreload.bridgeKeys.join(',')}, auth=${rootPreload.authenticationKeys.join(',')}, CSP=${String(contentSecurityPolicy.contentSecurityPolicy.length)} chars, permission=${permissionState}, popup-pages=${String(navigationDenial.pagesAfterPopup)}, OAuth=${oauthPolicy}.`
     )
     return {
       contentSecurityPolicy,
@@ -523,6 +554,12 @@ export async function runDesktopRuntimeSmoke(launch) {
     }
   } finally {
     if (browser !== undefined) await browser.close().catch(() => undefined)
-    if (child.exitCode === null && child.signalCode === null) child.kill()
+    if (child.exitCode === null && child.signalCode === null) {
+      /** @brief 等待 Electron 完全释放隔离 profile 后再删除 / Wait for Electron to fully release the isolated profile before deletion. */
+      const exited = new Promise((resolve) => child.once('exit', resolve))
+      child.kill()
+      await exited
+    }
+    await rm(userDataDirectory, { force: true, recursive: true })
   }
 }

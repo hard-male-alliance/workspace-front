@@ -111,6 +111,8 @@ export interface WorkspaceAppProps {
   readonly diagnostics: Diagnostics
   /** @brief 由宿主组合根确认的运行时信息 / Runtime information confirmed by the host composition root. */
   readonly runtimeInfo: RuntimeInfo
+  /** @brief 可选宿主登出能力；提供时由共享 shell 呈现产品入口 / Optional host sign-out capability; the shared shell presents it when provided. */
+  readonly onSignOut?: (() => Promise<void>) | undefined
   /** @brief 测试或嵌入场景中的初始路径 / Initial path for tests or embedding. */
   readonly initialPath?: string
 }
@@ -126,6 +128,7 @@ export function WorkspaceApp({
   diagnostics,
   gateways,
   initialPath,
+  onSignOut,
   runtimeInfo
 }: WorkspaceAppProps): React.JSX.Element {
   /** @brief 不依赖具体 router 的应用树 / Application tree independent of a concrete router. */
@@ -138,7 +141,7 @@ export function WorkspaceApp({
             <AppDataProvider gateways={gateways}>
               <DiagnosticsRouteObserver />
               <Routes>
-                <Route element={<WorkspaceShell runtimeInfo={runtimeInfo} />}>
+                <Route element={<WorkspaceShell onSignOut={onSignOut} runtimeInfo={runtimeInfo} />}>
                   <Route element={<WorkspaceHomePage />} path="/" />
                   <Route
                     element={

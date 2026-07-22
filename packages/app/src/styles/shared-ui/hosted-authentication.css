@@ -1,4 +1,4 @@
-.aw-web-auth-shell {
+.aw-hosted-auth-shell {
   display: grid;
   min-height: 100vh;
   place-items: center;
@@ -15,7 +15,7 @@
     sans-serif;
 }
 
-.aw-web-auth-card {
+.aw-hosted-auth-card {
   width: min(100%, 440px);
   padding: 38px;
   border: 1px solid #dcd4c9;
@@ -24,7 +24,7 @@
   box-shadow: 0 20px 60px rgb(57 46 32 / 10%);
 }
 
-.aw-web-auth-mark {
+.aw-hosted-auth-mark {
   display: grid;
   width: 42px;
   height: 42px;
@@ -37,7 +37,7 @@
   font-size: 24px;
 }
 
-.aw-web-auth-eyebrow {
+.aw-hosted-auth-eyebrow {
   margin: 0 0 10px;
   color: #7a6d5e;
   font-size: 11px;
@@ -46,7 +46,7 @@
   text-transform: uppercase;
 }
 
-.aw-web-auth-card h1 {
+.aw-hosted-auth-card h1 {
   margin: 0;
   font-family: Georgia, 'Times New Roman', serif;
   font-size: clamp(28px, 6vw, 38px);
@@ -55,14 +55,14 @@
   line-height: 1.08;
 }
 
-.aw-web-auth-description {
+.aw-hosted-auth-description {
   margin: 18px 0 26px;
   color: #655d53;
   font-size: 14px;
   line-height: 1.65;
 }
 
-.aw-web-auth-error {
+.aw-hosted-auth-error {
   display: grid;
   gap: 5px;
   margin: 0 0 20px;
@@ -75,15 +75,15 @@
   line-height: 1.5;
 }
 
-.aw-web-auth-actions {
+.aw-hosted-auth-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
 
-.aw-web-auth-primary,
-.aw-web-auth-secondary,
-.aw-web-auth-recovery {
+.aw-hosted-auth-primary,
+.aw-hosted-auth-secondary,
+.aw-hosted-auth-recovery {
   min-height: 44px;
   border-radius: 10px;
   font: inherit;
@@ -92,19 +92,19 @@
   cursor: pointer;
 }
 
-.aw-web-auth-primary {
+.aw-hosted-auth-primary {
   border: 1px solid #684019;
   background: #7a4d20;
   color: #fff;
 }
 
-.aw-web-auth-secondary {
+.aw-hosted-auth-secondary {
   border: 1px solid #d4cabc;
   background: #fff;
   color: #443b31;
 }
 
-.aw-web-auth-recovery {
+.aw-hosted-auth-recovery {
   width: 100%;
   min-height: 36px;
   margin-top: 12px;
@@ -114,26 +114,26 @@
   font-weight: 600;
 }
 
-.aw-web-auth-primary:focus-visible,
-.aw-web-auth-secondary:focus-visible,
-.aw-web-auth-recovery:focus-visible {
+.aw-hosted-auth-primary:focus-visible,
+.aw-hosted-auth-secondary:focus-visible,
+.aw-hosted-auth-recovery:focus-visible {
   outline: 3px solid rgb(122 77 32 / 24%);
   outline-offset: 2px;
 }
 
-.aw-web-auth-primary:disabled,
-.aw-web-auth-secondary:disabled,
-.aw-web-auth-recovery:disabled {
+.aw-hosted-auth-primary:disabled,
+.aw-hosted-auth-secondary:disabled,
+.aw-hosted-auth-recovery:disabled {
   cursor: wait;
   opacity: 0.62;
 }
 
 @media (max-width: 520px) {
-  .aw-web-auth-card {
+  .aw-hosted-auth-card {
     padding: 28px 22px;
   }
 
-  .aw-web-auth-actions {
+  .aw-hosted-auth-actions {
     grid-template-columns: 1fr;
   }
 }

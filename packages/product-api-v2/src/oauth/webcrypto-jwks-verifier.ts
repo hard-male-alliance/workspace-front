@@ -320,13 +320,35 @@ function selectJwk(
   return matches[0] ?? null
 }
 
+/** @brief DOM 与 Node Web Crypto 共同接受的 public JWK 字段 / Public JWK fields accepted by both DOM and Node Web Crypto. */
+interface PortableJsonWebKey {
+  /** @brief JWS algorithm / JWS 算法. */
+  readonly alg?: string
+  /** @brief EC curve / EC 曲线. */
+  readonly crv?: string
+  /** @brief RSA exponent / RSA 指数. */
+  readonly e?: string
+  /** @brief key extractability / 密钥可导出性. */
+  readonly ext?: boolean
+  /** @brief key operations / 密钥操作. */
+  readonly key_ops?: string[]
+  /** @brief key type / 密钥类型. */
+  readonly kty?: string
+  /** @brief RSA modulus / RSA 模数. */
+  readonly n?: string
+  /** @brief EC x coordinate / EC x 坐标. */
+  readonly x?: string
+  /** @brief EC y coordinate / EC y 坐标. */
+  readonly y?: string
+}
+
 /**
- * @brief 将 key 投影为 Web Crypto JsonWebKey / Project a key into a Web Crypto JsonWebKey.
+ * @brief 将 key 投影为跨运行时 Web Crypto JWK / Project a key into a cross-runtime Web Crypto JWK.
  * @param key 已筛选 JWK / Selected JWK.
  * @param algorithm JWS 算法 / JWS algorithm.
- * @return public JsonWebKey / Public JsonWebKey.
+ * @return public JWK 的结构化记录 / Structured record for the public JWK.
  */
-function toJsonWebKey(key: ValidatedJwk, algorithm: SupportedIdTokenAlgorithm): JsonWebKey {
+function toJsonWebKey(key: ValidatedJwk, algorithm: SupportedIdTokenAlgorithm): PortableJsonWebKey {
   if (algorithm === 'RS256') {
     if (key.n === null || key.e === null) {
       throw new ApiV2ContractError('RS256 JWK must contain n and e.')
@@ -492,22 +514,18 @@ export class WebCryptoJwksIdTokenVerifier implements IdTokenSignatureVerifier {
   ): Promise<boolean> {
     throwIfAborted(signal)
     /** @brief Web Crypto 导入算法 / Web Crypto import algorithm. */
-    const importAlgorithm: RsaHashedImportParams | EcKeyImportParams =
+    const importAlgorithm =
       jws.algorithm === 'RS256'
-        ? { hash: 'SHA-256', name: 'RSASSA-PKCS1-v1_5' }
-        : { name: 'ECDSA', namedCurve: 'P-256' }
+        ? ({ hash: 'SHA-256', name: 'RSASSA-PKCS1-v1_5' } as const)
+        : ({ name: 'ECDSA', namedCurve: 'P-256' } as const)
     /** @brief 严格投影后的 public JWK / Strictly projected public JWK. */
     const jsonWebKey = toJsonWebKey(jwk, jws.algorithm)
     /** @brief Web Crypto public key / Web Crypto public key. */
     let key: CryptoKey
     try {
-      key = await this.cryptoImpl.subtle.importKey(
-        'jwk',
-        jsonWebKey,
-        importAlgorithm,
-        false,
-        ['verify']
-      )
+      key = await this.cryptoImpl.subtle.importKey('jwk', jsonWebKey, importAlgorithm, false, [
+        'verify'
+      ])
     } catch {
       throw new ApiV2ContractError('JWKS public key cannot be imported for ID Token verification.')
     }
@@ -515,8 +533,10 @@ export class WebCryptoJwksIdTokenVerifier implements IdTokenSignatureVerifier {
     /** @brief JWS signing input / JWS signing input. */
     const signingInput = new TextEncoder().encode(`${jws.encodedHeader}.${jws.encodedPayload}`)
     /** @brief Web Crypto verify 算法 / Web Crypto verification algorithm. */
-    const verifyAlgorithm: AlgorithmIdentifier | EcdsaParams =
-      jws.algorithm === 'RS256' ? { name: 'RSASSA-PKCS1-v1_5' } : { hash: 'SHA-256', name: 'ECDSA' }
+    const verifyAlgorithm =
+      jws.algorithm === 'RS256'
+        ? ({ name: 'RSASSA-PKCS1-v1_5' } as const)
+        : ({ hash: 'SHA-256', name: 'ECDSA' } as const)
     /** @brief ArrayBuffer-backed signature copy / ArrayBuffer-backed signature copy. */
     const signature = Uint8Array.from(jws.signature)
     try {

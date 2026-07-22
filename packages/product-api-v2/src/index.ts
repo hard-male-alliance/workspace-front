@@ -1,5 +1,6 @@
 /** @file API v2 防腐层公共入口 / Public entrypoint for the API v2 anti-corruption layer. */
 
+export { API_V2_CONTROLLED_TEST_ORIGIN, API_V2_PRODUCTION_ORIGIN } from './origin'
 export { createApiV2Client, createApiV2PublicClient } from './http/client'
 export type { ApiV2AccessTokenRefreshRequest, ApiV2AuthenticationPort } from './http/authentication'
 export type {

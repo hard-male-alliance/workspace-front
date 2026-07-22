@@ -1,4 +1,5 @@
 import type { DiagnosticsConfigurationErrorReason } from './diagnostics'
+import type { DesktopAuthenticationBridge } from './desktop-authentication'
 
 /**
  * @brief 运行时宿主类型 / Runtime host type.
@@ -48,6 +49,8 @@ export interface PlatformBridge {
    * @return 异步返回最小运行时信息 / A promise for minimal runtime information.
    */
   readonly getRuntimeInfo: () => Promise<RuntimeInfo>
+  /** @brief 仅 Electron main 可兑现的封闭认证能力 / Closed authentication capability fulfilled only by Electron main. */
+  readonly authentication: DesktopAuthenticationBridge
 }
 
 /** @brief 运行时信息 IPC 通道 / Runtime information IPC channel. */
