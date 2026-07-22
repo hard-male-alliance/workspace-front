@@ -771,7 +771,8 @@ export async function completeWebAuthorization(
         allowedAlgorithms: Object.freeze([...options.transaction.idTokenSigningAlgorithms]),
         clientId: options.transaction.clientId,
         issuer: options.transaction.issuer,
-        jwksUri: options.transaction.jwksUri
+        jwksUri: options.transaction.jwksUri,
+        nonce: options.transaction.nonce
       }),
       scopes
     },

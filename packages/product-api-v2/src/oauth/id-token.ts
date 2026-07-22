@@ -67,6 +67,8 @@ export interface RefreshIdTokenVerificationContext {
   readonly issuer: string
   /** @brief 首次授权钉死的 JWKS URI / JWKS URI pinned by the initial authorization. */
   readonly jwksUri: string
+  /** @brief 首次授权请求绑定的 nonce / Nonce bound to the initial authorization request. */
+  readonly nonce: string
   /** @brief 首次 discovery 与本地共同允许的算法 / Algorithms allowed by both initial discovery and local policy. */
   readonly allowedAlgorithms: readonly string[]
 }
@@ -287,8 +289,10 @@ export function validateRefreshIdTokenClaims(
   }
   /** @brief Refresh claims 对象 / Refresh claims object. */
   const claims = claimsValue as Record<string, unknown>
-  if (Reflect.has(claims, 'nonce')) {
-    throw new ApiV2ContractError('Refresh ID Token must not contain nonce.')
+  if (Reflect.has(claims, 'nonce') && claimString(claims.nonce, 'nonce') !== context.nonce) {
+    throw new ApiV2ContractError(
+      'Refresh ID Token nonce does not match the initial authorization request.'
+    )
   }
   /** @brief Refresh issuer / Refresh issuer. */
   const issuer = claimString(claims.iss, 'iss')

@@ -30,7 +30,8 @@ const VERIFICATION_CONTEXT: RefreshIdTokenVerificationContext = Object.freeze({
   allowedAlgorithms: Object.freeze(['ES256', 'RS256']),
   clientId: CLIENT_ID,
   issuer: ISSUER,
-  jwksUri: `${ISSUER}/oauth/jwks`
+  jwksUri: `${ISSUER}/oauth/jwks`,
+  nonce: 'initial-authorization-nonce'
 })
 
 /** @brief 首次验证且必须保持的身份 / Initially verified identity that must remain stable. */
@@ -109,6 +110,19 @@ describe('OIDC refresh ID Token validation', (): void => {
     expect(verifier.verifySignature).toHaveBeenCalledTimes(1)
   })
 
+  it('accepts an omitted nonce or the exact initial nonce', (): void => {
+    expect(() =>
+      validateRefreshIdTokenClaims(validRefreshClaims(), PRIOR_IDENTITY, VERIFICATION_CONTEXT, NOW)
+    ).not.toThrow()
+
+    /** @brief 带首次 nonce 的 refresh claims / Refresh claims carrying the initial nonce. */
+    const sameNonce = validRefreshClaims()
+    sameNonce.nonce = VERIFICATION_CONTEXT.nonce
+    expect(() =>
+      validateRefreshIdTokenClaims(sameNonce, PRIOR_IDENTITY, VERIFICATION_CONTEXT, NOW)
+    ).not.toThrow()
+  })
+
   it('rejects every refresh identity, audience, lifetime, activation, and nonce discontinuity', (): void => {
     /** @brief 每个安全约束的破坏器 / Mutators that each violate one security invariant. */
     const invalidMutations: ReadonlyArray<
@@ -122,7 +136,7 @@ describe('OIDC refresh ID Token validation', (): void => {
       ['future issue time', (claims): void => void (claims.iat = NOW + 61)],
       ['stale issue time', (claims): void => void (claims.iat = NOW - 61)],
       ['future activation', (claims): void => void (claims.nbf = NOW + 61)],
-      ['nonce presence', (claims): void => void (claims.nonce = 'forbidden-refresh-nonce')]
+      ['nonce mismatch', (claims): void => void (claims.nonce = 'different-authorization-nonce')]
     ]
     for (const [name, mutate] of invalidMutations) {
       /** @brief 单约束被破坏的 claims / Claims with one violated invariant. */
