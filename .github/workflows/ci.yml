@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Contracts, quality gates, builds, and smoke tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out the pinned repository graph
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          submodules: recursive
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+
+      - name: Install Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.12.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Verify the read-only contract submodule
+        run: node scripts/check-contracts.mjs
+
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install the Chromium runtime
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Install and configure the Electron runtime
+        run: |
+          pnpm --filter @ai-job-workspace/desktop exec install-electron
+          sudo chown root:root apps/desktop/node_modules/electron/dist/chrome-sandbox
+          sudo chmod 4755 apps/desktop/node_modules/electron/dist/chrome-sandbox
+
+      - name: Run the complete quality gate
+        run: xvfb-run --auto-servernum pnpm check
+
+  desktop-package:
+    name: Packaged desktop (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+
+    steps:
+      - name: Check out the pinned repository graph
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          submodules: recursive
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+
+      - name: Install Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.12.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Verify the read-only contract submodule
+        run: node scripts/check-contracts.mjs
+
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Linux display dependencies
+        if: runner.os == 'Linux'
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Package the Electron application on Linux
+        if: runner.os == 'Linux'
+        run: pnpm package
+
+      - name: Configure the packaged Electron sandbox
+        if: runner.os == 'Linux'
+        run: |
+          sudo chown root:root apps/desktop/release/linux-unpacked/chrome-sandbox
+          sudo chmod 4755 apps/desktop/release/linux-unpacked/chrome-sandbox
+
+      - name: Verify the packaged Electron application on Linux
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum pnpm smoke:desktop:packaged
+
+      - name: Verify the packaged Electron application
+        if: runner.os != 'Linux'
+        run: pnpm verify:desktop:package

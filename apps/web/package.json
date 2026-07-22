@@ -5,12 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite --configLoader runner",
-    "build": "vite build --configLoader runner",
+    "build": "vite build --configLoader runner && node ../../scripts/check-production-artifacts.mjs --web",
     "preview": "vite preview --configLoader runner"
   },
   "dependencies": {
     "@ai-job-workspace/app": "workspace:*",
     "@ai-job-workspace/platform": "workspace:*",
+    "@ai-job-workspace/product-runtime": "workspace:*",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },

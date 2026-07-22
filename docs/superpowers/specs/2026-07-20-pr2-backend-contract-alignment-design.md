@@ -1,5 +1,7 @@
 # PR #2 合并与前端后端契约对齐设计
 
+> **状态：已归档（Archived）。** 本文只记录历史阶段设计，不是现行产品能力说明。[ADR 0002](../../adr/0002-protect-production-api-truth.md)、固定的共享契约与当前部署文档已取代其中的 Mock 产品组合和能力假设。
+
 ## 目标
 
 在不修改 `workspace-back/` 的前提下，以当前 `feat/frontend-ui-refresh` 分支为基线完成两项工作：

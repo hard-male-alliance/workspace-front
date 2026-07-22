@@ -1,0 +1,407 @@
+/* Resume three-window workspace */
+.aw-resume-window-bar {
+  display: grid;
+  min-height: 49px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-bottom: 1px solid var(--ui-color-border-strong);
+  background: var(--ui-color-surface);
+}
+
+.aw-resume-window-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px 7px 14px;
+  border-right: 1px solid var(--ui-color-border);
+}
+
+.aw-resume-window-title:last-child {
+  border-right: 0;
+}
+
+.aw-resume-window-title.is-collapsed {
+  background: var(--ui-color-surface-muted);
+  color: var(--ui-color-ink-muted);
+}
+
+.aw-resume-window-title h2 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 730;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aw-resume-window-actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.aw-window-toggle,
+.aw-resume-window-actions > .aw-icon-button {
+  width: 30px;
+  min-height: 30px;
+}
+
+.aw-window-meta {
+  min-width: 22px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--ui-color-surface-muted);
+  color: var(--ui-color-ink-muted);
+  font-size: 10px;
+  text-align: center;
+}
+
+.aw-template-quick-select select {
+  max-width: 104px;
+  min-height: 30px;
+  padding: 4px 23px 4px 8px;
+  border: 1px solid var(--ui-color-border);
+  border-radius: 6px;
+  background: var(--ui-color-surface-raised);
+  color: var(--ui-color-ink);
+  font: inherit;
+  font-size: 11px;
+}
+
+.aw-current-template {
+  display: none;
+}
+
+.aw-resume-workspace-content {
+  display: flex;
+  min-height: 0;
+  height: calc(100dvh - 66px - 49px);
+  overflow: hidden;
+  background: var(--ui-color-surface-muted);
+}
+
+.aw-resume-workspace-panel {
+  min-width: 0;
+  flex-basis: 0;
+  overflow: hidden;
+  background: var(--ui-color-surface);
+}
+
+.aw-resume-workspace-panel > aside,
+.aw-resume-workspace-panel > section {
+  min-width: 0;
+  height: 100%;
+}
+
+.aw-resume-workspace-panel--assistant > aside {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.aw-resume-workspace-panel--editor > section {
+  overflow: auto;
+}
+
+.aw-resume-workspace-panel--preview > section {
+  height: 100%;
+}
+
+.aw-resume-pane-separator {
+  position: relative;
+  z-index: 2;
+  width: 7px;
+  flex: 0 0 7px;
+  border: 0;
+  background: var(--ui-color-surface-muted);
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.aw-resume-pane-separator::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
+  background: var(--ui-color-border-strong);
+  content: '';
+}
+
+.aw-resume-pane-separator:hover::after,
+.aw-resume-pane-separator:focus-visible::after {
+  width: 3px;
+  left: 2px;
+  background: var(--ui-color-accent);
+}
+
+.aw-is-resizing,
+.aw-is-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+.aw-workspace-context {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 0 0 3px;
+  padding: 10px 11px;
+  border: 1px solid var(--ui-color-border);
+  border-radius: 8px;
+  background: var(--ui-color-surface-muted);
+  color: var(--ui-color-ink-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.aw-workspace-context svg {
+  flex: none;
+  color: var(--ui-color-accent);
+}
+
+.aw-resume-workspace-panel--assistant .aw-message {
+  max-width: 96%;
+}
+
+.aw-undo-change {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 6px;
+  margin-top: 9px;
+  padding: 4px 8px;
+  border: 1px solid var(--ui-color-border-strong);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ui-color-accent-subtle-foreground);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.aw-send-button {
+  flex: none;
+  align-self: end;
+}
+
+.aw-inline-error {
+  margin: 10px 14px;
+  padding: 9px 10px;
+  border: 1px solid var(--ui-color-danger);
+  border-radius: 7px;
+  background: var(--ui-color-danger-subtle);
+  color: var(--ui-color-danger);
+  font-size: 11px;
+}
+
+.aw-resume-conflict {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 12px 18px;
+  padding: 12px 14px;
+  font-size: 13px;
+}
+
+.aw-resume-conflict p {
+  margin: 4px 0 0;
+}
+
+.aw-resume-conflict .aw-quiet-button {
+  flex: none;
+}
+
+.aw-mobile-assistant-header {
+  display: none;
+}
+
+.aw-resume-editor-intro {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 17px;
+  border-bottom: 1px solid var(--ui-color-border);
+}
+
+.aw-resume-editor-intro > div {
+  display: grid;
+  gap: 3px;
+}
+
+.aw-resume-editor-intro strong {
+  color: var(--ui-color-ink);
+  font-size: 13px;
+}
+
+.aw-resume-editor-intro span,
+.aw-resume-editor-intro p {
+  margin: 0;
+  color: var(--ui-color-ink-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.aw-resume-sections {
+  padding: 0 16px 28px;
+}
+
+.aw-resume-section-editor {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--ui-color-border);
+}
+
+.aw-resume-section-editor.is-focused {
+  margin: 0 -10px;
+  padding: 16px 10px;
+  background: var(--ui-color-surface-raised);
+}
+
+.aw-resume-section-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.aw-section-drag-handle {
+  display: grid;
+  width: 24px;
+  height: 32px;
+  place-items: center;
+  color: var(--ui-color-ink-subtle);
+  cursor: grab;
+}
+
+.aw-resume-section-heading h3 {
+  margin: 0;
+  color: var(--ui-color-ink);
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.aw-resume-section-heading > div > span {
+  color: var(--ui-color-ink-subtle);
+  font-size: 9px;
+}
+
+.aw-section-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.aw-section-actions .aw-icon-button {
+  width: 29px;
+  min-height: 29px;
+}
+
+.aw-danger-button {
+  border-color: var(--ui-color-danger);
+  color: var(--ui-color-danger);
+}
+
+.aw-section-summary {
+  display: -webkit-box;
+  margin: 8px 32px 0;
+  overflow: hidden;
+  color: var(--ui-color-ink-muted);
+  font-size: 11px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.aw-section-focus-editor {
+  display: grid;
+  gap: 12px;
+  margin: 13px 32px 0;
+}
+
+.aw-section-focus-editor label > span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--ui-color-ink-muted);
+  font-size: 10px;
+  font-weight: 680;
+}
+
+.aw-section-textarea {
+  width: 100%;
+  min-height: 130px;
+  resize: vertical;
+  padding: 10px;
+  border: 0;
+  background: var(--ui-color-surface-raised);
+  color: var(--ui-color-ink);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.6;
+  outline: 0;
+}
+
+.aw-resume-workspace-panel--preview .aw-editor-scroll {
+  height: 100%;
+}
+
+@media (max-width: 900px) {
+  .aw-resume-window-bar {
+    display: none;
+  }
+
+  .aw-resume-workspace-content {
+    position: relative;
+    height: calc(100dvh - 66px - 58px);
+  }
+
+  .aw-resume-pane-separator {
+    display: none;
+  }
+
+  .aw-resume-workspace-panel {
+    display: none;
+    flex: 1 1 100% !important;
+  }
+
+  .aw-editor-page--mobile-edit .aw-resume-workspace-panel--editor,
+  .aw-editor-page--mobile-preview .aw-resume-workspace-panel--preview {
+    display: block;
+  }
+
+  .aw-editor-page--mobile-assistant-open .aw-resume-workspace-panel--assistant {
+    position: absolute;
+    z-index: var(--ui-z-modal, 40);
+    inset: 0;
+    display: block;
+  }
+
+  .aw-mobile-assistant-header {
+    display: flex;
+    min-height: 48px;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--ui-color-border);
+    background: var(--ui-color-surface);
+  }
+
+  .aw-mobile-assistant-header .aw-icon-button {
+    margin-left: auto;
+  }
+
+  .aw-editor-page--mobile-assistant-open .aw-resume-workspace-panel--assistant > aside {
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    background: var(--ui-color-surface);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aw-resume-pane-separator::after,
+  .aw-resume-window-title,
+  .aw-undo-change {
+    transition: none;
+  }
+}

@@ -22,7 +22,7 @@ Content-Type: application/json
 接收器必须处理 `Content-Type: application/json` 触发的 CORS 预检（preflight）：
 
 - 对 Web：以实际发布页面的 origin 精确设置 `Access-Control-Allow-Origin`；不得依赖宽泛的 CSP/CORS 来源。
-- 对 Electron：精确允许 `ai-job-workspace://renderer`；主进程只为该受 CSP 约束的自定义 scheme 开启 CORS。
+- 对 Electron：精确允许 `ai-job-workspace://renderer`；主进程只为该受 CSP 约束的自定义 scheme 开启 CORS，并在 `connect-src` 中分别精确列出产品 API 与可选诊断 origin。
 - 两者均应返回 `Access-Control-Allow-Methods: POST` 和 `Access-Control-Allow-Headers: Content-Type`。客户端固定 `credentials: 'omit'`，因此无需也不得开启 `Access-Control-Allow-Credentials`。
 
 发布构建的 CSP 只放行上述已验证 origin，且不会包含路径或通配符。

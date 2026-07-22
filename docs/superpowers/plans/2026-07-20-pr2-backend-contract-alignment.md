@@ -1,5 +1,7 @@
 # PR #2 Backend Contract Alignment Implementation Plan
 
+> **Status: Archived.** This is a historical execution record, not a current implementation plan. [ADR 0002](../../adr/0002-protect-production-api-truth.md), the pinned shared contract, and current deployment documentation supersede its Mock composition and capability assumptions.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Absorb the non-duplicated configuration work from PR #2 and finish the Web frontend's Knowledge and Resume contract alignment without modifying `workspace-back/`.
@@ -75,6 +77,7 @@ node node_modules\vite\bin\vite.js build --configLoader runner
 ### Task 1: PR #2 API Endpoint Configuration
 
 **Files:**
+
 - Create: `apps/web/src/api-config.ts`
 - Test: `apps/web/src/api-config.test.ts`
 - Modify: `apps/web/src/main.tsx`
@@ -87,6 +90,7 @@ node node_modules\vite\bin\vite.js build --configLoader runner
 - Modify: `docs/web-deployment.md`
 
 **Interfaces:**
+
 - Produces: `resolveApiBaseUrl(env: PublicApiEnvironment): string` and `ApiConfigurationError`.
 - Consumes: existing `createHttpClient({ baseUrl })` and existing mixed `AppGateways` composition.
 
@@ -95,12 +99,15 @@ node node_modules\vite\bin\vite.js build --configLoader runner
 Keep the already-created `api-config.test.ts` and add explicit conflict/default-port cases:
 
 ```ts
-expect(resolveApiBaseUrl({ VITE_API_PROTOCOL: 'http', VITE_API_HOSTNAME: 'localhost' }))
-  .toBe('http://localhost')
-expect(() => resolveApiBaseUrl({
-  VITE_API_BASE_URL: 'https://api.example.test',
-  VITE_API_PORT: '8443'
-})).toThrowError(ApiConfigurationError)
+expect(resolveApiBaseUrl({ VITE_API_PROTOCOL: 'http', VITE_API_HOSTNAME: 'localhost' })).toBe(
+  'http://localhost'
+)
+expect(() =>
+  resolveApiBaseUrl({
+    VITE_API_BASE_URL: 'https://api.example.test',
+    VITE_API_PORT: '8443'
+  })
+).toThrowError(ApiConfigurationError)
 ```
 
 - [ ] **Step 2: Run the test and verify RED**
@@ -140,7 +147,8 @@ export function resolveApiBaseUrl(env: PublicApiEnvironment): string {
   const protocol = (env.VITE_API_PROTOCOL?.trim() || 'https').replace(/:$/u, '').toLowerCase()
   const hostname = env.VITE_API_HOSTNAME?.trim() || 'api.hmalliances.org'
   const port = env.VITE_API_PORT?.trim()
-  if (protocol !== 'http' && protocol !== 'https') throw new ApiConfigurationError('Invalid API protocol.')
+  if (protocol !== 'http' && protocol !== 'https')
+    throw new ApiConfigurationError('Invalid API protocol.')
   if (port !== undefined && (!/^\d+$/u.test(port) || Number(port) < 1 || Number(port) > 65535)) {
     throw new ApiConfigurationError('Invalid API port.')
   }
@@ -204,10 +212,12 @@ Expected: tests and typecheck PASS; commit contains no `ApiClient` duplicate.
 ### Task 2: FormData Support in the Existing HTTP Client
 
 **Files:**
+
 - Modify: `packages/app/src/infrastructure/http/http-client.ts`
 - Test: `packages/app/src/infrastructure/http/http-client.test.ts`
 
 **Interfaces:**
+
 - Produces: `postForm(path: string, body: FormData, options?: PostFormOptions): Promise<HttpJsonResponse>`.
 - Consumes: existing `parseJsonResponse()`, `HttpProblemError`, and `HttpContractError`.
 
@@ -215,7 +225,9 @@ Expected: tests and typecheck PASS; commit contains no `ApiClient` duplicate.
 
 ```ts
 it('posts FormData without setting a multipart Content-Type boundary', async () => {
-  const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ accepted: true }, { status: 202 }))
+  const fetchImpl = vi
+    .fn<typeof fetch>()
+    .mockResolvedValue(Response.json({ accepted: true }, { status: 202 }))
   const client = createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
   const body = new FormData()
   body.append('file', new File(['hello'], 'notes.md', { type: 'text/markdown' }))
@@ -275,6 +287,7 @@ git commit -m "feat(frontend): support knowledge multipart requests"
 ### Task 3: Knowledge Domain Models and Strict Transport Validation
 
 **Files:**
+
 - Modify: `packages/app/src/domain/models.ts`
 - Modify: `packages/app/src/domain/gateways.ts`
 - Modify: `packages/app/src/infrastructure/http/transport-types.ts`
@@ -284,6 +297,7 @@ git commit -m "feat(frontend): support knowledge multipart requests"
 - Test: `packages/app/src/infrastructure/http/mappers.test.ts`
 
 **Interfaces:**
+
 - Produces: `UiKnowledgeUploadInput`, `UiKnowledgeVersionUploadInput`, `UiKnowledgeIngestionJob`, `UiKnowledgeSearchInput`, `UiKnowledgeSearchResult`, and parsers/mappers for their DTOs.
 - Consumes: existing opaque IDs, `UiKnowledgeSource`, and strict validator helper patterns.
 
@@ -335,7 +349,8 @@ export interface UiKnowledgeVersionUploadInput {
   readonly file: File
   readonly signal?: AbortSignal
 }
-export type UiKnowledgeJobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'expired'
+export type UiKnowledgeJobStatus =
+  'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'expired'
 export interface UiKnowledgeIngestionJob {
   readonly id: UiOpaqueId<'knowledge-ingestion-job'>
   readonly sourceId: UiKnowledgeSourceId
@@ -390,12 +405,14 @@ git commit -m "feat(frontend): define knowledge ingestion contracts"
 ### Task 4: Knowledge HTTP and Mock Gateways
 
 **Files:**
+
 - Modify: `packages/app/src/infrastructure/http/http-knowledge-gateway.ts`
 - Test: `packages/app/src/infrastructure/http/http-gateways.test.ts`
 - Modify: `packages/app/src/infrastructure/mock/mock-gateways.ts`
 - Test: `packages/app/src/infrastructure/mock/mock-gateways.test.ts`
 
 **Interfaces:**
+
 - Consumes: Task 2 `postForm()` and Task 3 domain/parsers/mappers.
 - Produces: complete `KnowledgeGateway` implementations for Web and Mock/Electron.
 
@@ -406,8 +423,9 @@ Assert:
 ```ts
 expect(fetchUrl(fetchImpl, 0)).toBe('http://127.0.0.1:8000/api/v1/knowledge-sources/uploads')
 expect(fetchImpl.mock.calls[0]?.[1]?.method).toBe('POST')
-expect((fetchImpl.mock.calls[0]?.[1]?.headers as Record<string, string>)['Idempotency-Key'])
-  .toMatch(/^knowledge_upload_/u)
+expect(
+  (fetchImpl.mock.calls[0]?.[1]?.headers as Record<string, string>)['Idempotency-Key']
+).toMatch(/^knowledge_upload_/u)
 expect(fetchImpl.mock.calls[0]?.[1]?.body).toBeInstanceOf(FormData)
 ```
 
@@ -468,11 +486,13 @@ git commit -m "feat(frontend): connect knowledge ingestion endpoints"
 ### Task 5: Bounded Ingestion Polling and Error Copy
 
 **Files:**
+
 - Create: `packages/app/src/features/knowledge/knowledge-polling.ts`
 - Test: `packages/app/src/features/knowledge/knowledge-polling.test.ts`
 - Create: `packages/app/src/features/knowledge/knowledge-errors.ts`
 
 **Interfaces:**
+
 - Produces: `pollKnowledgeIngestion(options): Promise<UiKnowledgeIngestionJob>` and `getKnowledgeErrorMessage(error, t): string`.
 - Consumes: `KnowledgeGateway.getKnowledgeIngestionJob()` and `HttpProblemError`.
 
@@ -481,13 +501,15 @@ git commit -m "feat(frontend): connect knowledge ingestion endpoints"
 Use injected `wait(ms, signal)` so tests do not sleep. Cover queued→running→succeeded, failed terminal return, `maxAttempts` timeout, and abort before the next request.
 
 ```ts
-await expect(pollKnowledgeIngestion({
-  gateway,
-  jobId,
-  signal: controller.signal,
-  maxAttempts: 3,
-  wait: async () => undefined
-})).resolves.toMatchObject({ status: 'succeeded' })
+await expect(
+  pollKnowledgeIngestion({
+    gateway,
+    jobId,
+    signal: controller.signal,
+    maxAttempts: 3,
+    wait: async () => undefined
+  })
+).resolves.toMatchObject({ status: 'succeeded' })
 ```
 
 - [ ] **Step 2: Run polling tests and verify RED**
@@ -519,12 +541,14 @@ git commit -m "feat(frontend): bound knowledge ingestion polling"
 ### Task 6: Knowledge Page Upload, Version, Search, and Cleanup
 
 **Files:**
+
 - Modify: `packages/app/src/features/knowledge/KnowledgePage.tsx`
 - Test: `packages/app/src/app/WorkspaceApp.test.tsx`
 - Modify: `packages/app/src/i18n/resources.ts`
 - Modify: `packages/app/src/styles/app.css`
 
 **Interfaces:**
+
 - Consumes: Tasks 3–5 Knowledge domain methods, polling, and error mapping.
 - Produces: accessible Gateway-driven Knowledge workflows with no Mock transport leakage.
 
@@ -537,8 +561,10 @@ Render with an injected controllable `KnowledgeGateway`. Assert `.exe` and files
 Assert an accepted upload displays “正在摄取”, unmount aborts the captured signal, and the policy link uses the selected source ID:
 
 ```ts
-expect(screen.getByRole('link', { name: '查看当前来源的授权矩阵' }))
-  .toHaveAttribute('href', `/knowledge/${source.id}/visibility`)
+expect(screen.getByRole('link', { name: '查看当前来源的授权矩阵' })).toHaveAttribute(
+  'href',
+  `/knowledge/${source.id}/visibility`
+)
 ```
 
 - [ ] **Step 3: Write failing version and search tests**
@@ -584,12 +610,14 @@ git commit -m "feat(frontend): add knowledge upload and search workflows"
 ### Task 7: Resume 409/412 Authoritative Reload
 
 **Files:**
+
 - Modify: `packages/app/src/features/resume/ResumeEditorPage.tsx`
 - Modify: `packages/app/src/features/resume/ResumeWorkspace.tsx`
 - Modify: `packages/app/src/app/WorkspaceApp.test.tsx`
 - Modify: `packages/app/src/i18n/resources.ts`
 
 **Interfaces:**
+
 - Consumes: existing `HttpProblemError`, `ResumeGateway.getResumeEditor()`, Proposal and Render flows.
 - Produces: a stale-write lock and explicit authoritative reload action.
 
@@ -639,12 +667,14 @@ git commit -m "fix(frontend): recover from stale resume revisions"
 ### Task 8: Pending Contracts, Full Gates, and PR Coverage Review
 
 **Files:**
+
 - Modify: `packages/app/src/domain/pending.ts`
 - Modify if evidence requires: `docs/contract-open-questions.md`
 - Verify only: `workspace-shared-docs/contracts/v1/ai-job-workspace.contract.schema.json`
 - Verify only: `workspace-shared-docs/contracts/v1/ai-job-workspace-api-contract.md`
 
 **Interfaces:**
+
 - Consumes: all previous tasks.
 - Produces: accurate pending markers and evidence-backed delivery status.
 

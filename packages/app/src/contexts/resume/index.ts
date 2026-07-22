@@ -1,0 +1,53 @@
+/** @file resume 限界上下文公共入口 / resume bounded-context public entry. */
+
+export type {
+  UiResumeId,
+  UiResumeSectionId,
+  UiTemplateId,
+  UiResumeSectionKind,
+  UiResumeItemKind,
+  UiResumeItem,
+  UiResumeSection,
+  UiResumeContactKind,
+  UiResumeContact,
+  UiResumeProfile,
+  UiResumePageSize,
+  UiResumeOutputFormat,
+  UiResumePageOrientation,
+  UiMeasurementUnit,
+  UiMeasurement,
+  UiPageInsets,
+  UiResumePageIntent,
+  UiTypographyIntent,
+  UiColorSpace,
+  UiColorValue,
+  UiPaletteIntent,
+  UiSectionLayoutIntent,
+  UiTemplateSettingValue,
+  UiResumeStyleIntent,
+  UiTemplateReference,
+  UiResumeDocument,
+  UiResumeCard,
+  UiTemplateSettingControl,
+  UiTemplateSettingValueType,
+  UiTemplateSettingChoice,
+  UiTemplateSettingVisibility,
+  UiTemplateSettingDefinition,
+  UiTemplateZone,
+  UiTemplateCapabilities,
+  UiTemplateManifest,
+  UiResumePdfArtifact,
+  UiResumeRenderJobStatus,
+  UiResumeRenderJob,
+  UiStartResumePdfRenderInput,
+  UiResumeEditorModel,
+  UiResumeSectionUpdateInput,
+  UiResumeSectionsReorderInput,
+  UiResumeSectionDeleteInput,
+  UiResumeTemplateSettingsUpdateInput,
+  UiTemplateSettingsModel
+} from './domain/models'
+export type { ResumeGateway } from './application/gateway'
+export { ResumeEditorPage } from './presentation/ResumeEditorPage'
+export { ResumeEntryPage } from './presentation/ResumeEntryPage'
+export { TemplateSettingsPage } from './presentation/TemplateSettingsPage'

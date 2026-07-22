@@ -1,11 +1,14 @@
 import type { LucideIcon } from 'lucide-react'
 import { BookOpenText, BriefcaseBusiness, Database, LayoutDashboard, Moon, Sun } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
+import type { RuntimeInfo } from '@ai-job-workspace/platform'
 
+import { LoadingState } from '../ui'
+import { useAsyncResource, useWorkspaceSession } from './AppData'
 import { useDiagnostics } from './Diagnostics'
-import { useRuntimeInfo } from './runtime'
+import { ResourceErrorState } from './ResourceErrorState'
 
 /** @brief 主导航项 / Primary navigation item. */
 interface NavigationItem {
@@ -118,29 +121,45 @@ function getBreadcrumbKey(pathname: string): string {
     return 'breadcrumbs.knowledge'
   }
 
-  if (pathname.startsWith('/states')) {
-    return 'breadcrumbs.states'
-  }
-
   return 'breadcrumbs.workspace'
 }
 
 /**
- * @brief 共享工作区页面框架 / Shared workspace page shell.
- * @return 含导航、语言切换与路由出口的跨端框架 / Cross-platform shell with navigation, locale switcher and route outlet.
- * @note 桌面 renderer 与 Web 均复用此组件；不依赖 Electron 或 Node.js API。
+ * @brief 从真实显示名称提取头像首字 / Extract an avatar initial from the real display name.
+ * @param displayName 后端返回的显示名称 / Display name returned by the backend.
+ * @return 第一个 Unicode 字符；空名称时为空串 / First Unicode character, or an empty string for an empty name.
  */
-export function WorkspaceShell(): React.JSX.Element {
+function getUserInitial(displayName: string): string {
+  return Array.from(displayName.trim()).at(0) ?? ''
+}
+
+/** @brief 共享工作区页面框架属性 / Shared workspace-shell properties. */
+export interface WorkspaceShellProps {
+  /** @brief 由宿主组合根确认的运行时信息 / Runtime information confirmed by the host composition root. */
+  readonly runtimeInfo: RuntimeInfo
+}
+
+/**
+ * @brief 共享工作区页面框架 / Shared workspace page shell.
+ * @param props 页面框架属性 / Shell properties.
+ * @return 含导航、语言切换与路由出口的跨端框架 / Cross-platform shell with navigation, locale switcher and route outlet.
+ * @note 桌面 renderer 与 Web 均复用此组件；不依赖 Electron、全局 bridge 或 Node.js API。
+ */
+export function WorkspaceShell({ runtimeInfo }: WorkspaceShellProps): React.JSX.Element {
   /** @brief i18n 翻译实例 / i18n translation instance. */
   const { i18n, t } = useTranslation()
   /** @brief 当前路由位置 / Current route location. */
   const location = useLocation()
   /** @brief 待切换到的 UI 语言 / UI locale to switch to. */
   const nextLocale = i18n.language === 'en-US' ? 'zh-SG' : 'en-US'
-  /** @brief 当前 renderer 已确认的宿主信息 / Host information confirmed for the current renderer. */
-  const runtimeInfo = useRuntimeInfo()
   /** @brief 应用诊断端口 / Application diagnostics port. */
   const diagnostics = useDiagnostics()
+  /** @brief 应用生命周期内缓存的 Workspace 会话 / Workspace session cached for the application lifecycle. */
+  const workspaceSession = useWorkspaceSession()
+  /** @brief 稳定的 Workspace 启动权威读取 / Stable Workspace bootstrap-authority read. */
+  const loadWorkspaceAccess = useCallback(() => workspaceSession.getAccess(), [workspaceSession])
+  /** @brief Shell 消费的真实当前用户与工作区状态 / Real current-user and Workspace state consumed by the shell. */
+  const workspaceAccess = useAsyncResource('workspace.session', loadWorkspaceAccess)
   /** @brief 主题存储的首次读取结果 / First theme-storage read result. */
   const [initialTheme] = useState<InitialThemeResult>(readInitialTheme)
   /** @brief 当前界面主题 / Current interface theme. */
@@ -174,8 +193,8 @@ export function WorkspaceShell(): React.JSX.Element {
   return (
     <div
       className="aw-shell"
-      data-runtime-platform={runtimeInfo?.platform ?? 'loading'}
-      data-runtime-version={runtimeInfo?.appVersion ?? ''}
+      data-runtime-platform={runtimeInfo.platform}
+      data-runtime-version={runtimeInfo.appVersion}
     >
       <aside aria-label={t('nav.primary', { defaultValue: '主导航' })} className="aw-sidebar">
         <Link
@@ -214,17 +233,31 @@ export function WorkspaceShell(): React.JSX.Element {
         <div className="aw-sidebar-spacer" />
         <div className="aw-account">
           <span aria-hidden="true" className="aw-avatar">
-            K
+            {workspaceAccess.status === 'ready'
+              ? getUserInitial(workspaceAccess.data.currentUser.displayName)
+              : ''}
           </span>
-          <div>
-            <strong>Klee</strong>
-            <br />
-            <span>
-              {t('account.plan', { defaultValue: '个人工作区' })}
-              {runtimeInfo?.platform === 'electron'
-                ? ` · ${t('account.desktop', { defaultValue: '桌面版' })}`
-                : ''}
-            </span>
+          <div className="aw-account-copy">
+            {workspaceAccess.status === 'loading' ? (
+              <strong role="status">
+                {t('account.loading', { defaultValue: '正在加载账户…' })}
+              </strong>
+            ) : workspaceAccess.status === 'error' ? (
+              <strong>{t('account.unavailable', { defaultValue: '账户信息暂时不可用' })}</strong>
+            ) : (
+              <>
+                <strong title={workspaceAccess.data.currentUser.displayName}>
+                  {workspaceAccess.data.currentUser.displayName}
+                </strong>
+                <span title={workspaceAccess.data.currentWorkspace?.name}>
+                  {workspaceAccess.data.currentWorkspace?.name ??
+                    t('account.noWorkspace', { defaultValue: '暂无可用工作区' })}
+                  {runtimeInfo.platform === 'electron'
+                    ? ` · ${t('account.desktop', { defaultValue: '桌面版' })}`
+                    : ''}
+                </span>
+              </>
+            )}
           </div>
         </div>
       </aside>
@@ -234,9 +267,22 @@ export function WorkspaceShell(): React.JSX.Element {
             {t(getBreadcrumbKey(location.pathname), { defaultValue: 'Workspace' })}
           </span>
           <div className="aw-topbar-actions">
-            <button className="aw-quiet-button" type="button">
+            <button
+              aria-describedby="workspace-feedback-unavailable"
+              aria-disabled="true"
+              className="aw-quiet-button aw-discoverable-disabled"
+              title={t('topbar.feedbackUnavailable', {
+                defaultValue: '反馈功能正在准备中，目前无法提交。'
+              })}
+              type="button"
+            >
               {t('topbar.feedback', { defaultValue: '反馈' })}
             </button>
+            <span className="aw-sr-only" id="workspace-feedback-unavailable">
+              {t('topbar.feedbackUnavailable', {
+                defaultValue: '反馈功能正在准备中，目前无法提交。'
+              })}
+            </span>
             <button
               aria-label={
                 theme === 'dark'
@@ -265,7 +311,23 @@ export function WorkspaceShell(): React.JSX.Element {
             </button>
           </div>
         </header>
-        <Outlet />
+        {workspaceAccess.status === 'loading' ? (
+          <div className="aw-page">
+            <LoadingState
+              label={t('status.loadingWorkspace', { defaultValue: '正在加载工作区…' })}
+            />
+          </div>
+        ) : workspaceAccess.status === 'error' ? (
+          <div className="aw-page">
+            <ResourceErrorState
+              error={workspaceAccess.error}
+              onRetry={workspaceAccess.retry}
+              title={t('status.errorWorkspace', { defaultValue: '无法加载工作区' })}
+            />
+          </div>
+        ) : (
+          <Outlet />
+        )}
       </main>
     </div>
   )

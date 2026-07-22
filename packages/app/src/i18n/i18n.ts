@@ -3,8 +3,16 @@
 import i18next, { type i18n } from 'i18next'
 import { initReactI18next, useTranslation } from 'react-i18next'
 
-import { APP_LOCALES, DEFAULT_APP_LOCALE, type AppLocale } from '../domain/models'
 import { appTranslationResources } from './resources'
+
+/** @brief 前端支持的界面语言 / UI locales supported by the frontend. */
+export const APP_LOCALES = ['zh-SG', 'en-US'] as const
+
+/** @brief 前端支持的界面语言类型 / Type of frontend-supported UI locales. */
+export type AppLocale = (typeof APP_LOCALES)[number]
+
+/** @brief 前端默认界面语言 / Default frontend UI locale. */
+export const DEFAULT_APP_LOCALE: AppLocale = 'zh-SG'
 
 /** @brief 应用共享 i18n 实例 / Shared application i18n instance. */
 export const appI18n: i18n = i18next.createInstance()

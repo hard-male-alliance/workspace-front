@@ -1,0 +1,71 @@
+.aw-host-startup-screen {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 32px;
+  color: #302a25;
+  background: #f6f3ee;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
+}
+
+.aw-host-startup-card {
+  width: min(100%, 560px);
+  padding: clamp(28px, 6vw, 48px);
+  border: 1px solid #ded6ca;
+  border-radius: 24px;
+  background: #fffdf9;
+  box-shadow: 0 18px 60px rgb(62 48 35 / 10%);
+}
+
+.aw-host-startup-eyebrow {
+  margin: 0 0 18px;
+  color: #75675b;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.aw-host-startup-card h1 {
+  margin: 0;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(2rem, 8vw, 3.25rem);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+  line-height: 1.05;
+}
+
+.aw-host-startup-card > p:not(.aw-host-startup-eyebrow) {
+  margin: 22px 0 28px;
+  color: #665b51;
+  font-size: 1rem;
+  line-height: 1.75;
+}
+
+.aw-host-startup-action {
+  min-height: 44px;
+  padding: 0 22px;
+  border: 1px solid #302a25;
+  border-radius: 999px;
+  color: #fffdf9;
+  background: #302a25;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
+.aw-host-startup-action:hover {
+  background: #4b423a;
+}
+
+.aw-host-startup-action:focus-visible {
+  outline: 3px solid #bd7a45;
+  outline-offset: 3px;
+}

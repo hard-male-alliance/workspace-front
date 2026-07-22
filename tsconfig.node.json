@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": ["node", "vitest/globals"]
+  },
+  "include": [
+    "vitest.config.ts",
+    "apps/*/*.config.ts",
+    "apps/desktop/src/main/**/*.ts",
+    "apps/desktop/src/preload/**/*.ts",
+    "apps/**/*.node.test.ts",
+    "apps/**/*.node.test.tsx",
+    "packages/**/*.node.test.ts",
+    "packages/**/*.node.test.tsx"
+  ],
+  "exclude": ["node_modules", "dist", "out", "coverage", "workspace-shared-docs"]
+}

@@ -150,26 +150,27 @@ const diagnosticRoutes = new Set<string>(DIAGNOSTIC_ROUTES)
 const diagnosticPlatforms = new Set<DiagnosticPlatform>(['web', 'electron'])
 
 /** @brief 可上传的 HTTP 方法枚举 / HTTP-method enumeration permitted for upload. */
-const diagnosticHttpMethods = new Set<DiagnosticHttpMethod>(['GET', 'POST'])
+const diagnosticHttpMethods = new Set<DiagnosticHttpMethod>(['GET', 'PATCH', 'POST'])
 
 /** @brief 可上传的 HTTP 操作枚举 / HTTP-operation enumeration permitted for upload. */
 const diagnosticHttpOperations = new Set<DiagnosticHttpOperation>([
-  'knowledge.ingestion_job.read',
-  'knowledge.search.create',
+  'interview.report.read',
+  'interview.scenario.list',
+  'interview.scenario.read',
+  'interview.session.create',
+  'interview.session.list',
+  'interview.session.read',
   'knowledge.source.list',
   'knowledge.source.read',
-  'knowledge.source.upload',
-  'knowledge.source.version_upload',
-  'resume.artifact.list',
+  'knowledge.source.update',
   'resume.document.list',
   'resume.document.read',
   'resume.operation.apply',
-  'resume.proposal.create',
-  'resume.proposal.decision',
-  'resume.proposal.list',
   'resume.render_job.create',
   'resume.render_job.read',
   'resume.template.list',
+  'workspace.list',
+  'workspace.me.read',
   'unknown'
 ])
 
@@ -177,18 +178,11 @@ const diagnosticHttpOperations = new Set<DiagnosticHttpOperation>([
 const diagnosticCommandOperations = new Set<DiagnosticCommandOperation>([
   'interview.answer_submit',
   'interview.create',
-  'knowledge.ingestion_poll',
-  'knowledge.search',
-  'knowledge.upload',
-  'knowledge.version_upload',
   'resume.authority_reload',
   'resume.pdf_render',
-  'resume.proposal_decide',
-  'resume.proposal_create',
   'resume.section_delete',
   'resume.section_reorder',
-  'resume.section_update',
-  'resume.template_select'
+  'resume.section_update'
 ])
 
 /** @brief 可上传的异步资源枚举 / Asynchronous-resource enumeration permitted for upload. */
@@ -202,6 +196,7 @@ const diagnosticResourceNames = new Set<DiagnosticResourceName>([
   'resume.editor',
   'resume.entry',
   'resume.template_settings',
+  'workspace.session',
   'workspace.home'
 ])
 
@@ -212,6 +207,7 @@ const diagnosticErrorKinds = new Set<DiagnosticErrorKind>([
   'configuration',
   'contract',
   'network',
+  'outcome_unknown',
   'react_render',
   'timeout',
   'unknown'

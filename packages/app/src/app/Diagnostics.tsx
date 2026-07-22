@@ -207,7 +207,6 @@ function getDiagnosticRoute(pathname: string): DiagnosticRoute {
   if (pathname.startsWith('/interviews/')) return 'interview.room'
   if (pathname === '/knowledge') return 'knowledge.sources'
   if (pathname.endsWith('/visibility')) return 'knowledge.visibility'
-  if (pathname === '/states') return 'state.gallery'
   return 'unknown'
 }
 

@@ -1,0 +1,205 @@
+.aw-source-list {
+  display: grid;
+  gap: 10px;
+}
+
+.aw-knowledge-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 18px;
+  padding: 10px 12px;
+  border: 1px solid var(--ui-color-border);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-color-surface);
+}
+
+.aw-search-field {
+  display: flex;
+  min-width: min(420px, 100%);
+  align-items: center;
+  gap: 9px;
+  color: var(--ui-color-ink-muted);
+}
+
+.aw-search-field input {
+  width: 100%;
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: var(--ui-color-ink);
+  font: inherit;
+  outline: 0;
+}
+
+.aw-search-field:focus-within {
+  color: var(--ui-color-accent);
+}
+
+.aw-source-card {
+  display: grid;
+  grid-template-columns: 39px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--ui-color-border);
+  border-radius: 10px;
+  background: var(--ui-color-surface);
+}
+
+.aw-source-card--selected {
+  border-color: var(--ui-color-accent);
+  background: var(--ui-color-accent-subtle);
+}
+
+.aw-source-detail-button {
+  min-height: 31px;
+  padding: 5px 9px;
+  font-size: 11px;
+}
+
+.aw-source-icon {
+  display: grid;
+  width: 39px;
+  height: 39px;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--ui-color-accent-subtle);
+  color: var(--ui-color-accent-subtle-foreground);
+}
+
+.aw-source-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+  color: var(--ui-color-ink-muted);
+  font-size: 11px;
+}
+
+.aw-source-detail {
+  position: sticky;
+  top: 84px;
+  align-self: start;
+}
+
+.aw-source-detail-name {
+  margin: 14px 0 4px;
+  color: var(--ui-color-ink);
+  font-size: 16px;
+  font-weight: 720;
+}
+
+.aw-source-detail-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.aw-source-detail-stats span {
+  display: grid;
+  gap: 2px;
+  padding: 10px;
+  border: 1px solid var(--ui-color-border);
+  border-radius: var(--ui-radius-sm);
+  color: var(--ui-color-ink-muted);
+  font-size: 10px;
+}
+
+.aw-source-detail-stats strong {
+  color: var(--ui-color-ink);
+  font-size: 17px;
+}
+
+.aw-source-detail-boundary {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--ui-color-border);
+}
+
+.aw-visibility-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(295px, 0.7fr);
+  gap: 18px;
+}
+
+.aw-visibility-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 22px;
+  margin-bottom: 18px;
+  padding: 18px 20px;
+  border: 1px solid var(--ui-color-border-strong);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-color-surface);
+}
+
+.aw-visibility-summary h2 {
+  margin: 5px 0 0;
+  color: var(--ui-color-ink);
+  font-size: 16px;
+}
+
+.aw-visibility-summary-stats {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.aw-visibility-summary-stats > span:not(.aw-status) {
+  display: grid;
+  gap: 2px;
+  color: var(--ui-color-ink-muted);
+  font-size: 10px;
+}
+
+.aw-visibility-summary-stats strong {
+  color: var(--ui-color-ink);
+  font-size: 17px;
+}
+
+.aw-policy-matrix {
+  overflow: auto;
+  padding: 3px 0;
+}
+
+.aw-policy-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.aw-policy-table th,
+.aw-policy-table td {
+  padding: 11px 8px;
+  border-bottom: 1px solid var(--ui-color-border);
+  text-align: center;
+}
+
+.aw-policy-table th:first-child,
+.aw-policy-table td:first-child {
+  min-width: 145px;
+  text-align: left;
+}
+
+.aw-check {
+  display: inline-grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 1px solid var(--ui-color-border-strong);
+  border-radius: 5px;
+  background: var(--ui-color-accent-subtle);
+  color: var(--ui-color-accent-subtle-foreground);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.aw-check--off {
+  border-color: var(--ui-color-border);
+  background: var(--ui-color-surface);
+  color: transparent;
+}

@@ -5,10 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- @brief 将 Vite 的相对资源 URL 固定到受限协议根路径，支持深层客户端路由刷新。 -->
     <base href="/" />
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws://localhost:* ws://127.0.0.1:*; media-src 'self' blob:; worker-src 'self' blob:"
-    />
+    <!-- @brief 生产与开发 CSP 均由 Electron main 按已验证运行时配置注入，避免策略交集阻断产品 origin。 -->
     <title>AI Job Workspace</title>
   </head>
   <body>

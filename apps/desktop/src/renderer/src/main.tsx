@@ -1,14 +1,8 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import {
-  MockInterviewGateway,
-  MockKnowledgeGateway,
-  MockResumeGateway,
-  MockWorkspaceGateway,
-  WorkspaceApp
-} from '@ai-job-workspace/app'
-import { APPLICATION_VERSION, createWebPlatformBridge } from '@ai-job-workspace/platform'
-import type { RuntimeInfo } from '@ai-job-workspace/platform'
+import { HostStartupFailure, WorkspaceApp } from '@ai-job-workspace/app'
+import type { ElectronRuntimeInfo, PlatformBridge } from '@ai-job-workspace/platform'
+import { createProductGateways } from '@ai-job-workspace/product-runtime'
 
 import { createDesktopDiagnostics } from './create-desktop-observability'
 
@@ -22,19 +16,44 @@ if (rootElement === null) {
 /** @brief 已验证存在的 React 挂载节点 / React mounting node verified to exist. */
 const mountElement = rootElement
 
+/** @brief Electron renderer 唯一 React root / Sole React root for the Electron renderer. */
+const applicationRoot = createRoot(mountElement)
+
+/** @brief 仅在 Electron renderer 模块内可见的 preload bridge 投影 / Module-local projection of the preload bridge for the Electron renderer. */
+interface DesktopHostWindow extends Window {
+  /** @brief 仅由 Electron preload 注入的窄平台桥接 / Narrow platform bridge injected only by Electron preload. */
+  readonly aiJobWorkspace?: PlatformBridge
+}
+
+/** @brief preload bridge 与主进程确认信息的启动快照 / Bootstrap snapshot of the preload bridge and main-confirmed information. */
+interface DesktopRuntimeSnapshot {
+  /** @brief preload 注入的窄宿主 bridge / Narrow host bridge injected by preload. */
+  readonly bridge: PlatformBridge
+  /** @brief 主进程确认的 Electron 运行时信息 / Electron runtime information confirmed by main. */
+  readonly runtimeInfo: ElectronRuntimeInfo
+}
+
 /**
  * @brief 读取主进程确认的运行时信息 / Read runtime information confirmed by the main process.
- * @return 已确认信息；bridge 失效时为 undefined / Confirmed information, or undefined when the bridge fails.
+ * @return bridge 与已确认 Electron 信息的不可变快照 / Immutable snapshot of the bridge and confirmed Electron information.
+ * @throws preload bridge 缺失、调用失败或返回非 Electron 信息时抛出 / Throws when the preload bridge is missing, fails, or returns non-Electron information.
  */
-async function resolveDesktopRuntimeInfo(): Promise<RuntimeInfo | undefined> {
-  /** @brief Electron 窄 bridge 或测试中的安全 Web 回退 / Electron narrow bridge or safe Web fallback in tests. */
-  const bridge = window.aiJobWorkspace ?? createWebPlatformBridge(APPLICATION_VERSION)
-
-  try {
-    return await bridge.getRuntimeInfo()
-  } catch {
-    return undefined
+async function resolveDesktopRuntime(): Promise<DesktopRuntimeSnapshot> {
+  /** @brief 不扩展全局 Window 的模块局部宿主投影 / Module-local host projection that does not augment global Window. */
+  const hostWindow: DesktopHostWindow = window
+  /** @brief 只能由 Electron preload 注入的窄 bridge / Narrow bridge injected only by the Electron preload. */
+  const bridge = hostWindow.aiJobWorkspace
+  if (bridge === undefined) {
+    throw new Error('The Electron preload bridge is unavailable.')
   }
+
+  /** @brief 主进程返回的判别式运行时信息 / Discriminated runtime information returned by the main process. */
+  const runtimeInfo = await bridge.getRuntimeInfo()
+  if (runtimeInfo.platform !== 'electron') {
+    throw new Error('The Electron preload bridge returned a non-Electron runtime.')
+  }
+
+  return { bridge, runtimeInfo }
 }
 
 /**
@@ -42,14 +61,12 @@ async function resolveDesktopRuntimeInfo(): Promise<RuntimeInfo | undefined> {
  * @return 挂载完成后的 Promise / Promise fulfilled after mounting completes.
  */
 async function bootstrapDesktopRenderer(): Promise<void> {
-  /** @brief 主进程验证的可选运行时信息 / Optional runtime information validated by the main process. */
-  const runtimeInfo = await resolveDesktopRuntimeInfo()
+  /** @brief 启动时一次性确认的 bridge 与运行时信息 / Bridge and runtime information confirmed once during bootstrap. */
+  const { bridge, runtimeInfo } = await resolveDesktopRuntime()
   /** @brief 仅当 Electron 主进程验证过时才使用的上传 endpoint / Upload endpoint used only when verified by the Electron main process. */
-  const endpoint =
-    runtimeInfo?.platform === 'electron' ? runtimeInfo.diagnosticsEndpoint : undefined
+  const endpoint = runtimeInfo.diagnosticsEndpoint
   /** @brief 主进程拒绝诊断上传时给出的无敏感原因 / Non-sensitive reason supplied when the main process rejected diagnostics upload. */
-  const diagnosticsConfigurationError =
-    runtimeInfo?.platform === 'electron' ? runtimeInfo.diagnosticsConfigurationError : undefined
+  const diagnosticsConfigurationError = runtimeInfo.diagnosticsConfigurationError
   /** @brief Electron renderer 统一诊断端口 / Unified diagnostics port for the Electron renderer. */
   const diagnostics = createDesktopDiagnostics(endpoint)
 
@@ -57,34 +74,52 @@ async function bootstrapDesktopRenderer(): Promise<void> {
     diagnostics.emit('diagnostics.config_invalid', { reason: diagnosticsConfigurationError })
   }
 
-  if (runtimeInfo === undefined) {
-    diagnostics.emit('runtime.info_failed', { error_kind: 'unknown' })
-  } else {
-    diagnostics.emit('runtime.info_loaded', {
-      app_version: runtimeInfo.appVersion,
-      platform: runtimeInfo.platform,
-      upload_enabled: endpoint !== undefined
-    })
-  }
+  diagnostics.emit('runtime.info_loaded', {
+    app_version: runtimeInfo.appVersion,
+    platform: runtimeInfo.platform,
+    upload_enabled: endpoint !== undefined
+  })
   diagnostics.emit('app.started', {
-    app_version: APPLICATION_VERSION,
+    app_version: runtimeInfo.appVersion,
     platform: 'electron',
     upload_enabled: endpoint !== undefined
   })
 
-  createRoot(mountElement).render(
+  applicationRoot.render(
     <StrictMode>
       <WorkspaceApp
+        artifactSave={bridge}
         diagnostics={diagnostics}
-        gateways={{
-          workspace: new MockWorkspaceGateway(),
-          resume: new MockResumeGateway(),
-          interview: new MockInterviewGateway(),
-          knowledge: new MockKnowledgeGateway()
-        }}
+        gateways={createProductGateways(runtimeInfo.apiBaseUrl, diagnostics, {
+          locale: navigator.language,
+          platform: 'electron'
+        })}
+        runtimeInfo={runtimeInfo}
       />
     </StrictMode>
   )
 }
 
-void bootstrapDesktopRenderer()
+/**
+ * @brief 重新加载 Electron renderer 以重试已修正的宿主配置 / Reload the Electron renderer to retry corrected host configuration.
+ * @return 无返回值 / No return value.
+ */
+function reloadDesktopApplication(): void {
+  globalThis.location.reload()
+}
+
+/**
+ * @brief 显示可重试且脱敏的 Electron renderer 启动错误 / Show a retryable, configuration-safe Electron-renderer startup error.
+ * @param error 启动失败值 / Bootstrap failure value.
+ * @return 无返回值 / No return value.
+ */
+function reportDesktopBootstrapFailure(error: unknown): void {
+  console.error('Desktop renderer failed to start.', error)
+  applicationRoot.render(
+    <StrictMode>
+      <HostStartupFailure locale={navigator.language} onRetry={reloadDesktopApplication} />
+    </StrictMode>
+  )
+}
+
+void bootstrapDesktopRenderer().catch(reportDesktopBootstrapFailure)

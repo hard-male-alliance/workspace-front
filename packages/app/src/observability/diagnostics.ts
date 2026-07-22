@@ -22,7 +22,6 @@ export const DIAGNOSTIC_ROUTES = [
   'resume.editor',
   'resume.entry',
   'resume.template_settings',
-  'state.gallery',
   'unknown',
   'workspace.home'
 ] as const
@@ -31,26 +30,27 @@ export const DIAGNOSTIC_ROUTES = [
 export type DiagnosticRoute = (typeof DIAGNOSTIC_ROUTES)[number]
 
 /** @brief 安全且稳定的 HTTP 方法 / Safe and stable HTTP methods. */
-export type DiagnosticHttpMethod = 'GET' | 'POST'
+export type DiagnosticHttpMethod = 'GET' | 'PATCH' | 'POST'
 
 /** @brief 不含用户输入的 HTTP 操作分类 / HTTP operation categories without user input. */
 export type DiagnosticHttpOperation =
-  | 'knowledge.ingestion_job.read'
-  | 'knowledge.search.create'
+  | 'interview.report.read'
+  | 'interview.scenario.list'
+  | 'interview.scenario.read'
+  | 'interview.session.create'
+  | 'interview.session.list'
+  | 'interview.session.read'
   | 'knowledge.source.list'
   | 'knowledge.source.read'
-  | 'knowledge.source.upload'
-  | 'knowledge.source.version_upload'
-  | 'resume.artifact.list'
+  | 'knowledge.source.update'
   | 'resume.document.list'
   | 'resume.document.read'
   | 'resume.operation.apply'
-  | 'resume.proposal.create'
-  | 'resume.proposal.decision'
-  | 'resume.proposal.list'
   | 'resume.render_job.create'
   | 'resume.render_job.read'
   | 'resume.template.list'
+  | 'workspace.list'
+  | 'workspace.me.read'
   | 'unknown'
 
 /** @brief 异步页面资源的固定名称 / Fixed names for asynchronous page resources. */
@@ -64,24 +64,18 @@ export type DiagnosticResourceName =
   | 'resume.editor'
   | 'resume.entry'
   | 'resume.template_settings'
+  | 'workspace.session'
   | 'workspace.home'
 
 /** @brief 用户命令的固定操作名称 / Fixed operation names for user commands. */
 export type DiagnosticCommandOperation =
   | 'interview.answer_submit'
   | 'interview.create'
-  | 'knowledge.ingestion_poll'
-  | 'knowledge.search'
-  | 'knowledge.upload'
-  | 'knowledge.version_upload'
   | 'resume.authority_reload'
   | 'resume.pdf_render'
-  | 'resume.proposal_decide'
-  | 'resume.proposal_create'
   | 'resume.section_delete'
   | 'resume.section_reorder'
   | 'resume.section_update'
-  | 'resume.template_select'
 
 /** @brief 经过归类且不带错误原文的错误类别 / Classified error kinds without raw error text. */
 export type DiagnosticErrorKind =
@@ -90,6 +84,7 @@ export type DiagnosticErrorKind =
   | 'configuration'
   | 'contract'
   | 'network'
+  | 'outcome_unknown'
   | 'react_render'
   | 'timeout'
   | 'unknown'
@@ -299,9 +294,12 @@ export function classifyDiagnosticError(error: unknown): DiagnosticErrorKind {
 
   if (typeof error === 'object' && error !== null && 'name' in error) {
     const name = error.name
+    if (name === 'TimeoutError') return 'timeout'
+    if (name === 'HttpCommandOutcomeUnknownError') {
+      return 'outcome_unknown'
+    }
     if (name === 'HttpProblemError') return 'backend_problem'
     if (name === 'HttpContractError') return 'contract'
-    if (name === 'KnowledgePollingTimeoutError') return 'timeout'
   }
 
   if (error instanceof TypeError) return 'network'
