@@ -2,12 +2,13 @@
 
 import { ApiV2ContractError, ApiV2NetworkError } from '../http/errors'
 import { readBoundedJson } from '../http/bounded-json'
+import { API_V2_PRODUCTION_ORIGIN } from '../origin'
 
 /** @brief OIDC discovery 最大响应字节数 / Maximum OIDC discovery response bytes. */
 const MAX_DISCOVERY_BYTES = 256 * 1024
 
 /** @brief API STANDARD V2 冻结的 OAuth/OIDC issuer / OAuth/OIDC issuer frozen by API STANDARD V2. */
-export const API_V2_OAUTH_ISSUER = 'https://api.hmalliances.org:8022'
+export const API_V2_OAUTH_ISSUER = API_V2_PRODUCTION_ORIGIN
 
 /** @brief API STANDARD V2 冻结的 OIDC discovery URL / OIDC discovery URL frozen by API STANDARD V2. */
 export const API_V2_OIDC_DISCOVERY_URL = `${API_V2_OAUTH_ISSUER}/.well-known/openid-configuration`

@@ -2,7 +2,7 @@
 
 import { resolveDiagnosticsEndpointConfiguration } from '@ai-job-workspace/platform'
 import type { DiagnosticsEndpointConfiguration } from '@ai-job-workspace/platform'
-import { API_V2_OAUTH_ISSUER } from '@ai-job-workspace/product-api-v2'
+import { API_V2_PRODUCTION_ORIGIN } from '@ai-job-workspace/product-api-v2/origin'
 
 /** @brief 固定的前端诊断批量上传路径 / Fixed frontend-diagnostics batch upload path. */
 export { FRONTEND_DIAGNOSTICS_BATCH_PATH } from '@ai-job-workspace/platform'
@@ -55,7 +55,7 @@ export function resolveDiagnosticsUploadConfiguration(
  */
 export function createWebContentSecurityPolicy(options: WebContentSecurityPolicyOptions): string {
   /** @brief 已校验的产品 API 源，用于网络请求与公开模板预览 / Validated product API origin for requests and public Template previews. */
-  const apiOrigin = API_V2_OAUTH_ISSUER
+  const apiOrigin = API_V2_PRODUCTION_ORIGIN
   /** @brief 去重后的 connect-src allowlist / Deduplicated connect-src allowlist. */
   const connectSources = new Set<string>(["'self'", apiOrigin])
   /** @brief 诊断上传的三态解析结果 / Three-state diagnostics-upload resolution. */
