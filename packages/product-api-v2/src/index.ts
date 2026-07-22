@@ -3,19 +3,39 @@
 export { createApiV2Client } from './http/client'
 export type { ApiV2AccessTokenRefreshRequest, ApiV2AuthenticationPort } from './http/authentication'
 export type {
+  ApiV2AcceptedResourceResponse,
   ApiV2Client,
   ApiV2ClientOptions,
+  ApiV2CreatedResourceResponse,
+  ApiV2DeleteOptions,
   ApiV2GetOptions,
+  ApiV2HttpClient,
   ApiV2JsonResponse,
+  ApiV2LocatedWriteResponseMetadata,
+  ApiV2NoContentResponse,
+  ApiV2PatchJsonOptions,
+  ApiV2PostEmptyOptions,
+  ApiV2PostJsonOptions,
+  ApiV2PostJsonResponse,
+  ApiV2PostSuccessKind,
+  ApiV2PostSuccessPolicy,
   ApiV2QueryValue,
-  ApiV2TransportProfile
+  ApiV2ResultWriteJsonResponse,
+  ApiV2ResultWriteResponseMetadata,
+  ApiV2TransportProfile,
+  ApiV2UpdatedWriteJsonResponse,
+  ApiV2VersionedWriteResponseMetadata,
+  ApiV2WriteClient,
+  ApiV2WriteJsonResponse,
+  ApiV2WriteResponseMetadata
 } from './http/client'
 export {
   ApiV2AuthenticationRequiredError,
   ApiV2ContractError,
-  ApiV2NetworkError
+  ApiV2NetworkError,
+  ApiV2WriteOutcomeUnknownError
 } from './http/errors'
-export type { ApiV2NetworkErrorKind } from './http/errors'
+export type { ApiV2NetworkErrorKind, ApiV2WriteOutcomeUnknownKind } from './http/errors'
 export { ApiV2ProblemError } from './http/problem-error'
 export { parseProblemDetails } from './http/problem'
 export type { ProblemDetails, ProblemFieldError } from './http/problem'
