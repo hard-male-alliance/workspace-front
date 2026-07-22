@@ -2,6 +2,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import {
+  createAsarEntryDescriptor,
   createPackagedLayoutCandidates,
   normalizeAsarEntryPath
 } from './desktop-packaged-layout.mjs'
@@ -12,6 +13,19 @@ describe('normalizeAsarEntryPath', () => {
     ['/out/renderer/index.html', '/out/renderer/index.html']
   ])('将 %s 规范化为 %s', (entry, expected) => {
     expect(normalizeAsarEntryPath(entry)).toBe(expected)
+  })
+
+  it.each([
+    [
+      '\\out\\main\\index.js',
+      { archivePath: 'out\\main\\index.js', logicalPath: '/out/main/index.js' }
+    ],
+    [
+      '/out/renderer/index.html',
+      { archivePath: 'out/renderer/index.html', logicalPath: '/out/renderer/index.html' }
+    ]
+  ])('保留 %s 的归档原生路径', (entry, expected) => {
+    expect(createAsarEntryDescriptor(entry)).toEqual(expected)
   })
 })
 

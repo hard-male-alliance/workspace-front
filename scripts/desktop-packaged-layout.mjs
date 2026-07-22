@@ -11,6 +11,18 @@ export function normalizeAsarEntryPath(entry) {
 }
 
 /**
+ * @brief 分离 ASAR 原生提取路径与平台无关逻辑路径 / Separate the native ASAR extraction path from its platform-independent logical path.
+ * @param entry @electron/asar 返回的条目 / Entry returned by @electron/asar.
+ * @return 归档提取路径与逻辑策略路径 / Native archive extraction path and logical policy path.
+ */
+export function createAsarEntryDescriptor(entry) {
+  return {
+    archivePath: entry.replace(/^[\\/]/u, ''),
+    logicalPath: normalizeAsarEntryPath(entry)
+  }
+}
+
+/**
  * @brief 返回当前平台可能的 unpacked 应用布局 / Return possible unpacked application layouts for the current platform.
  * @param releaseRoot electron-builder 输出目录 / electron-builder output directory.
  * @param platform Node.js 平台名 / Node.js platform name.

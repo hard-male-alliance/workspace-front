@@ -5,8 +5,8 @@ import electronAsar from '@electron/asar'
 import { getCurrentFuseWire } from '@electron/fuses'
 
 import {
+  createAsarEntryDescriptor,
   measurePathBytes,
-  normalizeAsarEntryPath,
   resolvePackagedDesktopLayout,
   verifyPackagedAsar
 } from './desktop-packaged-layout.mjs'
@@ -38,8 +38,10 @@ const releaseRoot = path.join(desktopRoot, 'release')
  * @return 归档条目数 / Archive entry count.
  */
 function verifyPackagedAsarEntries(asarPath) {
-  /** @brief 实际 ASAR 条目 / Actual ASAR entries. */
-  const entries = listPackage(asarPath).map(normalizeAsarEntryPath)
+  /** @brief 原生提取路径与规范化策略路径 / Native extraction paths and normalized policy paths. */
+  const entryDescriptors = listPackage(asarPath).map(createAsarEntryDescriptor)
+  /** @brief 平台无关的实际 ASAR 条目 / Platform-independent actual ASAR entries. */
+  const entries = entryDescriptors.map(({ logicalPath }) => logicalPath)
   /** @brief 必须存在的关键输出 / Required key outputs. */
   const requiredEntries = [
     '/out/main/index.js',
@@ -68,10 +70,12 @@ function verifyPackagedAsarEntries(asarPath) {
   }
 
   /** @brief ASAR 中所有可执行前端文本 / All executable frontend texts inside the ASAR. */
-  const productionEntries = entries.filter(isProductionArtifactTextPath).map((entry) => ({
-    content: extractFile(asarPath, entry.replace(/^\//u, '')),
-    path: `app.asar${entry}`
-  }))
+  const productionEntries = entryDescriptors
+    .filter(({ logicalPath }) => isProductionArtifactTextPath(logicalPath))
+    .map(({ archivePath, logicalPath }) => ({
+      content: extractFile(asarPath, archivePath),
+      path: `app.asar${logicalPath}`
+    }))
   /** @brief ASAR 业务数据边界扫描结果 / Business-data boundary result for the ASAR. */
   const dataBoundaryResult = inspectProductionArtifactEntries(productionEntries)
   assertProductionArtifactDataBoundary(dataBoundaryResult, 'packaged Electron app.asar')
