@@ -59,6 +59,10 @@ export type {
   RunningJob,
   SucceededJob
 } from './jobs/job'
+export { listWorkspaceJobPage, parseJobList } from './jobs/job-collection'
+export type { JobListPageRequest } from './jobs/job-collection'
+export { cancelWorkspaceJob } from './jobs/cancel-job'
+export type { CancelWorkspaceJobCommand, JobCancellationHttpClient } from './jobs/cancel-job'
 export { parseAcceptedWorkspaceJob } from './jobs/accepted-job'
 export type { AcceptedWorkspaceJobRepresentation } from './jobs/accepted-job'
 export { getWorkspaceArtifact, artifactMediaType, parseArtifact } from './artifacts/artifact'
