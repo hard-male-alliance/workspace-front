@@ -40,7 +40,7 @@ export function ResumeEditorPage(): React.JSX.Element {
     )
     return { editor, templates }
   }, [requestedResumeId, resume, resumeId])
-  const workspace = useAsyncResource('resume.editor', loadWorkspace)
+  const workspace = useAsyncResource('resume.editor', loadWorkspace, requestedResumeId)
 
   if (workspace.status === 'loading') {
     return (
@@ -66,6 +66,7 @@ export function ResumeEditorPage(): React.JSX.Element {
     <ResumeWorkspace
       gateway={resume}
       initialEditor={workspace.data.editor}
+      key={requestedResumeId}
       templates={workspace.data.templates}
     />
   )

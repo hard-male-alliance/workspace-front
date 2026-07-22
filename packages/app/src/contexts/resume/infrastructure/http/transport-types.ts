@@ -71,6 +71,23 @@ export interface RichTextDto {
   readonly plain_text: string | null
 }
 
+/** @brief 不完整日期 DTO / Partial-date DTO. */
+export interface ResumePartialDateDto {
+  readonly year: number
+  readonly month: number | null
+  readonly day: number | null
+  /** @brief 契约允许未来扩展的日期精度 code / Open date-precision code allowed by the contract. */
+  readonly precision: string
+}
+
+/** @brief 日期范围 DTO / Date-range DTO. */
+export interface ResumeDateRangeDto {
+  readonly start: ResumePartialDateDto | null
+  readonly end: ResumePartialDateDto | null
+  readonly is_current: boolean
+  readonly display_override: string | null
+}
+
 /** @brief 简历联系信息 DTO / Resume contact DTO. */
 export interface ResumeContactDto {
   readonly kind: string
@@ -79,14 +96,124 @@ export interface ResumeContactDto {
   readonly is_public: boolean
 }
 
-/** @brief 简历多态条目的公共只读 DTO / Common read-only DTO for polymorphic Resume items. */
-export interface ResumeItemDto {
+/** @brief 简历条目公共 DTO 字段 / Common Resume-item DTO fields. */
+interface ResumeItemBaseDto {
   readonly item_id: string
-  readonly item_kind: string
   readonly visible: boolean
   readonly tags: readonly string[]
-  readonly raw: Readonly<Record<string, unknown>>
 }
+
+/** @brief 工作经历条目 DTO / Experience-item DTO. */
+export interface ResumeExperienceItemDto extends ResumeItemBaseDto {
+  readonly item_kind: 'experience'
+  readonly organization: string
+  readonly position: string
+  readonly location: string | null
+  readonly date_range: ResumeDateRangeDto
+  readonly description: RichTextDto | null
+  readonly highlights: readonly RichTextDto[]
+}
+
+/** @brief 教育经历条目 DTO / Education-item DTO. */
+export interface ResumeEducationItemDto extends ResumeItemBaseDto {
+  readonly item_kind: 'education'
+  readonly institution: string
+  readonly degree: string | null
+  readonly field_of_study: string | null
+  readonly location: string | null
+  readonly date_range: ResumeDateRangeDto
+  readonly score: string | null
+  readonly description: RichTextDto | null
+  readonly highlights: readonly RichTextDto[]
+}
+
+/** @brief 项目条目 DTO / Project-item DTO. */
+export interface ResumeProjectItemDto extends ResumeItemBaseDto {
+  readonly item_kind: 'project'
+  readonly name: string
+  readonly role: string | null
+  readonly date_range: ResumeDateRangeDto | null
+  readonly description: RichTextDto | null
+  readonly highlights: readonly RichTextDto[]
+  readonly technologies: readonly string[]
+}
+
+/** @brief 技能组条目 DTO / Skill-group-item DTO. */
+export interface ResumeSkillGroupItemDto extends ResumeItemBaseDto {
+  readonly item_kind: 'skill_group'
+  readonly name: string
+  readonly skills: readonly string[]
+  readonly proficiency: string | null
+}
+
+/** @brief 出版物条目 DTO / Publication-item DTO. */
+export interface ResumePublicationItemDto extends ResumeItemBaseDto {
+  readonly item_kind: 'publication'
+  readonly title: string
+  readonly publisher: string | null
+  readonly authors: readonly string[]
+  readonly published_at: ResumePartialDateDto | null
+  readonly description: RichTextDto | null
+}
+
+/** @brief 奖项条目 DTO / Award-item DTO. */
+export interface ResumeAwardItemDto extends ResumeItemBaseDto {
+  readonly item_kind: 'award'
+  readonly title: string
+  readonly issuer: string | null
+  readonly awarded_at: ResumePartialDateDto | null
+  readonly description: RichTextDto | null
+}
+
+/** @brief 认证条目 DTO / Certification-item DTO. */
+export interface ResumeCertificationItemDto extends ResumeItemBaseDto {
+  readonly item_kind: 'certification'
+  readonly name: string
+  readonly issuer: string | null
+  readonly issued_at: ResumePartialDateDto | null
+  readonly expires_at: ResumePartialDateDto | null
+  readonly credential_id: string | null
+}
+
+/** @brief 语言条目 DTO / Language-item DTO. */
+export interface ResumeLanguageItemDto extends ResumeItemBaseDto {
+  readonly item_kind: 'language'
+  readonly language: string
+  readonly proficiency: string
+  readonly certificate: string | null
+}
+
+/** @brief 志愿经历条目 DTO / Volunteer-item DTO. */
+export interface ResumeVolunteerItemDto extends ResumeItemBaseDto {
+  readonly item_kind: 'volunteer'
+  readonly organization: string
+  readonly role: string | null
+  readonly date_range: ResumeDateRangeDto | null
+  readonly description: RichTextDto | null
+  readonly highlights: readonly RichTextDto[]
+}
+
+/** @brief 自定义简历条目 DTO / Custom Resume-item DTO. */
+export interface ResumeCustomItemDto extends ResumeItemBaseDto {
+  readonly item_kind: 'custom'
+  readonly title: string | null
+  readonly subtitle: string | null
+  readonly date_range: ResumeDateRangeDto | null
+  readonly content: RichTextDto
+}
+
+/** @brief 按 item_kind 判别的冻结 ResumeItem 联合 / Frozen ResumeItem union discriminated by item_kind. */
+export type ResumeItemDto =
+  | ResumeExperienceItemDto
+  | ResumeEducationItemDto
+  | ResumeProjectItemDto
+  | ResumeSkillGroupItemDto
+  | ResumePublicationItemDto
+  | ResumeAwardItemDto
+  | ResumeCertificationItemDto
+  | ResumeLanguageItemDto
+  | ResumeVolunteerItemDto
+  | ResumeCustomItemDto
 
 /** @brief 简历区段 DTO / Resume-section DTO. */
 export interface ResumeSectionDto {

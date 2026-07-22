@@ -81,12 +81,15 @@ type ResumeAuthorityRecovery =
       readonly kind: 'rejected'
     }
 
-/** @brief 快速模板切换失败及其原始用户意图 / Quick-template failure and its original user intent. */
-interface ResumeTemplateSelectionFailure {
-  /** @brief 安全分类前保留的技术错误 / Technical error retained until safe classification. */
-  readonly error: unknown
-  /** @brief 用户尝试选择的精确模板版本 / Exact template version the user attempted to select. */
-  readonly template: UiTemplateManifest
+/** @brief Resume 聚合写操作的页面级单通道执行器 / Page-level single-lane runner for Resume aggregate mutations. */
+interface RunResumeMutation {
+  /**
+   * @brief 仅在当前没有 Resume 写入时执行意图 / Run an intent only when no Resume write is active.
+   * @template TResult 写操作结果 / Mutation result.
+   * @param mutation 延迟执行的写操作 / Deferred mutation.
+   * @return 写结果；被当前通道拒绝时为 null / Mutation result, or null when rejected by the active lane.
+   */
+  <TResult>(mutation: () => Promise<TResult>): Promise<TResult | null>
 }
 
 /** @brief 窗口顺序 / Stable pane order. */
@@ -339,13 +342,15 @@ function ResumeSectionsEditor({
   gateway,
   isWriteLocked,
   onEditorChange,
-  onMutationError
+  onMutationError,
+  runMutation
 }: {
   readonly editor: UiResumeEditorModel
   readonly gateway: ResumeGateway
   readonly isWriteLocked: boolean
   readonly onEditorChange: (editor: UiResumeEditorModel) => void
   readonly onMutationError: (error: unknown) => boolean
+  readonly runMutation: RunResumeMutation
 }): React.JSX.Element {
   const { t } = useTranslation()
   const diagnostics = useDiagnostics()
@@ -423,18 +428,22 @@ function ResumeSectionsEditor({
     setSavingSectionId(section.id)
     setSaveFailure(null)
     try {
-      const next = await runDiagnosticCommand(
-        diagnostics,
-        { operation: 'resume.section_update', scope: 'resume' },
-        () =>
-          gateway.updateResumeSection({
-            baseRevision: editor.resume.revision,
-            resumeId: editor.resume.id,
-            sectionId: section.id,
-            [field]: draft[field]
-          })
+      const next = await runMutation(() =>
+        runDiagnosticCommand(
+          diagnostics,
+          { operation: 'resume.section_update', scope: 'resume' },
+          () =>
+            gateway.updateResumeSection({
+              baseRevision: editor.resume.revision,
+              resumeId: editor.resume.id,
+              sectionId: section.id,
+              [field]: draft[field]
+            })
+        )
       )
+      if (next === null) return
       onEditorChange(next)
+      setStructureError(null)
       setDrafts((current) => {
         /** @brief 回包成功响应中的权威板块 / Authoritative section returned in the successful response. */
         const confirmedSection = next.resume.sections.find((item) => item.id === section.id)
@@ -466,18 +475,23 @@ function ResumeSectionsEditor({
   }
 
   const reorder = async (orderedIds: readonly UiResumeSectionId[]): Promise<void> => {
+    if (isWriteLocked) return
     try {
-      const next = await runDiagnosticCommand(
-        diagnostics,
-        { operation: 'resume.section_reorder', scope: 'resume' },
-        () =>
-          gateway.reorderResumeSections({
-            baseRevision: editor.resume.revision,
-            resumeId: editor.resume.id,
-            orderedSectionIds: orderedIds
-          })
+      const next = await runMutation(() =>
+        runDiagnosticCommand(
+          diagnostics,
+          { operation: 'resume.section_reorder', scope: 'resume' },
+          () =>
+            gateway.reorderResumeSections({
+              baseRevision: editor.resume.revision,
+              resumeId: editor.resume.id,
+              orderedSectionIds: orderedIds
+            })
+        )
       )
+      if (next === null) return
       onEditorChange(next)
+      setStructureError(null)
     } catch (reason: unknown) {
       if (onMutationError(reason)) return
       setStructureError(t('resume.workspace.reorderError', { defaultValue: '无法调整板块顺序。' }))
@@ -507,17 +521,21 @@ function ResumeSectionsEditor({
       return
     }
     try {
-      const next = await runDiagnosticCommand(
-        diagnostics,
-        { operation: 'resume.section_delete', scope: 'resume' },
-        () =>
-          gateway.deleteResumeSection({
-            baseRevision: editor.resume.revision,
-            resumeId: editor.resume.id,
-            sectionId
-          })
+      const next = await runMutation(() =>
+        runDiagnosticCommand(
+          diagnostics,
+          { operation: 'resume.section_delete', scope: 'resume' },
+          () =>
+            gateway.deleteResumeSection({
+              baseRevision: editor.resume.revision,
+              resumeId: editor.resume.id,
+              sectionId
+            })
+        )
       )
+      if (next === null) return
       onEditorChange(next)
+      setStructureError(null)
       setFocusedSectionId(next.resume.sections.at(0)?.id ?? null)
       setDeleteCandidate(null)
     } catch (reason: unknown) {
@@ -904,7 +922,15 @@ function ResumePreviewPanel({
   }
 
   return (
-    <section aria-label={t('resume.workspace.preview', { defaultValue: 'PDF 预览' })}>
+    <section
+      aria-label={
+        artifact === null
+          ? t('resume.workspace.semanticPreviewRegion', {
+              defaultValue: '语义内容预览（非最终排版）'
+            })
+          : t('resume.workspace.pdfPreviewRegion', { defaultValue: 'PDF 预览' })
+      }
+    >
       <div className="aw-inline-actions">
         <button
           className="aw-primary-button"
@@ -930,6 +956,13 @@ function ResumePreviewPanel({
           <span className="aw-muted-copy">
             {t('resume.workspace.pdfUnsupported', {
               defaultValue: '当前模板不支持 PDF 输出。'
+            })}
+          </span>
+        ) : null}
+        {artifact === null ? (
+          <span className="aw-muted-copy">
+            {t('resume.workspace.semanticPreviewNotice', {
+              defaultValue: '当前为语义内容预览，不代表最终模板排版。'
             })}
           </span>
         ) : null}
@@ -1028,9 +1061,10 @@ export function ResumeWorkspace({
     useState<readonly UiTemplateManifest[]>(templates)
   /** @brief 阻止未知或陈旧写入继续扩散的权威恢复状态 / Authority-recovery state preventing unknown or stale writes from spreading. */
   const [authorityRecovery, setAuthorityRecovery] = useState<ResumeAuthorityRecovery | null>(null)
-  /** @brief 快速模板切换的可安全呈现失败 / Safely presentable quick-template failure. */
-  const [templateSelectionFailure, setTemplateSelectionFailure] =
-    useState<ResumeTemplateSelectionFailure | null>(null)
+  /** @brief React 提交期间向全部 Resume 写控件广播的执行状态 / In-flight state broadcast to every Resume write control during React commits. */
+  const [isMutatingResume, setMutatingResume] = useState(false)
+  /** @brief 在同一事件循环内也能原子拒绝第二个写意图 / Atomic guard rejecting a second write intent within the same event loop. */
+  const mutationInFlightRef = useRef(false)
   const [isReloadingAuthority, setReloadingAuthority] = useState(false)
   const [authorityReloadError, setAuthorityReloadError] = useState(false)
   const [authorityReloadRevision, setAuthorityReloadRevision] = useState(0)
@@ -1051,7 +1085,27 @@ export function ResumeWorkspace({
   /** @brief 当前 PDF 预览的完整代际键 / Complete generation key for the current PDF preview. */
   const previewGeneration = `${authorityReloadRevision}:${createResumePreviewIdentity(editor)}`
   /** @brief 是否必须完成权威读取后才能继续修改简历 / Whether an authoritative read is required before further Resume writes. */
-  const isWriteLocked = authorityRecovery !== null
+  const isWriteLocked = authorityRecovery !== null || isMutatingResume
+
+  /**
+   * @brief 在页面唯一 Resume mutation lane 中执行用户意图 / Run a user intent in the page's sole Resume mutation lane.
+   * @template TResult 写操作结果 / Mutation result.
+   * @param mutation 延迟执行的 gateway 写操作 / Deferred gateway mutation.
+   * @return 写结果；已有写操作执行中时为 null / Mutation result, or null while another write is active.
+   */
+  const runResumeMutation: RunResumeMutation = async <TResult,>(
+    mutation: () => Promise<TResult>
+  ): Promise<TResult | null> => {
+    if (mutationInFlightRef.current || authorityRecovery !== null) return null
+    mutationInFlightRef.current = true
+    setMutatingResume(true)
+    try {
+      return await mutation()
+    } finally {
+      mutationInFlightRef.current = false
+      setMutatingResume(false)
+    }
+  }
 
   const handleMutationError = (error: unknown): boolean => {
     const status = getResumeConflictStatus(error)
@@ -1097,7 +1151,6 @@ export function ResumeWorkspace({
         setEditorResetRevision((current) => current + 1)
       }
       setAuthorityRecovery(null)
-      setTemplateSelectionFailure(null)
     } catch {
       setAuthorityReloadError(true)
     } finally {
@@ -1118,29 +1171,6 @@ export function ResumeWorkspace({
     })
   }
 
-  const selectTemplate = async (template: UiTemplateManifest): Promise<void> => {
-    if (isWriteLocked) return
-    setTemplateSelectionFailure(null)
-    try {
-      const next = await runDiagnosticCommand(
-        diagnostics,
-        { operation: 'resume.template_select', scope: 'resume' },
-        () =>
-          gateway.selectResumeTemplate({
-            baseRevision: editor.resume.revision,
-            resumeId: editor.resume.id,
-            templateId: template.id,
-            templateVersion: template.version
-          })
-      )
-      setEditor(next)
-    } catch (reason: unknown) {
-      if (!handleMutationError(reason)) {
-        setTemplateSelectionFailure({ error: reason, template })
-      }
-    }
-  }
-
   const panelByKey: Record<ResumePane, React.ReactNode> = {
     assistant: <ResumeAssistantPanel onCloseMobile={(): void => setMobileAssistantOpen(false)} />,
     editor: (
@@ -1151,6 +1181,7 @@ export function ResumeWorkspace({
         key={editorResetRevision}
         onEditorChange={setEditor}
         onMutationError={handleMutationError}
+        runMutation={runResumeMutation}
       />
     ),
     preview: (
@@ -1200,17 +1231,6 @@ export function ResumeWorkspace({
           {authorityReloadError ? <span>{t('resume.workspace.reloadAuthorityError')}</span> : null}
         </div>
       )}
-      {templateSelectionFailure === null ? null : (
-        <ResourceErrorState
-          error={templateSelectionFailure.error}
-          onRetry={(): void => {
-            void selectTemplate(templateSelectionFailure.template)
-          }}
-          title={t('resume.workspace.templateSelectionError', {
-            defaultValue: '无法切换简历模板'
-          })}
-        />
-      )}
       <div
         aria-label={t('resume.mobileTabs', { defaultValue: '移动端面板切换' })}
         className="aw-mobile-tabs"
@@ -1256,7 +1276,7 @@ export function ResumeWorkspace({
           />
           <ResumeWindowTitle
             expanded={visiblePanes.preview}
-            label={t('resume.workspace.preview', { defaultValue: 'PDF 预览' })}
+            label={t('resume.workspace.previewWindow', { defaultValue: '预览' })}
             onToggle={(): void => togglePane('preview')}
             trailing={
               <>
@@ -1265,17 +1285,14 @@ export function ResumeWorkspace({
                     {t('resume.workspace.quickTemplate', { defaultValue: '快速切换简历模板' })}
                   </span>
                   <select
+                    aria-describedby="resume-template-migration-unavailable"
                     aria-label={t('resume.workspace.quickTemplate', {
                       defaultValue: '快速切换简历模板'
                     })}
-                    disabled={isWriteLocked}
-                    onChange={(event): void => {
-                      /** @brief 与 option 复合身份精确匹配的模板 / Template exactly matching the option's composite identity. */
-                      const template = availableTemplates.find(
-                        (candidate) => getTemplateIdentity(candidate) === event.target.value
-                      )
-                      if (template !== undefined) void selectTemplate(template)
-                    }}
+                    disabled
+                    title={t('resume.workspace.templateMigrationUnavailable', {
+                      defaultValue: '模板切换暂不可用；你仍可调整当前模板的版式设置。'
+                    })}
                     value={getTemplateIdentity(editor.resume.template)}
                   >
                     {availableTemplates.map((template) => (
@@ -1287,6 +1304,11 @@ export function ResumeWorkspace({
                       </option>
                     ))}
                   </select>
+                  <span className="aw-muted-copy" id="resume-template-migration-unavailable">
+                    {t('resume.workspace.templateMigrationUnavailable', {
+                      defaultValue: '模板切换暂不可用；你仍可调整当前模板的版式设置。'
+                    })}
+                  </span>
                 </label>
                 <span className="aw-current-template" aria-live="polite">
                   {selectedTemplate?.name ?? ''}

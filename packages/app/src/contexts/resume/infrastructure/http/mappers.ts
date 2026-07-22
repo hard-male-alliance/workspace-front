@@ -7,10 +7,8 @@ import type {
   UiResumeContactKind,
   UiResumeDocument,
   UiResumeItem,
-  UiResumeItemKind,
   UiResumePageOrientation,
   UiResumePageSize,
-  UiResumeSectionKind,
   UiResumeStyleIntent,
   UiTemplateManifest,
   UiTemplateSettingControl,
@@ -20,8 +18,11 @@ import { HttpContractError } from '../../../../infrastructure/http/http-client'
 import type {
   ColorValueDto,
   MeasurementDto,
+  ResumeDateRangeDto,
   ResumeDocumentDto,
   ResumeItemDto,
+  ResumePartialDateDto,
+  RichTextDto,
   TemplateManifestDto
 } from './transport-types'
 
@@ -77,19 +78,6 @@ export function mapResumeStyleIntentToDto(
   }
 }
 
-const sectionKinds: readonly UiResumeSectionKind[] = [
-  'summary',
-  'experience',
-  'education',
-  'projects',
-  'skills',
-  'publications',
-  'awards',
-  'certifications',
-  'languages',
-  'volunteer',
-  'custom'
-]
 const pageSizes: readonly UiResumePageSize[] = ['A4', 'LETTER', 'LEGAL', 'CUSTOM']
 const pageOrientations: readonly UiResumePageOrientation[] = ['portrait', 'landscape']
 const contactKinds: readonly UiResumeContactKind[] = [
@@ -101,18 +89,6 @@ const contactKinds: readonly UiResumeContactKind[] = [
   'portfolio',
   'location',
   'other'
-]
-const itemKinds: readonly UiResumeItemKind[] = [
-  'experience',
-  'education',
-  'project',
-  'skill_group',
-  'publication',
-  'award',
-  'certification',
-  'language',
-  'volunteer',
-  'custom'
 ]
 const settingControls: readonly UiTemplateSettingControl[] = [
   'switch',
@@ -170,59 +146,187 @@ function mapColor(dto: ColorValueDto, path: string): UiColorValue {
   return { space: dto.space, value: dto.value }
 }
 
-/** @brief 读取条目中的第一个字符串字段 / Read the first string field from an item. */
-function firstString(
-  raw: Readonly<Record<string, unknown>>,
-  keys: readonly string[]
+/**
+ * @brief 将不完整日期映射为稳定 ISO 风格展示 / Map a PartialDate to a stable ISO-style display.
+ * @param dto 已验证不完整日期 / Validated partial date.
+ * @return 不臆测缺失精度的日期文本 / Date text without inventing missing precision.
+ */
+function formatPartialDate(dto: ResumePartialDateDto): string {
+  /** @brief 四位年份 / Four-digit year. */
+  const year = String(dto.year).padStart(4, '0')
+  if (dto.month === null) return year
+  /** @brief 两位月份 / Two-digit month. */
+  const month = String(dto.month).padStart(2, '0')
+  if (dto.day === null) return `${year}-${month}`
+  return `${year}-${month}-${String(dto.day).padStart(2, '0')}`
+}
+
+/**
+ * @brief 映射两个可选日期端点 / Map two optional date endpoints.
+ * @param start 起始日期 / Start date.
+ * @param end 结束日期 / End date.
+ * @return 日期范围文本或 null / Date-range text or null.
+ */
+function formatDateEndpoints(
+  start: ResumePartialDateDto | null,
+  end: ResumePartialDateDto | null
 ): string | null {
-  for (const key of keys) {
-    const value = raw[key]
-    if (typeof value === 'string' && value.length > 0) return value
-  }
-  return null
+  /** @brief 已格式化起点 / Formatted start. */
+  const startText = start === null ? null : formatPartialDate(start)
+  /** @brief 已格式化终点 / Formatted end. */
+  const endText = end === null ? null : formatPartialDate(end)
+  return startText === null ? endText : endText === null ? startText : `${startText} – ${endText}`
+}
+
+/**
+ * @brief 映射冻结 DateRange / Map a frozen DateRange.
+ * @param dto 已验证日期范围或 null / Validated date range or null.
+ * @return 优先使用服务端展示覆写的日期文本 / Date text preferring the server display override.
+ */
+function formatDateRange(dto: ResumeDateRangeDto | null): string | null {
+  if (dto === null) return null
+  if (dto.display_override !== null) return dto.display_override
+  /** @brief 由结构化端点生成的回退文本 / Fallback text generated from structured endpoints. */
+  const endpoints = formatDateEndpoints(dto.start, dto.end)
+  return dto.is_current && dto.end === null && endpoints !== null ? `${endpoints} –` : endpoints
+}
+
+/**
+ * @brief 提取非空 RichText 纯文本 / Extract non-empty RichText plain-text projections.
+ * @param values 已验证 RichText 投影 / Validated RichText projections.
+ * @return 非空文本列表 / Non-empty text list.
+ */
+function richTextHighlights(values: readonly (RichTextDto | null)[]): readonly string[] {
+  return values.flatMap((value): readonly string[] =>
+    value?.plain_text === null || value?.plain_text === undefined || value.plain_text.length === 0
+      ? []
+      : [value.plain_text]
+  )
+}
+
+/**
+ * @brief 去重且保持顺序地合并标签 / Merge tags uniquely while preserving order.
+ * @param values 标签来源 / Tag sources.
+ * @return 去重后的标签 / Deduplicated tags.
+ */
+function uniqueStrings(...values: readonly (readonly string[])[]): readonly string[] {
+  return [...new Set(values.flat())]
 }
 
 /** @brief 映射多态简历条目为统一 UI 投影 / Map a polymorphic Resume item to the unified UI projection. */
-function mapResumeItem(dto: ResumeItemDto, path: string): UiResumeItem {
-  const kind = enumValue(dto.item_kind, itemKinds, `${path}.item_kind`)
-  const title =
-    firstString(dto.raw, ['position', 'degree', 'name', 'title', 'language', 'role']) ?? dto.item_id
-  const subtitle = firstString(dto.raw, [
-    'organization',
-    'institution',
-    'field_of_study',
-    'issuer',
-    'proficiency'
-  ])
-  const locationLabel = firstString(dto.raw, ['location'])
-  const start = firstString(dto.raw, ['start_date', 'issued_at', 'publication_date'])
-  const end = firstString(dto.raw, ['end_date', 'expires_at'])
-  const highlightsValue = dto.raw.highlights
-  const highlights = Array.isArray(highlightsValue)
-    ? highlightsValue.flatMap((value): string[] => {
-        if (typeof value === 'string') return [value]
-        if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-          const plainText = (value as Record<string, unknown>).plain_text
-          return typeof plainText === 'string' ? [plainText] : []
-        }
-        return []
-      })
-    : []
-
-  return {
-    dateLabel: start === null ? end : end === null ? start : `${start} – ${end}`,
-    highlights,
+function mapResumeItem(dto: ResumeItemDto): UiResumeItem {
+  /** @brief 所有 variant 共享的页面字段 / Page fields shared by every variant. */
+  const common = {
     id: dto.item_id,
-    kind,
-    locationLabel,
-    subtitle,
+    kind: dto.item_kind,
     tags: dto.tags,
-    title,
     visible: dto.visible
+  } satisfies Pick<UiResumeItem, 'id' | 'kind' | 'tags' | 'visible'>
+
+  switch (dto.item_kind) {
+    case 'experience':
+      return {
+        ...common,
+        dateLabel: formatDateRange(dto.date_range),
+        highlights: richTextHighlights([dto.description, ...dto.highlights]),
+        locationLabel: dto.location,
+        subtitle: dto.organization,
+        title: dto.position
+      }
+    case 'education': {
+      /** @brief 学历与专业构成的主标题 / Primary title composed from degree and field of study. */
+      const qualification = [dto.degree, dto.field_of_study].filter(
+        (value): value is string => value !== null && value.length > 0
+      )
+      return {
+        ...common,
+        dateLabel: formatDateRange(dto.date_range),
+        highlights: richTextHighlights([dto.description, ...dto.highlights]),
+        locationLabel: dto.location,
+        subtitle: qualification.length === 0 ? null : dto.institution,
+        title: qualification.length === 0 ? dto.institution : qualification.join(' · ')
+      }
+    }
+    case 'project':
+      return {
+        ...common,
+        dateLabel: formatDateRange(dto.date_range),
+        highlights: richTextHighlights([dto.description, ...dto.highlights]),
+        locationLabel: null,
+        subtitle: dto.role,
+        tags: uniqueStrings(dto.tags, dto.technologies),
+        title: dto.name
+      }
+    case 'skill_group':
+      return {
+        ...common,
+        dateLabel: null,
+        highlights: dto.skills,
+        locationLabel: null,
+        subtitle: dto.proficiency,
+        title: dto.name
+      }
+    case 'publication':
+      return {
+        ...common,
+        dateLabel: dto.published_at === null ? null : formatPartialDate(dto.published_at),
+        highlights: richTextHighlights([dto.description]),
+        locationLabel: null,
+        subtitle: dto.publisher ?? (dto.authors.length === 0 ? null : dto.authors.join(', ')),
+        title: dto.title
+      }
+    case 'award':
+      return {
+        ...common,
+        dateLabel: dto.awarded_at === null ? null : formatPartialDate(dto.awarded_at),
+        highlights: richTextHighlights([dto.description]),
+        locationLabel: null,
+        subtitle: dto.issuer,
+        title: dto.title
+      }
+    case 'certification':
+      return {
+        ...common,
+        dateLabel: formatDateEndpoints(dto.issued_at, dto.expires_at),
+        highlights: dto.credential_id === null ? [] : [dto.credential_id],
+        locationLabel: null,
+        subtitle: dto.issuer,
+        title: dto.name
+      }
+    case 'language':
+      return {
+        ...common,
+        dateLabel: null,
+        highlights: dto.certificate === null ? [] : [dto.certificate],
+        locationLabel: null,
+        subtitle: dto.proficiency,
+        title: dto.language
+      }
+    case 'volunteer':
+      return {
+        ...common,
+        dateLabel: formatDateRange(dto.date_range),
+        highlights: richTextHighlights([dto.description, ...dto.highlights]),
+        locationLabel: null,
+        subtitle: dto.role === null ? null : dto.organization,
+        title: dto.role ?? dto.organization
+      }
+    case 'custom':
+      return {
+        ...common,
+        dateLabel: formatDateRange(dto.date_range),
+        highlights: richTextHighlights([dto.content]),
+        locationLabel: null,
+        subtitle: dto.subtitle,
+        title: dto.title ?? dto.item_id
+      }
   }
 }
 
-/** @brief 映射正式模板清单 / Map a formal template manifest. */
+/**
+ * @brief 映射正式模板清单 / Map a formal template manifest.
+ * @note preview_asset_url 在产品 origin allowlist 冻结前不会提升为可渲染 UI URL，页面明确展示本地版式示意。 / preview_asset_url is not promoted to a renderable UI URL until a product origin allowlist is frozen; the page explicitly presents a local layout illustration.
+ */
 export function mapTemplateManifestDto(dto: TemplateManifestDto): UiTemplateManifest {
   return {
     bulletStyleTokens: dto.bullet_style_tokens,
@@ -301,13 +405,11 @@ export function mapResumeDocumentDto(dto: ResumeDocumentDto): UiResumeDocument {
       summary: dto.profile.summary?.plain_text ?? null
     },
     revision: dto.revision,
-    sections: dto.sections.map((section, sectionIndex) => ({
+    sections: dto.sections.map((section) => ({
       contentPreview: section.content?.plain_text ?? null,
       id: asUiOpaqueId<'resume-section'>(section.section_id),
-      items: section.items.map((item, itemIndex) =>
-        mapResumeItem(item, `sections[${sectionIndex}].items[${itemIndex}]`)
-      ),
-      kind: enumValue(section.kind, sectionKinds, `sections[${sectionIndex}].kind`),
+      items: section.items.map(mapResumeItem),
+      kind: section.kind,
       title: section.title,
       visible: section.visible
     })),

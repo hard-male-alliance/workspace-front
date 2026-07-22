@@ -10,7 +10,6 @@ import type {
   UiResumeSectionDeleteInput,
   UiResumeSectionsReorderInput,
   UiResumeSectionUpdateInput,
-  UiResumeTemplateSelectionInput,
   UiResumeTemplateSettingsUpdateInput,
   UiStartResumePdfRenderInput,
   UiTemplateManifest,
@@ -55,10 +54,7 @@ export interface ResumeGateway {
   /** @brief 删除简历板块 / Delete a resume section. */
   deleteResumeSection(input: UiResumeSectionDeleteInput): Promise<UiResumeEditorModel>
 
-  /** @brief 快速切换简历模板 / Quickly select a resume template. */
-  selectResumeTemplate(input: UiResumeTemplateSelectionInput): Promise<UiResumeEditorModel>
-
-  /** @brief 原子保存模板选择与完整语义样式意图 / Atomically save template selection and complete semantic-style intent. */
+  /** @brief 原子保存当前固定模板的完整语义样式意图 / Atomically save complete semantic-style intent for the currently pinned template. */
   updateTemplateSettings(
     input: UiResumeTemplateSettingsUpdateInput
   ): Promise<UiTemplateSettingsModel>

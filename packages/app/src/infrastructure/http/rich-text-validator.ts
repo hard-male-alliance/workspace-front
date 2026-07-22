@@ -62,7 +62,7 @@ function validateSpans(value: unknown, path: string): string {
       const spanPath = `${path}[${index}]`
       /** @brief 精确 span 对象 / Exact span object. */
       const span = exactRecord(item, spanPath, ['text', 'marks'])
-      boundedArray(span.marks ?? [], `${spanPath}.marks`, 0, 8).forEach(
+      boundedArray(span.marks === undefined ? [] : span.marks, `${spanPath}.marks`, 0, 8).forEach(
         (markValue, markIndex): void => {
           /** @brief 当前 mark 路径 / Current mark path. */
           const markPath = `${spanPath}.marks[${markIndex}]`
@@ -92,9 +92,12 @@ function validateListItem(value: unknown, path: string): string {
   /** @brief 当前列表项文本 / Current list-item text. */
   const ownText = validateSpans(input.spans, `${path}.spans`)
   /** @brief 子列表项文本 / Child list-item text. */
-  const children = boundedArray(input.children ?? [], `${path}.children`, 0, 20).map(
-    (child, index): string => validateListItem(child, `${path}.children[${index}]`)
-  )
+  const children = boundedArray(
+    input.children === undefined ? [] : input.children,
+    `${path}.children`,
+    0,
+    20
+  ).map((child, index): string => validateListItem(child, `${path}.children[${index}]`))
   return [ownText, ...children].filter((textValue) => textValue.length > 0).join('\n')
 }
 

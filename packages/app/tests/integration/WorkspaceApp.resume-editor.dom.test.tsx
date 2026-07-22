@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { HttpCommandOutcomeUnknownError, HttpProblemError } from '@ai-job-workspace/app/http'
 import {
@@ -11,6 +11,7 @@ import {
 import {
   createTestGateways,
   installWorkspaceAppTestCleanup,
+  navigateWorkspaceApp,
   setWorkspaceAppTestLocale,
   WorkspaceApp
 } from './WorkspaceApp.dom-test-harness'
@@ -21,12 +22,63 @@ installWorkspaceAppTestCleanup()
 const RESUME_OUTCOME_UNKNOWN_MUTATIONS = [
   ['section update', 'section-update'],
   ['section reorder', 'section-reorder'],
-  ['section delete', 'section-delete'],
-  ['quick template selection', 'template-select']
+  ['section delete', 'section-delete']
 ] as const
 
 /** @brief 简历编辑器用户行为测试 / Resume-editor user-behaviour tests. */
 describe('WorkspaceApp Resume editor', (): void => {
+  it('rebuilds editor aggregate state when the authoritative Resume ID changes', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 当前测试独享的简历 Gateway / Resume Gateway owned by the current test. */
+    const resume = new InMemoryResumeGateway()
+    /** @brief A 简历权威投影 / Authoritative projection for Resume A. */
+    const editorA = await resume.getResumeEditor(MOCK_RESUME_ID)
+    /** @brief B 简历领域 ID / Domain ID for Resume B. */
+    const resumeBId = 'res_authoritative_b' as typeof MOCK_RESUME_ID
+    /** @brief B 简历权威投影 / Authoritative projection for Resume B. */
+    const editorB = {
+      ...editorA,
+      resume: {
+        ...editorA.resume,
+        id: resumeBId,
+        revision: 3,
+        title: 'B 端权威简历'
+      }
+    }
+    /** @brief 兑现 B 简历读取的函数 / Resolver for the Resume B read. */
+    let resolveEditorB: ((editor: typeof editorB) => void) | undefined
+    /** @brief 保持 B 读取待定的 Promise / Promise keeping the Resume B read pending. */
+    const pendingEditorB = new Promise<typeof editorB>((resolve): void => {
+      resolveEditorB = resolve
+    })
+    vi.spyOn(resume, 'getResumeEditor').mockImplementation((requestedId) => {
+      if (requestedId === MOCK_RESUME_ID) return Promise.resolve(editorA)
+      if (requestedId === resumeBId) return pendingEditorB
+      return Promise.reject(new Error('Unexpected Resume ID.'))
+    })
+    window.history.replaceState(null, '', `/resumes/${MOCK_RESUME_ID}/edit`)
+
+    render(<WorkspaceApp gateways={createTestGateways({ resume })} />)
+    await screen.findByRole('heading', { name: 'Klee Chen' })
+    fireEvent.change(screen.getByRole('textbox', { name: '区段标题' }), {
+      target: { value: '只属于 A 的本地草稿' }
+    })
+
+    navigateWorkspaceApp(`/resumes/${resumeBId}/edit`)
+
+    expect(screen.getByText('正在加载简历编辑器…')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Klee Chen' })).not.toBeInTheDocument()
+    expect(screen.queryByDisplayValue('只属于 A 的本地草稿')).not.toBeInTheDocument()
+
+    await act(async (): Promise<void> => {
+      resolveEditorB?.(editorB)
+      await pendingEditorB
+    })
+
+    expect(await screen.findByText('B 端权威简历')).toBeInTheDocument()
+    expect(screen.queryByDisplayValue('只属于 A 的本地草稿')).not.toBeInTheDocument()
+  })
+
   it('renders three persistent resume window headers with equal desktop panels and separators', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
 
@@ -37,10 +89,10 @@ describe('WorkspaceApp Resume editor', (): void => {
     expect(screen.getByRole('toolbar', { name: '简历窗口控制' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'AI 对话' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '内容编辑' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'PDF 预览' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '预览' })).toBeInTheDocument()
     expect(screen.getByRole('complementary', { name: 'AI 对话' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: '内容编辑' })).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: 'PDF 预览' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '语义内容预览' })).toBeInTheDocument()
     expect(screen.getAllByRole('separator')).toHaveLength(2)
   })
 
@@ -52,14 +104,14 @@ describe('WorkspaceApp Resume editor', (): void => {
 
     fireEvent.click(screen.getByRole('button', { name: '收起“AI 对话”窗口' }))
     fireEvent.click(screen.getByRole('button', { name: '收起“内容编辑”窗口' }))
-    fireEvent.click(screen.getByRole('button', { name: '收起“PDF 预览”窗口' }))
+    fireEvent.click(screen.getByRole('button', { name: '收起“预览”窗口' }))
 
     expect(screen.queryByRole('complementary', { name: 'AI 对话' })).not.toBeInTheDocument()
     expect(screen.queryByRole('region', { name: '内容编辑' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('region', { name: 'PDF 预览' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '语义内容预览' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '展开“AI 对话”窗口' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '展开“内容编辑”窗口' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '展开“PDF 预览”窗口' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '展开“预览”窗口' })).toBeInTheDocument()
     expect(screen.queryAllByRole('separator')).toHaveLength(0)
   })
 
@@ -190,14 +242,11 @@ describe('WorkspaceApp Resume editor', (): void => {
       const reorder = vi.spyOn(resume, 'reorderResumeSections')
       /** @brief 可观察的板块删除命令 / Observable section-delete command. */
       const remove = vi.spyOn(resume, 'deleteResumeSection')
-      /** @brief 可观察的快速模板切换命令 / Observable quick-template command. */
-      const selectTemplate = vi.spyOn(resume, 'selectResumeTemplate')
       /** @brief 当前用例触发的唯一写命令 / Sole write command triggered by this case. */
       const command = {
         'section-delete': remove,
         'section-reorder': reorder,
-        'section-update': update,
-        'template-select': selectTemplate
+        'section-update': update
       }[mutation]
       command.mockRejectedValue(new HttpCommandOutcomeUnknownError('network'))
 
@@ -229,17 +278,6 @@ describe('WorkspaceApp Resume editor', (): void => {
             fireEvent.click(deleteButton)
             return
           }
-          case 'template-select': {
-            /** @brief Editorial option 的复合模板身份 / Composite template identity carried by the Editorial option. */
-            const editorialOption = screen.getByRole<HTMLOptionElement>('option', {
-              name: 'Editorial'
-            })
-            fireEvent.change(
-              screen.getByRole('combobox', { name: 'Quickly switch resume template' }),
-              { target: { value: editorialOption.value } }
-            )
-            return
-          }
         }
       }
 
@@ -248,7 +286,6 @@ describe('WorkspaceApp Resume editor', (): void => {
         expect(update).toHaveBeenCalledTimes(mutation === 'section-update' ? 1 : 0)
         expect(reorder).toHaveBeenCalledTimes(mutation === 'section-reorder' ? 1 : 0)
         expect(remove).toHaveBeenCalledTimes(mutation === 'section-delete' ? 1 : 0)
-        expect(selectTemplate).toHaveBeenCalledTimes(mutation === 'template-select' ? 1 : 0)
       }
 
       triggerMutation()
@@ -258,9 +295,6 @@ describe('WorkspaceApp Resume editor', (): void => {
       expect(alert).toHaveTextContent('Resume operation result is unknown')
       expect(alert).toHaveTextContent(/reload.*before/i)
       expect(screen.getByRole('textbox', { name: 'Semantic content' })).toBeDisabled()
-      expect(
-        screen.getByRole('combobox', { name: 'Quickly switch resume template' })
-      ).toBeDisabled()
       expect(screen.getByRole('button', { name: 'Move 职业摘要 down' })).toBeDisabled()
       expect(screen.getByRole('button', { name: 'Delete 职业摘要' })).toBeDisabled()
       expect(screen.getByRole('button', { name: 'Generate PDF preview' })).toBeDisabled()
@@ -279,7 +313,14 @@ describe('WorkspaceApp Resume editor', (): void => {
       expect(listTemplates).toHaveBeenCalledTimes(2)
       expectSingleSelectedWrite()
       expect(screen.getByRole('textbox', { name: 'Semantic content' })).toBeEnabled()
-      expect(screen.getByRole('combobox', { name: 'Quickly switch resume template' })).toBeEnabled()
+      expect(
+        screen.getByRole('combobox', { name: 'Quickly switch resume template' })
+      ).toBeDisabled()
+      expect(
+        screen.getByRole('combobox', { name: 'Quickly switch resume template' })
+      ).toHaveAccessibleDescription(
+        'Template switching is being prepared. You can still edit settings for the current template.'
+      )
       expect(screen.getByRole('button', { name: 'Move 职业摘要 down' })).toBeEnabled()
       expect(screen.getByRole('button', { name: 'Delete 职业摘要' })).toBeEnabled()
       expect(screen.getByRole('button', { name: 'Generate PDF preview' })).toBeEnabled()
@@ -290,6 +331,90 @@ describe('WorkspaceApp Resume editor', (): void => {
       }
     }
   )
+
+  it('locks structural and PDF writes while a section save is pending', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 当前测试独享的简历 Gateway / Resume Gateway owned by the current test. */
+    const resume = new InMemoryResumeGateway()
+    /** @brief 待定写入完成后返回的权威投影 / Authoritative projection returned when the pending write completes. */
+    const initial = await resume.getResumeEditor(MOCK_RESUME_ID)
+    /** @brief 允许测试释放待定板块保存 / Resolver allowing the test to release the pending section save. */
+    let resolveUpdate: ((editor: typeof initial) => void) | undefined
+    /** @brief 保持板块保存待定的 Promise / Promise keeping the section save pending. */
+    const pendingUpdate = new Promise<typeof initial>((resolve): void => {
+      resolveUpdate = resolve
+    })
+    /** @brief 待定的板块保存命令 / Pending section-save command. */
+    const update = vi.spyOn(resume, 'updateResumeSection').mockReturnValue(pendingUpdate)
+    /** @brief 并发期间不应发出的排序命令 / Reorder command that must not be sent concurrently. */
+    const reorder = vi.spyOn(resume, 'reorderResumeSections')
+    /** @brief 并发期间不应发出的 PDF 任务 / PDF command that must not be sent concurrently. */
+    const renderPdf = vi.spyOn(resume, 'startResumePdfRender')
+
+    render(
+      <WorkspaceApp
+        gateways={createTestGateways({ resume })}
+        initialPath="/resumes/res_mock_ai_platform/edit"
+      />
+    )
+    await screen.findByRole('heading', { name: 'Klee Chen' })
+    /** @brief 用户正在保存的语义正文 / Semantic body currently being saved. */
+    const content = screen.getByRole('textbox', { name: '语义内容' })
+    fireEvent.change(content, { target: { value: '正在保存的内容' } })
+    fireEvent.blur(content)
+
+    await vi.waitFor((): void => expect(update).toHaveBeenCalledOnce())
+    /** @brief 受聚合写通道锁定的结构操作 / Structural action locked by the aggregate write lane. */
+    const moveDown = screen.getByRole('button', { name: '下移职业摘要' })
+    /** @brief 受同一写通道锁定的 PDF 操作 / PDF action locked by the same write lane. */
+    const generatePdf = screen.getByRole('button', { name: '生成 PDF 预览' })
+    expect(moveDown).toBeDisabled()
+    expect(screen.getByRole('button', { name: '删除职业摘要' })).toBeDisabled()
+    expect(generatePdf).toBeDisabled()
+
+    fireEvent.click(moveDown)
+    fireEvent.click(generatePdf)
+    expect(update).toHaveBeenCalledTimes(1)
+    expect(reorder).not.toHaveBeenCalled()
+    expect(renderPdf).not.toHaveBeenCalled()
+
+    await act(async (): Promise<void> => {
+      resolveUpdate?.(initial)
+      await pendingUpdate
+    })
+    await vi.waitFor((): void => {
+      expect(moveDown).toBeEnabled()
+    })
+    expect(generatePdf).toBeEnabled()
+  })
+
+  it('clears an obsolete structural error after the next successful operation', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 首次排序失败、第二次恢复真实实现的测试 Gateway / Test gateway whose first reorder fails and second call uses the real implementation. */
+    const resume = new InMemoryResumeGateway()
+    /** @brief 可观察的板块排序命令 / Observable section-reorder command. */
+    const reorder = vi
+      .spyOn(resume, 'reorderResumeSections')
+      .mockRejectedValueOnce(new Error('private first-attempt failure'))
+
+    render(
+      <WorkspaceApp
+        gateways={createTestGateways({ resume })}
+        initialPath="/resumes/res_mock_ai_platform/edit"
+      />
+    )
+    await screen.findByRole('heading', { name: 'Klee Chen' })
+
+    fireEvent.click(screen.getByRole('button', { name: '下移职业摘要' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('无法调整板块顺序。')
+    expect(reorder).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: '下移职业摘要' }))
+    await vi.waitFor((): void => expect(reorder).toHaveBeenCalledTimes(2))
+    await vi.waitFor((): void => {
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    })
+  })
 
   it('保留明确可重试 503 失败的板块草稿，并允许用户原地重试', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
@@ -336,7 +461,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     expect(content).toHaveValue('尚未由服务端确认的草稿')
   })
 
-  it('offers section ordering, deletion, and quick template selection in the workspace', async (): Promise<void> => {
+  it('offers section mutations and exposes the template catalog without inventing migration', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
 
     render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
@@ -352,28 +477,32 @@ describe('WorkspaceApp Resume editor', (): void => {
     const editorialOption = screen.getByRole<HTMLOptionElement>('option', { name: 'Editorial' })
     expect(templateSelect).toHaveValue(dawnOption.value)
 
-    fireEvent.change(templateSelect, {
-      target: { value: editorialOption.value }
-    })
-    expect(await screen.findByText('Editorial')).toBeInTheDocument()
+    expect(templateSelect).toBeDisabled()
+    expect(templateSelect).toHaveAccessibleDescription(
+      '模板切换功能正在准备中。你仍可编辑当前模板的版式设置。'
+    )
+    expect(dawnOption.selected).toBe(true)
+    expect(editorialOption.selected).toBe(false)
   })
 
-  it('loads a pinned historical manifest and switches by the full template identity', async (): Promise<void> => {
+  it('loads a pinned historical manifest without offering an unsafe version migration', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
     /** @brief 当前简历固定历史模板版本的测试 Gateway / Test gateway whose Resume is pinned to a historical template version. */
     const resume = new InMemoryResumeGateway()
-    /** @brief 模板切换绑定的当前权威 revision / Current authoritative revision bound to the template change. */
+    /** @brief 默认简历权威投影 / Default authoritative Resume projection. */
     const current = await resume.getResumeEditor(MOCK_RESUME_ID)
-    await resume.selectResumeTemplate({
-      baseRevision: current.resume.revision,
-      resumeId: MOCK_RESUME_ID,
-      templateId: MOCK_HISTORICAL_DAWN_TEMPLATE.id,
-      templateVersion: MOCK_HISTORICAL_DAWN_TEMPLATE.version
+    vi.spyOn(resume, 'getResumeEditor').mockResolvedValue({
+      ...current,
+      resume: {
+        ...current.resume,
+        template: {
+          templateId: MOCK_HISTORICAL_DAWN_TEMPLATE.id,
+          templateVersion: MOCK_HISTORICAL_DAWN_TEMPLATE.version
+        }
+      }
     })
     /** @brief 可观察的精确版本读取 / Observable exact-version read. */
     const getTemplate = vi.spyOn(resume, 'getTemplateManifest')
-    /** @brief 可观察的复合身份切换命令 / Observable composite-identity selection command. */
-    const selectTemplate = vi.spyOn(resume, 'selectResumeTemplate')
 
     render(
       <WorkspaceApp
@@ -400,14 +529,9 @@ describe('WorkspaceApp Resume editor', (): void => {
       MOCK_HISTORICAL_DAWN_TEMPLATE.id,
       MOCK_HISTORICAL_DAWN_TEMPLATE.version
     )
-
-    fireEvent.change(templateSelect, { target: { value: latestOption.value } })
-    await vi.waitFor((): void => expect(selectTemplate).toHaveBeenCalledTimes(1))
-    expect(selectTemplate).toHaveBeenCalledWith({
-      baseRevision: 19,
-      resumeId: MOCK_RESUME_ID,
-      templateId: MOCK_DAWN_TEMPLATE.id,
-      templateVersion: MOCK_DAWN_TEMPLATE.version
-    })
+    expect(templateSelect).toBeDisabled()
+    expect(templateSelect).toHaveAccessibleDescription(
+      '模板切换功能正在准备中。你仍可编辑当前模板的版式设置。'
+    )
   })
 })

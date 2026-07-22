@@ -1,4 +1,4 @@
-import { cleanup } from '@testing-library/react'
+import { act, cleanup } from '@testing-library/react'
 import { afterEach } from 'vitest'
 import { WorkspaceApp as SharedWorkspaceApp } from '@ai-job-workspace/app'
 import type { WorkspaceAppProps } from '@ai-job-workspace/app'
@@ -84,8 +84,21 @@ export function WorkspaceApp({
 export function installWorkspaceAppTestCleanup(): void {
   afterEach((): void => {
     cleanup()
+    window.history.replaceState(null, '', '/')
     window.localStorage.clear()
     document.documentElement.removeAttribute('data-theme')
+  })
+}
+
+/**
+ * @brief 驱动 BrowserRouter 完成同一详情路由内的资源切换 / Drive BrowserRouter through a resource change within one detail route.
+ * @param path 目标应用路径 / Target application path.
+ * @return 无返回值；路由提交由 act 同步刷新 / No return value; the route commit is flushed synchronously by act.
+ */
+export function navigateWorkspaceApp(path: string): void {
+  act((): void => {
+    window.history.pushState(null, '', path)
+    window.dispatchEvent(new PopStateEvent('popstate'))
   })
 }
 

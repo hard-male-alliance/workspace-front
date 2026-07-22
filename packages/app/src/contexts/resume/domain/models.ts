@@ -17,19 +17,11 @@ export type UiResumeSectionId = UiOpaqueId<'resume-section'>
 /** @brief 模板标识符 / Resume template identifier. */
 export type UiTemplateId = UiOpaqueId<'template'>
 
-/** @brief 简历区段种类 / Resume section kind. */
-export type UiResumeSectionKind =
-  | 'summary'
-  | 'experience'
-  | 'education'
-  | 'projects'
-  | 'skills'
-  | 'publications'
-  | 'awards'
-  | 'certifications'
-  | 'languages'
-  | 'volunteer'
-  | 'custom'
+/**
+ * @brief 简历区段的开放稳定 code / Open stable code for a Resume section kind.
+ * @note 冻结契约中的 x-known-values 只用于呈现提示；符合 stable-code 格式的未来值仍是合法领域事实。 / Frozen-contract x-known-values are presentation hints only; future values matching the stable-code format remain valid domain facts.
+ */
+export type UiResumeSectionKind = string
 
 /** @brief 简历条目种类 / Resume item kind. */
 export type UiResumeItemKind =
@@ -509,29 +501,15 @@ export interface UiResumeSectionDeleteInput {
   readonly signal?: AbortSignal
 }
 
-/** @brief 快速切换简历模板的领域输入 / Domain input for quick template selection. */
-export interface UiResumeTemplateSelectionInput {
-  /** @brief 目标简历 / Target resume. */
-  readonly resumeId: UiResumeId
-  /** @brief 用户选择模板时的权威 Resume revision / Authoritative Resume revision when the user selected the template. */
-  readonly baseRevision: number
-  /** @brief 目标模板 / Target template. */
-  readonly templateId: UiTemplateId
-  /** @brief 目标模板的不可变版本 / Immutable version of the target template. */
-  readonly templateVersion: string
-  /** @brief 可选取消信号 / Optional cancellation signal. */
-  readonly signal?: AbortSignal
-}
-
-/** @brief 保存模板与语义样式设置的领域输入 / Domain input for saving template and semantic-style settings. */
+/** @brief 保存当前固定模板语义样式设置的领域输入 / Domain input for saving semantic style settings of the currently pinned template. */
 export interface UiResumeTemplateSettingsUpdateInput {
   /** @brief 目标简历 / Target resume. */
   readonly resumeId: UiResumeId
   /** @brief 用户编辑设置时的权威 Resume revision / Authoritative Resume revision when the user edited the settings. */
   readonly baseRevision: number
-  /** @brief 目标模板 / Target template. */
+  /** @brief 当前固定模板；不得借此字段请求迁移 / Currently pinned template; this field must not request migration. */
   readonly templateId: UiTemplateId
-  /** @brief 目标模板的不可变版本 / Immutable version of the target template. */
+  /** @brief 当前固定模板的不可变版本 / Immutable version of the currently pinned template. */
   readonly templateVersion: string
   /** @brief 完整且受模板约束的样式意图 / Complete template-constrained style intent. */
   readonly styleIntent: UiResumeStyleIntent
@@ -547,7 +525,7 @@ export interface UiTemplateSettingsModel {
   readonly resumeRevision: number
   /** @brief 当前选择的模板 / Currently selected template. */
   readonly selectedTemplate: UiTemplateManifest
-  /** @brief 可供迁移选择的模板 / Templates available for explicit migration. */
+  /** @brief 可展示的模板目录；迁移协议冻结前不代表可直接选择 / Displayable template catalog; not directly selectable until the migration contract is frozen. */
   readonly availableTemplates: readonly UiTemplateManifest[]
   /** @brief 语义样式意图 / Semantic style intent. */
   readonly styleIntent: UiResumeStyleIntent

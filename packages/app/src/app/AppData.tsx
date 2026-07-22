@@ -171,6 +171,18 @@ type AsyncResourceState<TValue> =
   | { readonly status: 'ready'; readonly data: TValue }
   | { readonly status: 'error'; readonly error: Error }
 
+/** @brief 绑定到一次资源身份与加载尝试的异步快照 / Async snapshot bound to one resource identity and load attempt. */
+interface AsyncResourceSnapshot<TValue> {
+  /** @brief 触发当前快照的尝试序号 / Attempt sequence that produced this snapshot. */
+  readonly attempt: number
+  /** @brief 触发当前快照的加载函数 / Loader that produced this snapshot. */
+  readonly load: () => Promise<TValue>
+  /** @brief 调用方声明的资源身份 / Resource identity declared by the caller. */
+  readonly resourceKey: unknown
+  /** @brief 当前身份与尝试对应的异步状态 / Async state for the bound identity and attempt. */
+  readonly state: AsyncResourceState<TValue>
+}
+
 /** @brief 带稳定重试动作的异步资源 / Asynchronous resource with a stable retry action. */
 export type AsyncResource<TValue> = AsyncResourceState<TValue> & {
   /** @brief 原地重新执行资源加载 / Retry resource loading in place. */
@@ -189,25 +201,37 @@ function nowMilliseconds(): number {
  * @brief 加载 gateway 返回的异步资源 / Load an asynchronous resource returned by a gateway.
  * @template TValue 成功资源类型 / Successful resource type.
  * @param load 稳定的异步加载函数 / Stable async loader function.
+ * @param resourceKey 可选的领域资源身份；变化时当前 render 立即进入 loading / Optional domain resource identity; a change makes the current render loading immediately.
  * @return 加载中、成功或失败的资源状态 / Loading, ready, or failed resource state.
  * @note 调用方应以 useCallback 包装 load，避免无意重复请求。
  */
 export function useAsyncResource<TValue>(
   resourceName: DiagnosticResourceName,
-  load: () => Promise<TValue>
+  load: () => Promise<TValue>,
+  resourceKey?: string | number
 ): AsyncResource<TValue> {
-  /** @brief 资源当前状态 / Current resource state. */
-  const [resource, setResource] = useState<AsyncResourceState<TValue>>({ status: 'loading' })
+  /** @brief 未显式传入领域 key 时以稳定加载函数作为资源身份 / Stable loader used as the resource identity when no domain key is supplied. */
+  const currentResourceKey = resourceKey ?? load
   /** @brief 用户触发的加载尝试序号 / User-triggered load-attempt sequence. */
   const [attempt, setAttempt] = useState(0)
+  /** @brief 只属于一个资源身份和一次尝试的已提交快照 / Committed snapshot belonging to one resource identity and attempt. */
+  const [snapshot, setSnapshot] = useState<AsyncResourceSnapshot<TValue>>(() => ({
+    attempt,
+    load,
+    resourceKey: currentResourceKey,
+    state: { status: 'loading' }
+  }))
   /** @brief 应用诊断端口 / Application diagnostics port. */
   const diagnostics = useDiagnostics()
   /** @brief 以新 loading 状态开始下一次尝试 / Start the next attempt from a fresh loading state. */
   const retry = useCallback((): void => {
-    setResource({ status: 'loading' })
     setAttempt((currentAttempt) => currentAttempt + 1)
   }, [])
-
+  /** @brief 当前 render 是否仍对应已提交快照 / Whether the current render still represents the committed snapshot. */
+  const snapshotIsCurrent =
+    snapshot.attempt === attempt &&
+    snapshot.load === load &&
+    Object.is(snapshot.resourceKey, currentResourceKey)
   useEffect((): (() => void) => {
     /** @brief effect 是否仍然存活 / Whether the effect is still active. */
     let active = true
@@ -217,7 +241,12 @@ export function useAsyncResource<TValue>(
     void load()
       .then((data): void => {
         if (active) {
-          setResource({ status: 'ready', data })
+          setSnapshot({
+            attempt,
+            load,
+            resourceKey: currentResourceKey,
+            state: { status: 'ready', data }
+          })
           diagnostics.emit('resource.load_completed', {
             duration_ms: Math.max(0, Math.round(nowMilliseconds() - startedAt)),
             resource: resourceName
@@ -226,9 +255,14 @@ export function useAsyncResource<TValue>(
       })
       .catch((reason: unknown): void => {
         if (active) {
-          setResource({
-            status: 'error',
-            error: reason instanceof Error ? reason : new Error('Unable to load workspace data.')
+          setSnapshot({
+            attempt,
+            load,
+            resourceKey: currentResourceKey,
+            state: {
+              status: 'error',
+              error: reason instanceof Error ? reason : new Error('Unable to load workspace data.')
+            }
           })
           diagnostics.emit('resource.load_failed', {
             duration_ms: Math.max(0, Math.round(nowMilliseconds() - startedAt)),
@@ -241,7 +275,8 @@ export function useAsyncResource<TValue>(
     return (): void => {
       active = false
     }
-  }, [attempt, diagnostics, load, resourceName])
+  }, [attempt, currentResourceKey, diagnostics, load, resourceName])
 
-  return useMemo(() => ({ ...resource, retry }), [resource, retry])
+  if (!snapshotIsCurrent) return { retry, status: 'loading' }
+  return { ...snapshot.state, retry }
 }

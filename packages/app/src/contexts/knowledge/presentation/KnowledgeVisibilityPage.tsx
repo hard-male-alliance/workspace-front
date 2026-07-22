@@ -574,12 +574,12 @@ function KnowledgeVisibilityContent({
           <CircleAlert aria-hidden="true" className="aw-warning-icon" size={18} />
           <div>
             <h2 className="aw-card-title">
-              {t('visibility.beforeProduction', { defaultValue: '接入前仍待确认' })}
+              {t('visibility.beforeProduction', { defaultValue: '授权如何生效' })}
             </h2>
             <p className="aw-card-description">
               {t('visibility.beforeProductionDescription', {
                 defaultValue:
-                  'PATCH、策略解释、会话审计快照和 EffectiveAccess 计算均不会在前端自行臆造。'
+                  '你的设置已保存在服务端。实际使用资料时，服务端还会结合当前会话和安全规则决定最终访问权限。'
               })}
             </p>
           </div>
@@ -614,7 +614,7 @@ export function KnowledgeVisibilityPage(): React.JSX.Element {
     return knowledge.getKnowledgeVisibility(requestedSourceId)
   }, [knowledge, requestedSourceId, sourceId])
   /** @brief 可见性异步资源 / Visibility async resource. */
-  const visibility = useAsyncResource('knowledge.visibility', loadVisibility)
+  const visibility = useAsyncResource('knowledge.visibility', loadVisibility, requestedSourceId)
 
   if (visibility.status === 'loading') {
     return (
@@ -638,5 +638,11 @@ export function KnowledgeVisibilityPage(): React.JSX.Element {
     )
   }
 
-  return <KnowledgeVisibilityContent gateway={knowledge} model={visibility.data} />
+  return (
+    <KnowledgeVisibilityContent
+      gateway={knowledge}
+      key={requestedSourceId}
+      model={visibility.data}
+    />
+  )
 }

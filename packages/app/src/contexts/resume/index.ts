@@ -44,7 +44,6 @@ export type {
   UiResumeSectionUpdateInput,
   UiResumeSectionsReorderInput,
   UiResumeSectionDeleteInput,
-  UiResumeTemplateSelectionInput,
   UiResumeTemplateSettingsUpdateInput,
   UiTemplateSettingsModel
 } from './domain/models'

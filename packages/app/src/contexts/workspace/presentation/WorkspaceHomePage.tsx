@@ -135,7 +135,7 @@ function WorkspaceHomeContent({
             <p>
               {resumeCard === null
                 ? t('workspace.home.emptyResumeDescription', {
-                    defaultValue: '后端当前没有返回简历，创建协议冻结后可从这里开始。'
+                    defaultValue: '当前工作区还没有简历。创建功能开放前，你可以先查看其他内容。'
                   })
                 : t('workspace.home.focusDescription', {
                     defaultValue: '从项目经历开始，把成果写得更具体，再进入面试练习。'

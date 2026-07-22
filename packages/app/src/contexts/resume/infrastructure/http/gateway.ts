@@ -1,11 +1,13 @@
-/** @file Resume 与模板只读 HTTP Gateway / Read-only HTTP Gateway for Resume and templates. */
+/** @file Resume 与模板 HTTP Gateway / HTTP Gateway for Resume and templates. */
 
 import type { ResumeGateway } from '../../application/gateway'
 import {
   getResumeConflictStatus,
   ResumeOperationRejectedError,
-  ResumeSnapshotConflictError
+  ResumeSnapshotConflictError,
+  ResumeTemplateMigrationCapabilityError
 } from '../../application/errors'
+import { ResumeMutationLane } from '../../application/mutation-lane'
 import {
   getTemplateIdentity,
   loadTemplateCatalogWithPinnedVersion
@@ -20,7 +22,6 @@ import type {
   UiResumeSectionDeleteInput,
   UiResumeSectionsReorderInput,
   UiResumeSectionUpdateInput,
-  UiResumeTemplateSelectionInput,
   UiResumeTemplateSettingsUpdateInput,
   UiTemplateManifest,
   UiTemplateId,
@@ -51,6 +52,8 @@ export class HttpResumeGateway implements ResumeGateway {
   readonly #client: HttpClient
   readonly #etagByResumeId = new Map<string, string>()
   readonly #resumeById = new Map<string, ResumeDocumentDto>()
+  /** @brief 按 Resume 聚合隔离全部文档写操作 / Lane isolating every document mutation by Resume aggregate. */
+  readonly #mutationLane = new ResumeMutationLane()
 
   constructor(client: HttpClient) {
     this.#client = client
@@ -259,176 +262,152 @@ export class HttpResumeGateway implements ResumeGateway {
   }
 
   async updateResumeSection(input: UiResumeSectionUpdateInput): Promise<UiResumeEditorModel> {
-    const target = { entity_type: 'section', section_id: input.sectionId }
-    /** @brief 仅包含用户明确修改字段的 operation / Operations containing only fields explicitly changed by the user. */
-    const operations: (Readonly<Record<string, unknown>> & { readonly operation_id: string })[] = []
-    if (input.title !== undefined) {
-      operations.push({
-        field_path: ['title'],
-        op: 'set_field',
-        operation_id: this.#id('op'),
-        target,
-        value: input.title
-      })
-    }
-    if (input.content !== undefined) {
-      operations.push({
-        field_path: ['content'],
-        op: 'set_field',
-        operation_id: this.#id('op'),
-        target,
-        value: {
-          blocks:
-            input.content.length === 0
-              ? []
-              : [
-                  {
-                    block_id: this.#id('block'),
-                    spans: [{ text: input.content }],
-                    type: 'paragraph'
-                  }
-                ],
-          plain_text: input.content,
-          schema_version: '1.0'
-        }
-      })
-    }
-    if (operations.length === 0) {
-      throw new Error('A Resume section update requires at least one explicitly changed field.')
-    }
-    return this.#applyOperations(input.resumeId, input.baseRevision, operations, input.signal)
+    return this.#mutationLane.run(input.resumeId, async () => {
+      const target = { entity_type: 'section', section_id: input.sectionId }
+      /** @brief 仅包含用户明确修改字段的 operation / Operations containing only fields explicitly changed by the user. */
+      const operations: (Readonly<Record<string, unknown>> & {
+        readonly operation_id: string
+      })[] = []
+      if (input.title !== undefined) {
+        operations.push({
+          field_path: ['title'],
+          op: 'set_field',
+          operation_id: this.#id('op'),
+          target,
+          value: input.title
+        })
+      }
+      if (input.content !== undefined) {
+        operations.push({
+          field_path: ['content'],
+          op: 'set_field',
+          operation_id: this.#id('op'),
+          target,
+          value: {
+            blocks:
+              input.content.length === 0
+                ? []
+                : [
+                    {
+                      block_id: this.#id('block'),
+                      spans: [{ text: input.content }],
+                      type: 'paragraph'
+                    }
+                  ],
+            plain_text: input.content,
+            schema_version: '1.0'
+          }
+        })
+      }
+      if (operations.length === 0) {
+        throw new Error('A Resume section update requires at least one explicitly changed field.')
+      }
+      return this.#applyOperations(input.resumeId, input.baseRevision, operations, input.signal)
+    })
   }
 
   async reorderResumeSections(input: UiResumeSectionsReorderInput): Promise<UiResumeEditorModel> {
-    const snapshot = await this.#ensureWritableSnapshot(
-      input.resumeId,
-      input.baseRevision,
-      input.signal
-    )
-    const expected = new Set(snapshot.sections.map((section) => section.section_id))
-    const received = new Set<string>(input.orderedSectionIds)
-    if (
-      expected.size !== received.size ||
-      input.orderedSectionIds.length !== expected.size ||
-      [...expected].some((sectionId) => !received.has(sectionId))
-    ) {
-      throw new Error('Resume section order must contain every current section exactly once.')
-    }
-    return this.#applyOperations(
-      input.resumeId,
-      input.baseRevision,
-      input.orderedSectionIds.map((sectionId, index) => ({
-        after_section_id: index === 0 ? null : input.orderedSectionIds[index - 1],
-        op: 'move_section',
-        operation_id: this.#id('op'),
-        section_id: sectionId
-      })),
-      input.signal
-    )
+    return this.#mutationLane.run(input.resumeId, async () => {
+      const snapshot = await this.#ensureWritableSnapshot(
+        input.resumeId,
+        input.baseRevision,
+        input.signal
+      )
+      const expected = new Set(snapshot.sections.map((section) => section.section_id))
+      const received = new Set<string>(input.orderedSectionIds)
+      if (
+        expected.size !== received.size ||
+        input.orderedSectionIds.length !== expected.size ||
+        [...expected].some((sectionId) => !received.has(sectionId))
+      ) {
+        throw new Error('Resume section order must contain every current section exactly once.')
+      }
+      return this.#applyOperations(
+        input.resumeId,
+        input.baseRevision,
+        input.orderedSectionIds.map((sectionId, index) => ({
+          after_section_id: index === 0 ? null : input.orderedSectionIds[index - 1],
+          op: 'move_section',
+          operation_id: this.#id('op'),
+          section_id: sectionId
+        })),
+        input.signal
+      )
+    })
   }
 
   async deleteResumeSection(input: UiResumeSectionDeleteInput): Promise<UiResumeEditorModel> {
-    return this.#applyOperations(
-      input.resumeId,
-      input.baseRevision,
-      [
-        {
-          op: 'remove_section',
-          operation_id: this.#id('op'),
-          section_id: input.sectionId
-        }
-      ],
-      input.signal
-    )
-  }
-
-  async selectResumeTemplate(input: UiResumeTemplateSelectionInput): Promise<UiResumeEditorModel> {
-    const snapshot = await this.#ensureWritableSnapshot(
-      input.resumeId,
-      input.baseRevision,
-      input.signal
-    )
-    const templates = await loadTemplateCatalogWithPinnedVersion(this, snapshot.locale, {
-      templateId: input.templateId,
-      templateVersion: input.templateVersion
-    })
-    const requestedIdentity = getTemplateIdentity({
-      templateId: input.templateId,
-      templateVersion: input.templateVersion
-    })
-    const template = templates.find((item) => getTemplateIdentity(item) === requestedIdentity)
-    if (template === undefined) {
-      throw new Error('The selected Resume template is not available.')
-    }
-    return this.#applyOperations(
-      input.resumeId,
-      input.baseRevision,
-      [
-        {
-          op: 'set_template',
-          operation_id: this.#id('op'),
-          template: {
-            template_id: template.id,
-            template_version: template.version
+    return this.#mutationLane.run(input.resumeId, () =>
+      this.#applyOperations(
+        input.resumeId,
+        input.baseRevision,
+        [
+          {
+            op: 'remove_section',
+            operation_id: this.#id('op'),
+            section_id: input.sectionId
           }
-        }
-      ],
-      input.signal,
-      { id: template.id, version: template.version }
+        ],
+        input.signal
+      )
     )
   }
 
   async updateTemplateSettings(
     input: UiResumeTemplateSettingsUpdateInput
   ): Promise<UiTemplateSettingsModel> {
-    const snapshot = await this.#ensureWritableSnapshot(
-      input.resumeId,
-      input.baseRevision,
-      input.signal
-    )
-    const templates = await loadTemplateCatalogWithPinnedVersion(this, snapshot.locale, {
-      templateId: input.templateId,
-      templateVersion: input.templateVersion
-    })
-    const requestedIdentity = getTemplateIdentity({
-      templateId: input.templateId,
-      templateVersion: input.templateVersion
-    })
-    const template = templates.find((item) => getTemplateIdentity(item) === requestedIdentity)
-    if (template === undefined) {
-      throw new Error('The selected Resume template is not available.')
-    }
-    if (!template.supportedPageSizes.includes(input.styleIntent.page.size)) {
-      throw new Error('The selected Resume template does not support the requested page size.')
-    }
-    if (!template.fontFamilyTokens.includes(input.styleIntent.typography.fontFamilyToken)) {
-      throw new Error('The selected Resume template does not support the requested font token.')
-    }
+    return this.#mutationLane.run(input.resumeId, async () => {
+      const snapshot = await this.#ensureWritableSnapshot(
+        input.resumeId,
+        input.baseRevision,
+        input.signal
+      )
+      if (
+        snapshot.template.template_id !== input.templateId ||
+        snapshot.template.template_version !== input.templateVersion
+      ) {
+        throw new ResumeTemplateMigrationCapabilityError()
+      }
+      const templates = await loadTemplateCatalogWithPinnedVersion(this, snapshot.locale, {
+        templateId: snapshot.template.template_id as UiTemplateId,
+        templateVersion: snapshot.template.template_version
+      })
+      const requestedIdentity = getTemplateIdentity({
+        templateId: input.templateId,
+        templateVersion: input.templateVersion
+      })
+      const template = templates.find((item) => getTemplateIdentity(item) === requestedIdentity)
+      if (template === undefined) {
+        throw new Error('The selected Resume template is not available.')
+      }
+      if (!template.supportedPageSizes.includes(input.styleIntent.page.size)) {
+        throw new Error('The selected Resume template does not support the requested page size.')
+      }
+      if (!template.fontFamilyTokens.includes(input.styleIntent.typography.fontFamilyToken)) {
+        throw new Error('The selected Resume template does not support the requested font token.')
+      }
 
-    const editor = await this.#applyOperations(
-      input.resumeId,
-      input.baseRevision,
-      [
-        {
-          op: 'set_template',
-          operation_id: this.#id('op'),
-          style_intent: mapResumeStyleIntentToDto(input.styleIntent),
-          template: {
-            template_id: template.id,
-            template_version: template.version
+      const editor = await this.#applyOperations(
+        input.resumeId,
+        input.baseRevision,
+        [
+          {
+            op: 'set_style_intent',
+            operation_id: this.#id('op'),
+            style_intent: mapResumeStyleIntentToDto(input.styleIntent)
           }
-        }
-      ],
-      input.signal,
-      { id: template.id, version: template.version }
-    )
-    return {
-      availableTemplates: templates,
-      resumeId: input.resumeId,
-      resumeRevision: editor.resume.revision,
-      selectedTemplate: template,
-      styleIntent: editor.resume.styleIntent
-    }
+        ],
+        input.signal,
+        { id: template.id, version: template.version }
+      )
+      return {
+        availableTemplates: templates,
+        resumeId: input.resumeId,
+        resumeRevision: editor.resume.revision,
+        selectedTemplate: template,
+        styleIntent: editor.resume.styleIntent
+      }
+    })
   }
 
   async #applyOperations(

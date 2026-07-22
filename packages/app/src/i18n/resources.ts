@@ -40,7 +40,7 @@ export const zhSGTranslation = {
   },
   topbar: {
     feedback: '反馈',
-    feedbackUnavailable: '反馈提交将在服务端入口确认后开放。',
+    feedbackUnavailable: '反馈功能正在准备中，目前无法提交。',
     changeLocale: '切换界面语言',
     switchToLight: '切换为浅色主题',
     switchToDark: '切换为深色主题'
@@ -50,6 +50,7 @@ export const zhSGTranslation = {
     start: '开始',
     review: '查看',
     back: '返回',
+    backHome: '返回工作台',
     cancel: '取消',
     close: '关闭',
     continue: '继续',
@@ -117,7 +118,7 @@ export const zhSGTranslation = {
       focusLabel: '今日最重要的事',
       focusDescription: '从项目经历开始，把成果写得更具体，再进入模拟面试。',
       emptyResumeTitle: '还没有可编辑的简历',
-      emptyResumeDescription: '后端当前没有返回简历，创建协议冻结后可从这里开始。',
+      emptyResumeDescription: '当前工作区还没有简历。创建功能开放前，你可以先查看其他内容。',
       emptyResumeAction: '当前工作区暂无可继续编辑的简历',
       continueEditing: '继续编辑简历',
       progressTitle: '本周进展',
@@ -153,6 +154,7 @@ export const zhSGTranslation = {
     openAssistant: '打开简历助手',
     previewReady: '预览已同步',
     previewRendering: '正在生成预览',
+    semanticPreviewAria: '简历语义内容预览',
     mobileTabs: '移动端面板切换',
     templateSettings: '模板设置',
     revision: '版本 {{revision}}',
@@ -169,10 +171,14 @@ export const zhSGTranslation = {
       windowControls: '简历窗口控制',
       assistant: 'AI 对话',
       editor: '内容编辑',
-      preview: 'PDF 预览',
+      previewWindow: '预览',
+      semanticPreviewRegion: '语义内容预览',
+      pdfPreviewRegion: 'PDF 预览',
+      semanticPreviewNotice: '当前为语义内容预览，不代表最终模板排版。',
       collapseWindow: '收起“{{name}}”窗口',
       expandWindow: '展开“{{name}}”窗口',
       quickTemplate: '快速切换简历模板',
+      templateMigrationUnavailable: '模板切换功能正在准备中。你仍可编辑当前模板的版式设置。',
       askAssistantLabel: '询问简历助手',
       editorHint: '浏览全部板块，点击后聚焦编辑。',
       moveUp: '上移{{name}}',
@@ -191,7 +197,6 @@ export const zhSGTranslation = {
       outcomeUnknownTitle: '简历操作结果待确认',
       outcomeUnknownDescription:
         '请求可能已由服务器处理。请先重新加载权威版本确认结果，不要重复提交。',
-      templateSelectionError: '无法切换简历模板',
       reloadAuthority: '重新加载服务器版本',
       reloadingAuthority: '正在重新加载…',
       reloadAuthorityError: '无法重新加载服务器版本，请重试。',
@@ -208,17 +213,19 @@ export const zhSGTranslation = {
       resumePdfPolling: '继续查询 PDF',
       renderOutcomeUnknown:
         '生成请求可能已被服务器处理。请确认上一次请求，不要创建重复的 PDF 任务。',
-      pdfUnsupported: '当前模板不支持 PDF 输出。'
+      pdfUnsupported: '当前模板不支持 PDF 输出。',
+      pdfFrameTitle: '简历 PDF 预览'
     }
   },
   template: {
     title: '模板与版式',
     currentTemplate: '当前模板',
-    otherTemplates: '其他可选模板',
+    otherTemplates: '模板目录',
     semanticIntent: '语义样式意图',
     migrationHint: '模板与样式作为语义意图保存，绝不提交 CSS、HTML 或 LaTeX。',
-    choiceDescription: '保存后由后端检查模板兼容性，并返回权威简历修订。',
-    backendCatalog: '后端模板目录',
+    choiceDescription: '模板目录目前仅供查看；你可以保存现用模板的版式设置。',
+    layoutIllustration: '版式示意（非最终模板预览）',
+    backendCatalog: '已同步目录',
     noDescription: '暂无说明',
     empty: '当前没有其他可用模板。',
     fitStructured: '适合技能与经历并重的结构化简历',
@@ -400,7 +407,7 @@ export const zhSGTranslation = {
   knowledge: {
     title: '个人记忆与知识库',
     addSource: '添加知识来源',
-    createUnavailable: '上传会在服务端补齐 UploadSession 完成协议后开放。',
+    createUnavailable: '添加知识来源功能正在准备中，目前无法上传文件。',
     sources: '个来源',
     documents: '份文档',
     chunks: '个片段',
@@ -414,7 +421,11 @@ export const zhSGTranslation = {
     filterSources: '筛选知识来源',
     filterPlaceholder: '按名称或地址筛选…',
     filteredCount: '{{count}} / {{total}} 个来源',
+    emptySourcesTitle: '还没有知识来源',
+    emptySourcesDescription: '当前工作区还没有可浏览的资料。添加功能开放后，可以从这里上传。',
+    noMatchingSourcesTitle: '没有匹配结果',
     noMatchingSources: '没有匹配的知识来源，请调整筛选条件。',
+    clearFilter: '清除筛选',
     viewSourceDetails: '查看 {{sourceName}} 详情',
     selectedSource: '当前选择',
     sourceDetails: '来源详情',
@@ -426,7 +437,7 @@ export const zhSGTranslation = {
     on: '开启',
     reloadSources: '重新加载来源',
     semanticSearch: '语义搜索',
-    searchUnavailable: '知识搜索会在响应契约确认后开放。',
+    searchUnavailable: '知识搜索功能正在准备中，目前只能浏览已有来源。',
     reviewSelectedPolicy: '查看当前来源的授权矩阵',
     status: {
       notStarted: '尚未开始',
@@ -453,9 +464,8 @@ export const zhSGTranslation = {
     summarize: '摘要',
     derive: '作为推理依据',
     writeBack: '写回来源',
-    policyNotice: '此处保存来源策略；最终授权仍由后端按 EffectiveAccess 判定。',
-    description:
-      '为“来源”设置最小授权；最终 EffectiveAccess 仍由后端结合会话选择做 deny 优先判定。',
+    policyNotice: '这里保存来源的默认访问设置；服务端仍会结合当前会话执行最终授权。',
+    description: '只为需要使用这份资料的功能授予最低权限。服务端会优先执行拒绝规则。',
     saving: '正在保存…',
     saved: '可见性策略已保存',
     savedDescription: '服务端已确认新的策略版本。',
@@ -494,9 +504,9 @@ export const zhSGTranslation = {
       portfolioAssistant: '作品集助手',
       unknown: '未知 Agent'
     },
-    beforeProduction: '最终授权说明',
+    beforeProduction: '授权如何生效',
     beforeProductionDescription:
-      '来源策略由服务端保存；会话审计快照和 EffectiveAccess 仍由服务端计算。'
+      '你的设置已保存在服务端。实际使用资料时，服务端还会结合当前会话和安全规则决定最终访问权限。'
   }
 } as const
 
@@ -540,7 +550,7 @@ export const enUSTranslation = {
   },
   topbar: {
     feedback: 'Feedback',
-    feedbackUnavailable: 'Feedback submission will open after its server endpoint is confirmed.',
+    feedbackUnavailable: 'Feedback is being prepared and cannot be submitted yet.',
     changeLocale: 'Change interface language',
     switchToLight: 'Switch to light theme',
     switchToDark: 'Switch to dark theme'
@@ -550,6 +560,7 @@ export const enUSTranslation = {
     start: 'Start',
     review: 'Review',
     back: 'Back',
+    backHome: 'Back to workspace',
     cancel: 'Cancel',
     close: 'Close',
     continue: 'Continue',
@@ -625,7 +636,7 @@ export const enUSTranslation = {
         'Start with project experience, make the outcomes specific, then move into interview practice.',
       emptyResumeTitle: 'No editable resume yet',
       emptyResumeDescription:
-        'The backend did not return a resume. You can start here after the creation contract is confirmed.',
+        'This workspace does not have a resume yet. You can explore other content until creation is available.',
       emptyResumeAction: 'There is no resume to continue editing in this workspace',
       continueEditing: 'Continue editing resume',
       progressTitle: 'This week',
@@ -662,6 +673,7 @@ export const enUSTranslation = {
     openAssistant: 'Open resume assistant',
     previewReady: 'Preview is in sync',
     previewRendering: 'Generating preview',
+    semanticPreviewAria: 'Resume semantic-content preview',
     mobileTabs: 'Mobile panel switcher',
     templateSettings: 'Template settings',
     revision: 'Revision {{revision}}',
@@ -678,10 +690,15 @@ export const enUSTranslation = {
       windowControls: 'Resume window controls',
       assistant: 'AI conversation',
       editor: 'Content editor',
-      preview: 'PDF preview',
+      previewWindow: 'Preview',
+      semanticPreviewRegion: 'Semantic-content preview',
+      pdfPreviewRegion: 'PDF preview',
+      semanticPreviewNotice: 'This is a semantic-content preview, not the final template layout.',
       collapseWindow: 'Collapse {{name}} window',
       expandWindow: 'Expand {{name}} window',
       quickTemplate: 'Quickly switch resume template',
+      templateMigrationUnavailable:
+        'Template switching is being prepared. You can still edit settings for the current template.',
       askAssistantLabel: 'Ask the resume assistant',
       editorHint: 'Review every section and select one for focused editing.',
       moveUp: 'Move {{name}} up',
@@ -702,7 +719,6 @@ export const enUSTranslation = {
       outcomeUnknownTitle: 'Resume operation result is unknown',
       outcomeUnknownDescription:
         'The server may have processed this request. Reload the authoritative version to confirm the result before submitting another change.',
-      templateSelectionError: 'The resume template could not be changed',
       reloadAuthority: 'Reload server version',
       reloadingAuthority: 'Reloading…',
       reloadAuthorityError: 'The server version could not be reloaded. Try again.',
@@ -719,19 +735,21 @@ export const enUSTranslation = {
       resumePdfPolling: 'Continue checking PDF',
       renderOutcomeUnknown:
         'The server may have accepted this generation request. Confirm the previous request instead of creating a duplicate PDF job.',
-      pdfUnsupported: 'The current template does not support PDF output.'
+      pdfUnsupported: 'The current template does not support PDF output.',
+      pdfFrameTitle: 'Resume PDF preview'
     }
   },
   template: {
     title: 'Template & layout',
     currentTemplate: 'Current template',
-    otherTemplates: 'Other templates',
+    otherTemplates: 'Template catalog',
     semanticIntent: 'Semantic style intent',
     migrationHint:
       'Templates and styles are saved as semantic intent; CSS, HTML, and LaTeX are never submitted.',
     choiceDescription:
-      'The backend checks template compatibility on save and returns the authoritative resume revision.',
-    backendCatalog: 'Backend template catalog',
+      'The template catalog is view-only for now. You can save layout settings for the current template.',
+    layoutIllustration: 'Layout illustration (not the final template preview)',
+    backendCatalog: 'Synced catalog',
     noDescription: 'No description yet',
     empty: 'No other templates are currently available.',
     fitStructured: 'Best for structured resumes balancing skills and experience',
@@ -929,7 +947,7 @@ export const enUSTranslation = {
     title: 'Personal memory & knowledge',
     addSource: 'Add source',
     createUnavailable:
-      'Upload will be enabled after the server confirms the UploadSession completion protocol.',
+      'Adding knowledge sources is being prepared; file upload is not available yet.',
     sources: 'sources',
     documents: 'documents',
     chunks: 'chunks',
@@ -946,7 +964,12 @@ export const enUSTranslation = {
     filterSources: 'Filter knowledge sources',
     filterPlaceholder: 'Filter by name or address…',
     filteredCount: '{{count}} of {{total}} sources',
+    emptySourcesTitle: 'No knowledge sources yet',
+    emptySourcesDescription:
+      'This workspace has no material to browse yet. You can upload it here once adding sources is available.',
+    noMatchingSourcesTitle: 'No matching results',
     noMatchingSources: 'No knowledge sources match this filter.',
+    clearFilter: 'Clear filter',
     viewSourceDetails: 'View details for {{sourceName}}',
     selectedSource: 'Current selection',
     sourceDetails: 'Source details',
@@ -958,7 +981,8 @@ export const enUSTranslation = {
     on: 'On',
     reloadSources: 'Reload sources',
     semanticSearch: 'Semantic search',
-    searchUnavailable: 'Knowledge search will be enabled after its response contract is confirmed.',
+    searchUnavailable:
+      'Knowledge search is being prepared. For now, you can browse the existing sources.',
     reviewSelectedPolicy: 'Review this source authorization matrix',
     status: {
       notStarted: 'Not started',
@@ -986,9 +1010,9 @@ export const enUSTranslation = {
     derive: 'Use for reasoning',
     writeBack: 'Write back to source',
     policyNotice:
-      'This page saves the source policy; the backend still makes the final EffectiveAccess decision.',
+      "This page saves the source's default access settings; the service still applies final authorization for the current session.",
     description:
-      'Grant the minimum access to a source. The backend still applies deny-first EffectiveAccess after session selection.',
+      'Grant only the minimum access needed for this material. The service applies deny rules first.',
     saving: 'Saving…',
     saved: 'Visibility policy saved',
     savedDescription: 'The backend confirmed the new policy version.',
@@ -1030,9 +1054,9 @@ export const enUSTranslation = {
       portfolioAssistant: 'Portfolio assistant',
       unknown: 'Unknown agent'
     },
-    beforeProduction: 'Final authorization',
+    beforeProduction: 'How authorization takes effect',
     beforeProductionDescription:
-      'The backend stores source policy and remains responsible for session audit snapshots and EffectiveAccess computation.'
+      'Your settings are stored by the service. When this material is used, the service also applies the current session and security rules to decide final access.'
   }
 } as const
 

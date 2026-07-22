@@ -1,11 +1,16 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { HttpCommandOutcomeUnknownError } from '@ai-job-workspace/app/http'
-import { InMemoryKnowledgeGateway } from '@ai-job-workspace/app/testing'
+import {
+  InMemoryKnowledgeGateway,
+  MOCK_BLOG_KNOWLEDGE_SOURCE_ID,
+  MOCK_GIT_KNOWLEDGE_SOURCE_ID
+} from '@ai-job-workspace/app/testing'
 import {
   createTestGateways,
   installWorkspaceAppTestCleanup,
+  navigateWorkspaceApp,
   setWorkspaceAppTestLocale,
   WorkspaceApp
 } from './WorkspaceApp.dom-test-harness'
@@ -14,6 +19,53 @@ installWorkspaceAppTestCleanup()
 
 /** @brief 知识库用户行为测试 / Knowledge-workflow user-behaviour tests. */
 describe('WorkspaceApp knowledge workflow', (): void => {
+  it('drops source-local drafts while switching to another authoritative source', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 当前测试独享的知识 Gateway / Knowledge Gateway owned by the current test. */
+    const knowledge = new InMemoryKnowledgeGateway()
+    /** @brief 原始内存读取绑定 / Bound original in-memory read. */
+    const readVisibility = knowledge.getKnowledgeVisibility.bind(knowledge)
+    /** @brief A 来源权威策略 / Authoritative policy for source A. */
+    const visibilityA = await readVisibility(MOCK_GIT_KNOWLEDGE_SOURCE_ID)
+    /** @brief B 来源权威策略 / Authoritative policy for source B. */
+    const visibilityB = await readVisibility(MOCK_BLOG_KNOWLEDGE_SOURCE_ID)
+    /** @brief 兑现 B 来源读取的函数 / Resolver for the source B read. */
+    let resolveVisibilityB: ((model: typeof visibilityB) => void) | undefined
+    /** @brief 保持 B 来源读取待定的 Promise / Promise keeping the source B read pending. */
+    const pendingVisibilityB = new Promise<typeof visibilityB>((resolve): void => {
+      resolveVisibilityB = resolve
+    })
+    vi.spyOn(knowledge, 'getKnowledgeVisibility').mockImplementation((sourceId) => {
+      if (sourceId === MOCK_GIT_KNOWLEDGE_SOURCE_ID) return Promise.resolve(visibilityA)
+      if (sourceId === MOCK_BLOG_KNOWLEDGE_SOURCE_ID) return pendingVisibilityB
+      return Promise.reject(new Error('Unexpected knowledge-source ID.'))
+    })
+    window.history.replaceState(null, '', `/knowledge/${MOCK_GIT_KNOWLEDGE_SOURCE_ID}/visibility`)
+
+    render(<WorkspaceApp gateways={createTestGateways({ knowledge })} />)
+    await screen.findByRole('heading', { name: 'Agent 可见性' })
+    /** @brief A 来源尚未提交的本地开关草稿 / Unsaved source-A toggle draft. */
+    const sourceAToggle = screen.getByRole('switch', { name: '允许会话级选择' })
+    fireEvent.click(sourceAToggle)
+    expect(sourceAToggle).toHaveAttribute('aria-checked', 'false')
+
+    navigateWorkspaceApp(`/knowledge/${MOCK_BLOG_KNOWLEDGE_SOURCE_ID}/visibility`)
+
+    expect(screen.getByText('正在加载知识可见性…')).toBeInTheDocument()
+    expect(screen.queryByText('portfolio-engineering')).not.toBeInTheDocument()
+
+    await act(async (): Promise<void> => {
+      resolveVisibilityB?.(visibilityB)
+      await pendingVisibilityB
+    })
+
+    expect((await screen.findAllByText('技术博客')).length).toBeGreaterThan(0)
+    expect(screen.getByRole('switch', { name: '允许会话级选择' })).toHaveAttribute(
+      'aria-checked',
+      'true'
+    )
+  })
+
   it('filters authoritative sources and renders the selected source policy', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
     /** @brief 当前测试独享的知识 Gateway / Knowledge Gateway owned by the current test. */
@@ -37,6 +89,18 @@ describe('WorkspaceApp knowledge workflow', (): void => {
 
     expect(screen.getAllByText('portfolio-engineering')).toHaveLength(2)
     expect(screen.queryByText('AI 平台工程师 · 中文简历')).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByRole('searchbox', { name: '筛选知识来源' }), {
+      target: { value: 'definitely-missing-source' }
+    })
+    expect(screen.getByRole('heading', { name: '没有匹配结果' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '清除筛选' }))
+    expect(screen.getByRole('searchbox', { name: '筛选知识来源' })).toHaveValue('')
+    expect(screen.getByRole('heading', { level: 3, name: 'portfolio-engineering' })).toBeVisible()
+    expect(
+      screen.getByRole('heading', { level: 3, name: 'AI 平台工程师 · 中文简历' })
+    ).toBeVisible()
+    expect(screen.queryByRole('heading', { name: '没有匹配结果' })).not.toBeInTheDocument()
   })
 
   it('does not expose upload or search actions before their response contracts are frozen', async (): Promise<void> => {
@@ -44,12 +108,48 @@ describe('WorkspaceApp knowledge workflow', (): void => {
     render(<WorkspaceApp initialPath="/knowledge" />)
 
     await screen.findByRole('heading', { name: 'Personal memory & knowledge' })
-    expect(screen.getByRole('button', { name: 'Add source' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Add source' })).toHaveAttribute(
+      'aria-disabled',
+      'true'
+    )
+    expect(screen.getByRole('button', { name: 'Add source' })).toHaveAccessibleDescription(
+      'Adding knowledge sources is being prepared; file upload is not available yet.'
+    )
     expect(
-      screen.getByText('Knowledge search will be enabled after its response contract is confirmed.')
+      screen.getByText(
+        'Knowledge search is being prepared. For now, you can browse the existing sources.'
+      )
     ).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Search knowledge' })).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Knowledge file')).not.toBeInTheDocument()
+  })
+
+  it('distinguishes an empty source collection from a filter with no matches', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('en-US')
+    /** @brief 返回空权威集合的知识 Gateway / Knowledge gateway returning an empty authoritative collection. */
+    const knowledge = new InMemoryKnowledgeGateway()
+    vi.spyOn(knowledge, 'listKnowledgeSources').mockResolvedValue([])
+
+    render(<WorkspaceApp gateways={createTestGateways({ knowledge })} initialPath="/knowledge" />)
+
+    expect(
+      await screen.findByRole('heading', { name: 'No knowledge sources yet' })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'This workspace has no material to browse yet. You can upload it here once adding sources is available.'
+      )
+    ).toBeInTheDocument()
+    /** @brief 页头与空状态中均可发现但不会伪造动作的入口 / Discoverable entries in both the header and empty state that never fabricate an action. */
+    const unavailableAddSourceButtons = screen.getAllByRole('button', { name: 'Add source' })
+    expect(unavailableAddSourceButtons).toHaveLength(2)
+    for (const button of unavailableAddSourceButtons) {
+      expect(button).toHaveAttribute('aria-disabled', 'true')
+      expect(button).toHaveAccessibleDescription(
+        'Adding knowledge sources is being prepared; file upload is not available yet.'
+      )
+    }
+    expect(screen.queryByText('No knowledge sources match this filter.')).not.toBeInTheDocument()
   })
 
   it('localizes visibility policy enums instead of rendering transport values', async (): Promise<void> => {
@@ -62,8 +162,10 @@ describe('WorkspaceApp knowledge workflow', (): void => {
     expect(screen.getByText('机密')).toBeInTheDocument()
     expect(screen.getByText('中国大陆')).toBeInTheDocument()
     expect(screen.getByText('私有部署')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '授权如何生效' })).toBeInTheDocument()
     expect(screen.queryByText('confidential')).not.toBeInTheDocument()
     expect(screen.queryByText('private_deployment')).not.toBeInTheDocument()
+    expect(screen.queryByText(/PATCH|EffectiveAccess/u)).not.toBeInTheDocument()
   })
 
   it('persists visibility settings through the gateway instead of reporting a local save', async (): Promise<void> => {

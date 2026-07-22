@@ -59,12 +59,16 @@ describe('WorkspaceApp workspace-home Resume navigation', (): void => {
     await renderHomeWithResumeCards([])
 
     expect(await screen.findByRole('heading', { name: '还没有可编辑的简历' })).toBeInTheDocument()
+    expect(
+      screen.getByText('当前工作区还没有简历。创建功能开放前，你可以先查看其他内容。')
+    ).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: '继续编辑简历' })).not.toBeInTheDocument()
     expect(document.querySelector('a[href*="res_mock"]')).not.toBeInTheDocument()
     expect(screen.getByText('数据来自当前工作区，操作结果以服务端确认为准。')).toBeInTheDocument()
     expect(screen.getAllByText('Klee 的职业实验室')).toHaveLength(2)
     expect(screen.getByText('最近更新')).toBeInTheDocument()
     expect(document.body).not.toHaveTextContent(/Mock|Demo|演示工作区|本地工作区/u)
+    expect(document.body).not.toHaveTextContent(/后端|创建协议/u)
   })
 
   it('uses a stable Resume entry route in the application navigation', async (): Promise<void> => {
@@ -85,5 +89,18 @@ describe('WorkspaceApp workspace-home Resume navigation', (): void => {
     await vi.waitFor((): void => {
       expect(getResumeEditor).toHaveBeenCalledWith(asUiOpaqueId<'resume'>('res_mock_ai_platform'))
     })
+  })
+
+  it('keeps the empty Resume entry honest and returns to the workspace', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 当前测试独享的简历 Gateway / Resume Gateway owned by the current test. */
+    const resume = new InMemoryResumeGateway()
+    vi.spyOn(resume, 'listResumeCards').mockResolvedValue([])
+
+    render(<WorkspaceApp gateways={createTestGateways({ resume })} initialPath="/resumes" />)
+
+    expect(await screen.findByRole('heading', { name: '还没有可编辑的简历' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '返回工作台' })).toHaveAttribute('href', '/')
+    expect(document.body).not.toHaveTextContent(/后端|创建协议/u)
   })
 })

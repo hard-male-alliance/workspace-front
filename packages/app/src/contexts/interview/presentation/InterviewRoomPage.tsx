@@ -279,7 +279,7 @@ export function InterviewRoomPage(): React.JSX.Element {
     () => interview.getInterviewRuntime(asUiOpaqueId<'interview-session'>(sessionId)),
     [interview, sessionId]
   )
-  const runtime = useAsyncResource('interview.runtime', loadRuntime)
+  const runtime = useAsyncResource('interview.runtime', loadRuntime, sessionId)
 
   if (runtime.status === 'loading')
     return (
@@ -297,5 +297,5 @@ export function InterviewRoomPage(): React.JSX.Element {
         />
       </div>
     )
-  return <InterviewRoom initialRuntime={runtime.data} />
+  return <InterviewRoom initialRuntime={runtime.data} key={sessionId} />
 }

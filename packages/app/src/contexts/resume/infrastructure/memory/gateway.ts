@@ -1,7 +1,11 @@
 /** @file Resume 的内存 adapter / In-memory adapter for Resume. */
 
 import type { ResumeGateway } from '../../application/gateway'
-import { ResumeSnapshotConflictError } from '../../application/errors'
+import {
+  ResumeSnapshotConflictError,
+  ResumeTemplateMigrationCapabilityError
+} from '../../application/errors'
+import { ResumeMutationLane } from '../../application/mutation-lane'
 import {
   getTemplateIdentity,
   loadTemplateCatalogWithPinnedVersion
@@ -15,7 +19,6 @@ import type {
   UiResumeSectionDeleteInput,
   UiResumeSectionsReorderInput,
   UiResumeSectionUpdateInput,
-  UiResumeTemplateSelectionInput,
   UiResumeTemplateSettingsUpdateInput,
   UiTemplateManifest,
   UiTemplateSettingsModel,
@@ -48,6 +51,9 @@ export class InMemoryResumeGateway implements ResumeGateway {
   private readonly options: InMemoryGatewayOptions
   /** @brief 当前实例内的简历编辑器投影 / Resume-editor projection owned by this instance. */
   private editor: UiResumeEditorModel
+
+  /** @brief 测试 adapter 中按聚合隔离的写通道 / Aggregate-scoped mutation lane in the test adapter. */
+  private readonly mutationLane = new ResumeMutationLane()
 
   /** @brief 测试用 Render Jobs / Render Jobs used by automated tests. */
   private readonly renderJobs = new Map<string, UiResumeRenderJob>()
@@ -137,167 +143,157 @@ export class InMemoryResumeGateway implements ResumeGateway {
    * @return 最新编辑器 / Latest editor.
    */
   async updateResumeSection(input: UiResumeSectionUpdateInput): Promise<UiResumeEditorModel> {
-    await prepareMemoryRead(this.options)
-    if (input.resumeId !== MOCK_RESUME_ID) {
-      return throwMemoryNotFound('resume editor')
-    }
-    this.assertBaseRevision(input.baseRevision)
-
-    const sectionExists = this.editor.resume.sections.some(
-      (section) => section.id === input.sectionId
-    )
-    if (!sectionExists) {
-      return throwMemoryNotFound('resume section')
-    }
-
-    this.editor = {
-      ...this.editor,
-      resume: {
-        ...this.editor.resume,
-        revision: this.editor.resume.revision + 1,
-        sections: this.editor.resume.sections.map((section) =>
-          section.id === input.sectionId
-            ? {
-                ...section,
-                ...(input.title === undefined ? {} : { title: input.title }),
-                ...(input.content === undefined ? {} : { contentPreview: input.content })
-              }
-            : section
-        ),
-        updatedAt: '2026-07-18T00:00:01.000Z'
+    return this.mutationLane.run(input.resumeId, async () => {
+      await prepareMemoryRead(this.options)
+      if (input.resumeId !== MOCK_RESUME_ID) {
+        return throwMemoryNotFound('resume editor')
       }
-    }
-    return cloneMemoryValue(this.editor)
+      this.assertBaseRevision(input.baseRevision)
+
+      const sectionExists = this.editor.resume.sections.some(
+        (section) => section.id === input.sectionId
+      )
+      if (!sectionExists) {
+        return throwMemoryNotFound('resume section')
+      }
+
+      this.editor = {
+        ...this.editor,
+        resume: {
+          ...this.editor.resume,
+          revision: this.editor.resume.revision + 1,
+          sections: this.editor.resume.sections.map((section) =>
+            section.id === input.sectionId
+              ? {
+                  ...section,
+                  ...(input.title === undefined ? {} : { title: input.title }),
+                  ...(input.content === undefined ? {} : { contentPreview: input.content })
+                }
+              : section
+          ),
+          updatedAt: '2026-07-18T00:00:01.000Z'
+        }
+      }
+      return cloneMemoryValue(this.editor)
+    })
   }
 
   /** @brief 调整 Mock 简历板块顺序 / Reorder Mock resume sections. */
   async reorderResumeSections(input: UiResumeSectionsReorderInput): Promise<UiResumeEditorModel> {
-    await prepareMemoryRead(this.options)
-    if (input.resumeId !== MOCK_RESUME_ID) {
-      return throwMemoryNotFound('resume editor')
-    }
-    this.assertBaseRevision(input.baseRevision)
-
-    const sectionById = new Map(this.editor.resume.sections.map((section) => [section.id, section]))
-    const reorderedSections = input.orderedSectionIds.map((sectionId) => sectionById.get(sectionId))
-    if (
-      reorderedSections.length !== this.editor.resume.sections.length ||
-      new Set(input.orderedSectionIds).size !== this.editor.resume.sections.length ||
-      reorderedSections.some((section) => section === undefined)
-    ) {
-      throw new InMemoryGatewayError('memory.conflict', 'The Mock section order is incomplete.')
-    }
-
-    this.editor = {
-      ...this.editor,
-      resume: {
-        ...this.editor.resume,
-        revision: this.editor.resume.revision + 1,
-        sections: reorderedSections.filter((section) => section !== undefined),
-        updatedAt: '2026-07-18T00:00:02.000Z'
+    return this.mutationLane.run(input.resumeId, async () => {
+      await prepareMemoryRead(this.options)
+      if (input.resumeId !== MOCK_RESUME_ID) {
+        return throwMemoryNotFound('resume editor')
       }
-    }
-    return cloneMemoryValue(this.editor)
+      this.assertBaseRevision(input.baseRevision)
+
+      const sectionById = new Map(
+        this.editor.resume.sections.map((section) => [section.id, section])
+      )
+      const reorderedSections = input.orderedSectionIds.map((sectionId) =>
+        sectionById.get(sectionId)
+      )
+      if (
+        reorderedSections.length !== this.editor.resume.sections.length ||
+        new Set(input.orderedSectionIds).size !== this.editor.resume.sections.length ||
+        reorderedSections.some((section) => section === undefined)
+      ) {
+        throw new InMemoryGatewayError('memory.conflict', 'The Mock section order is incomplete.')
+      }
+
+      this.editor = {
+        ...this.editor,
+        resume: {
+          ...this.editor.resume,
+          revision: this.editor.resume.revision + 1,
+          sections: reorderedSections.filter((section) => section !== undefined),
+          updatedAt: '2026-07-18T00:00:02.000Z'
+        }
+      }
+      return cloneMemoryValue(this.editor)
+    })
   }
 
   /** @brief 删除 Mock 简历板块 / Delete a Mock resume section. */
   async deleteResumeSection(input: UiResumeSectionDeleteInput): Promise<UiResumeEditorModel> {
-    await prepareMemoryRead(this.options)
-    if (input.resumeId !== MOCK_RESUME_ID) {
-      return throwMemoryNotFound('resume editor')
-    }
-    this.assertBaseRevision(input.baseRevision)
+    return this.mutationLane.run(input.resumeId, async () => {
+      await prepareMemoryRead(this.options)
+      if (input.resumeId !== MOCK_RESUME_ID) {
+        return throwMemoryNotFound('resume editor')
+      }
+      this.assertBaseRevision(input.baseRevision)
 
-    const remainingSections = this.editor.resume.sections.filter(
-      (section) => section.id !== input.sectionId
-    )
-    if (remainingSections.length === this.editor.resume.sections.length) {
-      return throwMemoryNotFound('resume section')
-    }
-    if (remainingSections.length === 0) {
-      throw new InMemoryGatewayError(
-        'memory.conflict',
-        'A Mock resume must keep at least one section.'
+      const remainingSections = this.editor.resume.sections.filter(
+        (section) => section.id !== input.sectionId
       )
-    }
-
-    this.editor = {
-      ...this.editor,
-      resume: {
-        ...this.editor.resume,
-        revision: this.editor.resume.revision + 1,
-        sections: remainingSections,
-        updatedAt: '2026-07-18T00:00:03.000Z'
+      if (remainingSections.length === this.editor.resume.sections.length) {
+        return throwMemoryNotFound('resume section')
       }
-    }
-    return cloneMemoryValue(this.editor)
-  }
-
-  /** @brief 切换 Mock 简历模板 / Select a Mock resume template. */
-  async selectResumeTemplate(input: UiResumeTemplateSelectionInput): Promise<UiResumeEditorModel> {
-    await prepareMemoryRead(this.options)
-    if (input.resumeId !== MOCK_RESUME_ID) {
-      return throwMemoryNotFound('resume editor')
-    }
-    this.assertBaseRevision(input.baseRevision)
-
-    const template = MOCK_TEMPLATE_MANIFEST_VERSIONS.find(
-      (item) => item.id === input.templateId && item.version === input.templateVersion
-    )
-    if (template === undefined) {
-      return throwMemoryNotFound('resume template')
-    }
-
-    this.editor = {
-      ...this.editor,
-      resume: {
-        ...this.editor.resume,
-        revision: this.editor.resume.revision + 1,
-        template: { templateId: template.id, templateVersion: template.version },
-        updatedAt: '2026-07-18T00:00:04.000Z'
+      if (remainingSections.length === 0) {
+        throw new InMemoryGatewayError(
+          'memory.conflict',
+          'A Mock resume must keep at least one section.'
+        )
       }
-    }
-    return cloneMemoryValue(this.editor)
+
+      this.editor = {
+        ...this.editor,
+        resume: {
+          ...this.editor.resume,
+          revision: this.editor.resume.revision + 1,
+          sections: remainingSections,
+          updatedAt: '2026-07-18T00:00:03.000Z'
+        }
+      }
+      return cloneMemoryValue(this.editor)
+    })
   }
 
   /** @brief 在测试 adapter 中保存模板设置 / Save template settings in the testing adapter. */
   async updateTemplateSettings(
     input: UiResumeTemplateSettingsUpdateInput
   ): Promise<UiTemplateSettingsModel> {
-    await prepareMemoryRead(this.options)
-    if (input.resumeId !== MOCK_RESUME_ID) {
-      return throwMemoryNotFound('template settings')
-    }
-    this.assertBaseRevision(input.baseRevision)
-    const template = MOCK_TEMPLATE_MANIFEST_VERSIONS.find(
-      (item) => item.id === input.templateId && item.version === input.templateVersion
-    )
-    if (template === undefined) {
-      return throwMemoryNotFound('resume template')
-    }
-    this.editor = {
-      ...this.editor,
-      resume: {
-        ...this.editor.resume,
-        revision: this.editor.resume.revision + 1,
-        styleIntent: input.styleIntent,
-        template: { templateId: template.id, templateVersion: template.version },
-        updatedAt: '2026-07-18T00:00:05.000Z'
+    return this.mutationLane.run(input.resumeId, async () => {
+      await prepareMemoryRead(this.options)
+      if (input.resumeId !== MOCK_RESUME_ID) {
+        return throwMemoryNotFound('template settings')
       }
-    }
-    /** @brief 最新目录与已保存精确版本的合并结果 / Latest catalog merged with the exact saved version. */
-    const availableTemplates = MOCK_TEMPLATE_MANIFESTS.some(
-      (item) => getTemplateIdentity(item) === getTemplateIdentity(template)
-    )
-      ? MOCK_TEMPLATE_MANIFESTS
-      : [...MOCK_TEMPLATE_MANIFESTS, template]
-    return {
-      availableTemplates: cloneMemoryValue(availableTemplates),
-      resumeId: input.resumeId,
-      resumeRevision: this.editor.resume.revision,
-      selectedTemplate: cloneMemoryValue(template),
-      styleIntent: cloneMemoryValue(input.styleIntent)
-    }
+      this.assertBaseRevision(input.baseRevision)
+      if (
+        this.editor.resume.template.templateId !== input.templateId ||
+        this.editor.resume.template.templateVersion !== input.templateVersion
+      ) {
+        throw new ResumeTemplateMigrationCapabilityError()
+      }
+      const template = MOCK_TEMPLATE_MANIFEST_VERSIONS.find(
+        (item) => item.id === input.templateId && item.version === input.templateVersion
+      )
+      if (template === undefined) {
+        return throwMemoryNotFound('resume template')
+      }
+      this.editor = {
+        ...this.editor,
+        resume: {
+          ...this.editor.resume,
+          revision: this.editor.resume.revision + 1,
+          styleIntent: input.styleIntent,
+          updatedAt: '2026-07-18T00:00:05.000Z'
+        }
+      }
+      /** @brief 最新目录与当前精确版本的合并结果 / Latest catalog merged with the exact current version. */
+      const availableTemplates = MOCK_TEMPLATE_MANIFESTS.some(
+        (item) => getTemplateIdentity(item) === getTemplateIdentity(template)
+      )
+        ? MOCK_TEMPLATE_MANIFESTS
+        : [...MOCK_TEMPLATE_MANIFESTS, template]
+      return {
+        availableTemplates: cloneMemoryValue(availableTemplates),
+        resumeId: input.resumeId,
+        resumeRevision: this.editor.resume.revision,
+        selectedTemplate: cloneMemoryValue(template),
+        styleIntent: cloneMemoryValue(input.styleIntent)
+      }
+    })
   }
 
   /**

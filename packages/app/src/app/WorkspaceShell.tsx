@@ -268,15 +268,21 @@ export function WorkspaceShell({ runtimeInfo }: WorkspaceShellProps): React.JSX.
           </span>
           <div className="aw-topbar-actions">
             <button
-              className="aw-quiet-button"
-              disabled
+              aria-describedby="workspace-feedback-unavailable"
+              aria-disabled="true"
+              className="aw-quiet-button aw-discoverable-disabled"
               title={t('topbar.feedbackUnavailable', {
-                defaultValue: '反馈提交将在服务端入口确认后开放。'
+                defaultValue: '反馈功能正在准备中，目前无法提交。'
               })}
               type="button"
             >
               {t('topbar.feedback', { defaultValue: '反馈' })}
             </button>
+            <span className="aw-sr-only" id="workspace-feedback-unavailable">
+              {t('topbar.feedbackUnavailable', {
+                defaultValue: '反馈功能正在准备中，目前无法提交。'
+              })}
+            </span>
             <button
               aria-label={
                 theme === 'dark'

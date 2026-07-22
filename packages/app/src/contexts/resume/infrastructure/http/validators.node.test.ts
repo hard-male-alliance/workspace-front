@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { HttpContractError } from '../../../../infrastructure/http/http-client'
 import {
   parseResumeDocumentDto,
+  parseResumeListDto,
   parseResumeOperationBatchResultDto,
   parseResumeRenderJobDto,
   parseTemplateManifestDto,
@@ -83,6 +84,252 @@ const choiceSetting = {
   value_type: 'choice',
   visible_when: null
 } as const
+
+/**
+ * @brief 构造合法 RichText / Build valid RichText.
+ * @param text 纯文本投影 / Plain-text projection.
+ * @param suffix ID 后缀 / ID suffix.
+ * @return 冻结契约合法的段落富文本 / Paragraph RichText valid under the frozen contract.
+ */
+function richTextFixture(text: string, suffix: string): Record<string, unknown> {
+  return {
+    blocks: [
+      {
+        align: 'start',
+        block_id: `block_${suffix}`,
+        spans: [{ marks: [{ href: null, type: 'bold' }], text }],
+        type: 'paragraph'
+      }
+    ],
+    plain_text: text,
+    schema_version: '1.0'
+  }
+}
+
+/**
+ * @brief 构造合法 PartialDate / Build a valid PartialDate.
+ * @param year 年份 / Year.
+ * @param month 月份 / Month.
+ * @return 月精度日期 / Month-precision date.
+ */
+function partialDateFixture(year: number, month: number): Record<string, unknown> {
+  return { day: null, month, precision: 'month', year }
+}
+
+/**
+ * @brief 构造全部冻结 ResumeItem 分支 / Build every frozen ResumeItem branch.
+ * @return 十种判别联合 fixture / Fixtures for all ten discriminated variants.
+ */
+function resumeItemFixtures(): readonly Record<string, unknown>[] {
+  /** @brief 当前经历日期范围 / Current experience date range. */
+  const currentRange = {
+    display_override: '2023.03 — 至今',
+    end: null,
+    is_current: true,
+    start: partialDateFixture(2023, 3)
+  }
+  /** @brief 已完成日期范围 / Completed date range. */
+  const completedRange = {
+    display_override: null,
+    end: partialDateFixture(2022, 12),
+    is_current: false,
+    start: partialDateFixture(2020, 7)
+  }
+
+  return [
+    {
+      date_range: currentRange,
+      description: richTextFixture('负责平台架构。', 'experience_description'),
+      extensions: {},
+      highlights: [richTextFixture('降低延迟。', 'experience_highlight')],
+      item_id: 'item_experience',
+      item_kind: 'experience',
+      links: [{ kind: 'portfolio', label: null, url: 'https://example.test/work' }],
+      location: 'Singapore',
+      organization: 'Arcadia Systems',
+      position: '平台工程师',
+      tags: ['TypeScript'],
+      visible: true
+    },
+    {
+      date_range: completedRange,
+      degree: '工学硕士',
+      description: null,
+      field_of_study: '计算机科学',
+      highlights: [richTextFixture('分布式系统方向。', 'education_highlight')],
+      institution: '示例大学',
+      item_id: 'item_education',
+      item_kind: 'education',
+      location: 'Shanghai',
+      score: 'GPA 3.9',
+      visible: true
+    },
+    {
+      date_range: completedRange,
+      description: richTextFixture('语义简历工具。', 'project_description'),
+      highlights: [],
+      item_id: 'item_project_01',
+      item_kind: 'project',
+      name: 'AI Workspace',
+      role: '维护者',
+      technologies: ['React', 'Electron'],
+      visible: true
+    },
+    {
+      item_id: 'item_skill_group',
+      item_kind: 'skill_group',
+      name: '核心能力',
+      proficiency: 'advanced',
+      skills: ['TypeScript', '分布式系统'],
+      visible: true
+    },
+    {
+      authors: ['Klee', 'Ada'],
+      description: richTextFixture('同行评审论文。', 'publication_description'),
+      item_id: 'item_publication',
+      item_kind: 'publication',
+      published_at: partialDateFixture(2025, 6),
+      publisher: 'Example Journal',
+      title: 'Executable Boundaries',
+      visible: true
+    },
+    {
+      awarded_at: partialDateFixture(2024, 11),
+      description: richTextFixture('年度奖项。', 'award_description'),
+      issuer: 'Example Foundation',
+      item_id: 'item_award_0001',
+      item_kind: 'award',
+      title: '工程卓越奖',
+      visible: true
+    },
+    {
+      credential_id: 'CERT-2024-001',
+      expires_at: partialDateFixture(2027, 4),
+      issued_at: partialDateFixture(2024, 4),
+      issuer: 'Example Institute',
+      item_id: 'item_certification',
+      item_kind: 'certification',
+      name: '云架构认证',
+      visible: true
+    },
+    {
+      certificate: 'CEFR C2',
+      item_id: 'item_language_01',
+      item_kind: 'language',
+      language: 'English',
+      proficiency: 'fluent',
+      visible: true
+    },
+    {
+      date_range: currentRange,
+      description: null,
+      highlights: [richTextFixture('维护开源文档。', 'volunteer_highlight')],
+      item_id: 'item_volunteer',
+      item_kind: 'volunteer',
+      organization: 'Open Source Community',
+      role: '维护者',
+      visible: true
+    },
+    {
+      content: richTextFixture('自定义内容。', 'custom_content'),
+      data: { 'vendor.field': true },
+      date_range: completedRange,
+      item_id: 'item_custom_001',
+      item_kind: 'custom',
+      subtitle: '自定义副标题',
+      title: '自定义标题',
+      visible: true
+    }
+  ]
+}
+
+/**
+ * @brief 构造合法 ResumeDocument / Build a valid ResumeDocument.
+ * @param items 区段条目 / Section items.
+ * @param content 区段富文本 / Section RichText.
+ * @return 可按测试覆写的权威文档 JSON / Authoritative document JSON suitable for test overrides.
+ */
+function resumeDocumentFixture(
+  items: readonly unknown[] = [],
+  content: unknown = null
+): Record<string, unknown> {
+  /** @brief 合法测量值 / Valid measurement. */
+  const measurement = { unit: 'mm', value: 18 }
+  /** @brief 构造合法颜色 / Build a valid color. */
+  const color = (value: string): { readonly space: string; readonly value: string } => ({
+    space: 'srgb_hex',
+    value
+  })
+  return {
+    created_at: '2026-07-19T00:00:00Z',
+    extensions: {},
+    id: 'res_example',
+    knowledge_source_id: 'ks_example',
+    locale: 'zh-CN',
+    profile: {
+      contacts: [],
+      full_name: '未命名求职者',
+      headline: null,
+      photo_asset_id: null,
+      pronouns: null,
+      summary: null
+    },
+    revision: 1,
+    schema_version: '1.0',
+    sections: [
+      {
+        content,
+        extensions: {},
+        items,
+        kind: 'vendor.timeline',
+        section_id: 'sec_summary',
+        title: '简介',
+        visible: true
+      }
+    ],
+    style_intent: {
+      bullet_style_token: 'bullet.default',
+      date_format_token: 'yyyy_mm',
+      density: 0.5,
+      extensions: { 'vendor.layout': { keep: true } },
+      page: {
+        custom_height: { unit: 'percent', value: 100 },
+        custom_width: { unit: 'px', value: 800 },
+        margins: {
+          bottom: measurement,
+          left: measurement,
+          right: measurement,
+          top: measurement
+        },
+        max_pages: null,
+        orientation: 'portrait',
+        show_page_numbers: false,
+        size: 'A4'
+      },
+      palette: {
+        background: color('#FFFFFF'),
+        muted_text: color('#666666'),
+        primary: color('#1F4E79'),
+        secondary: color('#4F81BD'),
+        text: color('#1A1A1A')
+      },
+      section_layout: [],
+      style_contract_version: '1.0',
+      template_settings: {},
+      typography: {
+        base_size_pt: 10.5,
+        font_family_token: 'body.default',
+        heading_scale: 1.2,
+        letter_spacing_em: 0,
+        line_height: 1.25
+      }
+    },
+    template: { template_id: 'tpl_default_v1', template_version: '1.0' },
+    title: '我的简历',
+    updated_at: '2026-07-19T00:00:00Z',
+    workspace_id: 'ws_example'
+  }
+}
 
 describe('parseTemplateManifestListDto', (): void => {
   it('accepts the backend template catalog envelope', (): void => {
@@ -211,6 +458,12 @@ describe('parseTemplateManifestDto strict aggregate boundary', (): void => {
         settings: [{ ...choiceSetting, choices: tooManyChoices, default: 'choice-0' }]
       })
     ).toThrowError(HttpContractError)
+    expect(() =>
+      parseTemplateManifestDto({
+        ...templateManifest,
+        settings: [{ ...choiceSetting, choices: null }]
+      })
+    ).toThrowError(HttpContractError)
   })
 
   it.each([
@@ -313,86 +566,21 @@ describe('parseTemplateManifestDto strict aggregate boundary', (): void => {
 })
 
 describe('parseResumeDocumentDto', (): void => {
-  it('accepts the backend minimal ResumeDocument snapshot', (): void => {
-    const measurement = { unit: 'mm', value: 18 }
-    const color = (value: string): { readonly space: string; readonly value: string } => ({
-      space: 'srgb_hex',
-      value
-    })
-
-    const result = parseResumeDocumentDto({
-      created_at: '2026-07-19T00:00:00Z',
-      extensions: {},
-      id: 'res_example',
-      knowledge_source_id: 'ks_example',
-      locale: 'zh-CN',
-      profile: {
-        contacts: [],
-        full_name: '未命名求职者',
-        headline: null,
-        photo_asset_id: null,
-        pronouns: null,
-        summary: null
-      },
-      revision: 1,
-      schema_version: '1.0',
-      sections: [
-        {
-          content: null,
-          extensions: {},
-          items: [],
-          kind: 'summary',
-          section_id: 'sec_summary',
-          title: '简介',
-          visible: true
-        }
-      ],
-      style_intent: {
-        bullet_style_token: 'bullet.default',
-        date_format_token: 'yyyy_mm',
-        density: 0.5,
-        extensions: { 'vendor.layout': { keep: true } },
-        page: {
-          custom_height: { unit: 'percent', value: 100 },
-          custom_width: { unit: 'px', value: 800 },
-          margins: {
-            bottom: measurement,
-            left: measurement,
-            right: measurement,
-            top: measurement
-          },
-          max_pages: null,
-          orientation: 'portrait',
-          show_page_numbers: false,
-          size: 'A4'
-        },
-        palette: {
-          background: color('#FFFFFF'),
-          muted_text: color('#666666'),
-          primary: color('#1F4E79'),
-          secondary: color('#4F81BD'),
-          text: color('#1A1A1A')
-        },
-        section_layout: [],
-        style_contract_version: '1.0',
-        template_settings: {},
-        typography: {
-          base_size_pt: 10.5,
-          font_family_token: 'body.default',
-          heading_scale: 1.2,
-          letter_spacing_em: 0,
-          line_height: 1.25
-        }
-      },
-      template: { template_id: 'tpl_default_v1', template_version: '1.0' },
-      title: '我的简历',
-      updated_at: '2026-07-19T00:00:00Z',
-      workspace_id: 'ws_example'
-    })
+  it('accepts future stable section-kind codes and enforces the frozen section boundary', (): void => {
+    /** @brief 携带未来开放区段 code 的合法权威文档 / Valid authoritative document carrying a future open section code. */
+    const document = resumeDocumentFixture()
+    /** @brief 基准区段 / Baseline section. */
+    const section = (document.sections as readonly Record<string, unknown>[])[0] ?? {}
+    /** @brief 基准样式意图 / Baseline style intent. */
+    const style = document.style_intent as Record<string, unknown>
+    /** @brief 基准页面意图 / Baseline page intent. */
+    const page = style.page as Record<string, unknown>
+    const result = parseResumeDocumentDto(document)
 
     expect(result.id).toBe('res_example')
     expect(result.template).toEqual({ template_id: 'tpl_default_v1', template_version: '1.0' })
     expect(result.sections[0]?.section_id).toBe('sec_summary')
+    expect(result.sections[0]?.kind).toBe('vendor.timeline')
     expect(result.style_intent).toMatchObject({
       extensions: { 'vendor.layout': { keep: true } },
       page: {
@@ -400,8 +588,321 @@ describe('parseResumeDocumentDto', (): void => {
         custom_width: { unit: 'px', value: 800 }
       }
     })
+
+    expect(() =>
+      parseResumeDocumentDto({
+        ...document,
+        sections: [{ ...section, kind: 'Vendor Timeline' }]
+      })
+    ).toThrowError(HttpContractError)
+    expect(() =>
+      parseResumeDocumentDto({
+        ...document,
+        sections: [{ ...section, renderer_private: true }]
+      })
+    ).toThrowError(HttpContractError)
+    expect(() =>
+      parseResumeDocumentDto({
+        ...document,
+        sections: [{ ...section, title: '' }]
+      })
+    ).toThrowError(HttpContractError)
+    expect(() => parseResumeDocumentDto({ ...document, renderer_private: true })).toThrowError(
+      HttpContractError
+    )
+    expect(() =>
+      parseResumeDocumentDto({
+        ...document,
+        style_intent: { ...style, density: 1.1 }
+      })
+    ).toThrowError(HttpContractError)
+    expect(() =>
+      parseResumeDocumentDto({
+        ...document,
+        style_intent: {
+          ...style,
+          page: {
+            ...page,
+            custom_width: { unit: 'rem', value: 20 }
+          }
+        }
+      })
+    ).toThrowError(HttpContractError)
+  })
+
+  it('accepts every frozen ResumeItem variant as a strict discriminated union', (): void => {
+    /** @brief 包含全部合法条目分支的解码结果 / Decoded result containing every valid item branch. */
+    const result = parseResumeDocumentDto(resumeDocumentFixture(resumeItemFixtures()))
+
+    expect(result.sections[0]?.items.map((item) => item.item_kind)).toEqual([
+      'experience',
+      'education',
+      'project',
+      'skill_group',
+      'publication',
+      'award',
+      'certification',
+      'language',
+      'volunteer',
+      'custom'
+    ])
+    expect(result.sections[0]?.items[0]).toMatchObject({
+      date_range: { display_override: '2023.03 — 至今' },
+      item_kind: 'experience',
+      organization: 'Arcadia Systems'
+    })
+    expect(result.sections[0]?.items[4]).toMatchObject({
+      item_kind: 'publication',
+      published_at: { month: 6, year: 2025 }
+    })
+  })
+
+  it('validates recursive list RichText and derives its projection when plain_text is null', (): void => {
+    /** @brief 含 link mark 与一层递归子项的合法列表 / Valid list with a link mark and one recursive child. */
+    const content = {
+      blocks: [
+        {
+          block_id: 'block_list_root',
+          items: [
+            {
+              children: [
+                {
+                  item_id: 'list_child_item',
+                  spans: [{ text: '子项' }]
+                }
+              ],
+              item_id: 'list_parent_item',
+              spans: [
+                {
+                  marks: [{ href: 'https://example.test/reference', type: 'link' }],
+                  text: '父项'
+                }
+              ]
+            }
+          ],
+          ordered: false,
+          type: 'list'
+        }
+      ],
+      plain_text: null,
+      schema_version: '1.0'
+    }
+
+    expect(parseResumeDocumentDto(resumeDocumentFixture([], content)).sections[0]?.content).toEqual(
+      { plain_text: '父项\n子项' }
+    )
+  })
+
+  it.each([
+    [
+      'unknown block property',
+      {
+        blocks: [
+          {
+            block_id: 'block_invalid_1',
+            renderer_private: true,
+            spans: [{ text: 'text' }],
+            type: 'paragraph'
+          }
+        ],
+        schema_version: '1.0'
+      }
+    ],
+    [
+      'unknown block discriminator',
+      {
+        blocks: [{ block_id: 'block_invalid_2', spans: [{ text: 'text' }], type: 'heading' }],
+        schema_version: '1.0'
+      }
+    ],
+    [
+      'missing paragraph spans',
+      { blocks: [{ block_id: 'block_invalid_3', type: 'paragraph' }], schema_version: '1.0' }
+    ],
+    [
+      'too many text marks',
+      {
+        blocks: [
+          {
+            block_id: 'block_invalid_4',
+            spans: [{ marks: Array.from({ length: 9 }, () => ({ type: 'bold' })), text: 'text' }],
+            type: 'paragraph'
+          }
+        ],
+        schema_version: '1.0'
+      }
+    ],
+    [
+      'explicit null text marks',
+      {
+        blocks: [
+          {
+            block_id: 'block_invalid_marks',
+            spans: [{ marks: null, text: 'text' }],
+            type: 'paragraph'
+          }
+        ],
+        schema_version: '1.0'
+      }
+    ],
+    [
+      'too many recursive children',
+      {
+        blocks: [
+          {
+            block_id: 'block_invalid_5',
+            items: [
+              {
+                children: Array.from({ length: 21 }, (_, index) => ({
+                  item_id: `child_item_${index}`,
+                  spans: [{ text: 'child' }]
+                })),
+                item_id: 'list_invalid_item',
+                spans: [{ text: 'parent' }]
+              }
+            ],
+            ordered: false,
+            type: 'list'
+          }
+        ],
+        schema_version: '1.0'
+      }
+    ],
+    [
+      'explicit null recursive children',
+      {
+        blocks: [
+          {
+            block_id: 'block_invalid_children',
+            items: [
+              {
+                children: null,
+                item_id: 'list_invalid_null',
+                spans: [{ text: 'parent' }]
+              }
+            ],
+            ordered: false,
+            type: 'list'
+          }
+        ],
+        schema_version: '1.0'
+      }
+    ],
+    [
+      'oversized span text',
+      {
+        blocks: [
+          {
+            block_id: 'block_invalid_6',
+            spans: [{ text: 'x'.repeat(20_001) }],
+            type: 'paragraph'
+          }
+        ],
+        schema_version: '1.0'
+      }
+    ]
+  ] as const)('rejects RichText with %s', (_caseName, content): void => {
+    expect(() => parseResumeDocumentDto(resumeDocumentFixture([], content))).toThrowError(
+      HttpContractError
+    )
+  })
+
+  it.each([
+    ['unknown variant property', { ...resumeItemFixtures()[0], renderer_private: true }],
+    ['missing required experience position', { ...resumeItemFixtures()[0], position: undefined }],
+    ['explicit null item links', { ...resumeItemFixtures()[0], links: null }],
+    ['explicit null item tags', { ...resumeItemFixtures()[0], tags: null }],
+    ['explicit null item highlights', { ...resumeItemFixtures()[0], highlights: null }],
+    ['field from another variant', { ...resumeItemFixtures()[2], organization: 'invalid' }],
+    ['explicit null project technologies', { ...resumeItemFixtures()[2], technologies: null }],
+    ['empty required skill list', { ...resumeItemFixtures()[3], skills: [] }],
+    [
+      'too many publication authors',
+      { ...resumeItemFixtures()[4], authors: Array.from({ length: 101 }, () => 'Author') }
+    ],
+    [
+      'out-of-range award date',
+      {
+        ...resumeItemFixtures()[5],
+        awarded_at: { day: null, month: null, precision: 'year', year: 1899 }
+      }
+    ],
+    [
+      'unknown certification date property',
+      {
+        ...resumeItemFixtures()[6],
+        issued_at: { ...partialDateFixture(2024, 4), timezone: 'UTC' }
+      }
+    ],
+    ['closed language proficiency', { ...resumeItemFixtures()[7], proficiency: 'near_native' }],
+    [
+      'too many volunteer highlights',
+      {
+        ...resumeItemFixtures()[8],
+        highlights: Array.from({ length: 31 }, (_, index) =>
+          richTextFixture(`item-${index}`, `volunteer_${index}`)
+        )
+      }
+    ],
+    [
+      'malformed custom content',
+      {
+        ...resumeItemFixtures()[9],
+        content: { blocks: [{ type: 'paragraph' }], schema_version: '1.0' }
+      }
+    ],
+    [
+      'relative item link URI',
+      {
+        ...resumeItemFixtures()[0],
+        links: [{ kind: 'website', url: '/relative' }]
+      }
+    ]
+  ] as const)('rejects ResumeItem with %s', (_caseName, item): void => {
+    expect(() => parseResumeDocumentDto(resumeDocumentFixture([item]))).toThrowError(
+      HttpContractError
+    )
   })
 })
+
+describe('parseResumeListDto', (): void => {
+  it('rejects fields outside the frozen pagination envelope', (): void => {
+    /** @brief 合法分页元数据 / Valid page metadata. */
+    const page = { has_more: false, next_cursor: null, total_estimate: 1 }
+    expect(parseResumeListDto({ items: [resumeDocumentFixture()], page }).items[0]?.id).toBe(
+      'res_example'
+    )
+    expect(() =>
+      parseResumeListDto({ items: [resumeDocumentFixture()], page, renderer_private: true })
+    ).toThrowError(HttpContractError)
+  })
+})
+
+/**
+ * @brief 构造 operation result 允许的通用 Job / Build a generic Job allowed in an operation result.
+ * @return 可按测试覆写的合法 Job / Valid Job suitable for test overrides.
+ */
+function genericJobFixture(): Record<string, unknown> {
+  return {
+    created_at: '2026-07-19T00:00:00Z',
+    error: null,
+    expires_at: null,
+    extensions: {},
+    finished_at: null,
+    id: 'job_operation_result',
+    job_type: 'resume.optimize',
+    progress: {
+      completed_units: 0,
+      message: null,
+      percent: 0,
+      phase: 'awaiting_capacity',
+      total_units: 1
+    },
+    request_id: 'request_operation_1234',
+    started_at: null,
+    status: 'awaiting_capacity'
+  }
+}
 
 describe('parseResumeOperationBatchResultDto', (): void => {
   it('projects only stable safe fields from a rejected operation problem', (): void => {
@@ -488,6 +989,74 @@ describe('parseResumeOperationBatchResultDto', (): void => {
       ).toThrowError(HttpContractError)
     }
   )
+
+  it('accepts a strict generic render_job while preserving its open stable codes', (): void => {
+    expect(() =>
+      parseResumeOperationBatchResultDto({
+        new_revision: 5,
+        normalized_document: null,
+        previous_revision: 4,
+        render_job: genericJobFixture(),
+        results: [
+          {
+            operation_id: 'op_example_12345678',
+            problem: null,
+            status: 'applied'
+          }
+        ],
+        resume_id: 'res_example_12345678'
+      })
+    ).not.toThrow()
+  })
+
+  it.each([
+    ['unknown property', { ...genericJobFixture(), renderer_private: true }],
+    ['missing required ID', { ...genericJobFixture(), id: undefined }],
+    ['invalid open job type', { ...genericJobFixture(), job_type: 'Resume Optimize' }],
+    ['invalid timestamp', { ...genericJobFixture(), created_at: 'yesterday' }],
+    ['short request ID', { ...genericJobFixture(), request_id: 'short' }],
+    [
+      'unknown progress property',
+      {
+        ...genericJobFixture(),
+        progress: {
+          ...(genericJobFixture().progress as Record<string, unknown>),
+          renderer_private: true
+        }
+      }
+    ],
+    [
+      'out-of-range progress',
+      {
+        ...genericJobFixture(),
+        progress: { ...(genericJobFixture().progress as Record<string, unknown>), percent: 101 }
+      }
+    ],
+    [
+      'malformed nested ProblemDetails',
+      {
+        ...genericJobFixture(),
+        error: { code: 'job.failed', retryable: false, status: 500 }
+      }
+    ]
+  ] as const)('rejects operation render_job with %s', (_caseName, renderJob): void => {
+    expect(() =>
+      parseResumeOperationBatchResultDto({
+        new_revision: 5,
+        normalized_document: null,
+        previous_revision: 4,
+        render_job: renderJob,
+        results: [
+          {
+            operation_id: 'op_example_12345678',
+            problem: null,
+            status: 'applied'
+          }
+        ],
+        resume_id: 'res_example_12345678'
+      })
+    ).toThrowError(HttpContractError)
+  })
 })
 
 /**

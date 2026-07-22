@@ -150,6 +150,10 @@ describe('WorkspaceApp app shell', (): void => {
     expect(screen.getByRole('link', { name: '知识库' })).toHaveAttribute('href', '/knowledge')
     expect(screen.queryByRole('link', { name: '可见性' })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: '状态' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '反馈' })).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.getByRole('button', { name: '反馈' })).toHaveAccessibleDescription(
+      '反馈功能正在准备中，目前无法提交。'
+    )
   })
 
   it('renders English chrome and retains accessible names for compact navigation', async (): Promise<void> => {

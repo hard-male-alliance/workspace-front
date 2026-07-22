@@ -19,7 +19,7 @@ installWorkspaceAppTestCleanup()
 
 /** @brief 简历模板与版式用户行为 / Resume-template and layout behaviours. */
 describe('WorkspaceApp Resume template', (): void => {
-  it('presents templates as a focused list with one selected preview', async (): Promise<void> => {
+  it('presents an immutable template catalog and saves settings only for the pinned template', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
 
     /** @brief 可观察模板保存命令的测试 Resume gateway / Test Resume gateway exposing the template-save command. */
@@ -38,12 +38,19 @@ describe('WorkspaceApp Resume template', (): void => {
     expect(container.querySelector('.aw-template-list')).toBeInTheDocument()
     expect(container.querySelector('.aw-template-preview')).toBeInTheDocument()
 
-    /** @brief Editorial 模板选择按钮 / Editorial template selection button. */
-    const editorialTemplate = screen.getByRole('button', { name: /Editorial/ })
-    expect(editorialTemplate).toHaveAttribute('aria-pressed', 'false')
-    fireEvent.click(editorialTemplate)
-    expect(editorialTemplate).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getAllByText('Editorial')).toHaveLength(2)
+    /** @brief 当前固定的 Dawn 模板目录项 / Currently pinned Dawn catalog item. */
+    const dawnTemplate = screen.getByRole('article', {
+      name: `Dawn v${MOCK_DAWN_TEMPLATE.version}`
+    })
+    /** @brief 仅供查看的 Editorial 模板卡片 / Read-only Editorial template card. */
+    const editorialTemplate = screen.getByRole('article', { name: /Editorial/u })
+    expect(dawnTemplate).toHaveAttribute('aria-current', 'true')
+    expect(editorialTemplate).not.toHaveAttribute('aria-current')
+    expect(screen.getByText('模板目录目前仅供查看；你可以保存现用模板的版式设置。')).toBeVisible()
+
+    fireEvent.change(screen.getByRole('combobox', { name: '页面规格' }), {
+      target: { value: 'LETTER' }
+    })
 
     fireEvent.click(screen.getByRole('button', { name: '保存设置' }))
 
@@ -51,8 +58,8 @@ describe('WorkspaceApp Resume template', (): void => {
     expect(updateTemplateSettings).toHaveBeenCalledWith(
       expect.objectContaining({
         resumeId: MOCK_RESUME_ID,
-        templateId: 'tpl_mock_editorial',
-        templateVersion: '1.0.0'
+        templateId: MOCK_DAWN_TEMPLATE.id,
+        templateVersion: MOCK_DAWN_TEMPLATE.version
       })
     )
     expect(await screen.findByText('模板与样式设置已保存。')).toBeInTheDocument()
@@ -268,7 +275,7 @@ describe('WorkspaceApp Resume template', (): void => {
     })
   })
 
-  it('无损保留当前控件无法编辑的权威 JSON 设置值', async (): Promise<void> => {
+  it('无损保留控件无法编辑及 manifest 未声明的权威 JSON 设置值', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
     /** @brief 提供未来设置值的 Resume gateway / Resume gateway providing a future setting value. */
     const resume = new InMemoryResumeGateway()
@@ -278,6 +285,14 @@ describe('WorkspaceApp Resume template', (): void => {
     const futureValue = {
       fallback: null,
       layout: ['wide', { columns: 3, enabled: true }]
+    } as const
+    /** @brief manifest 未声明但 Schema 合法的嵌套权威值 / Nested authoritative value absent from the manifest but valid under the schema. */
+    const undeclaredServerValue = {
+      fallback: null,
+      layout: {
+        columns: [1, 2, 1],
+        metadata: { experimental: true, name: 'future-grid' }
+      }
     } as const
     /** @brief 同时包含只读未来值与可编辑布尔值的模板 / Template containing a read-only future value and an editable boolean. */
     const futureTemplate = {
@@ -318,7 +333,11 @@ describe('WorkspaceApp Resume template', (): void => {
       selectedTemplate: futureTemplate,
       styleIntent: {
         ...baseModel.styleIntent,
-        templateSettings: { editable_flag: false, future_layout: futureValue }
+        templateSettings: {
+          editable_flag: false,
+          future_layout: futureValue,
+          undeclared_server_state: undeclaredServerValue
+        }
       }
     }
     vi.spyOn(resume, 'getTemplateSettings').mockResolvedValue(futureModel)
@@ -346,7 +365,8 @@ describe('WorkspaceApp Resume template', (): void => {
     await vi.waitFor((): void => expect(update).toHaveBeenCalledOnce())
     expect(update.mock.calls[0]?.[0].styleIntent.templateSettings).toEqual({
       editable_flag: true,
-      future_layout: futureValue
+      future_layout: futureValue,
+      undeclared_server_state: undeclaredServerValue
     })
   })
 
@@ -376,23 +396,29 @@ describe('WorkspaceApp Resume template', (): void => {
       />
     )
     await screen.findByRole('heading', { name: '模板与版式' })
-    fireEvent.click(screen.getByRole('button', { name: /Editorial/u }))
+    /** @brief 当前固定模板上的本地草稿设置 / Local draft setting on the currently pinned template. */
+    const showContactIcons = screen.getByRole('switch', { name: '显示联系方式图标' })
+    fireEvent.click(showContactIcons)
     fireEvent.click(screen.getByRole('button', { name: '保存设置' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('内容已在其他位置更新')
     expect(screen.queryByText(/private conflict|private stale/u)).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Editorial/u })).toBeDisabled()
+    expect(showContactIcons).toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: '重新加载服务器版本' }))
 
     await vi.waitFor((): void => expect(reload).toHaveBeenCalledTimes(2))
     expect(update).toHaveBeenCalledTimes(1)
-    expect(screen.getByRole('button', { name: /Editorial/u })).toHaveAttribute(
-      'aria-pressed',
+    expect(screen.getByRole('article', { name: /^Dawn v/u })).toHaveAttribute(
+      'aria-current',
       'true'
     )
     await vi.waitFor((): void => {
       expect(screen.getByRole('button', { name: '保存设置' })).toBeEnabled()
     })
+    expect(screen.getByRole('switch', { name: '显示联系方式图标' })).toHaveAttribute(
+      'aria-checked',
+      'false'
+    )
   })
 
   it('模板写入结果未知时先重载权威版本并保留本地草稿', async (): Promise<void> => {
@@ -413,21 +439,27 @@ describe('WorkspaceApp Resume template', (): void => {
       />
     )
     await screen.findByRole('heading', { name: '模板与版式' })
-    /** @brief 未确认的 Editorial 本地选择 / Unconfirmed local Editorial selection. */
-    const editorial = screen.getByRole('button', { name: /Editorial/ })
-    fireEvent.click(editorial)
+    /** @brief 当前固定模板上未确认的本地草稿 / Unconfirmed local draft on the currently pinned template. */
+    const showContactIcons = screen.getByRole('switch', { name: '显示联系方式图标' })
+    fireEvent.click(showContactIcons)
     fireEvent.click(screen.getByRole('button', { name: '保存设置' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('请先重新加载权威数据')
     expect(screen.getByRole('button', { name: '保存设置' })).toBeDisabled()
-    expect(editorial).toBeDisabled()
+    expect(showContactIcons).toBeDisabled()
     expect(screen.getByRole('combobox', { name: '页面规格' })).toBeDisabled()
-    expect(editorial).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('article', { name: /^Dawn v/u })).toHaveAttribute(
+      'aria-current',
+      'true'
+    )
     fireEvent.click(screen.getByRole('button', { name: '重新加载服务器版本' }))
 
     await vi.waitFor((): void => expect(reload).toHaveBeenCalledTimes(2))
     expect(update).toHaveBeenCalledTimes(1)
-    expect(editorial).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('switch', { name: '显示联系方式图标' })).toHaveAttribute(
+      'aria-checked',
+      'false'
+    )
     await vi.waitFor((): void => {
       expect(screen.getByRole('button', { name: '保存设置' })).toBeEnabled()
     })
@@ -465,17 +497,18 @@ describe('WorkspaceApp Resume template', (): void => {
       />
     )
     await screen.findByRole('heading', { name: '模板与版式' })
-    /** @brief 待提交的 Editorial 模板选择 / Editorial template selection being submitted. */
-    const editorial = screen.getByRole('button', { name: /Editorial/ })
-    fireEvent.click(editorial)
+    /** @brief 待提交的当前模板页面规格 / Current-template page size being submitted. */
+    const pageSize = screen.getByRole('combobox', { name: '页面规格' })
+    fireEvent.change(pageSize, { target: { value: 'LETTER' } })
     fireEvent.click(screen.getByRole('button', { name: '保存设置' }))
 
     await vi.waitFor((): void => expect(update).toHaveBeenCalledOnce())
-    expect(editorial).toBeDisabled()
-    expect(screen.getByRole('combobox', { name: '页面规格' })).toBeDisabled()
+    expect(pageSize).toBeDisabled()
     expect(screen.getByRole('button', { name: '正在保存…' })).toBeDisabled()
-    fireEvent.click(screen.getByRole('button', { name: /^Dawn/u }))
-    expect(editorial).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('article', { name: /^Dawn v/u })).toHaveAttribute(
+      'aria-current',
+      'true'
+    )
 
     releaseResponse()
     expect(await screen.findByRole('alert')).toHaveTextContent('请先重新加载权威数据')
@@ -483,94 +516,17 @@ describe('WorkspaceApp Resume template', (): void => {
 
     await vi.waitFor((): void => expect(reload).toHaveBeenCalledTimes(2))
     expect(await screen.findByText('模板与样式设置已保存。')).toBeInTheDocument()
-    expect(editorial).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('combobox', { name: '页面规格' })).toHaveValue('LETTER')
     expect(screen.getByRole('button', { name: '保存设置' })).toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: '保存设置' }))
     expect(update).toHaveBeenCalledTimes(1)
   })
 
-  it('切换模板时按新定义淘汰同名但类型、选项、范围或控件不兼容的值', async (): Promise<void> => {
+  it('不把模板目录信息假装成已验证的兼容迁移', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
-    /** @brief 提供定义变更目录的 Resume Gateway / Resume gateway providing a catalog with changed definitions. */
+    /** @brief 可观察模板保存命令的测试 Gateway / Test gateway exposing template-save commands. */
     const resume = new InMemoryResumeGateway()
-    /** @brief 原始模板设置读取 / Original template-settings read. */
-    const readSettings = resume.getTemplateSettings.bind(resume)
-    vi.spyOn(resume, 'getTemplateSettings').mockImplementation(async (resumeId) => {
-      /** @brief 基础模板设置模型 / Base template-settings model. */
-      const current = await readSettings(resumeId)
-      /** @brief 原始 Dawn 模板 / Original Dawn template. */
-      const dawn = current.availableTemplates.find((template) => template.name === 'Dawn')
-      /** @brief 原始 Editorial 模板 / Original Editorial template. */
-      const editorial = current.availableTemplates.find((template) => template.name === 'Editorial')
-      if (dawn === undefined || editorial === undefined)
-        throw new Error('Missing template fixture.')
-
-      /** @brief 三个可复用的 Dawn 设置定义 / Three reusable Dawn setting definitions. */
-      const [showContactIcons, accentStyle, sectionSpacing] = dawn.settings
-      if (
-        showContactIcons === undefined ||
-        accentStyle === undefined ||
-        sectionSpacing === undefined
-      ) {
-        throw new Error('Missing setting fixture.')
-      }
-      /** @brief 用于验证 maximum 的额外旧模板设置 / Additional old-template setting used to verify maximum. */
-      const upperBoundSpacing = {
-        ...sectionSpacing,
-        defaultValue: 1.2,
-        key: 'upper_bound_spacing'
-      }
-      /** @brief 含完整旧值集合的 Dawn 模板 / Dawn template containing the complete previous-value set. */
-      const sourceTemplate = { ...dawn, settings: [...dawn.settings, upperBoundSpacing] }
-      /** @brief 对同名 key 施加新约束的 Editorial 模板 / Editorial template imposing new constraints on same-name keys. */
-      const targetTemplate = {
-        ...editorial,
-        settings: [
-          {
-            ...showContactIcons,
-            choices: [],
-            control: 'text' as const,
-            defaultValue: 'fallback-text',
-            maximum: null,
-            minimum: null,
-            valueType: 'string' as const
-          },
-          {
-            ...accentStyle,
-            choices: [accentStyle.choices[1]!],
-            control: 'select' as const,
-            defaultValue: 'ink',
-            valueType: 'choice' as const
-          },
-          {
-            ...sectionSpacing,
-            defaultValue: 0.85,
-            maximum: 0.9,
-            minimum: 0.8
-          },
-          {
-            ...upperBoundSpacing,
-            defaultValue: 0.9,
-            maximum: 1,
-            minimum: 0.4
-          }
-        ]
-      }
-
-      return {
-        ...current,
-        availableTemplates: [sourceTemplate, targetTemplate],
-        selectedTemplate: sourceTemplate,
-        styleIntent: {
-          ...current.styleIntent,
-          templateSettings: {
-            ...current.styleIntent.templateSettings,
-            upper_bound_spacing: 1.2
-          }
-        }
-      }
-    })
-    /** @brief 迁移后发送给 Gateway 的模板更新 / Template update sent to the gateway after migration. */
+    /** @brief 不应因查看目录而触发的保存命令 / Save command that must not be triggered by viewing the catalog. */
     const update = vi.spyOn(resume, 'updateTemplateSettings')
 
     render(
@@ -580,34 +536,40 @@ describe('WorkspaceApp Resume template', (): void => {
       />
     )
     await screen.findByRole('heading', { name: '模板与版式' })
-    fireEvent.click(screen.getByRole('button', { name: /Editorial/ }))
-    fireEvent.click(screen.getByRole('button', { name: '保存设置' }))
 
-    await vi.waitFor((): void => expect(update).toHaveBeenCalledOnce())
-    expect(update.mock.calls[0]?.[0].styleIntent.templateSettings).toEqual({
-      accent_style: 'ink',
-      section_spacing: 0.85,
-      show_contact_icons: 'fallback-text',
-      upper_bound_spacing: 0.9
-    })
+    /** @brief 没有迁移契约时只能查看的目标模板 / Target template that remains view-only without a migration contract. */
+    const editorial = screen.getByRole('article', { name: /Editorial/u })
+    expect(editorial).not.toHaveAttribute('aria-current')
+    expect(editorial).toHaveTextContent('版式示意（非最终模板预览）')
+    expect(screen.queryByRole('button', { name: /Editorial/u })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '保存设置' })).toBeDisabled()
+    expect(screen.queryByText('模板与样式设置已保存。')).not.toBeInTheDocument()
+    expect(update).not.toHaveBeenCalled()
   })
 
-  it('将同一模板 ID 的历史与最新版本作为两个独立选项', async (): Promise<void> => {
+  it('区分同一模板 ID 的历史版本并仅保存当前固定身份', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
     /** @brief 当前简历固定历史模板版本的测试 Gateway / Test gateway whose Resume is pinned to a historical template version. */
     const resume = new InMemoryResumeGateway()
-    /** @brief 模板切换绑定的当前权威 revision / Current authoritative revision bound to the template change. */
-    const current = await resume.getResumeEditor(MOCK_RESUME_ID)
-    await resume.selectResumeTemplate({
-      baseRevision: current.resume.revision,
-      resumeId: MOCK_RESUME_ID,
-      templateId: MOCK_HISTORICAL_DAWN_TEMPLATE.id,
-      templateVersion: MOCK_HISTORICAL_DAWN_TEMPLATE.version
-    })
-    /** @brief 可观察的精确版本读取 / Observable exact-version read. */
-    const getTemplate = vi.spyOn(resume, 'getTemplateManifest')
+    /** @brief 默认模板设置投影 / Default template-settings projection. */
+    const current = await resume.getTemplateSettings(MOCK_RESUME_ID)
+    /** @brief 将权威当前模板固定为历史版本的投影 / Projection pinning the authoritative current template to a historical version. */
+    const historicalModel = {
+      ...current,
+      availableTemplates: [...current.availableTemplates, MOCK_HISTORICAL_DAWN_TEMPLATE],
+      selectedTemplate: MOCK_HISTORICAL_DAWN_TEMPLATE
+    }
+    vi.spyOn(resume, 'getTemplateSettings').mockResolvedValue(historicalModel)
     /** @brief 可观察的模板设置写命令 / Observable template-settings write command. */
-    const updateTemplateSettings = vi.spyOn(resume, 'updateTemplateSettings')
+    const updateTemplateSettings = vi
+      .spyOn(resume, 'updateTemplateSettings')
+      .mockImplementation((input) =>
+        Promise.resolve({
+          ...historicalModel,
+          resumeRevision: historicalModel.resumeRevision + 1,
+          styleIntent: input.styleIntent
+        })
+      )
 
     render(
       <WorkspaceApp
@@ -617,28 +579,26 @@ describe('WorkspaceApp Resume template', (): void => {
     )
     await screen.findByRole('heading', { name: '模板与版式' })
 
-    /** @brief 历史版本卡片 / Historical-version card. */
-    const historicalCard = screen.getByRole('button', {
-      name: new RegExp(MOCK_HISTORICAL_DAWN_TEMPLATE.name, 'u')
+    /** @brief 历史版本目录项 / Historical-version catalog item. */
+    const historicalCard = screen.getByRole('article', {
+      name: `${MOCK_HISTORICAL_DAWN_TEMPLATE.name} v${MOCK_HISTORICAL_DAWN_TEMPLATE.version}`
     })
-    /** @brief 同 ID 最新版本卡片 / Latest-version card sharing the same ID. */
-    const latestCard = screen.getByRole('button', {
-      name: /^Dawn(?! Legacy)/u
+    /** @brief 同 ID 最新版本目录项 / Latest-version catalog item sharing the same ID. */
+    const latestCard = screen.getByRole('article', {
+      name: `Dawn v${MOCK_DAWN_TEMPLATE.version}`
     })
-    expect(historicalCard).toHaveAttribute('aria-pressed', 'true')
-    expect(latestCard).toHaveAttribute('aria-pressed', 'false')
-    expect(getTemplate).toHaveBeenCalledWith(
-      MOCK_HISTORICAL_DAWN_TEMPLATE.id,
-      MOCK_HISTORICAL_DAWN_TEMPLATE.version
-    )
+    expect(historicalCard).toHaveAttribute('aria-current', 'true')
+    expect(latestCard).not.toHaveAttribute('aria-current')
 
-    fireEvent.click(latestCard)
+    fireEvent.change(screen.getByRole('combobox', { name: '页面规格' }), {
+      target: { value: 'LETTER' }
+    })
     fireEvent.click(screen.getByRole('button', { name: '保存设置' }))
     await vi.waitFor((): void => expect(updateTemplateSettings).toHaveBeenCalledOnce())
     expect(updateTemplateSettings).toHaveBeenCalledWith(
       expect.objectContaining({
-        templateId: MOCK_DAWN_TEMPLATE.id,
-        templateVersion: MOCK_DAWN_TEMPLATE.version
+        templateId: MOCK_HISTORICAL_DAWN_TEMPLATE.id,
+        templateVersion: MOCK_HISTORICAL_DAWN_TEMPLATE.version
       })
     )
   })

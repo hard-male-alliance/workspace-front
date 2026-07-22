@@ -1,3 +1,13 @@
+.aw-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
 .aw-topbar-actions,
 .aw-inline-actions,
 .aw-chip-row,
@@ -65,6 +75,23 @@
   border-color: var(--color-accent-strong);
   background: var(--color-accent-strong);
   transform: translateY(-1px);
+}
+
+.aw-discoverable-disabled[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.aw-primary-button.aw-discoverable-disabled[aria-disabled='true']:hover {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  transform: none;
+}
+
+.aw-quiet-button.aw-discoverable-disabled[aria-disabled='true']:hover {
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-muted);
 }
 
 .aw-danger-button {

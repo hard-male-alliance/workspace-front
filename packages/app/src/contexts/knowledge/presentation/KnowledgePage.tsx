@@ -117,14 +117,18 @@ function KnowledgeContent({
           <p className="aw-page-description">{t('knowledge.resumeAutoSync')}</p>
         </div>
         <button
-          className="aw-primary-button"
-          disabled
+          aria-describedby="knowledge-add-source-unavailable"
+          aria-disabled="true"
+          className="aw-primary-button aw-discoverable-disabled"
           title={t('knowledge.createUnavailable')}
           type="button"
         >
           <Plus aria-hidden="true" size={15} />
           {t('knowledge.addSource')}
         </button>
+        <span className="aw-sr-only" id="knowledge-add-source-unavailable">
+          {t('knowledge.createUnavailable')}
+        </span>
       </div>
 
       <section className="aw-card aw-card-pad aw-knowledge-search">
@@ -174,17 +178,36 @@ function KnowledgeContent({
           {filteredSources.length === 0 ? (
             <EmptyState
               action={
-                <button
-                  className="aw-primary-button"
-                  disabled
-                  title={t('knowledge.createUnavailable')}
-                  type="button"
-                >
-                  {t('knowledge.addSource')}
-                </button>
+                sources.length === 0 ? (
+                  <button
+                    aria-describedby="knowledge-add-source-unavailable"
+                    aria-disabled="true"
+                    className="aw-primary-button aw-discoverable-disabled"
+                    title={t('knowledge.createUnavailable')}
+                    type="button"
+                  >
+                    {t('knowledge.addSource')}
+                  </button>
+                ) : (
+                  <button
+                    className="aw-primary-button"
+                    onClick={(): void => setSourceQuery('')}
+                    type="button"
+                  >
+                    {t('knowledge.clearFilter')}
+                  </button>
+                )
               }
-              description={t('knowledge.noMatchingSources')}
-              title={t('common.empty')}
+              description={
+                sources.length === 0
+                  ? t('knowledge.emptySourcesDescription')
+                  : t('knowledge.noMatchingSources')
+              }
+              title={
+                sources.length === 0
+                  ? t('knowledge.emptySourcesTitle')
+                  : t('knowledge.noMatchingSourcesTitle')
+              }
               visual={<UploadCloud aria-hidden="true" size={21} />}
             />
           ) : (

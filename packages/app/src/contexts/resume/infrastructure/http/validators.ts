@@ -6,6 +6,9 @@ import {
   absoluteUri,
   array,
   boolean,
+  boundedArray,
+  boundedInteger,
+  boundedNumber,
   boundedString,
   exactRecord,
   extensions,
@@ -13,7 +16,6 @@ import {
   nonNegativeInteger,
   nullableNumber,
   nullableRecord,
-  nullableString,
   number,
   opaqueId,
   parseCursorPage,
@@ -26,15 +28,18 @@ import {
   type PaginatedDto
 } from '../../../../infrastructure/http/decoder'
 import { HttpContractError, parseProblemDetails } from '../../../../infrastructure/http/http-client'
+import { validateRichText } from '../../../../infrastructure/http/rich-text-validator'
 import type { UiTemplateSettingValue } from '../../domain/models'
 import type {
   ColorValueDto,
   MeasurementDto,
   ResumeContactDto,
+  ResumeDateRangeDto,
   ResumeDocumentDto,
   ResumeItemDto,
   ResumeOperationBatchResultDto,
   ResumeOperationProblemDto,
+  ResumePartialDateDto,
   RenderArtifactDto,
   ResumeRenderJobDto,
   ResumeSectionDto,
@@ -80,6 +85,57 @@ const TEMPLATE_PAGE_SIZES = ['A4', 'LETTER', 'LEGAL', 'CUSTOM'] as const
 
 /** @brief 模板输出格式 / Template output formats. */
 const TEMPLATE_OUTPUT_FORMATS = ['pdf', 'png', 'html_snapshot', 'docx'] as const
+
+/** @brief Resume 测量单位 / Resume measurement units. */
+const RESUME_MEASUREMENT_UNITS = ['pt', 'mm', 'cm', 'in', 'px', 'em', 'percent'] as const
+
+/** @brief Resume 联系信息类别 / Resume contact kinds. */
+const RESUME_CONTACT_KINDS = [
+  'email',
+  'phone',
+  'website',
+  'linkedin',
+  'github',
+  'portfolio',
+  'location',
+  'other'
+] as const
+
+/** @brief Resume 条目类别 / Resume item kinds. */
+const RESUME_ITEM_KINDS = [
+  'experience',
+  'education',
+  'project',
+  'skill_group',
+  'publication',
+  'award',
+  'certification',
+  'language',
+  'volunteer',
+  'custom'
+] as const
+
+/** @brief Resume 颜色字面值格式 / Resume color-literal format. */
+const RESUME_COLOR_PATTERN = /^(?:#[0-9A-Fa-f]{6}|#[0-9A-Fa-f]{8}|rgba\([^)]+\))$/u
+
+/**
+ * @brief 解析可空且有界的字符串 / Parse a nullable bounded string.
+ * @param value 未受信任值 / Untrusted value.
+ * @param path 诊断字段路径 / Diagnostic field path.
+ * @param minimumLength 最小字符数 / Minimum character count.
+ * @param maximumLength 最大字符数 / Maximum character count.
+ * @return 有界字符串或 null / Bounded string or null.
+ */
+function nullableBoundedString(
+  value: unknown,
+  path: string,
+  minimumLength: number,
+  maximumLength: number
+): string | null {
+  return value === null || value === undefined
+    ? null
+    : boundedString(value, path, minimumLength, maximumLength)
+}
 
 /**
  * @brief 校验字符串符合指定格式 / Validate a string against a required format.
@@ -174,25 +230,6 @@ function templateStringArray(
 
   if (options.unique === true && new Set(decoded).size !== decoded.length) {
     throw new HttpContractError(`Backend field ${path} must contain unique items.`, 200)
-  }
-  return decoded
-}
-
-/**
- * @brief 校验数组最大元素数 / Validate an array's maximum item count.
- * @param value 未受信任的数组 / Untrusted array.
- * @param path 诊断字段路径 / Diagnostic field path.
- * @param maximumItems 最大元素数 / Maximum item count.
- * @return 已验证数组 / Validated array.
- */
-function boundedArray(value: unknown, path: string, maximumItems: number): readonly unknown[] {
-  /** @brief 已解码数组 / Decoded array. */
-  const decoded = array(value, path)
-  if (decoded.length > maximumItems) {
-    throw new HttpContractError(
-      `Backend field ${path} must contain at most ${maximumItems} item(s).`,
-      200
-    )
   }
   return decoded
 }
@@ -324,9 +361,12 @@ function parseTemplateSetting(value: unknown, path: string): TemplateSettingDefi
   const defaultValue = parseTemplateJsonValue(input.default, `${path}.default`)
 
   /** @brief 已验证选项 / Validated choices. */
-  const choices = boundedArray(input.choices ?? [], `${path}.choices`, 100).map((item, index) =>
-    parseTemplateChoice(item, `${path}.choices[${index}]`)
-  )
+  const choices = boundedArray(
+    input.choices === undefined ? [] : input.choices,
+    `${path}.choices`,
+    0,
+    100
+  ).map((item, index) => parseTemplateChoice(item, `${path}.choices[${index}]`))
 
   return {
     choices,
@@ -402,7 +442,7 @@ export function parseTemplateManifestDto(value: unknown, path = 'response'): Tem
   }
 
   /** @brief 模板设置数组 / Template-setting array. */
-  const settings = boundedArray(input.settings, `${path}.settings`, 200)
+  const settings = boundedArray(input.settings, `${path}.settings`, 0, 200)
   /** @brief 至少包含一个区域的数组 / Array containing at least one zone. */
   const zones = array(input.zones, `${path}.zones`)
   if (zones.length === 0) {
@@ -498,8 +538,11 @@ export function parseTemplateManifestListDto(value: unknown): PaginatedDto<Templ
 
 /** @brief 校验测量值 / Validate a measurement. */
 function parseMeasurement(value: unknown, path: string): MeasurementDto {
-  const input = record(value, path)
-  return { unit: string(input.unit, `${path}.unit`), value: number(input.value, `${path}.value`) }
+  const input = exactRecord(value, path, ['value', 'unit'])
+  return {
+    unit: templateEnum(input.unit, `${path}.unit`, RESUME_MEASUREMENT_UNITS),
+    value: boundedNumber(input.value, `${path}.value`, 0, Number.MAX_VALUE)
+  }
 }
 
 /**
@@ -514,70 +557,533 @@ function nullableMeasurement(value: unknown, path: string): MeasurementDto | nul
 
 /** @brief 校验颜色值 / Validate a color value. */
 function parseColor(value: unknown, path: string): ColorValueDto {
-  const input = record(value, path)
+  const input = exactRecord(value, path, ['space', 'value'])
   return {
-    space: string(input.space, `${path}.space`),
-    value: string(input.value, `${path}.value`)
+    space: templateEnum(input.space, `${path}.space`, ['srgb_hex', 'rgba'] as const),
+    value: patternedString(input.value, `${path}.value`, RESUME_COLOR_PATTERN)
   }
 }
 
-/** @brief 校验富文本的页面所需投影 / Validate the page-required RichText projection. */
+/** @brief ResumeItem 的公共字段名 / Common ResumeItem field names. */
+const RESUME_ITEM_COMMON_KEYS = ['item_id', 'visible', 'links', 'tags', 'extensions'] as const
+
+/** @brief 技能熟练度枚举 / Skill-proficiency enum. */
+const SKILL_PROFICIENCIES = ['beginner', 'intermediate', 'advanced', 'expert', 'native'] as const
+
+/** @brief 语言熟练度枚举 / Language-proficiency enum. */
+const LANGUAGE_PROFICIENCIES = [
+  'basic',
+  'conversational',
+  'professional',
+  'fluent',
+  'native'
+] as const
+
+/** @brief 校验富文本并提取安全纯文本投影 / Validate RichText and extract its safe plain-text projection. */
 function parseRichText(value: unknown, path: string): RichTextDto {
-  const input = record(value, path)
-  array(input.blocks, `${path}.blocks`)
-  return { plain_text: nullableString(input.plain_text, `${path}.plain_text`) }
+  return { plain_text: validateRichText(value, path) }
 }
 
-/** @brief 校验联系信息 / Validate a contact method. */
-function parseContact(value: unknown, path: string): ResumeContactDto {
-  const input = record(value, path)
-  string(input.contact_id, `${path}.contact_id`)
+/**
+ * @brief 校验可选 RichText / Validate optional RichText.
+ * @param value 未受信任值 / Untrusted value.
+ * @param path 诊断字段路径 / Diagnostic field path.
+ * @return 富文本投影或 null / RichText projection or null.
+ */
+function parseNullableRichText(value: unknown, path: string): RichTextDto | null {
+  return value === null || value === undefined ? null : parseRichText(value, path)
+}
+
+/**
+ * @brief 校验 RichText 数组 / Validate an array of RichText values.
+ * @param value 未受信任值 / Untrusted value.
+ * @param path 诊断字段路径 / Diagnostic field path.
+ * @param maximumItems 最大条目数 / Maximum item count.
+ * @return 已验证富文本投影 / Validated RichText projections.
+ */
+function parseRichTextArray(
+  value: unknown,
+  path: string,
+  maximumItems: number
+): readonly RichTextDto[] {
+  return boundedArray(value === undefined ? [] : value, path, 0, maximumItems).map((item, index) =>
+    parseRichText(item, `${path}[${index}]`)
+  )
+}
+
+/**
+ * @brief 校验不完整日期 / Validate a PartialDate.
+ * @param value 未受信任值 / Untrusted value.
+ * @param path 诊断字段路径 / Diagnostic field path.
+ * @return 已验证日期 / Validated partial date.
+ */
+function parsePartialDate(value: unknown, path: string): ResumePartialDateDto {
+  /** @brief 精确日期对象 / Exact date object. */
+  const input = exactRecord(value, path, ['year', 'month', 'day', 'precision'])
   return {
-    is_public: boolean(input.is_public, `${path}.is_public`),
-    kind: string(input.kind, `${path}.kind`),
-    label: nullableString(input.label, `${path}.label`),
-    value: string(input.value, `${path}.value`)
+    day:
+      input.day === null || input.day === undefined
+        ? null
+        : boundedInteger(input.day, `${path}.day`, 1, 31),
+    month:
+      input.month === null || input.month === undefined
+        ? null
+        : boundedInteger(input.month, `${path}.month`, 1, 12),
+    precision: stableCode(input.precision, `${path}.precision`),
+    year: boundedInteger(input.year, `${path}.year`, 1900, 2200)
   }
 }
 
-/** @brief 校验多态简历条目的公共边界 / Validate the common boundary of a polymorphic Resume item. */
-function parseResumeItem(value: unknown, path: string): ResumeItemDto {
-  const input = record(value, path)
+/**
+ * @brief 校验可选不完整日期 / Validate an optional PartialDate.
+ * @param value 未受信任值 / Untrusted value.
+ * @param path 诊断字段路径 / Diagnostic field path.
+ * @return 已验证日期或 null / Validated partial date or null.
+ */
+function parseNullablePartialDate(value: unknown, path: string): ResumePartialDateDto | null {
+  return value === null || value === undefined ? null : parsePartialDate(value, path)
+}
+
+/**
+ * @brief 校验日期范围 / Validate a DateRange.
+ * @param value 未受信任值 / Untrusted value.
+ * @param path 诊断字段路径 / Diagnostic field path.
+ * @return 已验证日期范围 / Validated date range.
+ */
+function parseDateRange(value: unknown, path: string): ResumeDateRangeDto {
+  /** @brief 精确日期范围对象 / Exact date-range object. */
+  const input = exactRecord(value, path, ['start', 'end', 'is_current', 'display_override'])
   return {
-    item_id: string(input.item_id, `${path}.item_id`),
-    item_kind: string(input.item_kind, `${path}.item_kind`),
-    raw: input,
-    tags: stringArray(input.tags ?? [], `${path}.tags`),
+    display_override: nullableBoundedString(
+      input.display_override,
+      `${path}.display_override`,
+      0,
+      100
+    ),
+    end: parseNullablePartialDate(input.end, `${path}.end`),
+    is_current: boolean(input.is_current, `${path}.is_current`),
+    start: parseNullablePartialDate(input.start, `${path}.start`)
+  }
+}
+
+/**
+ * @brief 校验可选日期范围 / Validate an optional DateRange.
+ * @param value 未受信任值 / Untrusted value.
+ * @param path 诊断字段路径 / Diagnostic field path.
+ * @return 已验证日期范围或 null / Validated date range or null.
+ */
+function parseNullableDateRange(value: unknown, path: string): ResumeDateRangeDto | null {
+  return value === null || value === undefined ? null : parseDateRange(value, path)
+}
+
+/**
+ * @brief 校验 ResumeItem 链接 / Validate a ResumeItem Link.
+ * @param value 未受信任值 / Untrusted value.
+ * @param path 诊断字段路径 / Diagnostic field path.
+ * @return 无返回值 / No return value.
+ */
+function validateResumeLink(value: unknown, path: string): void {
+  /** @brief 精确链接对象 / Exact link object. */
+  const input = exactRecord(value, path, ['label', 'url', 'kind'])
+  nullableBoundedString(input.label, `${path}.label`, 0, 200)
+  absoluteUri(input.url, `${path}.url`)
+  stableCode(input.kind, `${path}.kind`)
+}
+
+/**
+ * @brief 校验条目公共字段 / Validate common item fields.
+ * @param input 已按具体 variant 限定字段的对象 / Object whose keys were constrained by its concrete variant.
+ * @param path 诊断字段路径 / Diagnostic field path.
+ * @return 页面所需公共 DTO 字段 / Common DTO fields required by the page.
+ */
+function parseResumeItemBase(
+  input: Record<string, unknown>,
+  path: string
+): Pick<ResumeItemDto, 'item_id' | 'visible' | 'tags'> {
+  boundedArray(input.links === undefined ? [] : input.links, `${path}.links`, 0, 20).forEach(
+    (link, index) => {
+      validateResumeLink(link, `${path}.links[${index}]`)
+    }
+  )
+  if (input.extensions !== undefined) extensions(input.extensions, `${path}.extensions`)
+  return {
+    item_id: opaqueId(input.item_id, `${path}.item_id`),
+    tags: templateStringArray(input.tags === undefined ? [] : input.tags, `${path}.tags`, {
+      maximumItems: 50,
+      maximumLength: 100,
+      unique: true
+    }),
     visible: boolean(input.visible, `${path}.visible`)
   }
 }
 
+/** @brief 校验联系信息 / Validate a contact method. */
+function parseContact(value: unknown, path: string): ResumeContactDto {
+  const input = exactRecord(value, path, [
+    'contact_id',
+    'kind',
+    'label',
+    'value',
+    'url',
+    'is_public'
+  ])
+  opaqueId(input.contact_id, `${path}.contact_id`)
+  if (input.url !== undefined && input.url !== null) absoluteUri(input.url, `${path}.url`)
+  return {
+    is_public: boolean(input.is_public, `${path}.is_public`),
+    kind: templateEnum(input.kind, `${path}.kind`, RESUME_CONTACT_KINDS),
+    label: nullableBoundedString(input.label, `${path}.label`, 0, 100),
+    value: boundedString(input.value, `${path}.value`, 1, 500)
+  }
+}
+
+/** @brief 按 item_kind 严格校验多态简历条目 / Strictly validate a polymorphic Resume item by item_kind. */
+function parseResumeItem(value: unknown, path: string): ResumeItemDto {
+  /** @brief 仅用于读取判别字段的输入 / Input used only to read the discriminator. */
+  const discriminated = record(value, path)
+  /** @brief 由冻结 oneOf 封闭的条目类别 / Item kind closed by the frozen oneOf. */
+  const itemKind = templateEnum(discriminated.item_kind, `${path}.item_kind`, RESUME_ITEM_KINDS)
+
+  if (itemKind === 'experience') {
+    /** @brief 精确工作经历对象 / Exact experience object. */
+    const input = exactRecord(value, path, [
+      ...RESUME_ITEM_COMMON_KEYS,
+      'item_kind',
+      'organization',
+      'position',
+      'location',
+      'date_range',
+      'description',
+      'highlights'
+    ])
+    return {
+      ...parseResumeItemBase(input, path),
+      date_range: parseDateRange(input.date_range, `${path}.date_range`),
+      description: parseNullableRichText(input.description, `${path}.description`),
+      highlights: parseRichTextArray(input.highlights, `${path}.highlights`, 50),
+      item_kind: 'experience',
+      location: nullableBoundedString(input.location, `${path}.location`, 0, 200),
+      organization: boundedString(input.organization, `${path}.organization`, 1, 300),
+      position: boundedString(input.position, `${path}.position`, 1, 300)
+    }
+  }
+
+  if (itemKind === 'education') {
+    /** @brief 精确教育经历对象 / Exact education object. */
+    const input = exactRecord(value, path, [
+      ...RESUME_ITEM_COMMON_KEYS,
+      'item_kind',
+      'institution',
+      'degree',
+      'field_of_study',
+      'location',
+      'date_range',
+      'score',
+      'description',
+      'highlights'
+    ])
+    return {
+      ...parseResumeItemBase(input, path),
+      date_range: parseDateRange(input.date_range, `${path}.date_range`),
+      degree: nullableBoundedString(input.degree, `${path}.degree`, 0, 300),
+      description: parseNullableRichText(input.description, `${path}.description`),
+      field_of_study: nullableBoundedString(input.field_of_study, `${path}.field_of_study`, 0, 300),
+      highlights: parseRichTextArray(input.highlights, `${path}.highlights`, 30),
+      institution: boundedString(input.institution, `${path}.institution`, 1, 300),
+      item_kind: 'education',
+      location: nullableBoundedString(input.location, `${path}.location`, 0, 200),
+      score: nullableBoundedString(input.score, `${path}.score`, 0, 100)
+    }
+  }
+
+  if (itemKind === 'project') {
+    /** @brief 精确项目对象 / Exact project object. */
+    const input = exactRecord(value, path, [
+      ...RESUME_ITEM_COMMON_KEYS,
+      'item_kind',
+      'name',
+      'role',
+      'date_range',
+      'description',
+      'highlights',
+      'technologies'
+    ])
+    return {
+      ...parseResumeItemBase(input, path),
+      date_range: parseNullableDateRange(input.date_range, `${path}.date_range`),
+      description: parseNullableRichText(input.description, `${path}.description`),
+      highlights: parseRichTextArray(input.highlights, `${path}.highlights`, 50),
+      item_kind: 'project',
+      name: boundedString(input.name, `${path}.name`, 1, 300),
+      role: nullableBoundedString(input.role, `${path}.role`, 0, 200),
+      technologies: templateStringArray(
+        input.technologies === undefined ? [] : input.technologies,
+        `${path}.technologies`,
+        {
+          maximumItems: 100,
+          maximumLength: 100,
+          unique: true
+        }
+      )
+    }
+  }
+
+  if (itemKind === 'skill_group') {
+    /** @brief 精确技能组对象 / Exact skill-group object. */
+    const input = exactRecord(value, path, [
+      ...RESUME_ITEM_COMMON_KEYS,
+      'item_kind',
+      'name',
+      'skills',
+      'proficiency'
+    ])
+    return {
+      ...parseResumeItemBase(input, path),
+      item_kind: 'skill_group',
+      name: boundedString(input.name, `${path}.name`, 1, 200),
+      proficiency:
+        input.proficiency === null || input.proficiency === undefined
+          ? null
+          : templateEnum(input.proficiency, `${path}.proficiency`, SKILL_PROFICIENCIES),
+      skills: templateStringArray(input.skills, `${path}.skills`, {
+        maximumItems: 200,
+        maximumLength: 100,
+        minimumItems: 1,
+        minimumLength: 1,
+        unique: true
+      })
+    }
+  }
+
+  if (itemKind === 'publication') {
+    /** @brief 精确出版物对象 / Exact publication object. */
+    const input = exactRecord(value, path, [
+      ...RESUME_ITEM_COMMON_KEYS,
+      'item_kind',
+      'title',
+      'publisher',
+      'authors',
+      'published_at',
+      'description'
+    ])
+    return {
+      ...parseResumeItemBase(input, path),
+      authors: templateStringArray(input.authors, `${path}.authors`, {
+        maximumItems: 100,
+        maximumLength: 200
+      }),
+      description: parseNullableRichText(input.description, `${path}.description`),
+      item_kind: 'publication',
+      published_at: parseNullablePartialDate(input.published_at, `${path}.published_at`),
+      publisher: nullableBoundedString(input.publisher, `${path}.publisher`, 0, 300),
+      title: boundedString(input.title, `${path}.title`, 1, 500)
+    }
+  }
+
+  if (itemKind === 'award') {
+    /** @brief 精确奖项对象 / Exact award object. */
+    const input = exactRecord(value, path, [
+      ...RESUME_ITEM_COMMON_KEYS,
+      'item_kind',
+      'title',
+      'issuer',
+      'awarded_at',
+      'description'
+    ])
+    return {
+      ...parseResumeItemBase(input, path),
+      awarded_at: parseNullablePartialDate(input.awarded_at, `${path}.awarded_at`),
+      description: parseNullableRichText(input.description, `${path}.description`),
+      issuer: nullableBoundedString(input.issuer, `${path}.issuer`, 0, 300),
+      item_kind: 'award',
+      title: boundedString(input.title, `${path}.title`, 1, 300)
+    }
+  }
+
+  if (itemKind === 'certification') {
+    /** @brief 精确认证对象 / Exact certification object. */
+    const input = exactRecord(value, path, [
+      ...RESUME_ITEM_COMMON_KEYS,
+      'item_kind',
+      'name',
+      'issuer',
+      'issued_at',
+      'expires_at',
+      'credential_id'
+    ])
+    return {
+      ...parseResumeItemBase(input, path),
+      credential_id: nullableBoundedString(input.credential_id, `${path}.credential_id`, 0, 300),
+      expires_at: parseNullablePartialDate(input.expires_at, `${path}.expires_at`),
+      issued_at: parseNullablePartialDate(input.issued_at, `${path}.issued_at`),
+      issuer: nullableBoundedString(input.issuer, `${path}.issuer`, 0, 300),
+      item_kind: 'certification',
+      name: boundedString(input.name, `${path}.name`, 1, 300)
+    }
+  }
+
+  if (itemKind === 'language') {
+    /** @brief 精确语言对象 / Exact language object. */
+    const input = exactRecord(value, path, [
+      ...RESUME_ITEM_COMMON_KEYS,
+      'item_kind',
+      'language',
+      'proficiency',
+      'certificate'
+    ])
+    return {
+      ...parseResumeItemBase(input, path),
+      certificate: nullableBoundedString(input.certificate, `${path}.certificate`, 0, 200),
+      item_kind: 'language',
+      language: boundedString(input.language, `${path}.language`, 1, 100),
+      proficiency: templateEnum(input.proficiency, `${path}.proficiency`, LANGUAGE_PROFICIENCIES)
+    }
+  }
+
+  if (itemKind === 'volunteer') {
+    /** @brief 精确志愿经历对象 / Exact volunteer object. */
+    const input = exactRecord(value, path, [
+      ...RESUME_ITEM_COMMON_KEYS,
+      'item_kind',
+      'organization',
+      'role',
+      'date_range',
+      'description',
+      'highlights'
+    ])
+    return {
+      ...parseResumeItemBase(input, path),
+      date_range: parseNullableDateRange(input.date_range, `${path}.date_range`),
+      description: parseNullableRichText(input.description, `${path}.description`),
+      highlights: parseRichTextArray(input.highlights, `${path}.highlights`, 30),
+      item_kind: 'volunteer',
+      organization: boundedString(input.organization, `${path}.organization`, 1, 300),
+      role: nullableBoundedString(input.role, `${path}.role`, 0, 300)
+    }
+  }
+
+  if (itemKind === 'custom') {
+    /** @brief 精确自定义条目对象 / Exact custom-item object. */
+    const input = exactRecord(value, path, [
+      ...RESUME_ITEM_COMMON_KEYS,
+      'item_kind',
+      'title',
+      'subtitle',
+      'date_range',
+      'content',
+      'data'
+    ])
+    if (input.data !== undefined) record(input.data, `${path}.data`)
+    return {
+      ...parseResumeItemBase(input, path),
+      content: parseRichText(input.content, `${path}.content`),
+      date_range: parseNullableDateRange(input.date_range, `${path}.date_range`),
+      item_kind: 'custom',
+      subtitle: nullableBoundedString(input.subtitle, `${path}.subtitle`, 0, 300),
+      title: nullableBoundedString(input.title, `${path}.title`, 0, 300)
+    }
+  }
+
+  throw new HttpContractError(`Backend field ${path}.item_kind is unsupported.`, 200)
+}
+
 /** @brief 校验简历区段 / Validate a Resume section. */
 function parseResumeSection(value: unknown, path: string): ResumeSectionDto {
-  const input = record(value, path)
+  /** @brief 仅包含冻结 ResumeSection 字段的输入 / Input containing only frozen ResumeSection fields. */
+  const input = exactRecord(value, path, [
+    'section_id',
+    'kind',
+    'title',
+    'visible',
+    'content',
+    'items',
+    'extensions'
+  ])
   const content = nullableRecord(input.content, `${path}.content`)
+  /** @brief 受契约上限约束的区段条目 / Section items constrained by the contract maximum. */
+  const items = boundedArray(input.items, `${path}.items`, 0, 500)
+  if (input.extensions !== undefined) extensions(input.extensions, `${path}.extensions`)
   return {
     content: content === null ? null : parseRichText(content, `${path}.content`),
-    items: array(input.items, `${path}.items`).map((item, index) =>
-      parseResumeItem(item, `${path}.items[${index}]`)
-    ),
-    kind: string(input.kind, `${path}.kind`),
-    section_id: string(input.section_id, `${path}.section_id`),
-    title: string(input.title, `${path}.title`),
+    items: items.map((item, index) => parseResumeItem(item, `${path}.items[${index}]`)),
+    kind: stableCode(input.kind, `${path}.kind`),
+    section_id: opaqueId(input.section_id, `${path}.section_id`),
+    title: boundedString(input.title, `${path}.title`, 1, 200),
     visible: boolean(input.visible, `${path}.visible`)
   }
 }
 
 /** @brief 校验 ResumeDocument / Validate a ResumeDocument. */
 export function parseResumeDocumentDto(value: unknown): ResumeDocumentDto {
-  const input = record(value, 'resume')
-  const template = record(input.template, 'resume.template')
-  const profile = record(input.profile, 'resume.profile')
-  const style = record(input.style_intent, 'resume.style_intent')
-  const page = record(style.page, 'resume.style_intent.page')
-  const margins = record(page.margins, 'resume.style_intent.page.margins')
-  const typography = record(style.typography, 'resume.style_intent.typography')
-  const palette = record(style.palette, 'resume.style_intent.palette')
+  const input = exactRecord(value, 'resume', [
+    'id',
+    'created_at',
+    'updated_at',
+    'revision',
+    'schema_version',
+    'workspace_id',
+    'title',
+    'locale',
+    'template',
+    'profile',
+    'sections',
+    'style_intent',
+    'knowledge_source_id',
+    'extensions'
+  ])
+  const template = exactRecord(input.template, 'resume.template', [
+    'template_id',
+    'template_version'
+  ])
+  const profile = exactRecord(input.profile, 'resume.profile', [
+    'full_name',
+    'headline',
+    'pronouns',
+    'photo_asset_id',
+    'contacts',
+    'summary'
+  ])
+  const style = exactRecord(input.style_intent, 'resume.style_intent', [
+    'style_contract_version',
+    'page',
+    'typography',
+    'palette',
+    'density',
+    'date_format_token',
+    'bullet_style_token',
+    'section_layout',
+    'template_settings',
+    'extensions'
+  ])
+  const page = exactRecord(style.page, 'resume.style_intent.page', [
+    'size',
+    'custom_width',
+    'custom_height',
+    'orientation',
+    'margins',
+    'max_pages',
+    'show_page_numbers'
+  ])
+  const margins = exactRecord(page.margins, 'resume.style_intent.page.margins', [
+    'top',
+    'right',
+    'bottom',
+    'left'
+  ])
+  const typography = exactRecord(style.typography, 'resume.style_intent.typography', [
+    'font_family_token',
+    'base_size_pt',
+    'line_height',
+    'heading_scale',
+    'letter_spacing_em'
+  ])
+  const palette = exactRecord(style.palette, 'resume.style_intent.palette', [
+    'primary',
+    'secondary',
+    'text',
+    'muted_text',
+    'background'
+  ])
   const schemaVersion = string(input.schema_version, 'resume.schema_version')
   const styleVersion = string(
     style.style_contract_version,
@@ -586,18 +1092,31 @@ export function parseResumeDocumentDto(value: unknown): ResumeDocumentDto {
   if (schemaVersion !== '1.0' || styleVersion !== '1.0') {
     throw new HttpContractError('Backend ResumeDocument uses an unsupported schema version.', 200)
   }
+  if (input.extensions !== undefined) extensions(input.extensions, 'resume.extensions')
+  if (profile.pronouns !== undefined) {
+    nullableBoundedString(profile.pronouns, 'resume.profile.pronouns', 0, 100)
+  }
+  if (profile.photo_asset_id !== undefined && profile.photo_asset_id !== null) {
+    opaqueId(profile.photo_asset_id, 'resume.profile.photo_asset_id')
+  }
+
+  /** @brief 受冻结 ResumeDocument 边界约束的区段 / Sections constrained by the frozen ResumeDocument bounds. */
+  const sections = boundedArray(input.sections, 'resume.sections', 1, 100)
 
   return {
-    created_at: string(input.created_at, 'resume.created_at'),
-    id: string(input.id, 'resume.id'),
-    knowledge_source_id: nullableString(input.knowledge_source_id, 'resume.knowledge_source_id'),
-    locale: string(input.locale, 'resume.locale'),
+    created_at: timestamp(input.created_at, 'resume.created_at'),
+    id: opaqueId(input.id, 'resume.id'),
+    knowledge_source_id:
+      input.knowledge_source_id === null || input.knowledge_source_id === undefined
+        ? null
+        : opaqueId(input.knowledge_source_id, 'resume.knowledge_source_id'),
+    locale: patternedString(input.locale, 'resume.locale', TEMPLATE_LOCALE_PATTERN),
     profile: {
-      contacts: array(profile.contacts, 'resume.profile.contacts').map((item, index) =>
-        parseContact(item, `resume.profile.contacts[${index}]`)
+      contacts: boundedArray(profile.contacts, 'resume.profile.contacts', 0, 30).map(
+        (item, index) => parseContact(item, `resume.profile.contacts[${index}]`)
       ),
-      full_name: string(profile.full_name, 'resume.profile.full_name'),
-      headline: nullableString(profile.headline, 'resume.profile.headline'),
+      full_name: boundedString(profile.full_name, 'resume.profile.full_name', 1, 200),
+      headline: nullableBoundedString(profile.headline, 'resume.profile.headline', 0, 300),
       summary:
         nullableRecord(profile.summary, 'resume.profile.summary') === null
           ? null
@@ -605,16 +1124,21 @@ export function parseResumeDocumentDto(value: unknown): ResumeDocumentDto {
     },
     revision: positiveInteger(input.revision, 'resume.revision'),
     schema_version: schemaVersion,
-    sections: array(input.sections, 'resume.sections').map((item, index) =>
-      parseResumeSection(item, `resume.sections[${index}]`)
-    ),
+    sections: sections.map((item, index) => parseResumeSection(item, `resume.sections[${index}]`)),
     style_intent: {
-      bullet_style_token: string(
+      bullet_style_token: boundedString(
         style.bullet_style_token,
-        'resume.style_intent.bullet_style_token'
+        'resume.style_intent.bullet_style_token',
+        1,
+        100
       ),
-      date_format_token: string(style.date_format_token, 'resume.style_intent.date_format_token'),
-      density: number(style.density, 'resume.style_intent.density'),
+      date_format_token: boundedString(
+        style.date_format_token,
+        'resume.style_intent.date_format_token',
+        1,
+        100
+      ),
+      density: boundedNumber(style.density, 'resume.style_intent.density', 0, 1),
       extensions:
         style.extensions === undefined
           ? {}
@@ -634,13 +1158,19 @@ export function parseResumeDocumentDto(value: unknown): ResumeDocumentDto {
           right: parseMeasurement(margins.right, 'resume.style_intent.page.margins.right'),
           top: parseMeasurement(margins.top, 'resume.style_intent.page.margins.top')
         },
-        max_pages: nullableNumber(page.max_pages, 'resume.style_intent.page.max_pages'),
-        orientation: string(page.orientation, 'resume.style_intent.page.orientation'),
+        max_pages:
+          page.max_pages === null || page.max_pages === undefined
+            ? null
+            : boundedInteger(page.max_pages, 'resume.style_intent.page.max_pages', 1, 20),
+        orientation: templateEnum(page.orientation, 'resume.style_intent.page.orientation', [
+          'portrait',
+          'landscape'
+        ] as const),
         show_page_numbers: boolean(
           page.show_page_numbers,
           'resume.style_intent.page.show_page_numbers'
         ),
-        size: string(page.size, 'resume.style_intent.page.size')
+        size: templateEnum(page.size, 'resume.style_intent.page.size', TEMPLATE_PAGE_SIZES)
       },
       palette: {
         background: parseColor(palette.background, 'resume.style_intent.palette.background'),
@@ -649,34 +1179,52 @@ export function parseResumeDocumentDto(value: unknown): ResumeDocumentDto {
         secondary: parseColor(palette.secondary, 'resume.style_intent.palette.secondary'),
         text: parseColor(palette.text, 'resume.style_intent.palette.text')
       },
-      section_layout: array(style.section_layout, 'resume.style_intent.section_layout').map(
-        (item, index) => {
-          const layout = record(item, `resume.style_intent.section_layout[${index}]`)
-          return {
-            compactness: number(
-              layout.compactness,
-              `resume.style_intent.section_layout[${index}].compactness`
-            ),
-            heading_style_token: nullableString(
-              layout.heading_style_token,
-              `resume.style_intent.section_layout[${index}].heading_style_token`
-            ),
-            keep_together: boolean(
-              layout.keep_together,
-              `resume.style_intent.section_layout[${index}].keep_together`
-            ),
-            page_break_before: boolean(
-              layout.page_break_before,
-              `resume.style_intent.section_layout[${index}].page_break_before`
-            ),
-            section_id: string(
-              layout.section_id,
-              `resume.style_intent.section_layout[${index}].section_id`
-            ),
-            zone: string(layout.zone, `resume.style_intent.section_layout[${index}].zone`)
-          }
+      section_layout: boundedArray(
+        style.section_layout,
+        'resume.style_intent.section_layout',
+        0,
+        100
+      ).map((item, index) => {
+        const layout = exactRecord(item, `resume.style_intent.section_layout[${index}]`, [
+          'section_id',
+          'zone',
+          'keep_together',
+          'page_break_before',
+          'compactness',
+          'heading_style_token'
+        ])
+        return {
+          compactness: boundedNumber(
+            layout.compactness,
+            `resume.style_intent.section_layout[${index}].compactness`,
+            0,
+            1
+          ),
+          heading_style_token: nullableBoundedString(
+            layout.heading_style_token,
+            `resume.style_intent.section_layout[${index}].heading_style_token`,
+            0,
+            100
+          ),
+          keep_together: boolean(
+            layout.keep_together,
+            `resume.style_intent.section_layout[${index}].keep_together`
+          ),
+          page_break_before: boolean(
+            layout.page_break_before,
+            `resume.style_intent.section_layout[${index}].page_break_before`
+          ),
+          section_id: opaqueId(
+            layout.section_id,
+            `resume.style_intent.section_layout[${index}].section_id`
+          ),
+          zone: patternedString(
+            layout.zone,
+            `resume.style_intent.section_layout[${index}].zone`,
+            TEMPLATE_ZONE_ID_PATTERN
+          )
         }
-      ),
+      }),
       style_contract_version: styleVersion,
       template_settings: Object.fromEntries(
         Object.entries(
@@ -687,41 +1235,119 @@ export function parseResumeDocumentDto(value: unknown): ResumeDocumentDto {
         ])
       ),
       typography: {
-        base_size_pt: number(
+        base_size_pt: boundedNumber(
           typography.base_size_pt,
-          'resume.style_intent.typography.base_size_pt'
+          'resume.style_intent.typography.base_size_pt',
+          6,
+          24
         ),
-        font_family_token: string(
+        font_family_token: boundedString(
           typography.font_family_token,
-          'resume.style_intent.typography.font_family_token'
+          'resume.style_intent.typography.font_family_token',
+          1,
+          100
         ),
-        heading_scale: number(
+        heading_scale: boundedNumber(
           typography.heading_scale,
-          'resume.style_intent.typography.heading_scale'
+          'resume.style_intent.typography.heading_scale',
+          0.8,
+          3
         ),
-        letter_spacing_em: number(
+        letter_spacing_em: boundedNumber(
           typography.letter_spacing_em,
-          'resume.style_intent.typography.letter_spacing_em'
+          'resume.style_intent.typography.letter_spacing_em',
+          -0.2,
+          1
         ),
-        line_height: number(typography.line_height, 'resume.style_intent.typography.line_height')
+        line_height: boundedNumber(
+          typography.line_height,
+          'resume.style_intent.typography.line_height',
+          0.8,
+          3
+        )
       }
     },
     template: {
-      template_id: string(template.template_id, 'resume.template.template_id'),
-      template_version: string(template.template_version, 'resume.template.template_version')
+      template_id: opaqueId(template.template_id, 'resume.template.template_id'),
+      template_version: boundedString(
+        template.template_version,
+        'resume.template.template_version',
+        1,
+        128
+      )
     },
-    title: string(input.title, 'resume.title'),
-    updated_at: string(input.updated_at, 'resume.updated_at'),
-    workspace_id: string(input.workspace_id, 'resume.workspace_id')
+    title: boundedString(input.title, 'resume.title', 1, 300),
+    updated_at: timestamp(input.updated_at, 'resume.updated_at'),
+    workspace_id: opaqueId(input.workspace_id, 'resume.workspace_id')
   }
 }
 
 /** @brief 校验 ResumeDocument 列表 / Validate a ResumeDocument list. */
 export function parseResumeListDto(value: unknown): PaginatedDto<ResumeDocumentDto> {
-  const input = record(value, 'response')
+  const input = exactRecord(value, 'response', ['items', 'page'])
   return {
     items: array(input.items, 'items').map((item) => parseResumeDocumentDto(item)),
     page: parseCursorPage(input.page)
+  }
+}
+
+/**
+ * @brief 严格校验 operation result 中的通用 Job / Strictly validate the generic Job in an operation result.
+ * @param value 未受信任 Job / Untrusted Job.
+ * @param path 诊断字段路径 / Diagnostic field path.
+ * @return 无返回值 / No return value.
+ */
+function validateJob(value: unknown, path: string): void {
+  /** @brief 精确通用 Job 对象 / Exact generic Job object. */
+  const input = exactRecord(value, path, [
+    'id',
+    'job_type',
+    'status',
+    'progress',
+    'created_at',
+    'started_at',
+    'finished_at',
+    'expires_at',
+    'error',
+    'request_id',
+    'extensions'
+  ])
+  /** @brief 精确 Job 进度对象 / Exact Job-progress object. */
+  const progress = exactRecord(input.progress, `${path}.progress`, [
+    'phase',
+    'completed_units',
+    'total_units',
+    'percent',
+    'message'
+  ])
+
+  opaqueId(input.id, `${path}.id`)
+  stableCode(input.job_type, `${path}.job_type`)
+  stableCode(input.status, `${path}.status`)
+  timestamp(input.created_at, `${path}.created_at`)
+  nullableTimestamp(input.started_at, `${path}.started_at`)
+  nullableTimestamp(input.finished_at, `${path}.finished_at`)
+  nullableTimestamp(input.expires_at, `${path}.expires_at`)
+  if (
+    input.error !== undefined &&
+    input.error !== null &&
+    parseProblemDetails(input.error) === null
+  ) {
+    throw new HttpContractError(`Backend field ${path}.error must match ProblemDetails.`, 200)
+  }
+  if (input.request_id !== undefined && input.request_id !== null) {
+    boundedString(input.request_id, `${path}.request_id`, 8, 128)
+  }
+  validateOptionalExtensions(input.extensions, `${path}.extensions`)
+
+  stableCode(progress.phase, `${path}.progress.phase`)
+  nonNegativeInteger(progress.completed_units, `${path}.progress.completed_units`)
+  nullablePositiveInteger(progress.total_units, `${path}.progress.total_units`)
+  if (progress.percent !== undefined && progress.percent !== null) {
+    boundedNumber(progress.percent, `${path}.progress.percent`, 0, 100)
+  }
+  if (progress.message !== undefined && progress.message !== null) {
+    validateLocalizedMessage(progress.message, `${path}.progress.message`)
   }
 }
 
@@ -765,7 +1391,7 @@ export function parseResumeOperationBatchResultDto(value: unknown): ResumeOperat
     throw new HttpContractError('Backend operation result must contain at least one result.', 200)
   }
   if (input.render_job !== undefined && input.render_job !== null) {
-    record(input.render_job, 'operationResult.render_job')
+    validateJob(input.render_job, 'operationResult.render_job')
   }
   return {
     new_revision: positiveInteger(input.new_revision, 'operationResult.new_revision'),

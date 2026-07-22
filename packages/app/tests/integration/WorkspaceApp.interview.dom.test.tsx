@@ -1,12 +1,13 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
-import { InMemoryInterviewGateway } from '@ai-job-workspace/app/testing'
+import { DEMO_INTERVIEW_SESSION_ID, InMemoryInterviewGateway } from '@ai-job-workspace/app/testing'
 import { HttpCommandOutcomeUnknownError, HttpProblemError } from '@ai-job-workspace/app/http'
 
 import {
   createTestGateways,
   installWorkspaceAppTestCleanup,
+  navigateWorkspaceApp,
   setWorkspaceAppTestLocale,
   WorkspaceApp
 } from './WorkspaceApp.dom-test-harness'
@@ -15,6 +16,58 @@ installWorkspaceAppTestCleanup()
 
 /** @brief 面试练习用户行为测试 / Interview-practice user-behaviour tests. */
 describe('WorkspaceApp interview workflow', (): void => {
+  it('rebuilds room state for the authoritative Interview session ID', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 当前测试独享的 Interview Gateway / Interview Gateway owned by the current test. */
+    const interview = new InMemoryInterviewGateway()
+    /** @brief A 会话权威运行态 / Authoritative runtime for session A. */
+    const runtimeA = await interview.getInterviewRuntime(DEMO_INTERVIEW_SESSION_ID)
+    /** @brief B 会话领域 ID / Domain ID for session B. */
+    const sessionBId = 'int_authoritative_b' as typeof DEMO_INTERVIEW_SESSION_ID
+    /** @brief B 会话权威运行态 / Authoritative runtime for session B. */
+    const runtimeB = {
+      ...runtimeA,
+      currentTranscript: '只属于 B 会话的实时回答。',
+      session: {
+        ...runtimeA.session,
+        id: sessionBId,
+        jobTarget: { ...runtimeA.session.jobTarget, title: 'B Platform Role' }
+      }
+    }
+    /** @brief 兑现 B 会话读取的函数 / Resolver for the session B read. */
+    let resolveRuntimeB: ((runtime: typeof runtimeB) => void) | undefined
+    /** @brief 保持 B 会话读取待定的 Promise / Promise keeping the session B read pending. */
+    const pendingRuntimeB = new Promise<typeof runtimeB>((resolve): void => {
+      resolveRuntimeB = resolve
+    })
+    vi.spyOn(interview, 'getInterviewRuntime').mockImplementation((sessionId) => {
+      if (sessionId === DEMO_INTERVIEW_SESSION_ID) return Promise.resolve(runtimeA)
+      if (sessionId === sessionBId) return pendingRuntimeB
+      return Promise.reject(new Error('Unexpected Interview session ID.'))
+    })
+    window.history.replaceState(null, '', `/interviews/${DEMO_INTERVIEW_SESSION_ID}`)
+
+    render(<WorkspaceApp gateways={createTestGateways({ interview })} />)
+    await screen.findByRole('heading', { name: '模拟面试进行中' })
+    fireEvent.click(screen.getByRole('button', { name: '退出本次练习' }))
+    expect(screen.getByRole('dialog', { name: '退出本次练习？' })).toBeInTheDocument()
+
+    navigateWorkspaceApp(`/interviews/${sessionBId}`)
+
+    expect(screen.getByText('正在准备模拟面试…')).toBeInTheDocument()
+    expect(screen.queryByText('AI Platform Engineer')).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: '退出本次练习？' })).not.toBeInTheDocument()
+
+    await act(async (): Promise<void> => {
+      resolveRuntimeB?.(runtimeB)
+      await pendingRuntimeB
+    })
+
+    expect(await screen.findByText(/B Platform Role/u)).toBeInTheDocument()
+    expect(screen.getByText('只属于 B 会话的实时回答。')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: '退出本次练习？' })).not.toBeInTheDocument()
+  })
+
   it('opens the interview hub with a new-interview entry and completed history', async () => {
     await setWorkspaceAppTestLocale('zh-SG')
 

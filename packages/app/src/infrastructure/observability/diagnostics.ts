@@ -182,8 +182,7 @@ const diagnosticCommandOperations = new Set<DiagnosticCommandOperation>([
   'resume.pdf_render',
   'resume.section_delete',
   'resume.section_reorder',
-  'resume.section_update',
-  'resume.template_select'
+  'resume.section_update'
 ])
 
 /** @brief 可上传的异步资源枚举 / Asynchronous-resource enumeration permitted for upload. */

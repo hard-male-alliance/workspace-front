@@ -15,7 +15,6 @@
   text-align: left;
 }
 
-.aw-template-card:hover,
 .aw-template-card--selected {
   border-color: var(--ui-color-accent);
   box-shadow: var(--ui-focus-ring);

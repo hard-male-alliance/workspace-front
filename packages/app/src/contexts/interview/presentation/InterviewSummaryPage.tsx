@@ -257,7 +257,7 @@ export function InterviewSummaryPage(): React.JSX.Element {
     () => query.load(asUiOpaqueId<'interview-session'>(sessionId)),
     [query, sessionId]
   )
-  const summary = useAsyncResource('interview.summary', loadSummary)
+  const summary = useAsyncResource('interview.summary', loadSummary, sessionId)
 
   if (summary.status === 'loading')
     return (

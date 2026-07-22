@@ -54,6 +54,19 @@ export class ResumeSnapshotConflictError extends Error {
 }
 
 /**
+ * @brief 模板迁移协议尚未具备可执行契约 / Template migration does not yet have an executable contract.
+ * @note 当前固定模板的样式设置仍可保存；更换模板 ID 或不可变版本必须等待 compatibility check 与 migration Job schema 冻结。 / Style settings for the currently pinned template remain writable; changing the template ID or immutable version must wait for frozen compatibility-check and migration-Job schemas.
+ */
+export class ResumeTemplateMigrationCapabilityError extends Error {
+  /** @brief 供安全错误分类使用的稳定名称 / Stable name used by safe error classification. */
+  override readonly name = 'ResumeTemplateMigrationCapabilityError'
+
+  constructor() {
+    super('Resume template migration is unavailable until its public contract is frozen.')
+  }
+}
+
+/**
  * @brief 判断未知值是否为对象 / Determine whether an unknown value is an object.
  * @param value 待检查值 / Candidate value.
  * @return 非空对象时为 true / True for a non-null object.

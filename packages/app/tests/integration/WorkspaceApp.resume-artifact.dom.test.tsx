@@ -65,12 +65,12 @@ describe('WorkspaceApp Resume artifact', (): void => {
     if (firstStart === undefined) throw new Error('Expected the initial PDF Render command.')
     expect(firstStart.commandId).toEqual(expect.any(String))
 
-    fireEvent.click(screen.getByRole('button', { name: '收起“PDF 预览”窗口' }))
-    expect(screen.queryByRole('region', { name: 'PDF 预览' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '收起“预览”窗口' }))
+    expect(screen.queryByRole('region', { name: '语义内容预览' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '确认 PDF 生成结果' })).not.toBeInTheDocument()
     expect(startRender).toHaveBeenCalledTimes(1)
 
-    fireEvent.click(screen.getByRole('button', { name: '展开“PDF 预览”窗口' }))
+    fireEvent.click(screen.getByRole('button', { name: '展开“预览”窗口' }))
     expect(screen.getByRole('button', { name: '确认 PDF 生成结果' })).toBeEnabled()
     expect(screen.getByRole('alert')).toHaveTextContent(/无法确认|可能/u)
     expect(startRender).toHaveBeenCalledTimes(1)
@@ -132,7 +132,7 @@ describe('WorkspaceApp Resume artifact', (): void => {
     expect(getRender.mock.calls.at(1)?.[0]).toBe(confirmedJobId)
   })
 
-  it('aborts the old generation and never restores its PDF after a template switch', async (): Promise<void> => {
+  it('aborts the old generation and never restores its PDF after an authoritative Resume edit', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
     /** @brief 当前测试独享的简历 Gateway / Resume Gateway owned by the current test. */
     const resume = new InMemoryResumeGateway()
@@ -171,14 +171,13 @@ describe('WorkspaceApp Resume artifact', (): void => {
 
     fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
     await vi.waitFor((): void => expect(stalePollingSignal).toBeDefined())
-    /** @brief 用户可见的目标模板选项 / User-visible target template option. */
-    const editorialOption = screen.getByRole<HTMLOptionElement>('option', { name: 'Editorial' })
-    /** @brief 快速模板选择框 / Quick template selector. */
-    const templateSelector = screen.getByRole('combobox', { name: '快速切换简历模板' })
-    fireEvent.change(templateSelector, { target: { value: editorialOption.value } })
+    /** @brief 触发新权威 revision 的语义内容编辑框 / Semantic-content editor that creates a new authoritative revision. */
+    const content = screen.getByRole('textbox', { name: '语义内容' })
+    fireEvent.change(content, { target: { value: '新的权威简历内容' } })
+    fireEvent.blur(content)
 
     await vi.waitFor((): void => {
-      expect(templateSelector).toHaveValue(editorialOption.value)
+      expect(screen.getByText('版本 19')).toBeInTheDocument()
       expect(stalePollingSignal?.aborted).toBe(true)
     })
     expect(screen.queryByTitle('简历 PDF 预览')).not.toBeInTheDocument()

@@ -7,7 +7,7 @@ import {
   Palette,
   SlidersHorizontal
 } from 'lucide-react'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router-dom'
 import { useAsyncResource, useResumeGateway } from '../../../app/AppData'
@@ -275,49 +275,27 @@ function isTemplateSettingValueCompatible(
 }
 
 /**
- * @brief 按目标模板定义无损投影同名设置 / Losslessly project same-key settings through the target template definition.
+ * @brief 无损保留权威设置并补齐 manifest 声明的默认值 / Losslessly preserve authoritative settings and fill manifest-declared defaults.
  * @param template 目标模板 / Target template.
  * @param candidateSettings 权威值或本地草稿设置 / Authoritative or local-draft settings.
- * @return 仅含目标 key、首次定义获胜且不改写服务端值的设置 / Settings containing target keys with first-definition wins and server values unchanged.
+ * @return 保留全部 Schema 合法 key、首次定义获胜且仅补缺失默认值的设置 / Settings preserving every schema-valid key with first-definition wins and defaults only for missing declarations.
  */
 function projectTemplateSettings(
   template: UiTemplateManifest,
   candidateSettings: Readonly<Record<string, UiTemplateSettingValue>>
 ): Readonly<Record<string, UiTemplateSettingValue>> {
-  /** @brief 以首次出现定义稳定构造的设置 / Settings built deterministically from first-seen definitions. */
-  const migrated: Record<string, UiTemplateSettingValue> = {}
+  /** @brief 权威任意 JSON key 的浅复制 / Shallow copy preserving every authoritative arbitrary-JSON key. */
+  const projected: Record<string, UiTemplateSettingValue> = { ...candidateSettings }
+  /** @brief 已处理的 manifest key / Manifest keys already processed. */
+  const declaredKeys = new Set<string>()
   for (const definition of template.settings) {
-    if (Object.hasOwn(migrated, definition.key)) continue
-    migrated[definition.key] = Object.hasOwn(candidateSettings, definition.key)
-      ? candidateSettings[definition.key]!
-      : definition.defaultValue
+    if (declaredKeys.has(definition.key)) continue
+    declaredKeys.add(definition.key)
+    if (!Object.hasOwn(projected, definition.key)) {
+      projected[definition.key] = definition.defaultValue
+    }
   }
-  return migrated
-}
-
-/**
- * @brief 在用户切换模板时迁移可兼容设置 / Migrate compatible settings when the user switches templates.
- * @param template 新选择的目标模板 / Newly selected target template.
- * @param previousSettings 前一模板的本地值 / Local values from the previous template.
- * @return 保留兼容同名值、其余使用目标默认值的设置 / Settings retaining compatible same-key values and otherwise using target defaults.
- * @note 这是显式的用户切换策略；从服务端读取的权威值始终由 projectTemplateSettings 无损保留。 / This is an explicit user-switch policy; authoritative server values are always preserved by projectTemplateSettings.
- */
-function migrateTemplateSettings(
-  template: UiTemplateManifest,
-  previousSettings: Readonly<Record<string, UiTemplateSettingValue>>
-): Readonly<Record<string, UiTemplateSettingValue>> {
-  /** @brief 按目标清单首次定义构造的迁移值 / Migrated values built from first-seen target definitions. */
-  const migrated: Record<string, UiTemplateSettingValue> = {}
-  for (const definition of template.settings) {
-    if (Object.hasOwn(migrated, definition.key)) continue
-    /** @brief 前一模板可能缺失的同名值 / Same-key value that may be absent from the previous template. */
-    const previousValue = previousSettings[definition.key]
-    migrated[definition.key] =
-      previousValue !== undefined && isTemplateSettingValueCompatible(definition, previousValue)
-        ? previousValue
-        : definition.defaultValue
-  }
-  return migrated
+  return projected
 }
 
 /**
@@ -675,12 +653,8 @@ function TemplateSettingsContent({
 }): React.JSX.Element {
   /** @brief 翻译函数 / Translation function. */
   const { t } = useTranslation()
-  /** @brief 选择中的模板 ID / Selected template ID. */
+  /** @brief 最近一次服务端确认的模板设置模型 / Latest server-confirmed template-settings model. */
   const [authoritativeModel, setAuthoritativeModel] = useState(model)
-  /** @brief 选择中的不可变模板身份 / Selected immutable template identity. */
-  const [selectedTemplateIdentity, setSelectedTemplateIdentity] = useState<string>(
-    getTemplateIdentity(model.selectedTemplate)
-  )
   /** @brief 页面内尚待保存的设置值 / In-page setting values pending persistence. */
   const [settings, setSettings] = useState<Readonly<Record<string, UiTemplateSettingValue>>>(
     projectTemplateSettings(model.selectedTemplate, model.styleIntent.templateSettings)
@@ -699,6 +673,8 @@ function TemplateSettingsContent({
   const [bulletStyleToken, setBulletStyleToken] = useState(model.styleIntent.bulletStyleToken)
   /** @brief 保存状态 / Persistence state. */
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  /** @brief 在 React 提交状态前也能原子阻止重复保存 / Atomically prevents duplicate saves before React commits state. */
+  const savingRef = useRef(false)
   /** @brief 最近一次安全呈现的保存错误 / Latest save error to present safely. */
   const [saveError, setSaveError] = useState<unknown>(null)
   /** @brief 是否正在重新读取服务端权威设置 / Whether authoritative server settings are being reloaded. */
@@ -715,10 +691,7 @@ function TemplateSettingsContent({
   /** @brief 写响应待定或权威恢复前是否冻结编辑 / Whether editing is frozen while a write is pending or authority must be recovered. */
   const isWriteLocked = saveStatus === 'saving' || authorityReloadRequired
   /** @brief 当前展示的模板 / Currently displayed template. */
-  const selectedTemplate =
-    authoritativeModel.availableTemplates.find(
-      (template) => getTemplateIdentity(template) === selectedTemplateIdentity
-    ) ?? authoritativeModel.selectedTemplate
+  const selectedTemplate = authoritativeModel.selectedTemplate
   /** @brief 当前可见且按 manifest 语义分组的设置 / Currently visible settings grouped by manifest semantics. */
   const settingGroups = groupVisibleTemplateSettings(selectedTemplate.settings, settings)
   /** @brief 当前页面可编辑字段组成的草稿 / Draft composed from the page's editable fields. */
@@ -782,44 +755,12 @@ function TemplateSettingsContent({
   }
 
   /**
-   * @brief 选择模板并保持仍被该模板支持的语义值 / Select a template while retaining still-supported semantic values.
-   * @param template 用户选择的模板清单 / Template manifest selected by the user.
-   * @return 无返回值 / No return value.
-   * @note 控件只保留目标模板声明的 setting key；最终兼容性仍由后端 operation 验证。
-   */
-  const selectTemplate = (template: UiTemplateManifest): void => {
-    if (isWriteLocked) return
-    setSaveStatus('idle')
-    setSelectedTemplateIdentity(getTemplateIdentity(template))
-    setPageSize((currentPageSize) =>
-      template.supportedPageSizes.includes(currentPageSize)
-        ? currentPageSize
-        : (template.supportedPageSizes.at(0) ?? currentPageSize)
-    )
-    setFontFamilyToken((currentFontFamilyToken) =>
-      template.fontFamilyTokens.includes(currentFontFamilyToken)
-        ? currentFontFamilyToken
-        : (template.fontFamilyTokens.at(0) ?? currentFontFamilyToken)
-    )
-    setDateFormatToken((currentToken) =>
-      template.dateFormatTokens.includes(currentToken)
-        ? currentToken
-        : (template.dateFormatTokens.at(0) ?? currentToken)
-    )
-    setBulletStyleToken((currentToken) =>
-      template.bulletStyleTokens.includes(currentToken)
-        ? currentToken
-        : (template.bulletStyleTokens.at(0) ?? currentToken)
-    )
-    setSettings((currentSettings) => migrateTemplateSettings(template, currentSettings))
-  }
-
-  /**
    * @brief 通过正式 Resume operation 保存模板与样式 / Save template and style through a formal Resume operation.
    * @return 保存完成的 Promise / Promise completed after persistence.
    */
   const saveSettings = async (): Promise<void> => {
-    if (isWriteLocked || !isDirty) return
+    if (savingRef.current || isWriteLocked || !isDirty) return
+    savingRef.current = true
     setSaveStatus('saving')
     setSaveError(null)
     try {
@@ -832,7 +773,6 @@ function TemplateSettingsContent({
         templateVersion: selectedTemplate.version
       })
       setAuthoritativeModel(saved)
-      setSelectedTemplateIdentity(getTemplateIdentity(saved.selectedTemplate))
       setSettings(
         projectTemplateSettings(saved.selectedTemplate, saved.styleIntent.templateSettings)
       )
@@ -845,6 +785,8 @@ function TemplateSettingsContent({
     } catch (error: unknown) {
       setSaveError(error)
       setSaveStatus('error')
+    } finally {
+      savingRef.current = false
     }
   }
 
@@ -864,9 +806,11 @@ function TemplateSettingsContent({
       const draftTemplate = authoritative.availableTemplates.find(
         (template) => getTemplateIdentity(template) === draft.templateIdentity
       )
+      /** @brief 服务端是否仍固定在本地草稿对应的同一不可变模板 / Whether authority remains pinned to the exact immutable template represented by the draft. */
+      const authorityStillMatchesDraft =
+        getTemplateIdentity(authoritative.selectedTemplate) === draft.templateIdentity
       setAuthoritativeModel(authoritative)
-      if (draftTemplate === undefined) {
-        setSelectedTemplateIdentity(getTemplateIdentity(authoritative.selectedTemplate))
+      if (draftTemplate === undefined || !authorityStillMatchesDraft) {
         setSettings(
           projectTemplateSettings(
             authoritative.selectedTemplate,
@@ -880,7 +824,6 @@ function TemplateSettingsContent({
         setDensity(authoritative.styleIntent.density)
         setSaveStatus('idle')
       } else if (doesTemplateDraftMatchModel(draft, authoritative)) {
-        setSelectedTemplateIdentity(getTemplateIdentity(authoritative.selectedTemplate))
         setSettings(
           projectTemplateSettings(
             authoritative.selectedTemplate,
@@ -946,16 +889,16 @@ function TemplateSettingsContent({
           >
             <div>
               <h2 className="aw-card-title" id="template-choice-title">
-                {t('template.otherTemplates', { defaultValue: '选择模板' })}
+                {t('template.otherTemplates', { defaultValue: '模板目录' })}
               </h2>
               <p className="aw-card-description">
                 {t('template.choiceDescription', {
-                  defaultValue: '切换会在真实环境中创建显式兼容性检查与迁移 Job。'
+                  defaultValue: '其他模板目前仅供查看；你仍可调整当前模板的版式设置。'
                 })}
               </p>
             </div>
             <span className="aw-status aw-status--active">
-              {t('template.backendCatalog', { defaultValue: '后端模板目录' })}
+              {t('template.backendCatalog', { defaultValue: '已同步目录' })}
             </span>
           </div>
           <div className="aw-template-list">
@@ -970,13 +913,11 @@ function TemplateSettingsContent({
               const isSelected =
                 getTemplateIdentity(template) === getTemplateIdentity(selectedTemplate)
               return (
-                <button
-                  aria-pressed={isSelected}
+                <article
+                  aria-current={isSelected ? 'true' : undefined}
+                  aria-label={`${template.name} v${template.version}`}
                   className={`aw-template-card ${isSelected ? 'aw-template-card--selected' : ''}`}
-                  disabled={isWriteLocked}
                   key={getTemplateIdentity(template)}
-                  onClick={(): void => selectTemplate(template)}
-                  type="button"
                 >
                   <span aria-hidden="true" className={getTemplateThumbnailClass(template)} />
                   <span>
@@ -1006,6 +947,11 @@ function TemplateSettingsContent({
                         defaultValue: `${template.capabilities.maxColumns} columns`
                       })}
                     </span>
+                    <span className="aw-chip">
+                      {t('template.layoutIllustration', {
+                        defaultValue: '版式示意（非最终模板预览）'
+                      })}
+                    </span>
                   </span>
                   {isSelected ? (
                     <span className="aw-status aw-status--ready">
@@ -1013,7 +959,7 @@ function TemplateSettingsContent({
                       {t('template.selected', { defaultValue: '当前选择' })}
                     </span>
                   ) : null}
-                </button>
+                </article>
               )
             })}
           </div>
@@ -1031,6 +977,11 @@ function TemplateSettingsContent({
                 {t('template.currentTemplate', { defaultValue: '当前模板' })}
               </h2>
               <p className="aw-card-description">{selectedTemplate.name}</p>
+              <span className="aw-setting-help">
+                {t('template.layoutIllustration', {
+                  defaultValue: '版式示意（非最终模板预览）'
+                })}
+              </span>
             </div>
           </div>
           <div className="aw-list-row" style={{ padding: '10px 0' }}>
@@ -1308,7 +1259,11 @@ export function TemplateSettingsPage(): React.JSX.Element {
     return resume.getTemplateSettings(requestedResumeId)
   }, [requestedResumeId, resume, resumeId])
   /** @brief 模板设置异步资源 / Template-settings async resource. */
-  const templateSettings = useAsyncResource('resume.template_settings', loadTemplateSettings)
+  const templateSettings = useAsyncResource(
+    'resume.template_settings',
+    loadTemplateSettings,
+    requestedResumeId
+  )
 
   if (templateSettings.status === 'loading') {
     return (
@@ -1332,5 +1287,12 @@ export function TemplateSettingsPage(): React.JSX.Element {
     )
   }
 
-  return <TemplateSettingsContent gateway={resume} model={templateSettings.data} />
+  /** @brief 使本地草稿只属于精确 Resume 与固定模板身份 / Bind local drafts to the exact Resume and pinned-template identity. */
+  const contentIdentity = JSON.stringify([
+    templateSettings.data.resumeId,
+    getTemplateIdentity(templateSettings.data.selectedTemplate)
+  ])
+  return (
+    <TemplateSettingsContent gateway={resume} key={contentIdentity} model={templateSettings.data} />
+  )
 }

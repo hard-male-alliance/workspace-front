@@ -500,7 +500,7 @@ describe('HttpResumeGateway', (): void => {
         blocks: [
           {
             block_id: 'block_existing_12345678',
-            spans: [{ marks: ['strong'], text: '不应被标题修改覆盖' }],
+            spans: [{ marks: [{ type: 'bold' }], text: '不应被标题修改覆盖' }],
             type: 'paragraph'
           }
         ],
@@ -928,73 +928,74 @@ describe('HttpResumeGateway', (): void => {
     ])
   })
 
-  it('resolves the selected template version before sending set_template', async (): Promise<void> => {
-    const changedDocument = {
-      ...resumeDocument(5),
-      template: { template_id: 'tpl_focus_v1', template_version: '2.0' }
+  it('uses one aggregate lane for structure and template-setting mutations', async (): Promise<void> => {
+    /** @brief 释放首个 operation 响应的闸门 / Gate releasing the first operation response. */
+    let releaseResponse = (): void => {
+      throw new Error('The operation response gate was not initialized.')
     }
+    /** @brief 保持首个结构写执行中的闸门 / Gate keeping the first structural write in flight. */
+    const responseGate = new Promise<void>((resolve) => {
+      releaseResponse = resolve
+    })
+    /** @brief 首个 operation 的标准响应实现 / Standard response implementation for the first operation. */
+    const respondToOperation = operationResponse()
+    /** @brief 一个 GET 后保持 POST 待定的网络替身 / Network double with one GET followed by a pending POST. */
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(resumeResponse())
-      .mockResolvedValueOnce(
-        Response.json({
-          items: [{ ...templateManifest('tpl_focus_v1'), template_version: '2.0' }],
-          page: { has_more: false, next_cursor: null, total_estimate: 1 }
-        })
-      )
-      .mockImplementationOnce(operationResponse(changedDocument))
+      .mockImplementationOnce(async (request, init) => {
+        await responseGate
+        return respondToOperation(request, init)
+      })
     const gateway = new HttpResumeGateway(
       createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
     )
-    await gateway.getResumeEditor('res_example' as never)
+    const editor = await gateway.getResumeEditor('res_example' as never)
 
-    await gateway.selectResumeTemplate({
-      baseRevision: 4,
-      resumeId: 'res_example' as never,
-      templateId: 'tpl_focus_v1' as never,
-      templateVersion: '2.0'
+    /** @brief 占用聚合写通道的板块修改 / Section update occupying the aggregate mutation lane. */
+    const sectionUpdate = gateway.updateResumeSection({
+      baseRevision: editor.resume.revision,
+      content: '新的摘要',
+      resumeId: editor.resume.id,
+      sectionId: 'sec_summary' as never
     })
+    await vi.waitFor((): void => expect(fetchImpl).toHaveBeenCalledTimes(2))
 
-    const body = JSON.parse(fetchBody(fetchImpl, 2)) as {
-      operations: readonly Record<string, unknown>[]
-    }
-    expect(body.operations).toEqual([
-      expect.objectContaining({
-        op: 'set_template',
-        template: { template_id: 'tpl_focus_v1', template_version: '2.0' }
+    await expect(
+      gateway.updateTemplateSettings({
+        baseRevision: editor.resume.revision,
+        resumeId: editor.resume.id,
+        styleIntent: editor.resume.styleIntent,
+        templateId: editor.resume.template.templateId,
+        templateVersion: editor.resume.template.templateVersion
       })
-    ])
+    ).rejects.toMatchObject({ name: 'ResumeMutationInProgressError' })
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+
+    releaseResponse()
+    await expect(sectionUpdate).resolves.toMatchObject({ resume: { revision: 5 } })
   })
 
-  it('marks template selection unknown when the normalized Resume ignores the requested template', async (): Promise<void> => {
-    /** @brief 返回原模板而非请求模板的网络替身 / Network double returning the original template instead of the requested template. */
-    const fetchImpl = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(resumeResponse())
-      .mockResolvedValueOnce(
-        Response.json({
-          items: [{ ...templateManifest('tpl_focus_v1'), template_version: '2.0' }],
-          page: { has_more: false, next_cursor: null, total_estimate: 1 }
-        })
-      )
-      .mockImplementationOnce(operationResponse(resumeDocument(5)))
+  it('refuses cross-template writes before any migration or operation request', async (): Promise<void> => {
+    /** @brief 只允许读取当前权威 Resume 的网络替身 / Network double allowing only the authoritative Resume read. */
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValueOnce(resumeResponse())
     /** @brief 被测 Resume Gateway / Resume Gateway under test. */
     const gateway = new HttpResumeGateway(
       createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
     )
-    await gateway.getResumeEditor('res_example' as never)
+    /** @brief 当前固定模板下的权威编辑器 / Authoritative editor under the currently pinned template. */
+    const editor = await gateway.getResumeEditor('res_example' as never)
 
     await expect(
-      gateway.selectResumeTemplate({
-        baseRevision: 4,
-        resumeId: 'res_example' as never,
+      gateway.updateTemplateSettings({
+        baseRevision: editor.resume.revision,
+        resumeId: editor.resume.id,
+        styleIntent: editor.resume.styleIntent,
         templateId: 'tpl_focus_v1' as never,
         templateVersion: '2.0'
       })
-    ).rejects.toMatchObject({
-      diagnosticKind: 'contract',
-      name: 'HttpCommandOutcomeUnknownError'
-    })
+    ).rejects.toMatchObject({ name: 'ResumeTemplateMigrationCapabilityError' })
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 
   it('atomically persists template settings as a formal semantic style intent', async (): Promise<void> => {
@@ -1038,9 +1039,13 @@ describe('HttpResumeGateway', (): void => {
     }
     expect(body.operations).toHaveLength(1)
     expect(body.operations[0]).toMatchObject({
-      op: 'set_template',
-      template: { template_id: 'tpl_default_v1', template_version: '1.0' }
+      op: 'set_style_intent'
     })
+    expect(Object.keys(body.operations[0] ?? {}).sort()).toEqual([
+      'op',
+      'operation_id',
+      'style_intent'
+    ])
     expect(body.operations[0]?.style_intent).toMatchObject({
       density: 0.75,
       page: { size: 'A4' },

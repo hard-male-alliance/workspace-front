@@ -76,7 +76,6 @@ export type DiagnosticCommandOperation =
   | 'resume.section_delete'
   | 'resume.section_reorder'
   | 'resume.section_update'
-  | 'resume.template_select'
 
 /** @brief 经过归类且不带错误原文的错误类别 / Classified error kinds without raw error text. */
 export type DiagnosticErrorKind =

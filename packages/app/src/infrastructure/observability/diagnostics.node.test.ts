@@ -247,6 +247,34 @@ describe('createDiagnostics', (): void => {
     await expect(noSinkDiagnostics.flush()).resolves.toBeUndefined()
     await expect(diagnostics.flush()).resolves.toBeUndefined()
   })
+
+  it('rejects a retired Resume template-selection operation after static types are bypassed', (): void => {
+    /** @brief 接收清洗后记录的测试 sink / Test sink receiving sanitized records. */
+    const received: DiagnosticRecord[] = []
+    /** @brief 同时验证已退役与仍有效 operation 的诊断实例 / Diagnostics instance validating retired and active operations together. */
+    const diagnostics = createDiagnostics({
+      clock: (): Date => TEST_TIME,
+      createId: (): string => `event-${String(received.length + 1)}`,
+      sinks: [{ emit: (record): number => received.push(record) }]
+    })
+    /** @brief 绕过静态注册表注入的旧 operation / Retired operation injected by bypassing the static registry. */
+    const retiredAttributes = {
+      duration_ms: 12,
+      operation: 'resume.template_select'
+    } as unknown as Readonly<DiagnosticsEventRegistry['resume.command_completed']>
+
+    diagnostics.emit('resume.command_completed', retiredAttributes)
+    diagnostics.emit('resume.command_completed', {
+      duration_ms: 13,
+      operation: 'resume.section_update'
+    })
+
+    expect(received[0]?.attributes).toEqual({ duration_ms: 12 })
+    expect(received[1]?.attributes).toEqual({
+      duration_ms: 13,
+      operation: 'resume.section_update'
+    })
+  })
 })
 
 describe('createConsoleDiagnosticsSink', (): void => {

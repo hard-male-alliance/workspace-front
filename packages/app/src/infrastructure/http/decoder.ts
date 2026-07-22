@@ -1,11 +1,8 @@
 /** @file 未知 HTTP JSON 的低级解码原语 / Low-level decoding primitives for unknown HTTP JSON. */
 
-import { isAbsoluteUri, isRfc3339Timestamp } from '@ai-job-workspace/platform'
+import { isAbsoluteUri, isOpaqueResourceId, isRfc3339Timestamp } from '@ai-job-workspace/platform'
 
 import { HttpContractError } from './http-client'
-
-/** @brief 冻结契约的不透明 ID 格式 / Opaque-ID format from the frozen contract. */
-const OPAQUE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/u
 
 /** @brief 冻结契约的稳定 code 格式 / Stable-code format from the frozen contract. */
 const STABLE_CODE_PATTERN = /^[a-z][a-z0-9_.-]*$/u
@@ -138,8 +135,11 @@ export function number(value: unknown, path: string): number {
  */
 export function integer(value: unknown, path: string): number {
   const decoded = number(value, path)
-  if (!Number.isInteger(decoded)) {
-    throw new HttpContractError(`Backend field ${path} must be an integer.`, 200)
+  if (!Number.isSafeInteger(decoded)) {
+    throw new HttpContractError(
+      `Backend field ${path} must be an exactly representable integer.`,
+      200
+    )
   }
   return decoded
 }
@@ -230,7 +230,7 @@ export function nonNegativeInteger(value: unknown, path: string): number {
  */
 export function opaqueId(value: unknown, path: string): string {
   const decoded = string(value, path)
-  if (!OPAQUE_ID_PATTERN.test(decoded)) {
+  if (!isOpaqueResourceId(decoded)) {
     throw new HttpContractError(`Backend field ${path} must be an opaque ID.`, 200)
   }
   return decoded

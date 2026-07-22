@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { userEvent } from 'vitest/browser'
-import { MOCK_EDITORIAL_TEMPLATE } from '@ai-job-workspace/app/testing'
 
 import {
   installBrowserWorkspaceTestSetup,
@@ -20,6 +19,9 @@ describe('WorkspaceApp Resume browser behaviour', (): void => {
 
     await expect.element(screen.getByRole('heading', { name: 'Klee Chen' })).toBeVisible()
     if (window.matchMedia('(max-width: 900px)').matches) {
+      await expect
+        .element(screen.getByRole('combobox', { name: '快速切换简历模板' }))
+        .not.toBeInTheDocument()
       await screen.getByRole('button', { name: '内容', exact: true }).click()
       await expect.element(screen.getByRole('region', { name: '内容编辑' })).toBeVisible()
 
@@ -30,16 +32,16 @@ describe('WorkspaceApp Resume browser behaviour', (): void => {
       return
     }
     await expect.element(screen.getByRole('heading', { name: '内容编辑' })).toBeVisible()
-
-    /** @brief 简历模板选择器 / Resume-template selector. */
+    /** @brief 桌面端未冻结迁移契约下只读的模板选择器 / Desktop template selector kept read-only while migration is not frozen. */
     const template = screen.getByRole('combobox', { name: '快速切换简历模板' })
-    /** @brief 同时锁定 ID 与不可变版本的 Editorial 选项 / Editorial option pinning both ID and immutable version. */
-    const editorialIdentity = JSON.stringify([
-      MOCK_EDITORIAL_TEMPLATE.id,
-      MOCK_EDITORIAL_TEMPLATE.version
-    ])
-    await userEvent.selectOptions(template, editorialIdentity)
+    await expect.element(template).toBeDisabled()
+    await expect
+      .element(screen.getByText('模板切换功能正在准备中。你仍可编辑当前模板的版式设置。'))
+      .toBeVisible()
 
-    await expect.element(template).toHaveValue(editorialIdentity)
+    /** @brief 桌面端直接可见的语义内容编辑器 / Semantic-content editor directly visible on desktop. */
+    const semanticContent = screen.getByRole('textbox', { name: '语义内容' })
+    await userEvent.fill(semanticContent, '面向生产环境构建可靠的桌面与 Web 产品。')
+    await expect.element(semanticContent).toHaveValue('面向生产环境构建可靠的桌面与 Web 产品。')
   })
 })
