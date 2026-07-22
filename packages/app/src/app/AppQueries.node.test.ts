@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import type { AppGateways } from '../application'
+import type { UiWorkspaceAccess, WorkspaceGateway } from '../contexts/workspace'
 import { asUiOpaqueId } from '../shared-kernel/identity'
 import {
   InMemoryInterviewGateway,
@@ -23,6 +24,147 @@ function createGateways(workspace = new InMemoryWorkspaceGateway()): AppGateways
     workspace
   }
 }
+
+/** @brief 创建可控的 Workspace 访问权威 / Create controllable Workspace-access authority. */
+function workspaceAuthority(input?: {
+  readonly defaultWorkspaceId?: string | null
+  readonly userId?: string
+  readonly workspaceIds?: readonly string[]
+}): UiWorkspaceAccess {
+  const workspaceIds = input?.workspaceIds ?? ['ws_one', 'ws_two']
+  return {
+    currentUser: {
+      defaultWorkspaceId:
+        input?.defaultWorkspaceId === undefined || input.defaultWorkspaceId === null
+          ? null
+          : asUiOpaqueId<'workspace'>(input.defaultWorkspaceId),
+      displayName: 'Workspace Tester',
+      id: asUiOpaqueId<'user'>(input?.userId ?? 'user_one'),
+      locale: 'zh-SG',
+      timezone: 'Asia/Shanghai'
+    },
+    workspaces: workspaceIds.map((id, index) => ({
+      id: asUiOpaqueId<'workspace'>(id),
+      locale: 'zh-SG' as const,
+      name: `Workspace ${index + 1}`,
+      plan: 'pro' as const,
+      slug: `workspace-${index + 1}`,
+      timezone: 'Asia/Shanghai',
+      updatedAt: '2026-07-22T00:00:00.000Z'
+    }))
+  }
+}
+
+/** @brief 创建可在测试中替换权威快照的 Gateway / Create a Gateway whose authority can be replaced in tests. */
+function controllableWorkspaceGateway(initial: UiWorkspaceAccess): {
+  readonly gateway: WorkspaceGateway
+  readonly setAuthority: (authority: UiWorkspaceAccess) => void
+} {
+  let authority = initial
+  return {
+    gateway: {
+      loadAccess: (): Promise<UiWorkspaceAccess> => Promise.resolve(authority)
+    },
+    setAuthority(next): void {
+      authority = next
+    }
+  }
+}
+
+describe('createWorkspaceSession', (): void => {
+  it('没有有效默认值时不把列表第一项当作隐式 Workspace', async (): Promise<void> => {
+    const { gateway } = controllableWorkspaceGateway(workspaceAuthority())
+    const session = createWorkspaceSession(gateway)
+
+    await expect(session.getCurrentWorkspace()).resolves.toBeUndefined()
+    await expect(session.getAccess()).resolves.toMatchObject({ currentWorkspace: undefined })
+  })
+
+  it('只把可访问的服务端默认 Workspace 用作初始界面偏好', async (): Promise<void> => {
+    const { gateway } = controllableWorkspaceGateway(
+      workspaceAuthority({ defaultWorkspaceId: 'ws_two' })
+    )
+    const session = createWorkspaceSession(gateway)
+
+    await expect(session.getCurrentWorkspace()).resolves.toMatchObject({ id: 'ws_two' })
+  })
+
+  it('ignores a server default that is outside the accessible Workspace set', async (): Promise<void> => {
+    const { gateway } = controllableWorkspaceGateway(
+      workspaceAuthority({ defaultWorkspaceId: 'ws_not_accessible' })
+    )
+    const session = createWorkspaceSession(gateway)
+
+    await expect(session.getCurrentWorkspace()).resolves.toBeUndefined()
+    await expect(session.getAccess()).resolves.toMatchObject({ currentWorkspace: undefined })
+  })
+
+  it('允许显式选择可访问 Workspace 并通知订阅者', async (): Promise<void> => {
+    const { gateway } = controllableWorkspaceGateway(
+      workspaceAuthority({ defaultWorkspaceId: 'ws_one' })
+    )
+    const session = createWorkspaceSession(gateway)
+    const listener = vi.fn()
+    const unsubscribe = session.subscribe(listener)
+
+    await session.selectWorkspace(asUiOpaqueId<'workspace'>('ws_two'))
+
+    await expect(session.getCurrentWorkspace()).resolves.toMatchObject({ id: 'ws_two' })
+    expect(session.getSelectionRevision()).toBe(1)
+    expect(listener).toHaveBeenCalledTimes(1)
+    unsubscribe()
+  })
+
+  it('拒绝选择不在访问权威中的 Workspace', async (): Promise<void> => {
+    const { gateway } = controllableWorkspaceGateway(
+      workspaceAuthority({ defaultWorkspaceId: 'ws_one' })
+    )
+    const session = createWorkspaceSession(gateway)
+
+    await expect(
+      session.selectWorkspace(asUiOpaqueId<'workspace'>('ws_forbidden'))
+    ).rejects.toThrow('not accessible')
+    await expect(session.getCurrentWorkspace()).resolves.toMatchObject({ id: 'ws_one' })
+  })
+
+  it('刷新权威后清除新主体不可继承的 Workspace 选择', async (): Promise<void> => {
+    const controlled = controllableWorkspaceGateway(
+      workspaceAuthority({ defaultWorkspaceId: 'ws_one', userId: 'user_one' })
+    )
+    const session = createWorkspaceSession(controlled.gateway)
+    await session.selectWorkspace(asUiOpaqueId<'workspace'>('ws_two'))
+    controlled.setAuthority(
+      workspaceAuthority({
+        defaultWorkspaceId: null,
+        userId: 'user_two',
+        workspaceIds: ['ws_three']
+      })
+    )
+
+    await expect(session.refreshAccess()).resolves.toMatchObject({ currentWorkspace: undefined })
+    expect(session.getSelectionRevision()).toBe(2)
+  })
+
+  it('invalidates Workspace-scoped resources when the principal changes but the ID stays equal', async (): Promise<void> => {
+    const controlled = controllableWorkspaceGateway(
+      workspaceAuthority({ defaultWorkspaceId: 'ws_one', userId: 'user_one' })
+    )
+    const session = createWorkspaceSession(controlled.gateway)
+    const listener = vi.fn()
+    session.subscribe(listener)
+    await session.getAccess()
+    controlled.setAuthority(
+      workspaceAuthority({ defaultWorkspaceId: 'ws_one', userId: 'user_two' })
+    )
+
+    await expect(session.refreshAccess()).resolves.toMatchObject({
+      currentUser: { id: 'user_two' },
+      currentWorkspace: { id: 'ws_one' }
+    })
+    expect(session.getSelectionRevision()).toBe(1)
+    expect(listener).toHaveBeenCalledOnce()
+  })
+})
 
 describe('createAppQueries', (): void => {
   it('在应用层仅调用每个上下文一次来构造 Workspace 首页', async (): Promise<void> => {

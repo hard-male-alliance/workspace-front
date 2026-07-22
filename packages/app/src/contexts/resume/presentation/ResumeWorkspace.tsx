@@ -1173,7 +1173,10 @@ export function ResumeWorkspace({
         diagnostics,
         { operation: 'resume.authority_reload', scope: 'resume' },
         async () => {
-          const nextEditor = await gateway.getResumeEditor(editor.resume.id)
+          const nextEditor = await gateway.getResumeEditor(
+            editor.resume.workspaceId,
+            editor.resume.id
+          )
           const nextTemplates = await loadTemplateCatalogWithPinnedVersion(
             gateway,
             nextEditor.resume.locale,

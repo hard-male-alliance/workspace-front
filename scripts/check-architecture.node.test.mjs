@@ -62,6 +62,19 @@ function violationsFor(violations, rule) {
 }
 
 describe('checkArchitecture', () => {
+  it('ignores repository-local temporary source trees', async () => {
+    await withFixture(
+      {
+        '.tmp/copied-worktree/apps/web/src/legacy.test.ts': 'export {}\n',
+        'apps/web/src/main.ts': 'export const ready = true\n'
+      },
+      async (rootDir) => {
+        const result = await checkArchitecture({ rootDir })
+        expect(result.violations).toEqual([])
+        expect(result.files).toBe(1)
+      }
+    )
+  })
   it('接受运行时、context 公开入口、层次和生产组合均合法的仓库', async () => {
     await withFixture(
       {

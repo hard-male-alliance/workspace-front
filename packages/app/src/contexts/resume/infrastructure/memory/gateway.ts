@@ -86,9 +86,16 @@ export class InMemoryResumeGateway implements ResumeGateway {
    * @param resumeId 简历 ID / Resume ID.
    * @return Mock 编辑器数据 / Mock editor data.
    */
-  async getResumeEditor(resumeId: UiResumeId): Promise<UiResumeEditorModel> {
+  async getResumeEditor(
+    workspaceId: UiWorkspaceId,
+    resumeId: UiResumeId
+  ): Promise<UiResumeEditorModel> {
     const mode = await prepareMemoryRead(this.options)
-    if (mode === 'empty' || resumeId !== MOCK_RESUME_ID) {
+    if (
+      mode === 'empty' ||
+      resumeId !== MOCK_RESUME_ID ||
+      workspaceId !== MOCK_RESUME_WORKSPACE_ID
+    ) {
       return throwMemoryNotFound('resume editor')
     }
 
@@ -291,7 +298,8 @@ export class InMemoryResumeGateway implements ResumeGateway {
         resumeId: input.resumeId,
         resumeRevision: this.editor.resume.revision,
         selectedTemplate: cloneMemoryValue(template),
-        styleIntent: cloneMemoryValue(input.styleIntent)
+        styleIntent: cloneMemoryValue(input.styleIntent),
+        workspaceId: this.editor.resume.workspaceId
       }
     })
   }
@@ -342,9 +350,16 @@ export class InMemoryResumeGateway implements ResumeGateway {
    * @param resumeId 简历 ID / Resume ID.
    * @return Mock 模板设置数据 / Mock template-settings data.
    */
-  async getTemplateSettings(resumeId: UiResumeId): Promise<UiTemplateSettingsModel> {
+  async getTemplateSettings(
+    workspaceId: UiWorkspaceId,
+    resumeId: UiResumeId
+  ): Promise<UiTemplateSettingsModel> {
     const mode = await prepareMemoryRead(this.options)
-    if (mode === 'empty' || resumeId !== MOCK_RESUME_ID) {
+    if (
+      mode === 'empty' ||
+      resumeId !== MOCK_RESUME_ID ||
+      workspaceId !== MOCK_RESUME_WORKSPACE_ID
+    ) {
       return throwMemoryNotFound('template settings')
     }
 
@@ -365,7 +380,8 @@ export class InMemoryResumeGateway implements ResumeGateway {
       resumeId,
       resumeRevision: this.editor.resume.revision,
       selectedTemplate: cloneMemoryValue(selectedTemplate),
-      styleIntent: cloneMemoryValue(this.editor.resume.styleIntent)
+      styleIntent: cloneMemoryValue(this.editor.resume.styleIntent),
+      workspaceId: this.editor.resume.workspaceId
     }
   }
 

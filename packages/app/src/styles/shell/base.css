@@ -137,6 +137,7 @@ select:focus-visible {
 
 .aw-account-copy {
   min-width: 0;
+  flex: 1;
 }
 
 .aw-account-copy strong,
@@ -145,6 +146,17 @@ select:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.aw-workspace-picker select {
+  width: 100%;
+  min-width: 0;
+  padding: 2px 20px 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
 }
 
 .aw-avatar {

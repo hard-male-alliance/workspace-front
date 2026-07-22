@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { InMemoryWorkspaceGateway } from '@ai-job-workspace/app/testing'
 import { HttpProblemError } from '@ai-job-workspace/app/http'
@@ -49,6 +49,89 @@ describe('WorkspaceApp app shell', (): void => {
     expect(screen.getByText('Production Workspace')).toBeInTheDocument()
     expect(screen.queryByText('Klee')).not.toBeInTheDocument()
     expect(loadWorkspaceAccess).toHaveBeenCalledTimes(1)
+  })
+
+  it('requires an explicit selection when authority has no valid default Workspace', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    const base = new InMemoryWorkspaceGateway()
+    const access = await base.loadAccess()
+    const workspace = {
+      loadAccess: vi.fn().mockResolvedValue({
+        currentUser: { ...access.currentUser, defaultWorkspaceId: null },
+        workspaces: access.workspaces
+      })
+    }
+
+    render(<WorkspaceApp gateways={createTestGateways({ workspace })} initialPath="/" />)
+
+    expect(await screen.findByRole('heading', { name: '选择工作区' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '今日工作台' })).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByRole('combobox', { name: '当前工作区' }), {
+      target: { value: access.workspaces[0]?.id }
+    })
+
+    expect(await screen.findByRole('heading', { name: '今日工作台' })).toBeInTheDocument()
+  })
+
+  it('switches Workspace explicitly and reloads Workspace-scoped route data', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    const base = new InMemoryWorkspaceGateway()
+    const access = await base.loadAccess()
+    const firstWorkspace = access.workspaces[0]
+    if (firstWorkspace === undefined) throw new Error('Workspace fixture is missing.')
+    const secondWorkspace = {
+      ...firstWorkspace,
+      id: 'ws_second' as typeof firstWorkspace.id,
+      name: 'Second Workspace',
+      slug: 'second-workspace'
+    }
+    const gateways = createTestGateways({
+      workspace: {
+        loadAccess: vi.fn().mockResolvedValue({
+          currentUser: { ...access.currentUser, defaultWorkspaceId: firstWorkspace.id },
+          workspaces: [firstWorkspace, secondWorkspace]
+        })
+      }
+    })
+    const listResumeCards = vi.spyOn(gateways.resume, 'listResumeCards')
+    const listKnowledgeSources = vi.spyOn(gateways.knowledge, 'listKnowledgeSources')
+    const listCompletedInterviews = vi.spyOn(gateways.interview, 'listCompletedInterviews')
+
+    render(<WorkspaceApp gateways={gateways} initialPath="/" />)
+
+    await screen.findByRole('heading', { name: '今日工作台' })
+    fireEvent.change(screen.getByRole('combobox', { name: '当前工作区' }), {
+      target: { value: secondWorkspace.id }
+    })
+
+    await waitFor((): void => {
+      expect(screen.getByRole('combobox', { name: '当前工作区' })).toHaveValue(secondWorkspace.id)
+      expect(listResumeCards).toHaveBeenCalledWith(secondWorkspace.id)
+      expect(listKnowledgeSources).toHaveBeenCalledWith(secondWorkspace.id)
+      expect(listCompletedInterviews).toHaveBeenCalledWith(secondWorkspace.id)
+    })
+  })
+
+  it('shows a safe error when the Workspace picker rejects a stale selection', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    const base = new InMemoryWorkspaceGateway()
+    const access = await base.loadAccess()
+
+    render(<WorkspaceApp gateways={createTestGateways()} initialPath="/" />)
+
+    await screen.findByRole('heading', { name: '今日工作台' })
+    fireEvent.change(screen.getByRole('combobox', { name: '当前工作区' }), {
+      target: { value: '' }
+    })
+
+    expect(await screen.findByText('无法切换工作区，请刷新访问权限后重试。')).toHaveAttribute(
+      'role',
+      'alert'
+    )
+    expect(screen.getByRole('combobox', { name: '当前工作区' })).toHaveValue(
+      access.currentUser.defaultWorkspaceId
+    )
   })
 
   it('does not invent an account while the Workspace authority is loading', async (): Promise<void> => {

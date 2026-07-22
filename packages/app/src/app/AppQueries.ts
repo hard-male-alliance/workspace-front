@@ -72,6 +72,24 @@ export interface WorkspaceSession {
    * @return 当前工作区；无可访问工作区时为 undefined / Current workspace, or undefined when none is accessible.
    */
   readonly getCurrentWorkspace: () => Promise<CurrentWorkspace | undefined>
+  /** @brief 读取 Workspace 选择修订号，用于隔离依赖当前 Workspace 的资源 / Read the selection revision used to isolate Workspace-scoped resources. */
+  readonly getSelectionRevision: () => number
+  /**
+   * @brief 重新读取身份与 Workspace 访问权威 / Reload identity and Workspace-access authority.
+   * @return 重新校验选择后的访问快照 / Access snapshot after revalidating the selection.
+   */
+  readonly refreshAccess: () => Promise<WorkspaceSessionAccess>
+  /**
+   * @brief 显式选择一个可访问的 Workspace / Explicitly select an accessible Workspace.
+   * @param workspaceId 用户选择的 Workspace ID / Workspace ID selected by the user.
+   */
+  readonly selectWorkspace: (workspaceId: UiWorkspaceId) => Promise<void>
+  /**
+   * @brief 订阅 Workspace 选择变化 / Subscribe to Workspace-selection changes.
+   * @param listener 不接收用户数据的失效通知 / Invalidation listener receiving no user data.
+   * @return 取消订阅函数 / Unsubscribe function.
+   */
+  readonly subscribe: (listener: () => void) => () => void
 }
 
 /** @brief Workspace 首页所需的跨上下文只读投影 / Cross-context read projection required by the Workspace home page. */
@@ -146,6 +164,61 @@ export function createWorkspaceSession(
 ): WorkspaceSession {
   /** @brief 当前共享的 Workspace 访问权威读取 / Current shared Workspace-access authority read. */
   let currentAccessRequest: Promise<WorkspaceSessionAccess> | undefined
+  /** @brief 最近一次成功读取的原始访问权威 / Most recently loaded raw access authority. */
+  let currentAuthority: WorkspaceAuthority | undefined
+  /** @brief 当前权威对应的用户身份 / User identity associated with the current authority. */
+  let currentUserId: WorkspaceAuthority['currentUser']['id'] | undefined
+  /** @brief 用户显式选择或有效默认偏好得到的 Workspace ID / Workspace ID from explicit selection or a valid default preference. */
+  let selectedWorkspaceId: UiWorkspaceId | undefined
+  /** @brief Workspace 选择变化的单调修订号 / Monotonic Workspace-selection revision. */
+  let selectionRevision = 0
+  /** @brief 选择失效订阅者 / Selection-invalidation subscribers. */
+  const listeners = new Set<() => void>()
+
+  /** @brief 从权威中查找一个 Workspace / Find one Workspace in an authority snapshot. */
+  function findWorkspace(
+    authority: WorkspaceAuthority,
+    workspaceId: UiWorkspaceId | null | undefined
+  ): CurrentWorkspace | undefined {
+    if (workspaceId === null || workspaceId === undefined) return undefined
+    return authority.workspaces.find((workspace) => workspace.id === workspaceId)
+  }
+
+  /** @brief 投影当前访问快照，不把列表顺序当作选择 / Project current access without treating list order as selection. */
+  function projectAccess(authority: WorkspaceAuthority): WorkspaceSessionAccess {
+    return {
+      currentUser: authority.currentUser,
+      currentWorkspace: findWorkspace(authority, selectedWorkspaceId),
+      workspaces: authority.workspaces
+    }
+  }
+
+  /** @brief 通知依赖 Workspace 身份的消费者丢弃旧资源 / Notify Workspace-scoped consumers to discard stale resources. */
+  function notifySelectionChanged(): void {
+    selectionRevision += 1
+    for (const listener of listeners) listener()
+  }
+
+  /** @brief 依据新权威校验当前选择 / Reconcile the selection against newly loaded authority. */
+  function acceptAuthority(authority: WorkspaceAuthority): WorkspaceSessionAccess {
+    const previousWorkspaceId = selectedWorkspaceId
+    const principalChanged =
+      currentUserId !== undefined && currentUserId !== authority.currentUser.id
+    const isInitialAuthority = currentUserId === undefined
+
+    if (isInitialAuthority || principalChanged) {
+      selectedWorkspaceId = findWorkspace(authority, authority.currentUser.defaultWorkspaceId)?.id
+    } else if (findWorkspace(authority, selectedWorkspaceId) === undefined) {
+      selectedWorkspaceId = undefined
+    }
+
+    currentAuthority = authority
+    currentUserId = authority.currentUser.id
+    if (!isInitialAuthority && (principalChanged || previousWorkspaceId !== selectedWorkspaceId)) {
+      notifySelectionChanged()
+    }
+    return projectAccess(authority)
+  }
 
   /**
    * @brief 读取并缓存会话访问快照 / Read and cache the session-access snapshot.
@@ -154,11 +227,7 @@ export function createWorkspaceSession(
   function getAccess(): Promise<WorkspaceSessionAccess> {
     currentAccessRequest ??= workspaceGateway
       .loadAccess()
-      .then((authority): WorkspaceSessionAccess => ({
-        currentUser: authority.currentUser,
-        currentWorkspace: authority.workspaces.at(0),
-        workspaces: authority.workspaces
-      }))
+      .then(acceptAuthority)
       .catch((error: unknown): never => {
         currentAccessRequest = undefined
         throw error
@@ -175,7 +244,45 @@ export function createWorkspaceSession(
     return getAccess().then((access) => access.currentWorkspace)
   }
 
-  return { getAccess, getCurrentWorkspace }
+  function getSelectionRevision(): number {
+    return selectionRevision
+  }
+
+  function refreshAccess(): Promise<WorkspaceSessionAccess> {
+    currentAccessRequest = undefined
+    return getAccess()
+  }
+
+  async function selectWorkspace(workspaceId: UiWorkspaceId): Promise<void> {
+    await getAccess()
+    if (
+      currentAuthority === undefined ||
+      findWorkspace(currentAuthority, workspaceId) === undefined
+    ) {
+      throw new Error('The selected Workspace is not accessible to the current user.')
+    }
+    if (selectedWorkspaceId === workspaceId) return
+
+    selectedWorkspaceId = workspaceId
+    currentAccessRequest = Promise.resolve(projectAccess(currentAuthority))
+    notifySelectionChanged()
+  }
+
+  function subscribe(listener: () => void): () => void {
+    listeners.add(listener)
+    return (): void => {
+      listeners.delete(listener)
+    }
+  }
+
+  return {
+    getAccess,
+    getCurrentWorkspace,
+    getSelectionRevision,
+    refreshAccess,
+    selectWorkspace,
+    subscribe
+  }
 }
 
 /** @brief Interview 历史端口的已解析列表类型 / Resolved list type of the Interview-history port. */

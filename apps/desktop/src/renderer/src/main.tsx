@@ -91,6 +91,7 @@ async function bootstrapDesktopRenderer(): Promise<void> {
         artifactSave={bridge}
         diagnostics={diagnostics}
         gateways={createProductGateways(runtimeInfo.apiBaseUrl, diagnostics, {
+          apiMajor: 'v1',
           locale: navigator.language,
           platform: 'electron'
         })}

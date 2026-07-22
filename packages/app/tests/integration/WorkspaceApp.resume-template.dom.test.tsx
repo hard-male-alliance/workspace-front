@@ -5,6 +5,7 @@ import {
   MOCK_DAWN_TEMPLATE,
   MOCK_HISTORICAL_DAWN_TEMPLATE,
   MOCK_RESUME_ID,
+  MOCK_RESUME_WORKSPACE_ID,
   InMemoryResumeGateway
 } from '@ai-job-workspace/app/testing'
 
@@ -74,7 +75,7 @@ describe('WorkspaceApp Resume template', (): void => {
     /** @brief 提供完整设置控件矩阵的 Resume gateway / Resume gateway providing the complete setting-control matrix. */
     const resume = new InMemoryResumeGateway()
     /** @brief 基础模板设置模型 / Base template-settings model. */
-    const baseModel = await resume.getTemplateSettings(MOCK_RESUME_ID)
+    const baseModel = await resume.getTemplateSettings(MOCK_RESUME_WORKSPACE_ID, MOCK_RESUME_ID)
     /** @brief 覆盖全部公开控件和条件可见性的模板 / Template covering every public control and conditional visibility. */
     const controlsTemplate = {
       ...baseModel.selectedTemplate,
@@ -280,7 +281,7 @@ describe('WorkspaceApp Resume template', (): void => {
     /** @brief 提供未来设置值的 Resume gateway / Resume gateway providing a future setting value. */
     const resume = new InMemoryResumeGateway()
     /** @brief 基础权威模板设置 / Base authoritative template settings. */
-    const baseModel = await resume.getTemplateSettings(MOCK_RESUME_ID)
+    const baseModel = await resume.getTemplateSettings(MOCK_RESUME_WORKSPACE_ID, MOCK_RESUME_ID)
     /** @brief 冻结 Schema 允许但 switch 控件无法表达的 JSON 值 / JSON value allowed by the frozen schema but not expressible by a switch. */
     const futureValue = {
       fallback: null,
@@ -552,7 +553,7 @@ describe('WorkspaceApp Resume template', (): void => {
     /** @brief 当前简历固定历史模板版本的测试 Gateway / Test gateway whose Resume is pinned to a historical template version. */
     const resume = new InMemoryResumeGateway()
     /** @brief 默认模板设置投影 / Default template-settings projection. */
-    const current = await resume.getTemplateSettings(MOCK_RESUME_ID)
+    const current = await resume.getTemplateSettings(MOCK_RESUME_WORKSPACE_ID, MOCK_RESUME_ID)
     /** @brief 将权威当前模板固定为历史版本的投影 / Projection pinning the authoritative current template to a historical version. */
     const historicalModel = {
       ...current,

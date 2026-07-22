@@ -19,6 +19,7 @@ const RESOLUTION_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.m
 const IGNORED_DIRECTORIES = new Set([
   '.git',
   '.cache',
+  '.tmp',
   '.vite',
   'coverage',
   'dist',

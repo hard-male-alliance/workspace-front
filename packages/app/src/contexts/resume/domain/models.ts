@@ -519,6 +519,8 @@ export interface UiResumeTemplateSettingsUpdateInput {
 
 /** @brief 模板设置页数据模型 / Template-settings page data model. */
 export interface UiTemplateSettingsModel {
+  /** @brief 目标简历所属的显式 Workspace / Explicit Workspace owning the target Resume. */
+  readonly workspaceId: UiWorkspaceId
   /** @brief 目标简历 ID / Target resume ID. */
   readonly resumeId: UiResumeId
   /** @brief 当前设置所绑定的权威 Resume revision / Authoritative Resume revision to which these settings are bound. */

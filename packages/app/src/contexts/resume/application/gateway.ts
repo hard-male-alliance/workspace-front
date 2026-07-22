@@ -30,7 +30,7 @@ export interface ResumeGateway {
    * @param resumeId 简历 ID / Resume ID.
    * @return 编辑器页面展示模型 / Editor-page display model.
    */
-  getResumeEditor(resumeId: UiResumeId): Promise<UiResumeEditorModel>
+  getResumeEditor(workspaceId: UiWorkspaceId, resumeId: UiResumeId): Promise<UiResumeEditorModel>
 
   /** @brief 启动 PDF preview Render Job / Start a PDF preview Render Job. */
   startResumePdfRender(input: UiStartResumePdfRenderInput): Promise<UiResumeRenderJob>
@@ -82,5 +82,8 @@ export interface ResumeGateway {
    * @param resumeId 简历 ID / Resume ID.
    * @return 模板设置页展示模型 / Template-settings page display model.
    */
-  getTemplateSettings(resumeId: UiResumeId): Promise<UiTemplateSettingsModel>
+  getTemplateSettings(
+    workspaceId: UiWorkspaceId,
+    resumeId: UiResumeId
+  ): Promise<UiTemplateSettingsModel>
 }

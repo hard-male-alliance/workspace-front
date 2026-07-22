@@ -15,6 +15,7 @@ describe('createProductGateways', (): void => {
     const diagnostics = createDiagnostics({ sinks: [] })
     /** @brief 待验证的共享产品组合 / Shared product composition under test. */
     const gateways = createProductGateways('https://api.example.test', diagnostics, {
+      apiMajor: 'v1',
       locale: 'zh-CN',
       platform: 'web'
     })
@@ -23,5 +24,17 @@ describe('createProductGateways', (): void => {
     expect(gateways.knowledge).toBeInstanceOf(HttpKnowledgeGateway)
     expect(gateways.workspace).toBeInstanceOf(HttpWorkspaceGateway)
     expect(gateways.interview).toBeInstanceOf(HttpInterviewGateway)
+  })
+
+  it('拒绝把未实现的 API major 装配为产品 Gateway', (): void => {
+    const diagnostics = createDiagnostics({ sinks: [] })
+
+    expect(() =>
+      createProductGateways('https://api.example.test', diagnostics, {
+        apiMajor: 'v2' as never,
+        locale: 'zh-CN',
+        platform: 'web'
+      })
+    ).toThrow('not implemented')
   })
 })

@@ -16,9 +16,9 @@ describe('InMemoryResumeGateway', () => {
     const gateway = new InMemoryResumeGateway({ mode: 'empty' })
 
     await expect(gateway.listResumeCards(MOCK_RESUME_WORKSPACE_ID)).resolves.toEqual([])
-    await expect(gateway.getResumeEditor(MOCK_RESUME_ID)).rejects.toBeInstanceOf(
-      InMemoryGatewayError
-    )
+    await expect(
+      gateway.getResumeEditor(MOCK_RESUME_WORKSPACE_ID, MOCK_RESUME_ID)
+    ).rejects.toBeInstanceOf(InMemoryGatewayError)
   })
 
   it('keeps PDF rendering split into start and status recovery', async () => {
@@ -41,7 +41,7 @@ describe('InMemoryResumeGateway', () => {
     /** @brief 简历 Mock 网关 / Resume Mock gateway. */
     const resumeGateway = new InMemoryResumeGateway()
     /** @brief 初始编辑器 / Initial editor. */
-    const initial = await resumeGateway.getResumeEditor(MOCK_RESUME_ID)
+    const initial = await resumeGateway.getResumeEditor(MOCK_RESUME_WORKSPACE_ID, MOCK_RESUME_ID)
     /** @brief 反向板块顺序 / Reversed section order. */
     const reversedSectionIds = initial.resume.sections.map((section) => section.id).reverse()
 
@@ -65,7 +65,10 @@ describe('InMemoryResumeGateway', () => {
     expect(deleted.resume.sections.some((section) => section.id === sectionToDelete.id)).toBe(false)
 
     /** @brief 删除后读取的当前固定模板设置 / Current pinned-template settings read after deletion. */
-    const settings = await resumeGateway.getTemplateSettings(MOCK_RESUME_ID)
+    const settings = await resumeGateway.getTemplateSettings(
+      MOCK_RESUME_WORKSPACE_ID,
+      MOCK_RESUME_ID
+    )
     const saved = await resumeGateway.updateTemplateSettings({
       baseRevision: deleted.resume.revision,
       resumeId: MOCK_RESUME_ID,
@@ -93,7 +96,10 @@ describe('InMemoryResumeGateway', () => {
 
   it('does not use template-settings persistence as an implicit migration command', async () => {
     const resumeGateway = new InMemoryResumeGateway()
-    const settings = await resumeGateway.getTemplateSettings(MOCK_RESUME_ID)
+    const settings = await resumeGateway.getTemplateSettings(
+      MOCK_RESUME_WORKSPACE_ID,
+      MOCK_RESUME_ID
+    )
 
     await expect(
       resumeGateway.updateTemplateSettings({
@@ -104,7 +110,9 @@ describe('InMemoryResumeGateway', () => {
         templateVersion: MOCK_EDITORIAL_TEMPLATE.version
       })
     ).rejects.toMatchObject({ name: 'ResumeTemplateMigrationCapabilityError' })
-    await expect(resumeGateway.getResumeEditor(MOCK_RESUME_ID)).resolves.toMatchObject({
+    await expect(
+      resumeGateway.getResumeEditor(MOCK_RESUME_WORKSPACE_ID, MOCK_RESUME_ID)
+    ).resolves.toMatchObject({
       resume: {
         revision: settings.resumeRevision,
         template: {
@@ -118,7 +126,7 @@ describe('InMemoryResumeGateway', () => {
   it('rejects a second mutation while the same Resume aggregate lane is occupied', async () => {
     /** @brief 带确定性延迟以观察写通道的测试网关 / Test gateway with deterministic latency exposing the mutation lane. */
     const resumeGateway = new InMemoryResumeGateway({ delayMs: 10 })
-    const editor = await resumeGateway.getResumeEditor(MOCK_RESUME_ID)
+    const editor = await resumeGateway.getResumeEditor(MOCK_RESUME_WORKSPACE_ID, MOCK_RESUME_ID)
     const firstSection = editor.resume.sections[0]
     if (firstSection === undefined) throw new Error('Expected a Resume section fixture.')
 

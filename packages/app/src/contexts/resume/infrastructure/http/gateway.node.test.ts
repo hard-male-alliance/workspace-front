@@ -4,6 +4,8 @@ import { getResumeConflictStatus, ResumeOperationRejectedError } from '../../app
 import { createHttpClient } from '../../../../infrastructure/http/http-client'
 import { HttpResumeGateway } from './gateway'
 
+const WORKSPACE_ID = 'ws_example' as never
+
 function fetchBody(fetchImpl: ReturnType<typeof vi.fn<typeof fetch>>, callIndex: number): string {
   const body = fetchImpl.mock.calls[callIndex]?.[1]?.body
   if (typeof body !== 'string') throw new Error('Expected a string request body.')
@@ -232,6 +234,23 @@ function templateManifest(id: string, version = '1.0'): Record<string, unknown> 
 }
 
 describe('HttpResumeGateway', (): void => {
+  it('requires the requested Workspace to match a Resume detail response', async (): Promise<void> => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ ...resumeDocument(), workspace_id: 'ws_other' }), {
+        headers: { 'Content-Type': 'application/json', ETag: '"resume-4"' },
+        status: 200
+      })
+    )
+    const gateway = new HttpResumeGateway(
+      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
+    )
+
+    await expect(
+      gateway.getResumeEditor('ws_requested' as never, 'res_example' as never)
+    ).rejects.toThrow('different Workspace')
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe('http://127.0.0.1:8000/api/v1/resumes/res_example')
+  })
+
   it.each(['*', 'W/"resume-4"', '"resume-4", "resume-5"'])(
     'rejects an ETag that cannot safely guard Resume operations: %s',
     async (etag): Promise<void> => {
@@ -246,7 +265,9 @@ describe('HttpResumeGateway', (): void => {
         createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
       )
 
-      await expect(gateway.getResumeEditor('res_example' as never)).rejects.toMatchObject({
+      await expect(
+        gateway.getResumeEditor(WORKSPACE_ID, 'res_example' as never)
+      ).rejects.toMatchObject({
         name: 'HttpContractError'
       })
       expect(fetchImpl).toHaveBeenCalledTimes(1)
@@ -398,7 +419,7 @@ describe('HttpResumeGateway', (): void => {
       createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
     )
 
-    const settings = await gateway.getTemplateSettings('res_example' as never)
+    const settings = await gateway.getTemplateSettings(WORKSPACE_ID, 'res_example' as never)
 
     expect(settings.availableTemplates.map(({ id, version }) => [id, version])).toEqual([
       ['tpl_default_v1', '2.0.0'],
@@ -426,7 +447,9 @@ describe('HttpResumeGateway', (): void => {
       createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
     )
 
-    await expect(gateway.getResumeEditor('res_example' as never)).rejects.toMatchObject({
+    await expect(
+      gateway.getResumeEditor(WORKSPACE_ID, 'res_example' as never)
+    ).rejects.toMatchObject({
       name: 'HttpContractError',
       status: 200
     })
@@ -444,8 +467,8 @@ describe('HttpResumeGateway', (): void => {
       createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
     )
 
-    await gateway.getResumeEditor('res_example' as never)
-    await gateway.getResumeEditor('res_example' as never)
+    await gateway.getResumeEditor(WORKSPACE_ID, 'res_example' as never)
+    await gateway.getResumeEditor(WORKSPACE_ID, 'res_example' as never)
     await expect(
       gateway.updateResumeSection({
         baseRevision: 4,
@@ -466,7 +489,7 @@ describe('HttpResumeGateway', (): void => {
     const gateway = new HttpResumeGateway(
       createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
     )
-    await gateway.getResumeEditor('res_example' as never)
+    await gateway.getResumeEditor(WORKSPACE_ID, 'res_example' as never)
 
     const editor = await gateway.updateResumeSection({
       baseRevision: 4,
@@ -521,7 +544,7 @@ describe('HttpResumeGateway', (): void => {
     const gateway = new HttpResumeGateway(
       createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
     )
-    await gateway.getResumeEditor('res_example' as never)
+    await gateway.getResumeEditor(WORKSPACE_ID, 'res_example' as never)
 
     await gateway.updateResumeSection({
       baseRevision: 4,
@@ -565,7 +588,7 @@ describe('HttpResumeGateway', (): void => {
     const gateway = new HttpResumeGateway(
       createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
     )
-    await gateway.getResumeEditor('res_example' as never)
+    await gateway.getResumeEditor(WORKSPACE_ID, 'res_example' as never)
 
     const rejection: unknown = await gateway
       .updateResumeSection({
@@ -615,7 +638,7 @@ describe('HttpResumeGateway', (): void => {
     const gateway = new HttpResumeGateway(
       createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
     )
-    await gateway.getResumeEditor('res_example' as never)
+    await gateway.getResumeEditor(WORKSPACE_ID, 'res_example' as never)
 
     await expect(
       gateway.updateResumeSection({
@@ -651,7 +674,7 @@ describe('HttpResumeGateway', (): void => {
     const gateway = new HttpResumeGateway(
       createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
     )
-    await gateway.getResumeEditor('res_example' as never)
+    await gateway.getResumeEditor(WORKSPACE_ID, 'res_example' as never)
 
     await expect(
       gateway.updateResumeSection({
@@ -699,7 +722,7 @@ describe('HttpResumeGateway', (): void => {
     const gateway = new HttpResumeGateway(
       createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
     )
-    await gateway.getResumeEditor('res_example' as never)
+    await gateway.getResumeEditor(WORKSPACE_ID, 'res_example' as never)
 
     await expect(
       gateway.updateResumeSection({
@@ -752,7 +775,7 @@ describe('HttpResumeGateway', (): void => {
     const gateway = new HttpResumeGateway(
       createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
     )
-    await gateway.getResumeEditor('res_example' as never)
+    await gateway.getResumeEditor(WORKSPACE_ID, 'res_example' as never)
 
     await expect(
       gateway.updateResumeSection({
@@ -846,7 +869,7 @@ describe('HttpResumeGateway', (): void => {
       const gateway = new HttpResumeGateway(
         createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
       )
-      await gateway.getResumeEditor('res_example' as never)
+      await gateway.getResumeEditor(WORKSPACE_ID, 'res_example' as never)
 
       await expect(
         gateway.updateResumeSection({
@@ -879,7 +902,7 @@ describe('HttpResumeGateway', (): void => {
     const gateway = new HttpResumeGateway(
       createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
     )
-    await gateway.getResumeEditor('res_example' as never)
+    await gateway.getResumeEditor(WORKSPACE_ID, 'res_example' as never)
 
     await gateway.reorderResumeSections({
       baseRevision: 4,
@@ -912,7 +935,7 @@ describe('HttpResumeGateway', (): void => {
     const gateway = new HttpResumeGateway(
       createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
     )
-    await gateway.getResumeEditor('res_example' as never)
+    await gateway.getResumeEditor(WORKSPACE_ID, 'res_example' as never)
 
     await gateway.deleteResumeSection({
       baseRevision: 4,
@@ -950,7 +973,7 @@ describe('HttpResumeGateway', (): void => {
     const gateway = new HttpResumeGateway(
       createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
     )
-    const editor = await gateway.getResumeEditor('res_example' as never)
+    const editor = await gateway.getResumeEditor(WORKSPACE_ID, 'res_example' as never)
 
     /** @brief 占用聚合写通道的板块修改 / Section update occupying the aggregate mutation lane. */
     const sectionUpdate = gateway.updateResumeSection({
@@ -984,7 +1007,7 @@ describe('HttpResumeGateway', (): void => {
       createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
     )
     /** @brief 当前固定模板下的权威编辑器 / Authoritative editor under the currently pinned template. */
-    const editor = await gateway.getResumeEditor('res_example' as never)
+    const editor = await gateway.getResumeEditor(WORKSPACE_ID, 'res_example' as never)
 
     await expect(
       gateway.updateTemplateSettings({
@@ -1023,7 +1046,7 @@ describe('HttpResumeGateway', (): void => {
       createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
     )
     /** @brief 作为编辑基线的权威简历 / Authoritative Resume used as the edit baseline. */
-    const editor = await gateway.getResumeEditor('res_example' as never)
+    const editor = await gateway.getResumeEditor(WORKSPACE_ID, 'res_example' as never)
 
     const saved = await gateway.updateTemplateSettings({
       baseRevision: editor.resume.revision,
@@ -1076,7 +1099,7 @@ describe('HttpResumeGateway', (): void => {
       createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
     )
     /** @brief 作为编辑基线的权威简历 / Authoritative Resume used as the edit baseline. */
-    const editor = await gateway.getResumeEditor('res_example' as never)
+    const editor = await gateway.getResumeEditor(WORKSPACE_ID, 'res_example' as never)
 
     await expect(
       gateway.updateTemplateSettings({

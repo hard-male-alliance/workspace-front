@@ -10,7 +10,7 @@ import {
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router-dom'
-import { useAsyncResource, useResumeGateway } from '../../../app/AppData'
+import { useAsyncResource, useResumeGateway, useWorkspaceSession } from '../../../app/AppData'
 import { ResourceErrorState, ResourceFailureMessage } from '../../../app/ResourceErrorState'
 import { requiresAuthorityReload } from '../../../app/resource-errors'
 import { asUiOpaqueId } from '../../../shared-kernel/identity'
@@ -798,7 +798,7 @@ function TemplateSettingsContent({
     setAuthorityReloadError(null)
     try {
       /** @brief 服务端当前权威模板设置 / Current authoritative template settings from the service. */
-      const authoritative = await gateway.getTemplateSettings(model.resumeId)
+      const authoritative = await gateway.getTemplateSettings(model.workspaceId, model.resumeId)
       /** @brief 新目录中仍可表达本地草稿的模板 / Template in the new catalog that can still express the local draft. */
       const draftTemplate = authoritative.availableTemplates.find(
         (template) => getTemplateIdentity(template) === draft.templateIdentity
@@ -843,7 +843,7 @@ function TemplateSettingsContent({
     } finally {
       setReloadingAuthority(false)
     }
-  }, [draft, gateway, isReloadingAuthority, model.resumeId])
+  }, [draft, gateway, isReloadingAuthority, model.resumeId, model.workspaceId])
 
   /**
    * @brief 根据失败类别选择安全恢复动作 / Choose a safe recovery action for the failure category.
@@ -1248,6 +1248,8 @@ export function TemplateSettingsPage(): React.JSX.Element {
   const { resumeId } = useParams()
   /** @brief 简历 gateway / Resume gateway. */
   const resume = useResumeGateway()
+  /** @brief 当前显式 Workspace 选择 / Current explicit Workspace selection. */
+  const { getCurrentWorkspace } = useWorkspaceSession()
   /** @brief 路由 ID 的不透明 UI 表达 / Opaque UI representation of route ID. */
   const requestedResumeId = useMemo(() => asUiOpaqueId<'resume'>(resumeId ?? ''), [resumeId])
   /** @brief 稳定的模板设置加载器 / Stable template-settings loader. */
@@ -1256,8 +1258,12 @@ export function TemplateSettingsPage(): React.JSX.Element {
       throw new Error('A resume identifier is required to open template settings.')
     }
 
-    return resume.getTemplateSettings(requestedResumeId)
-  }, [requestedResumeId, resume, resumeId])
+    const workspace = await getCurrentWorkspace()
+    if (workspace === undefined) {
+      throw new Error('A Workspace selection is required to open Resume template settings.')
+    }
+    return resume.getTemplateSettings(workspace.id, requestedResumeId)
+  }, [getCurrentWorkspace, requestedResumeId, resume, resumeId])
   /** @brief 模板设置异步资源 / Template-settings async resource. */
   const templateSettings = useAsyncResource(
     'resume.template_settings',

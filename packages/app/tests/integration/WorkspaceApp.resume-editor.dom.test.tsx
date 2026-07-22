@@ -5,6 +5,7 @@ import {
   MOCK_DAWN_TEMPLATE,
   MOCK_HISTORICAL_DAWN_TEMPLATE,
   MOCK_RESUME_ID,
+  MOCK_RESUME_WORKSPACE_ID,
   InMemoryResumeGateway
 } from '@ai-job-workspace/app/testing'
 
@@ -32,7 +33,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     /** @brief 当前测试独享的简历 Gateway / Resume Gateway owned by the current test. */
     const resume = new InMemoryResumeGateway()
     /** @brief A 简历权威投影 / Authoritative projection for Resume A. */
-    const editorA = await resume.getResumeEditor(MOCK_RESUME_ID)
+    const editorA = await resume.getResumeEditor(MOCK_RESUME_WORKSPACE_ID, MOCK_RESUME_ID)
     /** @brief B 简历领域 ID / Domain ID for Resume B. */
     const resumeBId = 'res_authoritative_b' as typeof MOCK_RESUME_ID
     /** @brief B 简历权威投影 / Authoritative projection for Resume B. */
@@ -51,7 +52,10 @@ describe('WorkspaceApp Resume editor', (): void => {
     const pendingEditorB = new Promise<typeof editorB>((resolve): void => {
       resolveEditorB = resolve
     })
-    vi.spyOn(resume, 'getResumeEditor').mockImplementation((requestedId) => {
+    vi.spyOn(resume, 'getResumeEditor').mockImplementation((workspaceId, requestedId) => {
+      if (workspaceId !== editorA.resume.workspaceId) {
+        return Promise.reject(new Error('Unexpected Workspace ID.'))
+      }
       if (requestedId === MOCK_RESUME_ID) return Promise.resolve(editorA)
       if (requestedId === resumeBId) return pendingEditorB
       return Promise.reject(new Error('Unexpected Resume ID.'))
@@ -163,7 +167,7 @@ describe('WorkspaceApp Resume editor', (): void => {
       /** @brief 当前测试独享的简历 Gateway / Resume Gateway owned by the current test. */
       const resume = new InMemoryResumeGateway()
       /** @brief 用户首次载入的简历投影 / Resume projection initially loaded by the user. */
-      const initial = await resume.getResumeEditor(MOCK_RESUME_ID)
+      const initial = await resume.getResumeEditor(MOCK_RESUME_WORKSPACE_ID, MOCK_RESUME_ID)
       /** @brief 服务端权威简历投影 / Authoritative server Resume projection. */
       const authoritative = {
         ...initial,
@@ -221,7 +225,7 @@ describe('WorkspaceApp Resume editor', (): void => {
       /** @brief 当前测试独享的简历 Gateway / Resume Gateway owned by the current test. */
       const resume = new InMemoryResumeGateway()
       /** @brief 用户首次载入的简历投影 / Resume projection initially loaded by the user. */
-      const initial = await resume.getResumeEditor(MOCK_RESUME_ID)
+      const initial = await resume.getResumeEditor(MOCK_RESUME_WORKSPACE_ID, MOCK_RESUME_ID)
       /** @brief reload 后返回的服务端权威投影 / Authoritative server projection returned after reload. */
       const authoritative = {
         ...initial,
@@ -337,7 +341,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     /** @brief 当前测试独享的简历 Gateway / Resume Gateway owned by the current test. */
     const resume = new InMemoryResumeGateway()
     /** @brief 待定写入完成后返回的权威投影 / Authoritative projection returned when the pending write completes. */
-    const initial = await resume.getResumeEditor(MOCK_RESUME_ID)
+    const initial = await resume.getResumeEditor(MOCK_RESUME_WORKSPACE_ID, MOCK_RESUME_ID)
     /** @brief 允许测试释放待定板块保存 / Resolver allowing the test to release the pending section save. */
     let resolveUpdate: ((editor: typeof initial) => void) | undefined
     /** @brief 保持板块保存待定的 Promise / Promise keeping the section save pending. */
@@ -490,7 +494,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     /** @brief 当前简历固定历史模板版本的测试 Gateway / Test gateway whose Resume is pinned to a historical template version. */
     const resume = new InMemoryResumeGateway()
     /** @brief 默认简历权威投影 / Default authoritative Resume projection. */
-    const current = await resume.getResumeEditor(MOCK_RESUME_ID)
+    const current = await resume.getResumeEditor(MOCK_RESUME_WORKSPACE_ID, MOCK_RESUME_ID)
     vi.spyOn(resume, 'getResumeEditor').mockResolvedValue({
       ...current,
       resume: {

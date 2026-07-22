@@ -416,5 +416,6 @@ export const MOCK_TEMPLATE_SETTINGS: UiTemplateSettingsModel = {
   resumeRevision: MOCK_RESUME_DOCUMENT.revision,
   selectedTemplate: MOCK_DAWN_TEMPLATE,
   availableTemplates: MOCK_TEMPLATE_MANIFESTS,
-  styleIntent: MOCK_RESUME_DOCUMENT.styleIntent
+  styleIntent: MOCK_RESUME_DOCUMENT.styleIntent,
+  workspaceId: MOCK_RESUME_WORKSPACE_ID
 }

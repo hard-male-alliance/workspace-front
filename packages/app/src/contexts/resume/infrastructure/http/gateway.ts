@@ -152,12 +152,21 @@ export class HttpResumeGateway implements ResumeGateway {
     })
   }
 
-  async getResumeEditor(resumeId: UiResumeId): Promise<UiResumeEditorModel> {
+  async getResumeEditor(
+    workspaceId: UiWorkspaceId,
+    resumeId: UiResumeId
+  ): Promise<UiResumeEditorModel> {
     const response = await this.#client.getJson(`/resumes/${encodeURIComponent(resumeId)}`)
     const dto = parseResumeDocumentDto(response.data)
     if (dto.id !== resumeId) {
       throw new HttpContractError(
         'Backend returned a different Resume than requested.',
+        response.status
+      )
+    }
+    if (dto.workspace_id !== workspaceId) {
+      throw new HttpContractError(
+        'Backend returned a Resume from a different Workspace than requested.',
         response.status
       )
     }
@@ -175,8 +184,11 @@ export class HttpResumeGateway implements ResumeGateway {
     }
   }
 
-  async getTemplateSettings(resumeId: UiResumeId): Promise<UiTemplateSettingsModel> {
-    const editor = await this.getResumeEditor(resumeId)
+  async getTemplateSettings(
+    workspaceId: UiWorkspaceId,
+    resumeId: UiResumeId
+  ): Promise<UiTemplateSettingsModel> {
+    const editor = await this.getResumeEditor(workspaceId, resumeId)
     const templates = await loadTemplateCatalogWithPinnedVersion(
       this,
       editor.resume.locale,
@@ -191,10 +203,11 @@ export class HttpResumeGateway implements ResumeGateway {
     }
     return {
       availableTemplates: templates,
-      resumeId,
+      resumeId: editor.resume.id,
       resumeRevision: editor.resume.revision,
       selectedTemplate: selected,
-      styleIntent: editor.resume.styleIntent
+      styleIntent: editor.resume.styleIntent,
+      workspaceId: editor.resume.workspaceId
     }
   }
 
@@ -405,7 +418,8 @@ export class HttpResumeGateway implements ResumeGateway {
         resumeId: input.resumeId,
         resumeRevision: editor.resume.revision,
         selectedTemplate: template,
-        styleIntent: editor.resume.styleIntent
+        styleIntent: editor.resume.styleIntent,
+        workspaceId: editor.resume.workspaceId
       }
     })
   }
@@ -417,7 +431,7 @@ export class HttpResumeGateway implements ResumeGateway {
     signal?: AbortSignal,
     expectedTemplate?: { readonly id: UiTemplateId; readonly version: string }
   ): Promise<UiResumeEditorModel> {
-    await this.#ensureWritableSnapshot(resumeId, baseRevision, signal)
+    const snapshot = await this.#ensureWritableSnapshot(resumeId, baseRevision, signal)
     const etag = this.#etagByResumeId.get(resumeId)
     if (etag === undefined) {
       throw new HttpContractError('Resume writes require an ETag from the backend.', 200)
@@ -488,7 +502,10 @@ export class HttpResumeGateway implements ResumeGateway {
       /** @brief 批次后的权威编辑器投影 / Authoritative editor projection after the batch. */
       let editor: UiResumeEditorModel
       if (result.normalized_document === null) {
-        editor = await this.getResumeEditor(resumeId)
+        editor = await this.getResumeEditor(
+          asUiOpaqueId<'workspace'>(snapshot.workspace_id),
+          resumeId
+        )
       } else {
         editor = this.#toEditor(result.normalized_document)
         this.#resumeById.set(resumeId, result.normalized_document)

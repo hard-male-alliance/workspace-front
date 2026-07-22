@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams } from 'react-router-dom'
-import { useAsyncResource, useResumeGateway } from '../../../app/AppData'
+import { useAsyncResource, useResumeGateway, useWorkspaceSession } from '../../../app/AppData'
 import { ResourceErrorState } from '../../../app/ResourceErrorState'
 import { asUiOpaqueId } from '../../../shared-kernel/identity'
 import { LoadingState } from '../../../ui'
@@ -25,6 +25,7 @@ export function ResumeEditorPage(): React.JSX.Element {
   const { t } = useTranslation()
   const { resumeId } = useParams()
   const resume = useResumeGateway()
+  const { getCurrentWorkspace } = useWorkspaceSession()
   const requestedResumeId = useMemo(() => asUiOpaqueId<'resume'>(resumeId ?? ''), [resumeId])
 
   const loadWorkspace = useCallback(async (): Promise<ResumeWorkspaceResources> => {
@@ -32,14 +33,18 @@ export function ResumeEditorPage(): React.JSX.Element {
       throw new Error('A resume identifier is required to open the editor.')
     }
 
-    const editor = await resume.getResumeEditor(requestedResumeId)
+    const workspace = await getCurrentWorkspace()
+    if (workspace === undefined) {
+      throw new Error('A Workspace selection is required to open a Resume.')
+    }
+    const editor = await resume.getResumeEditor(workspace.id, requestedResumeId)
     const templates = await loadTemplateCatalogWithPinnedVersion(
       resume,
       editor.resume.locale,
       editor.resume.template
     )
     return { editor, templates }
-  }, [requestedResumeId, resume, resumeId])
+  }, [getCurrentWorkspace, requestedResumeId, resume, resumeId])
   const workspace = useAsyncResource('resume.editor', loadWorkspace, requestedResumeId)
 
   if (workspace.status === 'loading') {

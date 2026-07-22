@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react'
 import { BookOpenText, BriefcaseBusiness, Database, LayoutDashboard, Moon, Sun } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import type { RuntimeInfo } from '@ai-job-workspace/platform'
@@ -156,14 +156,26 @@ export function WorkspaceShell({ runtimeInfo }: WorkspaceShellProps): React.JSX.
   const diagnostics = useDiagnostics()
   /** @brief 应用生命周期内缓存的 Workspace 会话 / Workspace session cached for the application lifecycle. */
   const workspaceSession = useWorkspaceSession()
+  /** @brief 当前 Workspace 选择修订号；变化时隔离并重载租户资源 / Current selection revision; changes isolate and reload tenant resources. */
+  const workspaceSelectionRevision = useSyncExternalStore(
+    workspaceSession.subscribe,
+    workspaceSession.getSelectionRevision,
+    workspaceSession.getSelectionRevision
+  )
   /** @brief 稳定的 Workspace 启动权威读取 / Stable Workspace bootstrap-authority read. */
   const loadWorkspaceAccess = useCallback(() => workspaceSession.getAccess(), [workspaceSession])
   /** @brief Shell 消费的真实当前用户与工作区状态 / Real current-user and Workspace state consumed by the shell. */
-  const workspaceAccess = useAsyncResource('workspace.session', loadWorkspaceAccess)
+  const workspaceAccess = useAsyncResource(
+    'workspace.session',
+    loadWorkspaceAccess,
+    workspaceSelectionRevision
+  )
   /** @brief 主题存储的首次读取结果 / First theme-storage read result. */
   const [initialTheme] = useState<InitialThemeResult>(readInitialTheme)
   /** @brief 当前界面主题 / Current interface theme. */
   const [theme, setTheme] = useState<ThemeMode>(initialTheme.theme)
+  /** @brief Workspace 选择失败的安全用户提示 / Safe user-facing Workspace-selection failure. */
+  const [workspaceSelectionFailed, setWorkspaceSelectionFailed] = useState(false)
 
   useEffect((): void => {
     document.documentElement.dataset.theme = theme
@@ -249,13 +261,46 @@ export function WorkspaceShell({ runtimeInfo }: WorkspaceShellProps): React.JSX.
                 <strong title={workspaceAccess.data.currentUser.displayName}>
                   {workspaceAccess.data.currentUser.displayName}
                 </strong>
-                <span title={workspaceAccess.data.currentWorkspace?.name}>
-                  {workspaceAccess.data.currentWorkspace?.name ??
-                    t('account.noWorkspace', { defaultValue: '暂无可用工作区' })}
-                  {runtimeInfo.platform === 'electron'
-                    ? ` · ${t('account.desktop', { defaultValue: '桌面版' })}`
-                    : ''}
-                </span>
+                {workspaceAccess.data.workspaces.length === 0 ? (
+                  <span>{t('account.noWorkspace', { defaultValue: '暂无可用工作区' })}</span>
+                ) : (
+                  <label className="aw-workspace-picker">
+                    <span className="aw-sr-only">
+                      {t('account.currentWorkspace', { defaultValue: '当前工作区' })}
+                    </span>
+                    <select
+                      aria-label={t('account.currentWorkspace', { defaultValue: '当前工作区' })}
+                      onChange={(event): void => {
+                        const workspaceId = event.currentTarget
+                          .value as (typeof workspaceAccess.data.workspaces)[number]['id']
+                        setWorkspaceSelectionFailed(false)
+                        void workspaceSession.selectWorkspace(workspaceId).catch((): void => {
+                          setWorkspaceSelectionFailed(true)
+                        })
+                      }}
+                      value={workspaceAccess.data.currentWorkspace?.id ?? ''}
+                    >
+                      <option disabled value="">
+                        {t('account.selectWorkspace', { defaultValue: '请选择工作区' })}
+                      </option>
+                      {workspaceAccess.data.workspaces.map((workspace) => (
+                        <option key={workspace.id} value={workspace.id}>
+                          {workspace.name}
+                        </option>
+                      ))}
+                    </select>
+                    {workspaceSelectionFailed ? (
+                      <span className="aw-sr-only" role="alert">
+                        {t('account.workspaceSelectionFailed', {
+                          defaultValue: '无法切换工作区，请刷新访问权限后重试。'
+                        })}
+                      </span>
+                    ) : null}
+                  </label>
+                )}
+                {runtimeInfo.platform === 'electron' ? (
+                  <span>{t('account.desktop', { defaultValue: '桌面版' })}</span>
+                ) : null}
               </>
             )}
           </div>
@@ -325,8 +370,25 @@ export function WorkspaceShell({ runtimeInfo }: WorkspaceShellProps): React.JSX.
               title={t('status.errorWorkspace', { defaultValue: '无法加载工作区' })}
             />
           </div>
+        ) : workspaceAccess.data.currentWorkspace === undefined ? (
+          <div className="aw-page aw-empty-page">
+            <h1 className="aw-page-title">
+              {workspaceAccess.data.workspaces.length === 0
+                ? t('workspace.selection.noneTitle', { defaultValue: '没有可用工作区' })
+                : t('workspace.selection.title', { defaultValue: '选择工作区' })}
+            </h1>
+            <p className="aw-page-description">
+              {workspaceAccess.data.workspaces.length === 0
+                ? t('workspace.selection.noneDescription', {
+                    defaultValue: '当前账户没有可访问的工作区，无法加载简历和其他工作区内容。'
+                  })
+                : t('workspace.selection.description', {
+                    defaultValue: '请先在账户区域明确选择一个工作区，再继续加载其中的内容。'
+                  })}
+            </p>
+          </div>
         ) : (
-          <Outlet />
+          <Outlet key={workspaceSelectionRevision} />
         )}
       </main>
     </div>

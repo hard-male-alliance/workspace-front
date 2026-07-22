@@ -87,7 +87,10 @@ describe('WorkspaceApp workspace-home Resume navigation', (): void => {
     render(<WorkspaceApp gateways={createTestGateways({ resume })} initialPath="/resumes" />)
 
     await vi.waitFor((): void => {
-      expect(getResumeEditor).toHaveBeenCalledWith(asUiOpaqueId<'resume'>('res_mock_ai_platform'))
+      expect(getResumeEditor).toHaveBeenCalledWith(
+        asUiOpaqueId<'workspace'>('ws_mock_klee_career_lab'),
+        asUiOpaqueId<'resume'>('res_mock_ai_platform')
+      )
     })
   })
 

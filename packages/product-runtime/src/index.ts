@@ -13,6 +13,8 @@ import {
 
 /** @brief 产品宿主向共享组合根声明的真实能力 / Actual capabilities declared by a product host to the shared composition root. */
 export interface ProductGatewayOptions {
+  /** @brief 当前后端实际实现的产品 API major；不允许自动降级 / Product API major actually implemented by the backend; automatic fallback is forbidden. */
+  readonly apiMajor: 'v1'
   /** @brief 契约使用的 BCP 47 界面语言 / BCP 47 UI locale sent through the contract. */
   readonly locale: string
   /** @brief 当前正式产品宿主 / Current production product host. */
@@ -85,6 +87,9 @@ export function createProductGateways(
   diagnostics: Diagnostics,
   options: ProductGatewayOptions
 ): AppGateways {
+  if (options.apiMajor !== 'v1') {
+    throw new Error('The requested product API major is not implemented by this frontend runtime.')
+  }
   /** @brief 共享 HTTP 客户端 / Shared HTTP client. */
   const client = createHttpClient({
     acceptLanguage: options.locale,

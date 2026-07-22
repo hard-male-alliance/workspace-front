@@ -40,6 +40,7 @@ function bootstrapWebApplication(): void {
   })
   /** @brief 仅指向契约 HTTP adapter 的产品网关 / Product gateways backed only by contract HTTP adapters. */
   const gateways = createProductGateways(apiBaseUrl, diagnostics, {
+    apiMajor: 'v1',
     locale: navigator.language,
     platform: 'web'
   })
