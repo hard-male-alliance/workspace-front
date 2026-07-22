@@ -24,7 +24,7 @@
     "smoke:desktop:packaged": "node scripts/desktop-packaged-smoke.mjs",
     "verify:desktop:package": "pnpm package && pnpm smoke:desktop:packaged",
     "preview": "pnpm --filter @ai-job-workspace/web preview",
-    "typecheck": "tsc -p tsconfig.node.json --noEmit --pretty false && tsc -p tsconfig.renderer.json --noEmit --pretty false",
+    "typecheck": "tsc -p tsconfig.node.json --noEmit --pretty false && tsc -p tsconfig.frontend-node-tests.json --noEmit --pretty false && tsc -p tsconfig.renderer.json --noEmit --pretty false",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",
     "check:artifacts": "node scripts/check-production-artifacts.mjs",
