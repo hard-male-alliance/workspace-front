@@ -26,6 +26,7 @@
     "paths": {
       "@ai-job-workspace/app": ["packages/app/src/index.ts"],
       "@ai-job-workspace/platform": ["packages/platform/src/index.ts"],
+      "@ai-job-workspace/product-api-v2": ["packages/product-api-v2/src/index.ts"],
       "@ai-job-workspace/product-runtime": ["packages/product-runtime/src/index.ts"]
     },
     "types": ["vitest/globals"]

@@ -2,9 +2,7 @@
 
 import { resolveDiagnosticsEndpointConfiguration } from '@ai-job-workspace/platform'
 import type { DiagnosticsEndpointConfiguration } from '@ai-job-workspace/platform'
-
-import { resolveApiBaseUrl } from './api-config'
-import type { PublicApiEnvironment } from './api-config'
+import { API_V2_OAUTH_ISSUER } from '@ai-job-workspace/product-api-v2'
 
 /** @brief 固定的前端诊断批量上传路径 / Fixed frontend-diagnostics batch upload path. */
 export { FRONTEND_DIAGNOSTICS_BATCH_PATH } from '@ai-job-workspace/platform'
@@ -20,7 +18,7 @@ export interface PublicDiagnosticsEnvironment {
 }
 
 /** @brief 用于 Web CSP 的公开环境合集 / Combined public environment used for Web CSP. */
-export type PublicWebEnvironment = PublicApiEnvironment & PublicDiagnosticsEnvironment
+export type PublicWebEnvironment = PublicDiagnosticsEnvironment
 
 /** @brief 可选诊断上传的三态配置 / Three-state configuration for optional diagnostics upload. */
 export type DiagnosticsUploadConfiguration = DiagnosticsEndpointConfiguration
@@ -56,8 +54,8 @@ export function resolveDiagnosticsUploadConfiguration(
  * @note 运行时不能放宽 CSP；构建时仅加入已验证的 API/diagnostics origin。
  */
 export function createWebContentSecurityPolicy(options: WebContentSecurityPolicyOptions): string {
-  /** @brief 已校验的产品 API 源，同时用于网络请求和 PDF iframe / Validated product API origin for requests and PDF frames. */
-  const apiOrigin = resolveApiBaseUrl(options.environment)
+  /** @brief 已校验的产品 API 源，用于网络请求与公开模板预览 / Validated product API origin for requests and public Template previews. */
+  const apiOrigin = API_V2_OAUTH_ISSUER
   /** @brief 去重后的 connect-src allowlist / Deduplicated connect-src allowlist. */
   const connectSources = new Set<string>(["'self'", apiOrigin])
   /** @brief 诊断上传的三态解析结果 / Three-state diagnostics-upload resolution. */
@@ -71,5 +69,5 @@ export function createWebContentSecurityPolicy(options: WebContentSecurityPolicy
     connectSources.add('ws://127.0.0.1:5173')
   }
 
-  return `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src ${[...connectSources].join(' ')}; frame-src 'self' ${apiOrigin}; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'`
+  return `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' ${apiOrigin} data: blob:; font-src 'self' data:; connect-src ${[...connectSources].join(' ')}; frame-src 'self' blob:; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'`
 }

@@ -6,7 +6,6 @@ describe('Web Content Security Policy', (): void => {
   it('allows the exact product API and enabled diagnostics origins in production', (): void => {
     const policy = createWebContentSecurityPolicy({
       environment: {
-        VITE_API_BASE_URL: 'https://api.example.test:9443',
         VITE_DIAGNOSTICS_HOSTNAME: 'diagnostics.example.test',
         VITE_DIAGNOSTICS_PORT: '8443'
       },
@@ -14,9 +13,11 @@ describe('Web Content Security Policy', (): void => {
     })
 
     expect(policy).toContain(
-      "connect-src 'self' https://api.example.test:9443 https://diagnostics.example.test:8443"
+      "connect-src 'self' https://api.hmalliances.org:8022 https://diagnostics.example.test:8443"
     )
-    expect(policy).toContain("frame-src 'self' https://api.example.test:9443")
+    expect(policy).toContain("img-src 'self' https://api.hmalliances.org:8022 data: blob:")
+    expect(policy).toContain("frame-src 'self' blob:")
+    expect(policy).not.toContain("frame-src 'self' https://api.hmalliances.org:8022")
     expect(policy).not.toContain('localhost')
     expect(policy).not.toContain('*')
   })
@@ -24,7 +25,7 @@ describe('Web Content Security Policy', (): void => {
   it('keeps exact localhost and WebSocket sources for Vite development', (): void => {
     const policy = createWebContentSecurityPolicy({
       environment: {
-        VITE_API_BASE_URL: 'https://api.example.test'
+        VITE_DIAGNOSTICS_HOSTNAME: undefined
       },
       includeDevelopmentSources: true
     })

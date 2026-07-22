@@ -128,6 +128,9 @@ importers:
       '@ai-job-workspace/platform':
         specifier: workspace:*
         version: link:../../packages/platform
+      '@ai-job-workspace/product-api-v2':
+        specifier: workspace:*
+        version: link:../../packages/product-api-v2
       '@ai-job-workspace/product-runtime':
         specifier: workspace:*
         version: link:../../packages/product-runtime
