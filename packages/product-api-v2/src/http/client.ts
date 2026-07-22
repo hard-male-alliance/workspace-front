@@ -1,6 +1,7 @@
 /** @file 带内存 Bearer 凭证的 API v2 只读 HTTP 边界 / API v2 read-only HTTP boundary with in-memory Bearer credentials. */
 
 import { locale, opaqueId } from './contract'
+import { readBoundedJson } from './bounded-json'
 import { ApiV2AuthenticationRequiredError, ApiV2ContractError, ApiV2NetworkError } from './errors'
 import { parseProblemDetails } from './problem'
 import { ApiV2ProblemError } from './problem-error'
@@ -350,70 +351,6 @@ function assertUnauthorizedChallenge(response: Response): void {
 }
 
 /**
- * @brief 在反序列化前按实际字节限制并读取 JSON / Read JSON under an actual byte limit before deserialization.
- * @param response 原始 fetch 响应 / Raw fetch response.
- * @param maximumBytes 当前端点最大响应字节数 / Maximum response bytes for the endpoint.
- * @return 语法有效的 JSON 值 / Syntactically valid JSON value.
- */
-async function readBoundedJson(response: Response, maximumBytes: number): Promise<unknown> {
-  /** @brief 服务端声明的表示长度 / Representation length declared by the server. */
-  const contentLength = response.headers.get('Content-Length')
-  if (contentLength !== null) {
-    /** @brief 十进制 Content-Length / Decimal Content-Length. */
-    const declaredBytes = /^\d+$/u.test(contentLength) ? Number(contentLength) : Number.NaN
-    if (!Number.isSafeInteger(declaredBytes) || declaredBytes > maximumBytes) {
-      throw new ApiV2ContractError(
-        'API v2 response exceeds its pre-deserialization byte limit.',
-        response.status
-      )
-    }
-  }
-  if (response.body === null) {
-    throw new ApiV2ContractError('API v2 response contains malformed JSON.', response.status)
-  }
-  /** @brief 响应流 reader / Response-stream reader. */
-  const reader = response.body.getReader()
-  /** @brief 未合并的受限字节块 / Bounded byte chunks before joining. */
-  const chunks: Uint8Array[] = []
-  /** @brief 已读取实际字节数 / Actual byte count read so far. */
-  let receivedBytes = 0
-  while (true) {
-    /** @brief 下一响应流读取结果 / Next response-stream read result. */
-    const result = await reader.read()
-    if (result.done) break
-    receivedBytes += result.value.byteLength
-    if (receivedBytes > maximumBytes) {
-      await reader.cancel().catch(() => undefined)
-      throw new ApiV2ContractError(
-        'API v2 response exceeds its pre-deserialization byte limit.',
-        response.status
-      )
-    }
-    chunks.push(result.value)
-  }
-  /** @brief 合并后的完整受限表示 / Complete bounded representation after joining chunks. */
-  const bytes = new Uint8Array(receivedBytes)
-  /** @brief 当前写入 offset / Current write offset. */
-  let offset = 0
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  /** @brief 严格 UTF-8 JSON 文本 / Strict UTF-8 JSON text. */
-  let text: string
-  try {
-    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-  } catch {
-    throw new ApiV2ContractError('API v2 response is not valid UTF-8.', response.status)
-  }
-  try {
-    return JSON.parse(text) as unknown
-  } catch {
-    throw new ApiV2ContractError('API v2 response contains malformed JSON.', response.status)
-  }
-}
-
-/**
  * @brief 解析 JSON success 或 Problem 响应 / Parse a JSON success or Problem response.
  * @param response 原始 fetch 响应 / Raw fetch response.
  * @param expectedStatus 当前端点成功状态 / Success status expected by the endpoint.
@@ -457,7 +394,10 @@ async function parseResponse(
     )
   }
   /** @brief 语法有效但尚未按领域 Schema 验证的 JSON / Syntactically valid JSON awaiting domain-schema validation. */
-  const data = await readBoundedJson(response, maximumBytes)
+  const data = await readBoundedJson(response, {
+    context: 'API v2 response',
+    maximumBytes
+  })
   if (!response.ok) {
     /** @brief 已完整验证的 Problem / Fully validated Problem. */
     const problem = parseProblemDetails(data, response.status)

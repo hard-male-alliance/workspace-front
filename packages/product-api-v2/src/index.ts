@@ -35,3 +35,50 @@ export type {
   WorkspacePlan,
   WorkspaceRole
 } from './workspace/workspace-access'
+export {
+  createWebAuthorizationRequest,
+  restoreWebAuthorizationTransaction,
+  snapshotWebAuthorizationTransaction
+} from './oauth/authorization'
+export type {
+  CreateWebAuthorizationOptions,
+  OfflineAccessConsent,
+  WebAuthorizationRequest,
+  WebAuthorizationScreenHint,
+  WebAuthorizationTransaction,
+  WebAuthorizationTransactionSnapshot
+} from './oauth/authorization'
+export { parseAuthorizationCallback } from './oauth/callback'
+export type { AuthorizationCodeResponse } from './oauth/callback'
+export {
+  API_V2_OAUTH_AUTHORIZATION_ENDPOINT,
+  API_V2_OAUTH_ISSUER,
+  API_V2_OAUTH_JWKS_URI,
+  API_V2_OAUTH_REVOCATION_ENDPOINT,
+  API_V2_OAUTH_TOKEN_ENDPOINT,
+  API_V2_OAUTH_USERINFO_ENDPOINT,
+  API_V2_OIDC_DISCOVERY_URL,
+  fetchOidcDiscovery,
+  parseOidcDiscovery
+} from './oauth/discovery'
+export type { OidcDiscoveryDocument } from './oauth/discovery'
+export { OAuthAuthorizationResponseError, OAuthTokenResponseError } from './oauth/errors'
+export {
+  RejectingIdTokenSignatureVerifier,
+  validateIdTokenClaims,
+  verifyIdToken
+} from './oauth/id-token'
+export type {
+  IdTokenSignatureVerificationInput,
+  IdTokenSignatureVerifier,
+  VerifiedIdTokenClaims
+} from './oauth/id-token'
+export { completeWebAuthorization, InMemoryWebTokenSession } from './oauth/session'
+export type { CompleteWebAuthorizationOptions } from './oauth/session'
+export { exchangeAuthorizationCode, parseAuthorizationCodeTokenResponse } from './oauth/token'
+export type { AuthorizationCodeTokenResponse } from './oauth/token'
+export { WebCryptoJwksIdTokenVerifier } from './oauth/webcrypto-jwks-verifier'
+export type {
+  SupportedIdTokenAlgorithm,
+  WebCryptoJwksIdTokenVerifierOptions
+} from './oauth/webcrypto-jwks-verifier'
