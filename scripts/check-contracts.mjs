@@ -16,8 +16,10 @@ const DEFAULT_SUBMODULE_PATH = 'workspace-shared-docs'
 
 /** @brief 当前版本必须存在的契约入口 / Contract entrypoints required by the current version. */
 const REQUIRED_CONTRACT_ENTRIES = Object.freeze([
-  'contracts/v1/ai-job-workspace-api-contract.md',
-  'contracts/v1/ai-job-workspace.contract.schema.json'
+  'contracts/v2/contract.md',
+  'contracts/v2/schema.jsonc',
+  'contracts/v2/examples.jsonc',
+  'contracts/v2/diff.md'
 ])
 
 /**
