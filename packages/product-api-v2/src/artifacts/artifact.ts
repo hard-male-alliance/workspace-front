@@ -84,7 +84,7 @@ export interface ArtifactRepresentation {
  * @param path 诊断字段路径 / Diagnostic field path.
  * @return 已验证 Artifact 种类 / Validated Artifact kind.
  */
-function artifactKind(value: unknown, path: string): ArtifactKind {
+export function artifactKind(value: unknown, path: string): ArtifactKind {
   /** @brief 已确认字符串 / Confirmed string. */
   const decoded = boundedString(value, path, 1, 100)
   /** @brief canonical Artifact 种类 / Canonical Artifact kinds. */

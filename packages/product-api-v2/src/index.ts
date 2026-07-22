@@ -72,6 +72,8 @@ export type {
   ArtifactReadRequest,
   ArtifactRepresentation
 } from './artifacts/artifact'
+export { listWorkspaceArtifactPage, parseArtifactList } from './artifacts/artifact-collection'
+export type { ArtifactListPageRequest } from './artifacts/artifact-collection'
 export { getWorkspaceArtifactContent } from './artifacts/artifact-content'
 export type {
   ArtifactByteRange,
