@@ -179,6 +179,53 @@ export function boundedString(
 }
 
 /**
+ * @brief 断言字符串属于闭合枚举 / Assert that a string belongs to a closed enum.
+ * @template TValue 枚举成员类型 / Enum-member type.
+ * @param value 未知输入 / Unknown input.
+ * @param path 诊断字段路径 / Diagnostic field path.
+ * @param allowedValues Schema 明确允许的成员 / Members explicitly allowed by the schema.
+ * @return 已验证枚举成员 / Validated enum member.
+ */
+export function closedStringEnum<const TValue extends string>(
+  value: unknown,
+  path: string,
+  allowedValues: readonly TValue[]
+): TValue {
+  /** @brief 已确认字符串 / Confirmed string. */
+  const decoded = stringValue(value, path)
+  /** @brief 与输入精确匹配的枚举成员 / Enum member exactly matching the input. */
+  const member = allowedValues.find((candidate) => candidate === decoded)
+  if (member === undefined) {
+    throw new ApiV2ContractError(`API v2 field ${path} is not a supported value.`)
+  }
+  return member
+}
+
+/**
+ * @brief 断言有界字符串符合冻结格式 / Assert that a bounded string matches a frozen format.
+ * @param value 未知输入 / Unknown input.
+ * @param path 诊断字段路径 / Diagnostic field path.
+ * @param minimumLength 最小字符数 / Minimum character count.
+ * @param maximumLength 最大字符数 / Maximum character count.
+ * @param pattern Schema 冻结格式 / Schema-frozen format.
+ * @return 已验证字符串 / Validated string.
+ */
+export function patternedString(
+  value: unknown,
+  path: string,
+  minimumLength: number,
+  maximumLength: number,
+  pattern: RegExp
+): string {
+  /** @brief 已验证长度的字符串 / String validated for length. */
+  const decoded = boundedString(value, path, minimumLength, maximumLength)
+  if (!pattern.test(decoded)) {
+    throw new ApiV2ContractError(`API v2 field ${path} has an invalid format.`)
+  }
+  return decoded
+}
+
+/**
  * @brief 断言未知值为布尔值 / Assert that an unknown value is boolean.
  * @param value 未知输入 / Unknown input.
  * @param path 诊断字段路径 / Diagnostic field path.
@@ -214,23 +261,57 @@ export function boundedInteger(
 }
 
 /**
- * @brief 断言未知值为数组并限制条目数 / Assert an array and constrain its item count.
+ * @brief 断言有限 JSON number 位于闭区间 / Assert a finite JSON number lies in an inclusive range.
  * @param value 未知输入 / Unknown input.
  * @param path 诊断字段路径 / Diagnostic field path.
- * @param maximumItems 最大条目数 / Maximum item count.
- * @return 已验证数组 / Validated array.
+ * @param minimum 最小值 / Minimum value.
+ * @param maximum 最大值 / Maximum value.
+ * @return 已验证 number / Validated number.
  */
-export function boundedArray(
+export function boundedNumber(
   value: unknown,
   path: string,
-  maximumItems: number
-): readonly unknown[] {
-  if (!Array.isArray(value) || value.length > maximumItems) {
+  minimum: number,
+  maximum: number
+): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < minimum || value > maximum) {
     throw new ApiV2ContractError(
-      `API v2 field ${path} must be an array with at most ${maximumItems} items.`
+      `API v2 field ${path} must be a finite number between ${minimum} and ${maximum}.`
     )
   }
   return value
+}
+
+/**
+ * @brief 断言未知输入为任意有限 JSON number / Assert unknown input is any finite JSON number.
+ * @param value 未知输入 / Unknown input.
+ * @param path 诊断字段路径 / Diagnostic field path.
+ * @return 已验证 number / Validated number.
+ */
+export function finiteNumber(value: unknown, path: string): number {
+  return boundedNumber(value, path, -Number.MAX_VALUE, Number.MAX_VALUE)
+}
+
+/**
+ * @brief 断言普通 JSON array 稠密且条目数位于闭区间 / Assert a plain JSON array is dense and its item count lies in an inclusive range.
+ * @param value 未知输入 / Unknown input.
+ * @param path 诊断字段路径 / Diagnostic field path.
+ * @param minimumItems 最小条目数 / Minimum item count.
+ * @param maximumItems 最大条目数 / Maximum item count.
+ * @return 无 accessor 的稠密数组元素快照 / Dense snapshot of array items without accessors.
+ */
+export function arrayBetween(
+  value: unknown,
+  path: string,
+  minimumItems: number,
+  maximumItems: number
+): readonly unknown[] {
+  if (!Array.isArray(value) || value.length < minimumItems || value.length > maximumItems) {
+    throw new ApiV2ContractError(
+      `API v2 field ${path} must contain between ${minimumItems} and ${maximumItems} items.`
+    )
+  }
+  return jsonArrayDataItems(value, path)
 }
 
 /**

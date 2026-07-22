@@ -1,7 +1,15 @@
 /** @file API v2 PDF Artifact source-map 投影与读取 / API v2 PDF Artifact source-map projection and read. */
 
 import type { ApiV2Client } from '../http/client'
-import { boundedInteger, boundedString, exactRecord, opaqueId } from '../http/contract'
+import {
+  arrayBetween,
+  boundedInteger,
+  boundedNumber,
+  boundedString,
+  exactRecord,
+  finiteNumber,
+  opaqueId
+} from '../http/contract'
 import { ApiV2ContractError } from '../http/errors'
 
 /** @brief PdfSourceMap 响应的解码前字节上限 / Pre-decoding byte ceiling for a PdfSourceMap response. */
@@ -59,49 +67,6 @@ export interface PdfSourceMapReadRequest {
 }
 
 /**
- * @brief 校验 Schema array 的长度与稠密性 / Validate a Schema array's length and density.
- * @param value 未知数组 / Unknown array.
- * @param path 诊断字段路径 / Diagnostic field path.
- * @param minimumItems 最小条目数 / Minimum item count.
- * @param maximumItems 最大条目数 / Maximum item count.
- * @return 已验证稠密数组 / Validated dense array.
- */
-function schemaArray(
-  value: unknown,
-  path: string,
-  minimumItems: number,
-  maximumItems: number
-): readonly unknown[] {
-  if (!Array.isArray(value) || value.length < minimumItems || value.length > maximumItems) {
-    throw new ApiV2ContractError(
-      `API v2 field ${path} must contain between ${minimumItems} and ${maximumItems} items.`
-    )
-  }
-  /** @brief 可枚举数组 keys / Enumerable array keys. */
-  const keys = Object.keys(value)
-  if (keys.length !== value.length || keys.some((key, index) => key !== String(index))) {
-    throw new ApiV2ContractError(`API v2 field ${path} must be a dense JSON array.`)
-  }
-  return value
-}
-
-/**
- * @brief 校验有限 JSON number 与可选下界 / Validate a finite JSON number and optional lower bound.
- * @param value 未知 number / Unknown number.
- * @param path 诊断字段路径 / Diagnostic field path.
- * @param minimum 最小允许值 / Minimum permitted value.
- * @return 已验证有限 number / Validated finite number.
- */
-function finiteNumber(value: unknown, path: string, minimum = -Number.MAX_VALUE): number {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < minimum) {
-    throw new ApiV2ContractError(
-      `API v2 field ${path} must be a finite number no smaller than ${minimum}.`
-    )
-  }
-  return value
-}
-
-/**
  * @brief 严格解码 PdfRect / Strictly decode a PdfRect.
  * @param value 未知矩形 / Unknown rectangle.
  * @param path 诊断字段路径 / Diagnostic field path.
@@ -114,9 +79,9 @@ function parsePdfRect(value: unknown, path: string): PdfRect {
     throw new ApiV2ContractError(`API v2 field ${path}.unit must equal pt.`)
   }
   return {
-    height: finiteNumber(input.height, `${path}.height`, 0),
+    height: boundedNumber(input.height, `${path}.height`, 0, Number.MAX_VALUE),
     unit: 'pt',
-    width: finiteNumber(input.width, `${path}.width`, 0),
+    width: boundedNumber(input.width, `${path}.width`, 0, Number.MAX_VALUE),
     x: finiteNumber(input.x, `${path}.x`),
     y: finiteNumber(input.y, `${path}.y`)
   }
@@ -132,9 +97,9 @@ function parsePdfSourceNode(value: unknown, path: string): PdfSourceNode {
   /** @brief 精确 PdfSourceNode 对象 / Exact PdfSourceNode object. */
   const input = exactRecord(value, path, ['entity_id', 'field_path', 'page', 'rects'])
   /** @brief 未映射 field path segments / Unmapped field-path segments. */
-  const fieldPath = schemaArray(input.field_path, `${path}.field_path`, 0, 20)
+  const fieldPath = arrayBetween(input.field_path, `${path}.field_path`, 0, 20)
   /** @brief 未映射 PDF rectangles / Unmapped PDF rectangles. */
-  const rects = schemaArray(input.rects, `${path}.rects`, 1, Number.MAX_SAFE_INTEGER)
+  const rects = arrayBetween(input.rects, `${path}.rects`, 1, Number.MAX_SAFE_INTEGER)
   return {
     entity_id: opaqueId(input.entity_id, `${path}.entity_id`),
     field_path: fieldPath.map((segment, index) =>
@@ -159,7 +124,7 @@ export function parsePdfSourceMap(value: unknown): PdfSourceMap {
     'nodes'
   ])
   /** @brief 未映射 source nodes / Unmapped source nodes. */
-  const nodes = schemaArray(input.nodes, 'pdf_source_map.nodes', 0, PDF_SOURCE_MAP_MAXIMUM_NODES)
+  const nodes = arrayBetween(input.nodes, 'pdf_source_map.nodes', 0, PDF_SOURCE_MAP_MAXIMUM_NODES)
   return {
     artifact_id: opaqueId(input.artifact_id, 'pdf_source_map.artifact_id'),
     nodes: nodes.map((node, index) => parsePdfSourceNode(node, `pdf_source_map.nodes[${index}]`)),

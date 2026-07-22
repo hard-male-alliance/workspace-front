@@ -2,7 +2,7 @@
 
 import type { ApiV2Client } from '../http/client'
 import {
-  boundedArray,
+  arrayBetween,
   boundedInteger,
   boundedString,
   exactRecord,
@@ -74,7 +74,7 @@ export function parseResumeList(value: unknown): CursorCollection<ResumeSummary>
   /** @brief 精确集合对象 / Exact collection object. */
   const input = exactRecord(value, 'resume_list', ['items', 'page'])
   /** @brief 未映射摘要 / Unmapped summaries. */
-  const items = boundedArray(input.items, 'resume_list.items', 200)
+  const items = arrayBetween(input.items, 'resume_list.items', 0, 200)
   return {
     items: items.map((item, index) => parseResumeSummary(item, `resume_list.items[${index}]`)),
     page: parseCursorPage(input.page, 'resume_list.page')

@@ -4,6 +4,7 @@ import type { ApiV2Client } from '../http/client'
 import {
   boundedInteger,
   boundedString,
+  closedStringEnum,
   exactRecord,
   networkUrl,
   opaqueId,
@@ -85,8 +86,6 @@ export interface ArtifactRepresentation {
  * @return 已验证 Artifact 种类 / Validated Artifact kind.
  */
 export function artifactKind(value: unknown, path: string): ArtifactKind {
-  /** @brief 已确认字符串 / Confirmed string. */
-  const decoded = boundedString(value, path, 1, 100)
   /** @brief canonical Artifact 种类 / Canonical Artifact kinds. */
   const allowed: readonly ArtifactKind[] = [
     'resume_pdf',
@@ -97,10 +96,7 @@ export function artifactKind(value: unknown, path: string): ArtifactKind {
     'interview_transcript',
     'generic'
   ]
-  if (!allowed.includes(decoded as ArtifactKind)) {
-    throw new ApiV2ContractError(`API v2 field ${path} contains an unknown Artifact kind.`)
-  }
-  return decoded as ArtifactKind
+  return closedStringEnum(value, path, allowed)
 }
 
 /**

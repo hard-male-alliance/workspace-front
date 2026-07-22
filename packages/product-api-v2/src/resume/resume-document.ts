@@ -1,9 +1,12 @@
 /** @file API v2 ResumeDocument wire 模型、请求 encoder 与严格 decoder / API v2 ResumeDocument wire models, request encoder, and strict decoder. */
 
 import {
+  arrayBetween,
   booleanValue,
   boundedInteger,
+  boundedNumber,
   boundedString,
+  closedStringEnum,
   exactRecord,
   extensions,
   locale,
@@ -25,11 +28,8 @@ import {
   type TemplateRef
 } from './template'
 import {
-  arrayBetween,
   assertUniqueBy,
   assertUniqueStrings,
-  boundedNumber,
-  enumValue,
   jsonValuesEqual,
   nullable,
   parseJsonMap,
@@ -430,7 +430,7 @@ function parseTextMark(value: unknown, path: string, textLength: number): TextMa
   /** @brief 精确 mark 对象 / Exact mark object. */
   const input = exactRecord(value, path, ['start', 'end', 'kind', 'href'])
   /** @brief mark kind / Mark kind. */
-  const kind = enumValue(input.kind, `${path}.kind`, ['strong', 'emphasis', 'link'])
+  const kind = closedStringEnum(input.kind, `${path}.kind`, ['strong', 'emphasis', 'link'])
   /** @brief 起始 offset / Start offset. */
   const start = boundedInteger(input.start, `${path}.start`, 0, Number.MAX_SAFE_INTEGER)
   /** @brief 结束 offset / End offset. */
@@ -504,7 +504,7 @@ function parseContactMethod(value: unknown, path: string): ContactMethod {
   const input = exactRecord(value, path, ['id', 'kind', 'label', 'value', 'url'])
   return {
     id: opaqueId(input.id, `${path}.id`),
-    kind: enumValue(input.kind, `${path}.kind`, [
+    kind: closedStringEnum(input.kind, `${path}.kind`, [
       'email',
       'phone',
       'website',
@@ -602,7 +602,7 @@ export function parseResumeItem(value: unknown, path: string): ResumeItem {
       parseRichText(highlight, `${path}.highlights[${index}]`)
     ),
     id: opaqueId(input.id, `${path}.id`),
-    kind: enumValue(input.kind, `${path}.kind`, [
+    kind: closedStringEnum(input.kind, `${path}.kind`, [
       'experience',
       'education',
       'project',
@@ -647,7 +647,7 @@ export function parseResumeSection(value: unknown, path: string): ResumeSection 
     content: nullable(input.content, (candidate) => parseRichText(candidate, `${path}.content`)),
     id: opaqueId(input.id, `${path}.id`),
     items: itemInputs.map((item, index) => parseResumeItem(item, `${path}.items[${index}]`)),
-    kind: enumValue(input.kind, `${path}.kind`, [
+    kind: closedStringEnum(input.kind, `${path}.kind`, [
       'experience',
       'education',
       'projects',
@@ -699,7 +699,7 @@ function parseResumePageIntent(value: unknown, path: string): ResumePageIntent {
     'show_page_numbers'
   ])
   /** @brief 页面尺寸 / Page size. */
-  const size = enumValue(input.size, `${path}.size`, ['A4', 'LETTER', 'LEGAL', 'CUSTOM'])
+  const size = closedStringEnum(input.size, `${path}.size`, ['A4', 'LETTER', 'LEGAL', 'CUSTOM'])
   /** @brief CUSTOM 宽度 / CUSTOM width. */
   const customWidth = nullable(input.custom_width, (candidate) =>
     parseMeasurement(candidate, `${path}.custom_width`)
@@ -715,7 +715,10 @@ function parseResumePageIntent(value: unknown, path: string): ResumePageIntent {
     max_pages: nullable(input.max_pages, (candidate) =>
       boundedInteger(candidate, `${path}.max_pages`, 1, 100)
     ),
-    orientation: enumValue(input.orientation, `${path}.orientation`, ['portrait', 'landscape']),
+    orientation: closedStringEnum(input.orientation, `${path}.orientation`, [
+      'portrait',
+      'landscape'
+    ]),
     show_page_numbers: booleanValue(input.show_page_numbers, `${path}.show_page_numbers`),
     size
   }
@@ -837,7 +840,7 @@ function parseResumeStyleIntent(value: unknown, path: string): ResumeStyleIntent
     page: parseResumePageIntent(input.page, `${path}.page`),
     palette: parsePaletteIntent(input.palette, `${path}.palette`),
     section_layout: sectionLayout,
-    style_contract_version: enumValue(
+    style_contract_version: closedStringEnum(
       input.style_contract_version,
       `${path}.style_contract_version`,
       ['1.0']

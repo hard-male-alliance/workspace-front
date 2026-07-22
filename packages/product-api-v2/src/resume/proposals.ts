@@ -6,9 +6,10 @@ import type {
   ApiV2UpdatedWriteJsonResponse
 } from '../http/client'
 import {
-  boundedArray,
+  arrayBetween,
   boundedInteger,
   boundedString,
+  closedStringEnum,
   exactRecord,
   idempotencyKey,
   opaqueId,
@@ -27,7 +28,7 @@ import {
   type ResumeOperation,
   type ResumeOperationResult
 } from './operations'
-import { enumValue, arrayBetween, assertUniqueStrings } from './wire-decoding'
+import { assertUniqueStrings } from './wire-decoding'
 
 /** @brief Proposal 列表页的逐路由响应字节上限 / Per-route response-byte ceiling for a Proposal list page. */
 const RESUME_PROPOSAL_LIST_MAX_RESPONSE_BYTES = 16 * 1024 * 1024
@@ -219,7 +220,7 @@ export function parseResumeProposal(value: unknown, path = 'resume_proposal'): R
       1,
       Number.MAX_SAFE_INTEGER
     ),
-    evidence_refs: boundedArray(input.evidence_refs, `${path}.evidence_refs`, 200).map(
+    evidence_refs: arrayBetween(input.evidence_refs, `${path}.evidence_refs`, 0, 200).map(
       (reference, index) => parseResourceReference(reference, `${path}.evidence_refs[${index}]`)
     ),
     operations: arrayBetween(input.operations, `${path}.operations`, 1, 200).map(
@@ -230,7 +231,7 @@ export function parseResumeProposal(value: unknown, path = 'resume_proposal'): R
     workspace_id: opaqueId(input.workspace_id, `${path}.workspace_id`)
   }
   /** @brief 已验证 Proposal 生命周期状态 / Validated Proposal lifecycle state. */
-  const status = enumValue(input.status, `${path}.status`, [
+  const status = closedStringEnum(input.status, `${path}.status`, [
     'pending',
     'accepted',
     'partially_accepted',
@@ -250,7 +251,7 @@ export function parseResumeProposalList(value: unknown): CursorCollection<Resume
   /** @brief 精确 Proposal 列表 / Exact Proposal list. */
   const input = exactRecord(value, 'resume_proposal_list', ['items', 'page'])
   return {
-    items: boundedArray(input.items, 'resume_proposal_list.items', 200).map((item, index) =>
+    items: arrayBetween(input.items, 'resume_proposal_list.items', 0, 200).map((item, index) =>
       parseResumeProposal(item, `resume_proposal_list.items[${index}]`)
     ),
     page: parseCursorPage(input.page, 'resume_proposal_list.page')

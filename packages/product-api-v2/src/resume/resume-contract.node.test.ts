@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { boundedArray, record } from '../http/contract'
+import { arrayBetween, record } from '../http/contract'
 import { ApiV2ContractError } from '../http/errors'
 import {
   assertResumeMatchesTemplate,
@@ -213,11 +213,11 @@ function resumeDocument(): Record<string, unknown> {
  */
 function firstItem(document: Record<string, unknown>): Record<string, unknown> {
   /** @brief sections 数组 / Sections array. */
-  const sections = boundedArray(document.sections, 'fixture.sections', 100)
+  const sections = arrayBetween(document.sections, 'fixture.sections', 0, 100)
   /** @brief 首个 section / First section. */
   const section = record(sections[0], 'fixture.sections[0]')
   /** @brief items 数组 / Items array. */
-  const items = boundedArray(section.items, 'fixture.sections[0].items', 1000)
+  const items = arrayBetween(section.items, 'fixture.sections[0].items', 0, 1000)
   return record(items[0], 'fixture.sections[0].items[0]')
 }
 
@@ -262,21 +262,21 @@ describe('API v2 TemplateManifest contract', (): void => {
     /** @brief 引用未支持 kind 的模板 / Template referencing an unsupported kind. */
     const invalidZone = templateManifest()
     /** @brief zones 数组 / Zones array. */
-    const zones = boundedArray(invalidZone.zones, 'fixture.zones', 20)
+    const zones = arrayBetween(invalidZone.zones, 'fixture.zones', 0, 20)
     record(zones[0], 'fixture.zones[0]').accepted_section_kinds = ['education']
     expect(() => parseTemplateManifest(invalidZone)).toThrow(/unsupported section kind/u)
 
     /** @brief 默认类型错误的模板 / Template with a mistyped default. */
     const invalidDefault = templateManifest()
     /** @brief settings 数组 / Settings array. */
-    const settings = boundedArray(invalidDefault.settings, 'fixture.settings', 100)
+    const settings = arrayBetween(invalidDefault.settings, 'fixture.settings', 0, 100)
     record(settings[0], 'fixture.settings[0]').default = 'yes'
     expect(() => parseTemplateManifest(invalidDefault)).toThrow(/does not match/u)
 
     /** @brief 可见性比较值类型错误的模板 / Template with a mistyped visibility value. */
     const invalidVisibility = templateManifest()
     /** @brief 可见性 settings / Visibility settings. */
-    const visibilitySettings = boundedArray(invalidVisibility.settings, 'fixture.settings', 100)
+    const visibilitySettings = arrayBetween(invalidVisibility.settings, 'fixture.settings', 0, 100)
     /** @brief accent setting / Accent setting. */
     const accent = record(visibilitySettings[1], 'fixture.settings[1]')
     record(accent.visible_when, 'fixture.visible_when').equals = 'yes'
@@ -454,7 +454,7 @@ describe('API v2 ResumeDocument contract', (): void => {
     /** @brief style object / Style object. */
     const danglingStyle = record(dangling.style, 'fixture.style')
     /** @brief layout 数组 / Layout array. */
-    const layouts = boundedArray(danglingStyle.section_layout, 'fixture.section_layout', 100)
+    const layouts = arrayBetween(danglingStyle.section_layout, 'fixture.section_layout', 0, 100)
     record(layouts[0], 'fixture.section_layout[0]').section_id = 'section_01K0MISSING0000000001'
     expect(() => parseResumeDocument(dangling)).toThrow(/unknown section ID/u)
   })

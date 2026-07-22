@@ -2,7 +2,7 @@
 
 import type { ApiV2Client } from '../http/client'
 import {
-  boundedArray,
+  arrayBetween,
   boundedInteger,
   boundedString,
   exactRecord,
@@ -118,7 +118,7 @@ export function parseResumeRevisionList(value: unknown): CursorCollection<Resume
   /** @brief 精确列表对象 / Exact list object. */
   const input = exactRecord(value, 'resume_revision_list', ['items', 'page'])
   /** @brief 已解码 revision 摘要 / Decoded revision summaries. */
-  const items = boundedArray(input.items, 'resume_revision_list.items', 200).map((item, index) =>
+  const items = arrayBetween(input.items, 'resume_revision_list.items', 0, 200).map((item, index) =>
     parseResumeRevisionSummary(item, `resume_revision_list.items[${index}]`)
   )
   /** @brief 当前页 revision identity 集合 / Revision identities on the current page. */

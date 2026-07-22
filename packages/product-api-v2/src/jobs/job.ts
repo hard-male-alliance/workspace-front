@@ -2,9 +2,10 @@
 
 import type { ApiV2Client } from '../http/client'
 import {
-  boundedArray,
+  arrayBetween,
   boundedInteger,
   boundedString,
+  closedStringEnum,
   exactRecord,
   opaqueId,
   parseResourceFields,
@@ -128,27 +129,6 @@ export interface JobRepresentation {
 }
 
 /**
- * @brief 校验封闭字符串枚举 / Validate a closed string enum.
- * @template TValue 枚举值类型 / Enum-value type.
- * @param value 未知输入 / Unknown input.
- * @param path 诊断字段路径 / Diagnostic field path.
- * @param allowed 允许值 / Allowed values.
- * @return 已验证枚举值 / Validated enum value.
- */
-function closedEnum<const TValue extends string>(
-  value: unknown,
-  path: string,
-  allowed: readonly TValue[]
-): TValue {
-  /** @brief 已确认字符串 / Confirmed string. */
-  const decoded = boundedString(value, path, 1, 100)
-  if (!allowed.includes(decoded as TValue)) {
-    throw new ApiV2ContractError(`API v2 field ${path} contains an unknown enum value.`)
-  }
-  return decoded as TValue
-}
-
-/**
  * @brief 解码 JobProgress 并验证 completed 不超过 total / Decode JobProgress and ensure completed does not exceed total.
  * @param value 未知进度 / Unknown progress.
  * @param path 诊断字段路径 / Diagnostic field path.
@@ -171,7 +151,13 @@ function parseJobProgress(value: unknown, path: string): JobProgress {
     completed,
     phase: boundedString(input.phase, `${path}.phase`, 1, 80),
     total,
-    unit: closedEnum(input.unit, `${path}.unit`, ['items', 'bytes', 'pages', 'steps', 'unknown'])
+    unit: closedStringEnum(input.unit, `${path}.unit`, [
+      'items',
+      'bytes',
+      'pages',
+      'steps',
+      'unknown'
+    ])
   }
 }
 
@@ -222,7 +208,7 @@ export function parseJob(value: unknown): Job {
     'finished_at'
   ])
   /** @brief 未映射的结果引用 / Unmapped result references. */
-  const resultRefs = boundedArray(input.result_refs, 'job.result_refs', 50)
+  const resultRefs = arrayBetween(input.result_refs, 'job.result_refs', 0, 50)
   /** @brief 跨状态公共字段 / Fields shared across states. */
   const fields: JobFields = {
     ...parseResourceFields(input, 'job'),
@@ -235,7 +221,7 @@ export function parseJob(value: unknown): Job {
     workspace_id: opaqueId(input.workspace_id, 'job.workspace_id')
   }
   /** @brief 已验证 Job 状态 / Validated Job status. */
-  const status = closedEnum(input.status, 'job.status', [
+  const status = closedStringEnum(input.status, 'job.status', [
     'queued',
     'running',
     'succeeded',

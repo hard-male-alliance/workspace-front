@@ -2,10 +2,13 @@
 
 import type { ApiV2PostJsonOptions, ApiV2UpdatedWriteJsonResponse } from '../http/client'
 import {
+  arrayBetween,
   boundedInteger,
+  closedStringEnum,
   exactRecord,
   idempotencyKey,
   opaqueId,
+  patternedString,
   strongEntityTag,
   stringValue
 } from '../http/contract'
@@ -21,12 +24,9 @@ import {
 } from './resume-document'
 import { parseTemplateRef, type TemplateRef } from './template'
 import {
-  arrayBetween,
   assertUniqueStrings,
-  enumValue,
   parseJsonMap,
   parseResumeJsonValue,
-  patternedString,
   type ResumeJsonValue
 } from './wire-decoding'
 
@@ -320,7 +320,10 @@ export function parseResumeOperation(value: unknown, path = 'resume_operation'):
       const input = exactRecord(value, path, ['operation_id', 'op', 'entity_kind', 'entity_id'])
       return {
         entity_id: opaqueId(input.entity_id, `${path}.entity_id`),
-        entity_kind: enumValue(input.entity_kind, `${path}.entity_kind`, ['section', 'item']),
+        entity_kind: closedStringEnum(input.entity_kind, `${path}.entity_kind`, [
+          'section',
+          'item'
+        ]),
         op: operationKind,
         operation_id: operationId
       }
@@ -335,7 +338,10 @@ export function parseResumeOperation(value: unknown, path = 'resume_operation'):
         'after_id'
       ])
       /** @brief 已验证 entity kind / Validated entity kind. */
-      const entityKind = enumValue(input.entity_kind, `${path}.entity_kind`, ['section', 'item'])
+      const entityKind = closedStringEnum(input.entity_kind, `${path}.entity_kind`, [
+        'section',
+        'item'
+      ])
       /** @brief 已验证 parent identity / Validated parent identity. */
       const parentId = nullableOpaqueId(input.parent_id, `${path}.parent_id`)
       return {
@@ -396,13 +402,13 @@ export function encodeResumeOperationBatch(value: ResumeOperationBatch): ResumeO
       Number.MAX_SAFE_INTEGER
     ),
     client_batch_id: opaqueId(input.client_batch_id, 'resume_operation_batch.client_batch_id'),
-    conflict_strategy: enumValue(
+    conflict_strategy: closedStringEnum(
       input.conflict_strategy,
       'resume_operation_batch.conflict_strategy',
       ['reject', 'rebase_if_safe']
     ),
     operations,
-    render_hint: enumValue(input.render_hint, 'resume_operation_batch.render_hint', [
+    render_hint: closedStringEnum(input.render_hint, 'resume_operation_batch.render_hint', [
       'none',
       'preview',
       'final'

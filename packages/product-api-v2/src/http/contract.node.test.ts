@@ -2,17 +2,86 @@ import { describe, expect, it } from 'vitest'
 
 import { API_V2_CONTROLLED_TEST_ORIGIN } from '../origin'
 import {
+  arrayBetween,
+  boundedNumber,
+  closedStringEnum,
   extensions,
+  finiteNumber,
   httpsUrl,
   idempotencyKey,
   jsonObject,
   jsonValue,
   networkUrl,
+  patternedString,
   record,
   safeLinkUrl,
   type JsonValue
 } from './contract'
 import { ApiV2ContractError } from './errors'
+
+describe('API v2 scalar and collection primitives', (): void => {
+  it('decodes closed enums, patterned strings, and finite inclusive numbers', (): void => {
+    expect(closedStringEnum('running', 'status', ['queued', 'running'])).toBe('running')
+    expect(patternedString('resume_pdf', 'kind', 3, 32, /^[a-z][a-z_]+$/u)).toBe('resume_pdf')
+    expect(boundedNumber(-0.5, 'score', -0.5, 1)).toBe(-0.5)
+    expect(finiteNumber(Number.MAX_VALUE, 'measurement')).toBe(Number.MAX_VALUE)
+  })
+
+  it('rejects unknown enum members, malformed strings, non-finite numbers, and open bounds', (): void => {
+    expect(() => closedStringEnum('future', 'status', ['queued', 'running'])).toThrow(
+      ApiV2ContractError
+    )
+    expect(() => closedStringEnum(1, 'status', ['queued', 'running'])).toThrow(ApiV2ContractError)
+    expect(() => patternedString('Resume-PDF', 'kind', 3, 32, /^[a-z][a-z_]+$/u)).toThrow(
+      ApiV2ContractError
+    )
+    for (const value of [Number.NaN, Number.POSITIVE_INFINITY, -1.1, 1.1]) {
+      expect(() => boundedNumber(value, 'score', -1, 1)).toThrow(ApiV2ContractError)
+    }
+  })
+
+  it('returns a bounded snapshot of dense plain JSON-array data properties', (): void => {
+    /** @brief 合法稠密输入 / Valid dense input. */
+    const input = ['first', 'second']
+    /** @brief 已验证快照 / Validated snapshot. */
+    const decoded = arrayBetween(input, 'items', 1, 2)
+
+    expect(decoded).toEqual(input)
+    expect(decoded).not.toBe(input)
+    input[0] = 'changed'
+    expect(decoded[0]).toBe('first')
+  })
+
+  it('rejects array length violations, holes, accessors, exotic prototypes, and extra keys', (): void => {
+    /** @brief 稀疏数组 / Sparse array. */
+    const sparse = new Array<unknown>(1)
+    /** @brief 含 accessor index 的数组 / Array containing an accessor index. */
+    const accessorArray: unknown[] = [0]
+    /** @brief accessor 是否被意外执行 / Whether the accessor was unexpectedly invoked. */
+    let accessorInvoked = false
+    Object.defineProperty(accessorArray, 0, {
+      enumerable: true,
+      get: (): number => {
+        accessorInvoked = true
+        return 0
+      }
+    })
+    /** @brief 含额外 key 的数组 / Array carrying an extra key. */
+    const extraKey: unknown[] = [0]
+    Object.defineProperty(extraKey, 'meta', { enumerable: true, value: 'forbidden' })
+    /** @brief 非标准原型数组 / Array with an exotic prototype. */
+    const exotic: unknown[] = [0]
+    Object.setPrototypeOf(exotic, null)
+
+    expect(() => arrayBetween([], 'items', 1, 2)).toThrow(ApiV2ContractError)
+    expect(() => arrayBetween([0, 1, 2], 'items', 1, 2)).toThrow(ApiV2ContractError)
+    expect(() => arrayBetween(sparse, 'items', 0, 2)).toThrow(/dense JSON array/u)
+    expect(() => arrayBetween(accessorArray, 'items', 0, 2)).toThrow(/data property/u)
+    expect(accessorInvoked).toBe(false)
+    expect(() => arrayBetween(extraKey, 'items', 0, 2)).toThrow(/array indexes/u)
+    expect(() => arrayBetween(exotic, 'items', 0, 2)).toThrow(/plain JSON array/u)
+  })
+})
 
 describe('API v2 strict JSON values', (): void => {
   it('deep-copies arbitrary own keys without invoking Object.prototype setters', (): void => {

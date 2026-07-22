@@ -1,12 +1,6 @@
 /** @file Resume API v2 wire 契约的严格解码原语 / Strict decoding primitives for Resume API v2 wire contracts. */
 
-import {
-  boundedArray,
-  boundedString,
-  jsonObject,
-  stringValue,
-  type JsonValue
-} from '../http/contract'
+import { jsonObject, type JsonValue } from '../http/contract'
 import { ApiV2ContractError } from '../http/errors'
 
 export { jsonValue as parseResumeJsonValue } from '../http/contract'
@@ -17,113 +11,6 @@ export const TEMPLATE_KEY_PATTERN = /^[a-z][a-z0-9_.-]{1,80}$/u
 
 /** @brief TemplateManifest section kind 的冻结格式 / Frozen TemplateManifest section-kind format. */
 export const TEMPLATE_SECTION_KIND_PATTERN = /^[a-z][a-z0-9_.-]{1,80}$/u
-
-/**
- * @brief 解码闭合字符串枚举 / Decode a closed string enumeration.
- * @param value 未知输入 / Unknown input.
- * @param path 诊断字段路径 / Diagnostic field path.
- * @param values 允许值 / Allowed values.
- * @return 已验证枚举成员 / Validated enumeration member.
- */
-export function enumValue<const TValue extends string>(
-  value: unknown,
-  path: string,
-  values: readonly TValue[]
-): TValue {
-  /** @brief 已确认字符串 / Confirmed string. */
-  const decoded = stringValue(value, path)
-  /** @brief 匹配的枚举成员 / Matching enumeration member. */
-  const member = values.find((candidate) => candidate === decoded)
-  if (member === undefined) {
-    throw new ApiV2ContractError(`API v2 field ${path} is not a supported value.`)
-  }
-  return member
-}
-
-/**
- * @brief 解码有限 JSON number 并限制闭区间 / Decode a finite JSON number within an inclusive range.
- * @param value 未知输入 / Unknown input.
- * @param path 诊断字段路径 / Diagnostic field path.
- * @param minimum 最小值 / Minimum value.
- * @param maximum 最大值 / Maximum value.
- * @return 已验证 number / Validated number.
- */
-export function boundedNumber(
-  value: unknown,
-  path: string,
-  minimum: number,
-  maximum: number
-): number {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < minimum || value > maximum) {
-    throw new ApiV2ContractError(
-      `API v2 field ${path} must be a finite number between ${minimum} and ${maximum}.`
-    )
-  }
-  return value
-}
-
-/**
- * @brief 解码任意有限 JSON number / Decode any finite JSON number.
- * @param value 未知输入 / Unknown input.
- * @param path 诊断字段路径 / Diagnostic field path.
- * @return 已验证 number / Validated number.
- */
-export function finiteNumber(value: unknown, path: string): number {
-  return boundedNumber(value, path, -Number.MAX_VALUE, Number.MAX_VALUE)
-}
-
-/**
- * @brief 解码带最小和最大条目数的数组 / Decode an array with minimum and maximum item counts.
- * @param value 未知输入 / Unknown input.
- * @param path 诊断字段路径 / Diagnostic field path.
- * @param minimumItems 最小条目数 / Minimum item count.
- * @param maximumItems 最大条目数 / Maximum item count.
- * @return 已验证数组 / Validated array.
- */
-export function arrayBetween(
-  value: unknown,
-  path: string,
-  minimumItems: number,
-  maximumItems: number
-): readonly unknown[] {
-  /** @brief 已确认上限的数组 / Array confirmed against the upper bound. */
-  const decoded = boundedArray(value, path, maximumItems)
-  if (decoded.length < minimumItems) {
-    throw new ApiV2ContractError(
-      `API v2 field ${path} must contain at least ${minimumItems} items.`
-    )
-  }
-  for (let index = 0; index < decoded.length; index += 1) {
-    if (!Object.hasOwn(decoded, index)) {
-      throw new ApiV2ContractError(`API v2 field ${path} must be a dense JSON array.`)
-    }
-  }
-  return decoded
-}
-
-/**
- * @brief 解码满足正则的有界字符串 / Decode a bounded string matching a pattern.
- * @param value 未知输入 / Unknown input.
- * @param path 诊断字段路径 / Diagnostic field path.
- * @param minimumLength 最小字符数 / Minimum character count.
- * @param maximumLength 最大字符数 / Maximum character count.
- * @param pattern 冻结格式 / Frozen format.
- * @return 已验证字符串 / Validated string.
- */
-export function patternedString(
-  value: unknown,
-  path: string,
-  minimumLength: number,
-  maximumLength: number,
-  pattern: RegExp
-): string {
-  /** @brief 已验证长度的字符串 / String validated for length. */
-  const decoded = boundedString(value, path, minimumLength, maximumLength)
-  if (!pattern.test(decoded)) {
-    throw new ApiV2ContractError(`API v2 field ${path} has an invalid format.`)
-  }
-  return decoded
-}
 
 /**
  * @brief 解码可空字段 / Decode a nullable field.

@@ -2,8 +2,10 @@
 
 import type { ApiV2AcceptedResourceResponse, ApiV2PostJsonOptions } from '../http/client'
 import {
+  arrayBetween,
   boundedInteger,
   boundedString,
+  closedStringEnum,
   exactRecord,
   idempotencyKey,
   locale,
@@ -17,7 +19,7 @@ import {
 } from '../jobs/accepted-job'
 import { JOB_MAX_RESPONSE_BYTES } from '../jobs/job'
 import { parseTemplateRef, type TemplateRef } from './template'
-import { arrayBetween, assertUniqueStrings, enumValue } from './wire-decoding'
+import { assertUniqueStrings } from './wire-decoding'
 
 /** @brief Resume import Job 请求上限 / Resume import Job request ceiling. */
 const RESUME_IMPORT_JOB_MAX_REQUEST_BYTES = 64 * 1024
@@ -183,12 +185,20 @@ export function encodeCreateResumeRenderJobRequest(
   /** @brief 已验证的产物格式 / Validated artifact formats. */
   const formats = arrayBetween(input.formats, 'resume_render_job_request.formats', 1, 3).map(
     (format, index) =>
-      enumValue(format, `resume_render_job_request.formats[${index}]`, ['pdf', 'json', 'docx'])
+      closedStringEnum(format, `resume_render_job_request.formats[${index}]`, [
+        'pdf',
+        'json',
+        'docx'
+      ])
   )
   assertUniqueStrings(formats, 'resume_render_job_request.formats')
   return {
     formats,
-    mode: enumValue(input.mode, 'resume_render_job_request.mode', ['preview', 'final', 'export']),
+    mode: closedStringEnum(input.mode, 'resume_render_job_request.mode', [
+      'preview',
+      'final',
+      'export'
+    ]),
     resume_revision: boundedInteger(
       input.resume_revision,
       'resume_render_job_request.resume_revision',

@@ -1,14 +1,18 @@
 /** @file API v2 Resume 模板 wire 模型与严格 decoder / API v2 Resume-template wire models and strict decoders. */
 
 import {
+  arrayBetween,
   booleanValue,
   boundedInteger,
   boundedString,
+  closedStringEnum,
   exactRecord,
+  finiteNumber,
   locale,
   networkUrl,
   opaqueId,
   parseCursorPage,
+  patternedString,
   timestamp,
   type CursorCollection
 } from '../http/contract'
@@ -16,15 +20,11 @@ import { ApiV2ContractError } from '../http/errors'
 import {
   TEMPLATE_KEY_PATTERN,
   TEMPLATE_SECTION_KIND_PATTERN,
-  arrayBetween,
   assertUniqueBy,
   assertUniqueStrings,
-  enumValue,
-  finiteNumber,
   jsonValuesEqual,
   nullable,
   parseResumeJsonValue,
-  patternedString,
   type ResumeJsonValue
 } from './wire-decoding'
 
@@ -206,7 +206,15 @@ export function parseMeasurement(value: unknown, path: string): Measurement {
   /** @brief 精确 measurement 对象 / Exact measurement object. */
   const input = exactRecord(value, path, ['value', 'unit'])
   return {
-    unit: enumValue(input.unit, `${path}.unit`, ['pt', 'mm', 'cm', 'in', 'px', 'em', 'percent']),
+    unit: closedStringEnum(input.unit, `${path}.unit`, [
+      'pt',
+      'mm',
+      'cm',
+      'in',
+      'px',
+      'em',
+      'percent'
+    ]),
     value: finiteNumber(input.value, `${path}.value`)
   }
 }
@@ -221,7 +229,7 @@ export function parseColorValue(value: unknown, path: string): ColorValue {
   /** @brief 精确颜色对象 / Exact color object. */
   const input = exactRecord(value, path, ['space', 'value'])
   return {
-    space: enumValue(input.space, `${path}.space`, ['srgb_hex', 'rgba']),
+    space: closedStringEnum(input.space, `${path}.space`, ['srgb_hex', 'rgba']),
     value: boundedString(input.value, `${path}.value`, 1, 80)
   }
 }
@@ -352,7 +360,7 @@ function parseTemplateSettingDefinition(value: unknown, path: string): TemplateS
     choices: choiceInputs.map((choice, index) =>
       parseTemplateSettingChoice(choice, `${path}.choices[${index}]`)
     ),
-    control: enumValue(input.control, `${path}.control`, [
+    control: closedStringEnum(input.control, `${path}.control`, [
       'switch',
       'slider',
       'number',
@@ -373,7 +381,7 @@ function parseTemplateSettingDefinition(value: unknown, path: string): TemplateS
     label_key: boundedString(input.label_key, `${path}.label_key`, 1, 200),
     maximum: nullable(input.maximum, (candidate) => finiteNumber(candidate, `${path}.maximum`)),
     minimum: nullable(input.minimum, (candidate) => finiteNumber(candidate, `${path}.minimum`)),
-    value_type: enumValue(input.value_type, `${path}.value_type`, [
+    value_type: closedStringEnum(input.value_type, `${path}.value_type`, [
       'boolean',
       'integer',
       'number',
@@ -600,13 +608,13 @@ export function parseTemplateManifest(
       input.supported_output_formats,
       `${path}.supported_output_formats`,
       1,
-      (item, itemPath) => enumValue(item, itemPath, ['pdf', 'png', 'html_snapshot', 'docx'])
+      (item, itemPath) => closedStringEnum(item, itemPath, ['pdf', 'png', 'html_snapshot', 'docx'])
     ),
     supported_page_sizes: parseUniqueStrings(
       input.supported_page_sizes,
       `${path}.supported_page_sizes`,
       1,
-      (item, itemPath) => enumValue(item, itemPath, ['A4', 'LETTER', 'LEGAL', 'CUSTOM'])
+      (item, itemPath) => closedStringEnum(item, itemPath, ['A4', 'LETTER', 'LEGAL', 'CUSTOM'])
     ),
     supported_section_kinds: parseUniqueStrings(
       input.supported_section_kinds,

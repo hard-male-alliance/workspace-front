@@ -1,8 +1,8 @@
 /** @file API v2 RFC 9457 ProblemDetails 严格解码 / Strict API v2 RFC 9457 ProblemDetails decoding. */
 
 import {
+  arrayBetween,
   booleanValue,
-  boundedArray,
   boundedInteger,
   boundedString,
   exactRecord,
@@ -155,7 +155,7 @@ export function parseProblemDetails(value: unknown, responseStatus: number): Pro
     )
   }
   /** @brief 未映射的字段错误数组 / Unmapped field-error array. */
-  const errors = boundedArray(input.errors, 'problem.errors', 100)
+  const errors = arrayBetween(input.errors, 'problem.errors', 0, 100)
   return {
     code: stableCode(input.code, 'problem.code'),
     detail:

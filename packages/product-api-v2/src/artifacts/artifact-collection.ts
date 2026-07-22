@@ -2,7 +2,7 @@
 
 import type { ApiV2Client } from '../http/client'
 import {
-  boundedArray,
+  arrayBetween,
   boundedInteger,
   boundedString,
   exactRecord,
@@ -39,22 +39,6 @@ export interface ArtifactListPageRequest {
 }
 
 /**
- * @brief 拒绝非 JSON 稀疏 Artifact items 数组 / Reject a non-JSON sparse Artifact items array.
- * @param value 未知 items / Unknown items.
- * @return 最多 200 个条目的稠密数组 / Dense array containing at most 200 items.
- */
-function artifactListItems(value: unknown): readonly unknown[] {
-  /** @brief 已验证长度上限的数组 / Array validated against the length ceiling. */
-  const items = boundedArray(value, 'artifact_list.items', ARTIFACT_LIST_MAXIMUM_ITEMS)
-  for (let index = 0; index < items.length; index += 1) {
-    if (!Object.hasOwn(items, index)) {
-      throw new ApiV2ContractError('API v2 field artifact_list.items must be a dense JSON array.')
-    }
-  }
-  return items
-}
-
-/**
  * @brief 严格解码 ArtifactList 与 cursor 关联约束 / Strictly decode an ArtifactList and its cursor relation.
  * @param value 未知列表响应 / Unknown list response.
  * @return 已验证 Artifact cursor 页 / Validated Artifact cursor page.
@@ -63,7 +47,7 @@ export function parseArtifactList(value: unknown): CursorCollection<Artifact> {
   /** @brief 精确 ArtifactList 对象 / Exact ArtifactList object. */
   const input = exactRecord(value, 'artifact_list', ['items', 'page'])
   /** @brief 未映射 Artifact 条目 / Unmapped Artifact items. */
-  const items = artifactListItems(input.items)
+  const items = arrayBetween(input.items, 'artifact_list.items', 0, ARTIFACT_LIST_MAXIMUM_ITEMS)
   return {
     items: items.map((item) => parseArtifact(item)),
     page: parseCursorPage(input.page, 'artifact_list.page')

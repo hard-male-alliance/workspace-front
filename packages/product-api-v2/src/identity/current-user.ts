@@ -2,8 +2,8 @@
 
 import type { ApiV2Client } from '../http/client'
 import {
+  arrayBetween,
   booleanValue,
-  boundedArray,
   boundedString,
   email,
   exactRecord,
@@ -81,7 +81,7 @@ export function parseCurrentUser(value: unknown): CurrentUser {
     'scopes'
   ])
   /** @brief 未映射 scopes / Unmapped scopes. */
-  const rawScopes = boundedArray(input.scopes, 'current_user.scopes', Number.MAX_SAFE_INTEGER)
+  const rawScopes = arrayBetween(input.scopes, 'current_user.scopes', 0, Number.MAX_SAFE_INTEGER)
   /** @brief 已验证 scopes / Validated scopes. */
   const scopes = rawScopes.map((item, index) => scope(item, `current_user.scopes[${index}]`))
   if (new Set(scopes).size !== scopes.length) {

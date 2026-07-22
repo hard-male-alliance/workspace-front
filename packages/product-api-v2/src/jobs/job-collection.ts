@@ -2,7 +2,7 @@
 
 import type { ApiV2Client } from '../http/client'
 import {
-  boundedArray,
+  arrayBetween,
   boundedInteger,
   boundedString,
   exactRecord,
@@ -47,7 +47,7 @@ export function parseJobList(value: unknown): CursorCollection<Job> {
   /** @brief 精确 JobList 对象 / Exact JobList object. */
   const input = exactRecord(value, 'job_list', ['items', 'page'])
   /** @brief 未映射 Job 条目 / Unmapped Job items. */
-  const items = boundedArray(input.items, 'job_list.items', JOB_LIST_MAXIMUM_ITEMS)
+  const items = arrayBetween(input.items, 'job_list.items', 0, JOB_LIST_MAXIMUM_ITEMS)
   return {
     items: items.map((item) => parseJob(item)),
     page: parseCursorPage(input.page, 'job_list.page')
