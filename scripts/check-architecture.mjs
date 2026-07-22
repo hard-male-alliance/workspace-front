@@ -56,6 +56,15 @@ const BROWSER_AMBIENT_GLOBALS = new Set([
   'window'
 ])
 
+/** @brief 共用 renderer TypeScript 程序中禁止全局类型扩展的生产源码根 / Production roots forbidden from augmenting globals in the shared renderer TypeScript program. */
+const RENDERER_PROGRAM_SOURCE_ROOTS = Object.freeze([
+  'apps/desktop/src/renderer',
+  'apps/web/src',
+  'packages/app/src',
+  'packages/platform/src',
+  'packages/product-runtime/src'
+])
+
 /** @brief 生产 UI 禁止暴露的非生产数据文案 / Non-production data copy forbidden in production UI. */
 const FORBIDDEN_PRODUCTION_UI_COPY =
   /(?:\b(?:demo|fake|fixture|mock(?:ed)?)[\s_-]+(?:adapter|content|data|fallback|gateway|mode|placeholder|response|result|state)\b|\bfallback[\s_-]+(?:content|data|response|result)\b|[（(]\s*mock\s*[）)]|(?:演示|示例|占位|假|模拟|测试|回退|兜底|降级)(?:内容|数据|响应|结果|状态|模式|网关|适配器)|fallback\s*数据)/iu
@@ -828,6 +837,60 @@ function checkBrowserAmbientGlobals(files, violations) {
 }
 
 /**
+ * @brief 阻止共用 renderer TypeScript 程序的生产源码扩展宿主全局类型 / Prevent production sources in the shared renderer TypeScript program from augmenting host globals.
+ * @param {SourceFile[]} files 全部源码 / All source files.
+ * @param {Violation[]} violations 输出违规列表 / Output violations.
+ * @return {void} 无返回值 / No return value.
+ */
+function checkRendererProgramAmbientAugmentations(files, violations) {
+  for (const file of files) {
+    if (
+      !isProductionSource(file.relativePath) ||
+      !RENDERER_PROGRAM_SOURCE_ROOTS.some((root) => isWithin(file.relativePath, root))
+    ) {
+      continue
+    }
+
+    /** @brief 当前 renderer 程序源码的 TypeScript 语法树 / TypeScript syntax tree for the current renderer-program source. */
+    const sourceFile = ts.createSourceFile(
+      file.absolutePath,
+      file.text,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.Unknown
+    )
+
+    /**
+     * @brief 深度优先检查 `declare global` 宿主扩展 / Visit `declare global` host augmentations depth-first.
+     * @param {import('typescript').Node} node 当前 AST 节点 / Current AST node.
+     * @return {void} 无返回值 / No return value.
+     */
+    function visit(node) {
+      if (
+        ts.isModuleDeclaration(node) &&
+        ((node.flags & ts.NodeFlags.GlobalAugmentation) !== 0 ||
+          (ts.isIdentifier(node.name) && node.name.text === 'global'))
+      ) {
+        /** @brief 全局扩展的一基位置 / One-based position of the global augmentation. */
+        const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
+        violations.push({
+          column: position.character + 1,
+          file: file.relativePath,
+          line: position.line + 1,
+          message:
+            'Production code in the shared Web/Electron renderer TypeScript program cannot augment ambient host globals; use a module-local host projection instead.',
+          rule: 'renderer-program-ambient-augmentation'
+        })
+        return
+      }
+      ts.forEachChild(node, visit)
+    }
+
+    visit(sourceFile)
+  }
+}
+
+/**
  * @brief 判断模块是否为 Node 运行时依赖 / Detect a Node runtime dependency.
  * @param {string} specifier 模块说明符 / Module specifier.
  * @return {boolean} Node 内建依赖为 true / True for a Node built-in dependency.
@@ -1524,6 +1587,7 @@ export async function checkArchitecture(options = {}) {
 
   checkProductionUiCopy(files, violations)
   checkBrowserAmbientGlobals(files, violations)
+  checkRendererProgramAmbientAugmentations(files, violations)
   checkProductionTestingReachability(files, dependenciesByFile, rootDir, violations)
   checkProductionDependencyCycles(files, dependenciesByFile, rootDir, violations)
   violations.sort(

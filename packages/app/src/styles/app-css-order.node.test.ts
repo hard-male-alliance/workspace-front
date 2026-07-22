@@ -35,6 +35,9 @@ const expectedImportPaths = [
   './app-support/responsive.css'
 ] as const
 
+/** @brief 由独立组件按需加载、但仍属于受管理级联的样式分片 / Style fragments loaded on demand by isolated components but still owned by the managed cascade. */
+const expectedComponentFragmentPaths = ['./shared-ui/host-startup-failure.css'] as const
+
 /**
  * @brief 递归收集目录中的 CSS 文件 / Recursively collect CSS files in a directory.
  * @param directory 待扫描目录 / Directory to scan.
@@ -72,10 +75,11 @@ describe('app.css cascade contract', (): void => {
   })
 
   it('imports every fragment once without nested imports', (): void => {
-    /** @brief 入口中受本测试管理的本地分片 / Local fragments managed by this contract. */
-    const expectedFragmentPaths = expectedImportPaths.filter((importPath) =>
-      importPath.startsWith('./')
-    )
+    /** @brief 入口与按需组件共同声明的全部本地分片 / All local fragments declared by the entry point and on-demand components. */
+    const expectedFragmentPaths = [
+      ...expectedImportPaths.filter((importPath) => importPath.startsWith('./')),
+      ...expectedComponentFragmentPaths
+    ]
     /** @brief 样式目录中实际存在的本地分片 / Local fragments present in the styles directory. */
     const actualFragmentPaths = collectStyleSheets(styleDirectory)
       .map(

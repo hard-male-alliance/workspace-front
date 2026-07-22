@@ -220,6 +220,47 @@ describe('checkArchitecture', () => {
     )
   })
 
+  it('禁止共用 renderer TypeScript 程序中的生产源码扩展宿主全局类型', async () => {
+    await withFixture(
+      {
+        'apps/desktop/src/renderer/src/host-window.d.ts': [
+          "import type { PlatformBridge } from '@fixture/platform'",
+          'declare global { interface Window { readonly bridge?: PlatformBridge } }',
+          'export {}'
+        ].join('\n'),
+        'packages/platform/src/host-window.ts': [
+          'export {}',
+          'declare global { interface Window { readonly bridge?: unknown } }'
+        ].join('\n'),
+        'packages/app/src/host-window.ts': [
+          'export {}',
+          'declare global { interface Window { readonly bridge?: unknown } }'
+        ].join('\n'),
+        'packages/product-runtime/src/host-window.ts': [
+          'export {}',
+          'declare global { interface Window { readonly bridge?: unknown } }'
+        ].join('\n'),
+        'apps/web/src/host-window.ts': [
+          'export {}',
+          'declare global { interface Window { readonly bridge?: unknown } }'
+        ].join('\n')
+      },
+      async (rootDir) => {
+        /** @brief 宿主全局扩展违规 / Host-global augmentation violations. */
+        const result = await checkArchitecture({ rootDir })
+        /** @brief renderer 程序全部生产根的全局扩展都应被拒绝 / Global augmentations from every renderer-program production root must be rejected. */
+        const violations = violationsFor(result.violations, 'renderer-program-ambient-augmentation')
+        expect(violations.map((violation) => violation.file)).toEqual([
+          'apps/desktop/src/renderer/src/host-window.d.ts',
+          'apps/web/src/host-window.ts',
+          'packages/app/src/host-window.ts',
+          'packages/platform/src/host-window.ts',
+          'packages/product-runtime/src/host-window.ts'
+        ])
+      }
+    )
+  })
+
   it('阻断 context domain/application 外向依赖与 presentation adapter 依赖', async () => {
     await withFixture(
       {

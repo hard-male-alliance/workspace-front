@@ -13,6 +13,9 @@ const URI_PATH_PATTERN = /^(?:[A-Za-z0-9._~!$&'()*+,;=:@/-]|%[0-9A-Fa-f]{2})*$/u
 /** @brief RFC 3986 query/fragment 允许的字符 / Characters allowed by an RFC 3986 query or fragment. */
 const URI_QUERY_OR_FRAGMENT_PATTERN = /^(?:[A-Za-z0-9._~!$&'()*+,;=:@/?-]|%[0-9A-Fa-f]{2})*$/u
 
+/** @brief 冻结契约的不透明资源 ID 格式 / Opaque-resource-ID format from the frozen contract. */
+const OPAQUE_RESOURCE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/u
+
 /** @brief RFC 3986 userinfo 允许的字符 / Characters allowed by RFC 3986 userinfo. */
 const URI_USER_INFO_PATTERN = /^(?:[A-Za-z0-9._~!$&'()*+,;=:-]|%[0-9A-Fa-f]{2})*$/u
 
@@ -36,6 +39,15 @@ function isCalendarDate(year: number, month: number, day: number): boolean {
   /** @brief 当前月份的最大日数 / Maximum day count for the current month. */
   const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
   return day <= (daysInMonth[month - 1] ?? 0)
+}
+
+/**
+ * @brief 判断字符串是否符合冻结契约的不透明资源 ID / Determine whether a string matches the frozen opaque-resource-ID format.
+ * @param value 待校验字符串 / String to validate.
+ * @return 可安全用作单一 path segment 的契约 ID 时为 true / True for a contract ID safe to encode as one path segment.
+ */
+export function isOpaqueResourceId(value: string): boolean {
+  return OPAQUE_RESOURCE_ID_PATTERN.test(value)
 }
 
 /**

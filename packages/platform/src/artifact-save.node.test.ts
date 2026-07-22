@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { sanitizePdfFileName } from './artifact-save'
+import { parseArtifactSaveRequest, sanitizePdfFileName } from './artifact-save'
 
 describe('sanitizePdfFileName', () => {
   it.each([
@@ -19,5 +19,31 @@ describe('sanitizePdfFileName', () => {
   it('限制文件名长度并保留 PDF 扩展名', () => {
     expect(sanitizePdfFileName('a'.repeat(200))).toHaveLength(120)
     expect(sanitizePdfFileName('a'.repeat(200))).toMatch(/\.pdf$/u)
+  })
+})
+
+describe('parseArtifactSaveRequest', () => {
+  it('仅投影精确产物 ID 与规范 PDF 文件名', () => {
+    expect(
+      parseArtifactSaveRequest({
+        artifactId: 'artifact_12345678',
+        suggestedFileName: 'Klee Resume.pdf'
+      })
+    ).toEqual({ artifactId: 'artifact_12345678', suggestedFileName: 'Klee Resume.pdf' })
+  })
+
+  it.each([
+    null,
+    [],
+    { artifactId: 'artifact_12345678' },
+    { artifactId: 'short', suggestedFileName: 'resume.pdf' },
+    {
+      artifactId: 'artifact_12345678',
+      hiddenPath: '/tmp/private',
+      suggestedFileName: 'resume.pdf'
+    },
+    { artifactId: 'artifact_12345678', suggestedFileName: '../unsafe.pdf' }
+  ])('在信任边界拒绝错误或扩权载荷：%o', (payload) => {
+    expect(() => parseArtifactSaveRequest(payload)).toThrow()
   })
 })

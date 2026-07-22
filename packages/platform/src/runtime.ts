@@ -51,13 +51,5 @@ export interface PlatformBridge extends ArtifactSavePort {
   readonly getRuntimeInfo: () => Promise<RuntimeInfo>
 }
 
-declare global {
-  /** @brief 浏览器全局窗口扩展 / Browser global window extension. */
-  interface Window {
-    /** @brief 仅由 Electron preload 注入的平台桥接 / Platform bridge injected only by Electron preload. */
-    readonly aiJobWorkspace?: PlatformBridge
-  }
-}
-
 /** @brief 运行时信息 IPC 通道 / Runtime information IPC channel. */
 export const RUNTIME_INFO_CHANNEL = 'platform:get-runtime-info' as const

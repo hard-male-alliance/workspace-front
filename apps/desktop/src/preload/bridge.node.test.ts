@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  parseArtifactSaveRequest,
   RUNTIME_INFO_CHANNEL,
   SAVE_ARTIFACT_CHANNEL,
   sanitizePdfFileName
 } from '@ai-job-workspace/platform'
 
 import { createDesktopPlatformBridge } from './bridge'
-import { validatePreloadArtifactSaveRequest } from './bridge'
 
 describe('createDesktopPlatformBridge', () => {
   it('只经固定通道请求运行时信息', async () => {
@@ -97,7 +97,7 @@ describe('createDesktopPlatformBridge', () => {
       suggestedFileName: '../unsafe.pdf'
     }
   ])('preload 拒绝扩权或非规范保存载荷：%o', (payload) => {
-    expect(() => validatePreloadArtifactSaveRequest(payload)).toThrow()
+    expect(() => parseArtifactSaveRequest(payload)).toThrow()
   })
 
   it('不把 preload 拒绝的产物 ID 发送到 IPC', () => {

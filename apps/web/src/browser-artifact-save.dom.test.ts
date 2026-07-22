@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
-import { MAX_PDF_ARTIFACT_BYTES, sanitizePdfFileName } from '@ai-job-workspace/platform'
+import {
+  ARTIFACT_EXPIRY_SAFETY_WINDOW_MS,
+  MAX_PDF_ARTIFACT_BYTES,
+  sanitizePdfFileName
+} from '@ai-job-workspace/platform'
 
 import {
-  BROWSER_ARTIFACT_EXPIRY_SAFETY_WINDOW_MS,
   BROWSER_ARTIFACT_SAVE_TIMEOUT_MS,
   BrowserArtifactSaveError,
   createBrowserArtifactSavePort
@@ -246,7 +249,7 @@ describe('createBrowserArtifactSavePort', () => {
       'URL expiring inside the safety window',
       createMetadata({
         expires_at: new Date(
-          Date.parse('2026-07-22T01:00:00Z') + BROWSER_ARTIFACT_EXPIRY_SAFETY_WINDOW_MS
+          Date.parse('2026-07-22T01:00:00Z') + ARTIFACT_EXPIRY_SAFETY_WINDOW_MS
         ).toISOString()
       })
     ],
@@ -298,7 +301,7 @@ describe('createBrowserArtifactSavePort', () => {
 
   it.each([
     ['wrong media type', pdfResponse(PDF_BYTES, { 'Content-Type': 'application/pdf-fake' })],
-    ['encoded body', pdfResponse(PDF_BYTES, { 'Content-Encoding': 'gzip' })],
+    ['unsupported encoding', pdfResponse(PDF_BYTES, { 'Content-Encoding': 'compress' })],
     [
       'wrong Content-Length',
       pdfResponse(PDF_BYTES, { 'Content-Length': String(PDF_BYTES.byteLength + 1) })
@@ -319,6 +322,70 @@ describe('createBrowserArtifactSavePort', () => {
     await expect(port.saveArtifact(createRequest())).rejects.toBeInstanceOf(
       BrowserArtifactSaveError
     )
+    expect(host.createObjectURL).not.toHaveBeenCalled()
+    expect(host.click).not.toHaveBeenCalled()
+  })
+
+  it.each(['br', 'deflate', 'gzip', 'zstd'])(
+    '接受 Fetch 已解码的 %s 响应且不信任传输 Content-Length',
+    async (contentEncoding) => {
+      /** @brief 传输长度故意与解码后 PDF 长度不同 / Transfer length intentionally differs from the decoded PDF length. */
+      const contentResponse = pdfResponse(PDF_BYTES, {
+        'Content-Encoding': contentEncoding,
+        'Content-Length': '999'
+      })
+      /** @brief 依次返回元数据与 Fetch 解码后 PDF 的 spy / Spy returning metadata then the Fetch-decoded PDF. */
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(jsonResponse(createMetadata()))
+        .mockResolvedValueOnce(contentResponse)
+      /** @brief 可观测浏览器宿主 / Observable browser host. */
+      const host = createTestHost()
+      /** @brief 待测 Web 保存端口 / Web save port under test. */
+      const port = createBrowserArtifactSavePort(API_ORIGIN, createOverrides(host, fetchImpl))
+
+      await expect(port.saveArtifact(createRequest())).resolves.toEqual({ status: 'started' })
+      expect(host.createObjectURL).toHaveBeenCalledOnce()
+      expect(host.click).toHaveBeenCalledOnce()
+    }
+  )
+
+  it('CORS 隐藏 Content-Encoding 时忽略可见的传输长度', async () => {
+    /** @brief 模拟 CORS 未暴露编码 header 但暴露 Content-Length 的响应 / Response simulating CORS hiding the encoding header while exposing Content-Length. */
+    const contentResponse = pdfResponse(PDF_BYTES, { 'Content-Length': '999' })
+    Object.defineProperty(contentResponse, 'type', { value: 'cors' })
+    /** @brief 依次返回元数据与已解码 PDF 的 fetch spy / Fetch spy returning metadata then decoded PDF bytes. */
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(createMetadata()))
+      .mockResolvedValueOnce(contentResponse)
+    /** @brief 可观测浏览器宿主 / Observable browser host. */
+    const host = createTestHost()
+    /** @brief 待测 Web 保存端口 / Web save port under test. */
+    const port = createBrowserArtifactSavePort(API_ORIGIN, createOverrides(host, fetchImpl))
+
+    await expect(port.saveArtifact(createRequest())).resolves.toEqual({ status: 'started' })
+    expect(host.createObjectURL).toHaveBeenCalledOnce()
+    expect(host.click).toHaveBeenCalledOnce()
+  })
+
+  it('压缩响应仍以 Fetch 解码后的实际字节数为权威', async () => {
+    /** @brief 声明 gzip 但解码后截断的 PDF / PDF declared as gzip but truncated after Fetch decoding. */
+    const contentResponse = pdfResponse(PDF_BYTES.slice(0, -1), {
+      'Content-Encoding': 'gzip',
+      'Content-Length': String(PDF_BYTES.byteLength)
+    })
+    /** @brief 依次返回元数据与截断内容的 spy / Spy returning metadata then truncated content. */
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(createMetadata()))
+      .mockResolvedValueOnce(contentResponse)
+    /** @brief 可观测浏览器宿主 / Observable browser host. */
+    const host = createTestHost()
+    /** @brief 待测 Web 保存端口 / Web save port under test. */
+    const port = createBrowserArtifactSavePort(API_ORIGIN, createOverrides(host, fetchImpl))
+
+    await expect(port.saveArtifact(createRequest())).rejects.toThrow('declared byte count')
     expect(host.createObjectURL).not.toHaveBeenCalled()
     expect(host.click).not.toHaveBeenCalled()
   })

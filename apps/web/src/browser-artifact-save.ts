@@ -1,8 +1,13 @@
 import {
-  MAX_PDF_ARTIFACT_BYTES,
-  parseRfc3339TimestampMilliseconds,
-  parseRenderArtifactMetadata,
-  sanitizePdfFileName
+  ARTIFACT_JSON_MEDIA_TYPE,
+  ARTIFACT_PDF_MEDIA_TYPE,
+  classifyFetchDecodedContentEncoding,
+  createArtifactMetadataUrl,
+  getMediaTypeEssence,
+  parseArtifactApiOrigin,
+  parseArtifactContentLength,
+  parseArtifactSaveRequest,
+  parsePdfArtifactMetadata
 } from '@ai-job-workspace/platform'
 import type {
   ArtifactSavePort,
@@ -11,18 +16,10 @@ import type {
   SaveArtifactResult
 } from '@ai-job-workspace/platform'
 
-/** @brief JSON 元数据响应允许的媒体类型 / Media type allowed for JSON metadata responses. */
-const JSON_MEDIA_TYPE = 'application/json'
-/** @brief PDF 内容响应允许的媒体类型 / Media type allowed for PDF content responses. */
-const PDF_MEDIA_TYPE = 'application/pdf'
 /** @brief 下载后保留 Blob URL 的时间 / Time to retain a Blob URL after starting a download. */
 const BLOB_URL_REVOKE_DELAY_MS = 60_000
 /** @brief 一次 Web PDF metadata 刷新、下载与校验的总时限 / Total deadline for one Web PDF metadata refresh, download, and verification. */
 export const BROWSER_ARTIFACT_SAVE_TIMEOUT_MS = 60_000
-/** @brief 过期前拒绝启动 Web 下载的安全窗口 / Safety window before expiry in which a Web download is rejected. */
-export const BROWSER_ARTIFACT_EXPIRY_SAFETY_WINDOW_MS = 30_000
-/** @brief 冻结契约中的不透明资源 ID 格式 / Opaque resource-ID format from the frozen contract. */
-const OPAQUE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/u
 
 /** @brief 浏览器下载元素所需的最小形状 / Minimal shape required from a browser download element. */
 export interface BrowserDownloadAnchor {
@@ -80,64 +77,6 @@ export interface BrowserArtifactSaveDependencies {
 /** @brief Web 产物保存边界错误 / Web artifact-save boundary error. */
 export class BrowserArtifactSaveError extends Error {
   override readonly name = 'BrowserArtifactSaveError'
-}
-
-/**
- * @brief 返回响应 Content-Type 的规范化 essence / Return the normalized essence of a response Content-Type.
- * @param value 未经信任的 Content-Type header / Untrusted Content-Type header.
- * @return 小写 essence；缺失或无效时为 null / Lowercase essence, or null when missing or invalid.
- */
-function getMediaTypeEssence(value: string | null): string | null {
-  if (value === null) return null
-  /** @brief 分号前的媒体类型主体 / Media-type token before parameters. */
-  const essence = value.split(';', 1)[0]?.trim().toLowerCase()
-  return essence === undefined || essence.length === 0 ? null : essence
-}
-
-/**
- * @brief 严格读取非负 Content-Length / Strictly read a non-negative Content-Length.
- * @param value 未经信任的 Content-Length header / Untrusted Content-Length header.
- * @return 缺失时为 null，否则为安全整数 / Null when absent, otherwise a safe integer.
- * @throws BrowserArtifactSaveError header 不符合十进制安全整数时抛出 / Thrown when the header is not a decimal safe integer.
- */
-function parseContentLength(value: string | null): number | null {
-  if (value === null) return null
-  if (!/^(?:0|[1-9][0-9]*)$/u.test(value)) {
-    throw new BrowserArtifactSaveError('The PDF response has an invalid Content-Length header.')
-  }
-  /** @brief 十进制响应长度 / Decimal response length. */
-  const length = Number(value)
-  if (!Number.isSafeInteger(length)) {
-    throw new BrowserArtifactSaveError('The PDF response Content-Length is outside the safe range.')
-  }
-  return length
-}
-
-/**
- * @brief 严格校验 API origin / Strictly validate the API origin.
- * @param apiBaseUrl 已解析但仍视作不可信的 API base URL / Resolved but still untrusted API base URL.
- * @return 不含路径、凭证、查询或 fragment 的 URL / URL without path, credentials, query, or fragment.
- * @throws BrowserArtifactSaveError 输入不是纯 HTTP(S) origin 时抛出 / Thrown when the input is not a plain HTTP(S) origin.
- */
-function parseApiOrigin(apiBaseUrl: string): URL {
-  try {
-    /** @brief 待验证的 URL / URL being validated. */
-    const url = new URL(apiBaseUrl)
-    if (
-      (url.protocol !== 'https:' && url.protocol !== 'http:') ||
-      url.username.length > 0 ||
-      url.password.length > 0 ||
-      url.pathname !== '/' ||
-      url.search.length > 0 ||
-      url.hash.length > 0
-    ) {
-      throw new BrowserArtifactSaveError('The product API base URL must be a plain HTTP(S) origin.')
-    }
-    return url
-  } catch (error: unknown) {
-    if (error instanceof BrowserArtifactSaveError) throw error
-    throw new BrowserArtifactSaveError('The product API base URL is invalid.')
-  }
 }
 
 /**
@@ -232,83 +171,22 @@ async function digestSha256(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
 }
 
 /**
- * @brief 校验产物元数据是否可用于当前 PDF 下载 / Validate artifact metadata for the current PDF download.
- * @param metadata 严格解码后的产物元数据 / Strictly decoded artifact metadata.
- * @param request 当前保存请求 / Current save request.
- * @param expectedContentUrl 当前 artifact 的规范内容 URL / Canonical content URL for the artifact.
- * @param now 当前 Unix epoch 毫秒 / Current Unix epoch milliseconds.
- * @return 保留同源短期签名 query 的已验证 URL / Validated URL preserving a same-origin short-lived signature query.
- * @throws BrowserArtifactSaveError 元数据与请求或 Web 安全边界不一致时抛出 / Thrown when metadata conflicts with the request or Web security boundary.
- */
-function validatePdfMetadata(
-  metadata: RenderArtifactMetadata,
-  request: SaveArtifactRequest,
-  expectedContentUrl: URL,
-  now: number
-): URL {
-  if (metadata.id !== request.artifactId) {
-    throw new BrowserArtifactSaveError('The product API returned metadata for another artifact.')
-  }
-  if (metadata.format !== 'pdf' || getMediaTypeEssence(metadata.content_type) !== PDF_MEDIA_TYPE) {
-    throw new BrowserArtifactSaveError('The requested artifact is not a PDF.')
-  }
-  if (metadata.size_bytes > MAX_PDF_ARTIFACT_BYTES) {
-    throw new BrowserArtifactSaveError('The PDF artifact exceeds the supported size limit.')
-  }
-  if (metadata.expires_at !== undefined && metadata.expires_at !== null) {
-    /** @brief 包括 RFC 3339 闰秒语义的过期时刻 / Expiry instant including RFC 3339 leap-second semantics. */
-    const expiresAt = parseRfc3339TimestampMilliseconds(metadata.expires_at)
-    if (expiresAt === null || expiresAt <= now + BROWSER_ARTIFACT_EXPIRY_SAFETY_WINDOW_MS) {
-      throw new BrowserArtifactSaveError(
-        'The PDF artifact download URL has expired or is too close to expiry.'
-      )
-    }
-  }
-
-  try {
-    if (metadata.download_url.includes('\\')) {
-      throw new BrowserArtifactSaveError(
-        'The PDF artifact download URL contains an ambiguous path separator.'
-      )
-    }
-    /** @brief 后端返回的下载 URL / Download URL returned by the backend. */
-    const actualContentUrl = new URL(metadata.download_url)
-    if (
-      (actualContentUrl.protocol !== 'https:' && actualContentUrl.protocol !== 'http:') ||
-      actualContentUrl.username.length > 0 ||
-      actualContentUrl.password.length > 0 ||
-      actualContentUrl.origin !== expectedContentUrl.origin ||
-      actualContentUrl.pathname !== expectedContentUrl.pathname ||
-      actualContentUrl.hash.length > 0
-    ) {
-      throw new BrowserArtifactSaveError(
-        'The PDF artifact download URL is outside the confirmed API boundary.'
-      )
-    }
-    return actualContentUrl
-  } catch (error: unknown) {
-    if (error instanceof BrowserArtifactSaveError) throw error
-    throw new BrowserArtifactSaveError('The PDF artifact download URL is invalid.')
-  }
-}
-
-/**
- * @brief 获取并严格解码当前产物元数据 / Fetch and strictly decode current artifact metadata.
+ * @brief 获取当前产物的未信任元数据 JSON / Fetch untrusted metadata JSON for the current artifact.
  * @param metadataUrl 当前 artifact 的元数据 URL / Metadata URL for the current artifact.
  * @param fetchImpl 可替换的 fetch 实现 / Replaceable fetch implementation.
  * @param signal 统一保存截止信号 / Shared save-deadline signal.
- * @return 严格解码后的元数据 / Strictly decoded metadata.
+ * @return 尚未通过 platform decoder 的 JSON 值 / JSON value not yet passed through the platform decoder.
  */
-async function fetchArtifactMetadata(
+async function fetchArtifactMetadataPayload(
   metadataUrl: URL,
   fetchImpl: typeof fetch,
   signal: AbortSignal
-): Promise<RenderArtifactMetadata> {
+): Promise<unknown> {
   /** @brief 当前保存动作重新读取的权威元数据响应 / Authoritative metadata response refreshed for this save action. */
   const response = await fetchImpl(metadataUrl.href, {
     cache: 'no-store',
     credentials: 'omit',
-    headers: { Accept: JSON_MEDIA_TYPE },
+    headers: { Accept: ARTIFACT_JSON_MEDIA_TYPE },
     method: 'GET',
     redirect: 'error',
     signal
@@ -320,17 +198,14 @@ async function fetchArtifactMetadata(
   ) {
     throw new BrowserArtifactSaveError('The product API did not return artifact metadata.')
   }
-  if (getMediaTypeEssence(response.headers.get('Content-Type')) !== JSON_MEDIA_TYPE) {
+  if (getMediaTypeEssence(response.headers.get('Content-Type')) !== ARTIFACT_JSON_MEDIA_TYPE) {
     throw new BrowserArtifactSaveError('The artifact metadata response is not JSON.')
   }
 
   try {
-    /** @brief 尚未通过平台 decoder 的外部 JSON / External JSON not yet validated by the platform decoder. */
-    const value: unknown = await response.json()
-    return parseRenderArtifactMetadata(value)
-  } catch (error: unknown) {
-    if (error instanceof BrowserArtifactSaveError) throw error
-    throw new BrowserArtifactSaveError('The artifact metadata response violates the contract.')
+    return (await response.json()) as unknown
+  } catch {
+    throw new BrowserArtifactSaveError('The artifact metadata response is not valid JSON.')
   }
 }
 
@@ -352,7 +227,7 @@ async function fetchVerifiedPdf(
   const response = await fetchImpl(contentUrl.href, {
     cache: 'no-store',
     credentials: 'omit',
-    headers: { Accept: PDF_MEDIA_TYPE },
+    headers: { Accept: ARTIFACT_PDF_MEDIA_TYPE },
     method: 'GET',
     redirect: 'error',
     signal
@@ -364,18 +239,25 @@ async function fetchVerifiedPdf(
   ) {
     throw new BrowserArtifactSaveError('The product API did not return the PDF artifact.')
   }
-  if (getMediaTypeEssence(response.headers.get('Content-Type')) !== PDF_MEDIA_TYPE) {
+  if (getMediaTypeEssence(response.headers.get('Content-Type')) !== ARTIFACT_PDF_MEDIA_TYPE) {
     throw new BrowserArtifactSaveError('The artifact content response is not a PDF.')
   }
-  /** @brief 浏览器解码前声明的内容编码 / Content encoding declared before browser decoding. */
-  const contentEncoding = response.headers.get('Content-Encoding')?.trim().toLowerCase()
-  if (contentEncoding !== undefined && contentEncoding !== 'identity') {
-    throw new BrowserArtifactSaveError('Encoded PDF responses are not supported.')
+  /** @brief 当前 JS 边界可见的内容编码 / Content encoding visible at the current JavaScript boundary. */
+  const contentEncodingHeader = response.headers.get('Content-Encoding')
+  /** @brief Fetch 解码后的内容编码语义 / Content-encoding semantics after Fetch decoding. */
+  const contentEncoding = classifyFetchDecodedContentEncoding(contentEncodingHeader)
+  if (contentEncoding === 'invalid') {
+    throw new BrowserArtifactSaveError('The PDF response Content-Encoding is unsupported.')
   }
-  /** @brief 可选的响应长度声明 / Optional response length declaration. */
-  const contentLength = parseContentLength(response.headers.get('Content-Length'))
-  if (contentLength !== null && contentLength !== metadata.size_bytes) {
-    throw new BrowserArtifactSaveError('The PDF Content-Length does not match its metadata.')
+  /** @brief CORS 可能隐藏 Content-Encoding，此时不能将传输长度当作解码长度 / CORS can hide Content-Encoding, so transfer length cannot then stand for decoded length. */
+  const hasUnambiguousIdentityLength =
+    contentEncoding === 'identity' && !(response.type === 'cors' && contentEncodingHeader === null)
+  if (hasUnambiguousIdentityLength) {
+    /** @brief identity 表示下的可选响应长度 / Optional response length for an identity representation. */
+    const contentLength = parseArtifactContentLength(response.headers.get('Content-Length'))
+    if (contentLength !== null && contentLength !== metadata.size_bytes) {
+      throw new BrowserArtifactSaveError('The PDF Content-Length does not match its metadata.')
+    }
   }
 
   /** @brief 受元数据大小上限约束的响应字节 / Response bytes constrained by the metadata size limit. */
@@ -421,7 +303,7 @@ export function createBrowserArtifactSavePort(
   overrides: Partial<BrowserArtifactSaveDependencies> = {}
 ): ArtifactSavePort {
   /** @brief 当前产品 API origin / Current product API origin. */
-  const apiOrigin = parseApiOrigin(apiBaseUrl)
+  const apiOrigin = parseArtifactApiOrigin(apiBaseUrl).origin
   /** @brief 默认能力与测试替换合成的依赖 / Dependencies composed from defaults and test overrides. */
   const dependencies: BrowserArtifactSaveDependencies = {
     ...createDefaultDependencies(),
@@ -434,24 +316,10 @@ export function createBrowserArtifactSavePort(
    * @return 已触发但最终文件系统结果不可观察的 started 状态 / Started status because the final filesystem outcome is not observable.
    */
   async function saveArtifact(request: SaveArtifactRequest): Promise<SaveArtifactResult> {
-    if (typeof request.artifactId !== 'string' || !OPAQUE_ID_PATTERN.test(request.artifactId)) {
-      throw new BrowserArtifactSaveError('The artifact ID is invalid.')
-    }
-    if (typeof request.suggestedFileName !== 'string') {
-      throw new BrowserArtifactSaveError('The suggested PDF filename is invalid.')
-    }
-    /** @brief Web 边界重新净化的建议文件名 / Suggested filename sanitized again at the Web boundary. */
-    const safeSuggestedFileName = sanitizePdfFileName(request.suggestedFileName)
-    if (safeSuggestedFileName !== request.suggestedFileName) {
-      throw new BrowserArtifactSaveError('The suggested PDF filename is not canonical and safe.')
-    }
-
-    /** @brief 编码后仍保持单一 path segment 的 artifact ID / Artifact ID encoded as one path segment. */
-    const encodedArtifactId = encodeURIComponent(request.artifactId)
+    /** @brief Web 信任边界重新解码的窄保存请求 / Narrow save request decoded again at the Web trust boundary. */
+    const validatedRequest = parseArtifactSaveRequest(request)
     /** @brief 权威元数据端点 / Authoritative metadata endpoint. */
-    const metadataUrl = new URL(`/api/v1/render-artifacts/${encodedArtifactId}`, apiOrigin)
-    /** @brief 当前 artifact 唯一允许的内容端点 / Sole allowed content endpoint for the current artifact. */
-    const contentUrl = new URL(`${metadataUrl.pathname}/content`, apiOrigin)
+    const metadataUrl = createArtifactMetadataUrl(validatedRequest.artifactId, apiOrigin)
     /** @brief 统一取消 metadata、内容流与校验的控制器 / Controller cancelling metadata, content streaming, and verification together. */
     const abortController = new AbortController()
     /** @brief Web 保存操作的总时限计时器 / Total-deadline timer for the Web save operation. */
@@ -459,28 +327,34 @@ export function createBrowserArtifactSavePort(
       abortController.abort(new Error('PDF artifact downloading timed out.'))
     }, BROWSER_ARTIFACT_SAVE_TIMEOUT_MS)
     try {
-      /** @brief 当前保存动作重新取得的权威元数据 / Authoritative metadata refreshed for this save action. */
-      const metadata = await fetchArtifactMetadata(
+      /** @brief 当前保存动作重新取得的未信任 JSON / Untrusted JSON refreshed for this save action. */
+      const metadataPayload = await fetchArtifactMetadataPayload(
         metadataUrl,
         dependencies.fetchImpl,
         abortController.signal
       )
-      /** @brief 保留经安全边界验证的同源签名 query 的内容 URL / Content URL preserving a same-origin signature query after boundary validation. */
-      const validatedContentUrl = validatePdfMetadata(
-        metadata,
-        request,
-        contentUrl,
-        dependencies.now()
-      )
+      /** @brief 通过共享 Schema 与宿主策略解码的 PDF 元数据 / PDF metadata decoded through shared schema and host policy. */
+      let artifact: ReturnType<typeof parsePdfArtifactMetadata>
+      try {
+        artifact = parsePdfArtifactMetadata(metadataPayload, {
+          apiOrigin,
+          artifactId: validatedRequest.artifactId,
+          nowMilliseconds: dependencies.now()
+        })
+      } catch {
+        throw new BrowserArtifactSaveError(
+          'The artifact metadata response violates the PDF contract.'
+        )
+      }
       /** @brief 已通过大小与摘要核对的 PDF 字节 / PDF bytes verified by size and digest. */
       const bytes = await fetchVerifiedPdf(
-        validatedContentUrl,
-        metadata,
+        artifact.contentUrl,
+        artifact.metadata,
         dependencies.fetchImpl,
         abortController.signal
       )
       /** @brief 只包含已校验 PDF 的 Blob / Blob containing only the verified PDF. */
-      const blob = new Blob([bytes.buffer], { type: PDF_MEDIA_TYPE })
+      const blob = new Blob([bytes.buffer], { type: ARTIFACT_PDF_MEDIA_TYPE })
       /** @brief 仅为本次用户动作创建的下载元素 / Download element created only for this user action. */
       const anchor = dependencies.createAnchor()
       /** @brief 同源临时下载 URL / Same-origin temporary download URL. */
@@ -488,7 +362,7 @@ export function createBrowserArtifactSavePort(
 
       try {
         anchor.href = blobUrl
-        anchor.download = safeSuggestedFileName
+        anchor.download = validatedRequest.suggestedFileName
         dependencies.appendAnchor(anchor)
         anchor.click()
       } finally {

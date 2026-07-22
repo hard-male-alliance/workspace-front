@@ -1,13 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
-import { MAX_PDF_ARTIFACT_BYTES, sanitizePdfFileName } from '@ai-job-workspace/platform'
-
 import {
   ARTIFACT_EXPIRY_SAFETY_WINDOW_MS,
-  maskArtifactSaveFailure,
-  savePdfArtifact,
-  validateArtifactSaveRequest,
-  validateProductArtifactUrl
-} from './artifact-save-service'
+  MAX_PDF_ARTIFACT_BYTES,
+  parseArtifactSaveRequest,
+  sanitizePdfFileName
+} from '@ai-job-workspace/platform'
+
+import { maskArtifactSaveFailure, savePdfArtifact } from './artifact-save-service'
 import type {
   ArtifactFetchResponse,
   ArtifactSaveServiceDependencies
@@ -150,9 +149,9 @@ function createDependencies(
   }
 }
 
-describe('validateArtifactSaveRequest', () => {
+describe('parseArtifactSaveRequest', () => {
   it('只保留产物 ID 与安全文件名', () => {
-    expect(validateArtifactSaveRequest(validRequest)).toEqual({
+    expect(parseArtifactSaveRequest(validRequest)).toEqual({
       artifactId: 'artifact_123',
       suggestedFileName: 'Klee Resume.pdf'
     })
@@ -167,33 +166,27 @@ describe('validateArtifactSaveRequest', () => {
     { ...validRequest, artifactId: 'artifact/123' },
     { ...validRequest, suggestedFileName: '../unsafe.pdf' }
   ])('拒绝错误或扩权的 IPC 载荷：%o', (payload) => {
-    expect(() => validateArtifactSaveRequest(payload)).toThrow()
-  })
-})
-
-describe('validateProductArtifactUrl', () => {
-  it('允许同源、同产物且带短期签名 query 的内容 URL', () => {
-    expect(
-      validateProductArtifactUrl(validMetadata.download_url, API_ORIGIN, 'artifact_123').href
-    ).toBe(validMetadata.download_url)
-  })
-
-  it.each([
-    'https://evil.example/api/v1/render-artifacts/artifact_123/content',
-    `${API_ORIGIN}/private/render-artifacts/artifact_123/content`,
-    `${API_ORIGIN}/api/v1/render-artifacts/artifact_456/content`,
-    `${API_ORIGIN}/api/v1/render-artifacts/artifact_123`,
-    `${API_ORIGIN}/api/v1/render-artifacts/artifact_123/content/extra`,
-    `${API_ORIGIN}/api/v1/render-artifacts/artifact%2f123/content`,
-    `${API_ORIGIN}/api/v1/render-artifacts/artifact_123/content#fragment`,
-    `${API_ORIGIN}/api/v1/render-artifacts\\artifact_123\\content`,
-    'file:///api/v1/render-artifacts/artifact_123/content'
-  ])('拒绝越过 origin、身份、协议或 API path 的 URL：%s', (contentUrl) => {
-    expect(() => validateProductArtifactUrl(contentUrl, API_ORIGIN, 'artifact_123')).toThrow()
+    expect(() => parseArtifactSaveRequest(payload)).toThrow()
   })
 })
 
 describe('savePdfArtifact', () => {
+  it('主进程在打开原生对话框前重新解码不可信 IPC 载荷', async () => {
+    /** @brief 不应触发任何宿主副作用的依赖 / Dependencies that must observe no host side effects. */
+    const harness = createDependencies()
+
+    await expect(
+      savePdfArtifact(
+        { ...validRequest, hiddenPath: '/tmp/private.pdf' },
+        API_ORIGIN,
+        harness.dependencies
+      )
+    ).rejects.toThrow('unsupported fields')
+    expect(harness.showSaveDialog).not.toHaveBeenCalled()
+    expect(harness.fetch).not.toHaveBeenCalled()
+    expect(harness.writePdf).not.toHaveBeenCalled()
+  })
+
   it('取消时不读取元数据也不写文件', async () => {
     /** @brief 当前测试依赖 / Dependencies for this test. */
     const harness = createDependencies()
@@ -225,7 +218,7 @@ describe('savePdfArtifact', () => {
       credentials: 'omit',
       headers: { Accept: 'application/json' },
       method: 'GET',
-      redirect: 'manual'
+      redirect: 'error'
     })
     expect(contentCall?.[0]).toBe(validMetadata.download_url)
     expect(contentCall?.[1]).toMatchObject({
@@ -233,7 +226,7 @@ describe('savePdfArtifact', () => {
       credentials: 'omit',
       headers: { Accept: 'application/pdf' },
       method: 'GET',
-      redirect: 'manual'
+      redirect: 'error'
     })
     expect(contentCall?.[1].signal).toBe(metadataCall?.[1].signal)
     expect(harness.showSaveDialog.mock.invocationCallOrder[0]).toBeLessThan(
@@ -306,46 +299,22 @@ describe('savePdfArtifact', () => {
     expect(harness.fetch).toHaveBeenCalledTimes(1)
   })
 
-  it('逐跳允许同一产物 URL 更新签名，但拒绝切换 artifact ID', async () => {
-    /** @brief 同一产物的新签名重定向 / Redirect with a renewed signature for the same artifact. */
-    const sameArtifactRedirect = createResponse({
-      headers: {
-        location: '/api/v1/render-artifacts/artifact_123/content?signature=renewed'
-      },
-      status: 302
-    })
+  it('内容发生任何重定向时由 Electron transport fail closed 且不写文件', async () => {
+    /** @brief 模拟 Electron 对 redirect:error 的真实拒绝语义 / Realistic Electron rejection for redirect:error. */
+    const redirectFailure = new Error("Attempted to redirect, but redirect policy was 'error'")
     /** @brief 当前测试依赖 / Dependencies for this test. */
     const harness = createDependencies()
     harness.fetch
       .mockReset()
       .mockResolvedValueOnce(createMetadataResponse())
-      .mockResolvedValueOnce(sameArtifactRedirect)
-      .mockResolvedValueOnce(createContentResponse())
+      .mockRejectedValueOnce(redirectFailure)
 
-    await expect(savePdfArtifact(validRequest, API_ORIGIN, harness.dependencies)).resolves.toEqual({
-      status: 'saved'
-    })
-    expect(harness.fetch).toHaveBeenCalledTimes(3)
-    expect(harness.fetch.mock.calls[2]?.[0]).toBe(
-      `${API_ORIGIN}/api/v1/render-artifacts/artifact_123/content?signature=renewed`
+    await expect(savePdfArtifact(validRequest, API_ORIGIN, harness.dependencies)).rejects.toBe(
+      redirectFailure
     )
-
-    /** @brief 切换到其他产物的重定向 / Redirect switching to a different artifact. */
-    const differentArtifactRedirect = createResponse({
-      headers: { location: '/api/v1/render-artifacts/artifact_456/content' },
-      status: 302
-    })
-    /** @brief 第二次保存操作的依赖 / Dependencies for the second save operation. */
-    const rejected = createDependencies()
-    rejected.fetch
-      .mockReset()
-      .mockResolvedValueOnce(createMetadataResponse())
-      .mockResolvedValueOnce(differentArtifactRedirect)
-
-    await expect(savePdfArtifact(validRequest, API_ORIGIN, rejected.dependencies)).rejects.toThrow(
-      'expected artifact content resource'
-    )
-    expect(rejected.writePdf).not.toHaveBeenCalled()
+    expect(harness.fetch).toHaveBeenCalledTimes(2)
+    expect(harness.fetch.mock.calls[1]?.[1]).toMatchObject({ redirect: 'error' })
+    expect(harness.writePdf).not.toHaveBeenCalled()
   })
 
   it.each([

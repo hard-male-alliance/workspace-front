@@ -1,6 +1,6 @@
 /** @file Electron 主进程组合根与应用生命周期 / Electron main-process composition root and application lifecycle. */
 
-import { app } from 'electron'
+import { app, dialog } from 'electron'
 import type { BrowserWindow } from 'electron'
 
 import { resolveDesktopApiBaseUrl } from './api-config'
@@ -20,8 +20,7 @@ import {
 import { createDesktopRuntimeInfo } from './runtime-info'
 import { registerRuntimeInfoHandler } from './runtime-ipc'
 import type { RendererIdentity } from './security'
-
-registerRendererSchemePrivileges()
+import { reportDesktopStartupFailure } from './startup-failure'
 
 /** @brief 唯一的产品主窗口 / The single product main window. */
 let mainWindow: BrowserWindow | null = null
@@ -97,13 +96,43 @@ async function initializeDesktopApplication(): Promise<void> {
 }
 
 /**
+ * @brief 安全读取原生启动错误所用 locale / Safely read the locale used by the native startup error.
+ * @return Electron 已 ready 时的宿主 locale；否则回退 en-US / Host locale after Electron is ready, otherwise en-US.
+ */
+function resolveStartupFailureLocale(): string {
+  if (!app.isReady()) return 'en-US'
+  try {
+    return app.getLocale()
+  } catch {
+    return 'en-US'
+  }
+}
+
+/**
  * @brief 报告不可恢复的启动失败 / Report an unrecoverable startup failure.
  * @param error 启动期间抛出的错误 / Error thrown during startup.
  * @return 无返回值 / No return value.
  */
 function reportStartupFailure(error: unknown): void {
-  console.error('Desktop application failed to start.', error)
-  app.exit(1)
+  reportDesktopStartupFailure(error, resolveStartupFailureLocale(), {
+    exit: (exitCode): void => app.exit(exitCode),
+    logError: (message, reason): void => console.error(message, reason),
+    showErrorBox: (title, content): void => dialog.showErrorBox(title, content)
+  })
+}
+
+/**
+ * @brief 在 ready 前安全注册 renderer scheme 权限 / Safely register renderer-scheme privileges before ready.
+ * @return 注册成功时为 true；失败时报告原生错误并阻止后续初始化 / True on success; on failure reports a native error and prevents later initialization.
+ */
+function registerRendererSchemePrivilegesSafely(): boolean {
+  try {
+    registerRendererSchemePrivileges()
+    return true
+  } catch (error: unknown) {
+    reportStartupFailure(error)
+    return false
+  }
 }
 
 /**
@@ -126,6 +155,7 @@ function recreateMainWindowOnActivate(): void {
   }
 }
 
-app.on('window-all-closed', quitWhenAllWindowsClose)
-
-void app.whenReady().then(initializeDesktopApplication).catch(reportStartupFailure)
+if (registerRendererSchemePrivilegesSafely()) {
+  app.on('window-all-closed', quitWhenAllWindowsClose)
+  void app.whenReady().then(initializeDesktopApplication).catch(reportStartupFailure)
+}

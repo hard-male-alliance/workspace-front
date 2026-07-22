@@ -1,6 +1,6 @@
 /** @file 冻结 RenderArtifact 元数据契约的独立解码器 / Dependency-free decoder for the frozen RenderArtifact metadata contract. */
 
-import { isAbsoluteUri, isRfc3339Timestamp } from './contract-formats'
+import { isAbsoluteUri, isOpaqueResourceId, isRfc3339Timestamp } from './contract-formats'
 
 /** @brief 冻结契约允许的 RenderArtifact 格式 / RenderArtifact formats allowed by the frozen contract. */
 export type RenderArtifactFormat =
@@ -58,9 +58,6 @@ const RENDER_ARTIFACT_KEYS = new Set([
   'source_map_artifact_id',
   'extensions'
 ])
-
-/** @brief 冻结契约的不透明 ID 格式 / Opaque-ID format from the frozen contract. */
-const OPAQUE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/u
 
 /** @brief 冻结契约的 SHA-256 格式 / SHA-256 format from the frozen contract. */
 const SHA_256_PATTERN = /^[a-fA-F0-9]{64}$/u
@@ -135,7 +132,7 @@ function integerAtLeast(value: unknown, path: string, minimum: number): number {
 function opaqueId(value: unknown, path: string): string {
   /** @brief 待验证字符串 / String under validation. */
   const decoded = string(value, path)
-  if (!OPAQUE_ID_PATTERN.test(decoded)) return contractError(path, 'must be an opaque ID')
+  if (!isOpaqueResourceId(decoded)) return contractError(path, 'must be an opaque ID')
   return decoded
 }
 

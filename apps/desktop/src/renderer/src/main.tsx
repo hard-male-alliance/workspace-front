@@ -1,6 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { WorkspaceApp } from '@ai-job-workspace/app'
+import { HostStartupFailure, WorkspaceApp } from '@ai-job-workspace/app'
 import type { ElectronRuntimeInfo, PlatformBridge } from '@ai-job-workspace/platform'
 import { createProductGateways } from '@ai-job-workspace/product-runtime'
 
@@ -16,6 +16,15 @@ if (rootElement === null) {
 /** @brief 已验证存在的 React 挂载节点 / React mounting node verified to exist. */
 const mountElement = rootElement
 
+/** @brief Electron renderer 唯一 React root / Sole React root for the Electron renderer. */
+const applicationRoot = createRoot(mountElement)
+
+/** @brief 仅在 Electron renderer 模块内可见的 preload bridge 投影 / Module-local projection of the preload bridge for the Electron renderer. */
+interface DesktopHostWindow extends Window {
+  /** @brief 仅由 Electron preload 注入的窄平台桥接 / Narrow platform bridge injected only by Electron preload. */
+  readonly aiJobWorkspace?: PlatformBridge
+}
+
 /** @brief preload bridge 与主进程确认信息的启动快照 / Bootstrap snapshot of the preload bridge and main-confirmed information. */
 interface DesktopRuntimeSnapshot {
   /** @brief preload 注入的窄宿主 bridge / Narrow host bridge injected by preload. */
@@ -30,8 +39,10 @@ interface DesktopRuntimeSnapshot {
  * @throws preload bridge 缺失、调用失败或返回非 Electron 信息时抛出 / Throws when the preload bridge is missing, fails, or returns non-Electron information.
  */
 async function resolveDesktopRuntime(): Promise<DesktopRuntimeSnapshot> {
+  /** @brief 不扩展全局 Window 的模块局部宿主投影 / Module-local host projection that does not augment global Window. */
+  const hostWindow: DesktopHostWindow = window
   /** @brief 只能由 Electron preload 注入的窄 bridge / Narrow bridge injected only by the Electron preload. */
-  const bridge = window.aiJobWorkspace
+  const bridge = hostWindow.aiJobWorkspace
   if (bridge === undefined) {
     throw new Error('The Electron preload bridge is unavailable.')
   }
@@ -74,7 +85,7 @@ async function bootstrapDesktopRenderer(): Promise<void> {
     upload_enabled: endpoint !== undefined
   })
 
-  createRoot(mountElement).render(
+  applicationRoot.render(
     <StrictMode>
       <WorkspaceApp
         artifactSave={bridge}
@@ -90,14 +101,25 @@ async function bootstrapDesktopRenderer(): Promise<void> {
 }
 
 /**
- * @brief 显示不可恢复的 Electron renderer 启动错误 / Show an unrecoverable Electron-renderer startup error.
+ * @brief 重新加载 Electron renderer 以重试已修正的宿主配置 / Reload the Electron renderer to retry corrected host configuration.
+ * @return 无返回值 / No return value.
+ */
+function reloadDesktopApplication(): void {
+  globalThis.location.reload()
+}
+
+/**
+ * @brief 显示可重试且脱敏的 Electron renderer 启动错误 / Show a retryable, configuration-safe Electron-renderer startup error.
  * @param error 启动失败值 / Bootstrap failure value.
  * @return 无返回值 / No return value.
  */
 function reportDesktopBootstrapFailure(error: unknown): void {
   console.error('Desktop renderer failed to start.', error)
-  mountElement.setAttribute('role', 'alert')
-  mountElement.textContent = 'The desktop application could not start safely.'
+  applicationRoot.render(
+    <StrictMode>
+      <HostStartupFailure locale={navigator.language} onRetry={reloadDesktopApplication} />
+    </StrictMode>
+  )
 }
 
 void bootstrapDesktopRenderer().catch(reportDesktopBootstrapFailure)
