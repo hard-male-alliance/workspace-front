@@ -11,6 +11,8 @@
     "apps/desktop/src/renderer/**/*.tsx",
     "packages/app/src/**/*.ts",
     "packages/app/src/**/*.tsx",
+    "packages/app/tests/**/*.ts",
+    "packages/app/tests/**/*.tsx",
     "packages/platform/src/**/*.ts",
     "packages/platform/src/**/*.tsx",
     "packages/product-runtime/src/**/*.ts",

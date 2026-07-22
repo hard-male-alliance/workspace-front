@@ -850,6 +850,46 @@ function checkTestProjectAssignment(file, projectName, definitions, violations) 
 }
 
 /**
+ * @brief 验证测试运行时与宿主目录一致 / Validate that a test runtime matches its host directory.
+ * @param {SourceFile} file 待校验测试 / Test source to validate.
+ * @param {string} projectName 文件后缀声明的 project / Project declared by the filename suffix.
+ * @param {Record<string, TestProjectDefinition[]>} definitions 唯一 project 清单 / Canonical project manifest.
+ * @param {Violation[]} violations 输出违规列表 / Output violations.
+ * @return {void} 无返回值 / No return value.
+ */
+function checkTestRuntimeLocation(file, projectName, definitions, violations) {
+  /** @brief Electron Node 宿主源码目录标记 / Electron Node-host source-directory marker. */
+  const isDesktopNodeHost =
+    isWithin(file.relativePath, 'apps/desktop/src/main') ||
+    isWithin(file.relativePath, 'apps/desktop/src/preload')
+
+  if (isDesktopNodeHost && projectName !== 'node') {
+    violations.push({
+      column: 1,
+      file: file.relativePath,
+      line: 1,
+      message: 'Electron main/preload tests must use the Node project and the .node.test.* suffix.',
+      rule: 'test-runtime-location'
+    })
+    return
+  }
+
+  if (projectName !== 'browser') return
+
+  /** @brief Browser project 明确声明的目录 / Explicit directories declared by the Browser project. */
+  const browserRoots = (definitions.browser ?? []).flatMap((definition) => definition.roots)
+  if (browserRoots.some((root) => isWithin(file.relativePath, root))) return
+
+  violations.push({
+    column: 1,
+    file: file.relativePath,
+    line: 1,
+    message: `Browser tests must live under an explicit browser root from ${TEST_PROJECTS_MANIFEST}.`,
+    rule: 'test-runtime-location'
+  })
+}
+
+/**
  * @brief 追加单项依赖违规 / Append one dependency violation.
  * @param {Violation[]} violations 输出违规列表 / Output violations.
  * @param {SourceFile} file 违规源码 / Violating source.
@@ -883,17 +923,21 @@ function isTestingFacadeRestrictedProduction(relativePath) {
 }
 
 /**
- * @brief 判断依赖是否直接指向 app/testing / Detect a direct dependency on app/testing.
+ * @brief 判断依赖是否指向非生产数据 adapter / Detect a dependency on non-production data adapters.
  * @param {string} specifier 模块说明符 / Module specifier.
  * @param {string | undefined} targetRelativePath 已解析目标路径 / Resolved target path.
- * @return {boolean} 直接测试装配依赖为 true / True for a direct testing-composition dependency.
+ * @return {boolean} 测试或演示数据依赖为 true / True for a testing or demo-data dependency.
  */
-function isDirectAppTestingDependency(specifier, targetRelativePath) {
+function isNonProductionDataDependency(specifier, targetRelativePath) {
   return (
     specifier === '@ai-job-workspace/app/testing' ||
     specifier.startsWith('@ai-job-workspace/app/testing/') ||
+    specifier === '@ai-job-workspace/app/demo' ||
+    specifier.startsWith('@ai-job-workspace/app/demo/') ||
     targetRelativePath === 'packages/app/src/testing.ts' ||
-    targetRelativePath?.startsWith('packages/app/src/testing/') === true
+    targetRelativePath?.startsWith('packages/app/src/testing/') === true ||
+    targetRelativePath === 'packages/app/src/demo.ts' ||
+    targetRelativePath?.includes('/infrastructure/memory/') === true
   )
 }
 
@@ -927,6 +971,23 @@ function checkDependencyBoundaries(file, dependency, rootDir, workspacePackages,
   /** @brief 被导入的工作区 package / Imported workspace package. */
   const workspacePackage =
     packageSpecifier === undefined ? undefined : workspacePackages.get(packageSpecifier.name)
+
+  if (
+    /\.dom\.test\.(?:[cm]?[jt]sx?)$/u.test(file.relativePath) &&
+    dependency.importedNames.includes('WorkspaceApp') &&
+    (dependency.specifier === '@ai-job-workspace/app' ||
+      targetRelativePath === 'packages/app/src/app/WorkspaceApp.tsx' ||
+      targetRelativePath === 'packages/app/tests/integration/WorkspaceApp.dom-test-harness.tsx') &&
+    !isWithin(file.relativePath, 'packages/app/tests/integration')
+  ) {
+    addDependencyViolation(
+      violations,
+      file,
+      dependency,
+      'workspace-app-dom-test-placement',
+      'DOM tests that render the complete WorkspaceApp must live under packages/app/tests/integration; keep co-located DOM tests scoped to their local module.'
+    )
+  }
 
   if (
     isProductionSource(file.relativePath) &&
@@ -1085,14 +1146,14 @@ function checkDependencyBoundaries(file, dependency, rootDir, workspacePackages,
 
   if (
     isTestingFacadeRestrictedProduction(file.relativePath) &&
-    isDirectAppTestingDependency(dependency.specifier, targetRelativePath)
+    isNonProductionDataDependency(dependency.specifier, targetRelativePath)
   ) {
     addDependencyViolation(
       violations,
       file,
       dependency,
       'production-testing-composition',
-      'Production application and product-runtime source cannot import @ai-job-workspace/app/testing; use the narrow @ai-job-workspace/app/demo facade for intentional local-demo adapters.'
+      'Production composition cannot import testing, demo, or in-memory data adapters; compose a contract-backed production adapter instead.'
     )
   }
 }
@@ -1227,6 +1288,7 @@ export async function checkArchitecture(options = {}) {
     const testProjectName = checkTestSuffix(file, violations)
     if (testProjectName !== undefined) {
       checkTestProjectAssignment(file, testProjectName, testProjectDefinitions, violations)
+      checkTestRuntimeLocation(file, testProjectName, testProjectDefinitions, violations)
     }
     /** @brief 当前源码已解析依赖 / Resolved dependencies of the current source. */
     const dependencies = parseDependencies(file).map((dependency) => ({

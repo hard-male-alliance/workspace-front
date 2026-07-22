@@ -18,7 +18,7 @@ const architectureScript = path.join(testDirectory, 'check-architecture.mjs')
 
 /** @brief fixture 默认使用的测试 project 清单 / Default test-project manifest used by fixtures. */
 const fixtureTestProjects = JSON.stringify({
-  browser: [{ extensions: ['ts', 'tsx'], roots: ['packages/app/src'] }],
+  browser: [{ extensions: ['ts', 'tsx'], roots: ['packages/app/tests/browser'] }],
   dom: [{ extensions: ['ts', 'tsx'], roots: ['apps', 'packages'] }],
   node: [
     { extensions: ['ts', 'tsx'], roots: ['apps', 'packages'] },
@@ -95,7 +95,7 @@ describe('checkArchitecture', () => {
         'packages/app/src/styles/order.node.test.ts':
           "import { readFile } from 'node:fs/promises'\nvoid readFile\n",
         'packages/platform/src/index.ts': "export const platformVersion = 'fixture'\n",
-        'packages/app/src/behavior.browser.test.tsx':
+        'packages/app/tests/browser/behavior.browser.test.tsx':
           "import { expect, it } from 'vitest'\nit('works', () => expect(true).toBe(true))\n",
         'packages/app/src/page.dom.test.tsx':
           "import { expect, it } from 'vitest'\nit('works', () => expect(true).toBe(true))\n",
@@ -146,6 +146,53 @@ describe('checkArchitecture', () => {
           'apps/web/src/missed.browser.test.tsx',
           'packages/app/src/missed.node.test.mjs'
         ])
+      }
+    )
+  })
+
+  it('要求 Electron main/preload 测试只使用 Node，并把 Browser 测试限制在显式目录', async () => {
+    await withFixture(
+      {
+        'apps/desktop/src/main/window.dom.test.ts': 'export {}\n',
+        'apps/desktop/src/main/window.node.test.ts': 'export {}\n',
+        'apps/desktop/src/preload/bridge.browser.test.tsx': 'export {}\n',
+        'apps/desktop/src/preload/bridge.node.test.ts': 'export {}\n',
+        'apps/web/src/workflow.browser.test.tsx': 'export {}\n',
+        'packages/app/tests/browser/workflow.browser.test.tsx': 'export {}\n'
+      },
+      async (rootDir) => {
+        /** @brief 测试运行时目录违规 / Test runtime-location violations. */
+        const result = await checkArchitecture({ rootDir })
+        expect(
+          violationsFor(result.violations, 'test-runtime-location').map(
+            (violation) => violation.file
+          )
+        ).toEqual([
+          'apps/desktop/src/main/window.dom.test.ts',
+          'apps/desktop/src/preload/bridge.browser.test.tsx',
+          'apps/web/src/workflow.browser.test.tsx'
+        ])
+      }
+    )
+  })
+
+  it('要求完整 WorkspaceApp DOM 测试集中在 package integration 目录', async () => {
+    await withFixture(
+      {
+        'packages/app/src/app/WorkspaceApp.tsx': 'export const WorkspaceApp = () => null\n',
+        'packages/app/src/contexts/workspace/presentation/Home.dom.test.tsx':
+          "import { WorkspaceApp } from '../../../app/WorkspaceApp'\nvoid WorkspaceApp\n",
+        'packages/app/tests/integration/WorkspaceApp.dom.test.tsx':
+          "import { WorkspaceApp } from '../../src/app/WorkspaceApp'\nvoid WorkspaceApp\n"
+      },
+      async (rootDir) => {
+        /** @brief 完整应用 DOM 测试放置结果 / Full-app DOM-test placement result. */
+        const result = await checkArchitecture({ rootDir })
+        expect(
+          violationsFor(result.violations, 'workspace-app-dom-test-placement').map(
+            (violation) => violation.file
+          )
+        ).toEqual(['packages/app/src/contexts/workspace/presentation/Home.dom.test.tsx'])
       }
     )
   })
@@ -291,7 +338,7 @@ describe('checkArchitecture', () => {
     )
   })
 
-  it('禁止应用与 product-runtime 生产源码使用 app/testing，但允许测试支撑源码', async () => {
+  it('禁止生产组合使用 testing、demo 或内存数据 adapter，但允许测试支撑源码', async () => {
     await withFixture(
       {
         'apps/desktop/src/renderer/main.ts':
@@ -301,13 +348,22 @@ describe('checkArchitecture', () => {
         'packages/app/src/app/compose.ts': "import '../testing'\n",
         'packages/app/src/app/compose.dom-test-harness.ts': "import '../testing'\n",
         'packages/product-runtime/src/index.ts':
-          "import '@ai-job-workspace/app/demo'\nimport '@ai-job-workspace/app/testing'\n",
+          "import '@ai-job-workspace/app/testing'\nimport '../../app/src/contexts/resume/infrastructure/memory/gateway'\n",
         'packages/app/src/testing.ts': 'export const fixture = {}\n'
       },
       async (rootDir) => {
         /** @brief 生产装配 fixture 的检查结果 / Check result for the production-composition fixture. */
         const result = await checkArchitecture({ rootDir })
-        expect(violationsFor(result.violations, 'production-testing-composition')).toHaveLength(4)
+        /** @brief 被拒绝的生产源文件 / Production source files rejected by the rule. */
+        const violatingFiles = violationsFor(result.violations, 'production-testing-composition')
+          .map((violation) => violation.file)
+          .sort()
+        expect(violatingFiles).toEqual([
+          'apps/desktop/src/renderer/main.ts',
+          'apps/web/src/main.ts',
+          'packages/app/src/app/compose.ts',
+          'packages/product-runtime/src/index.ts'
+        ])
       }
     )
   })

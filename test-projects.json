@@ -17,7 +17,7 @@
   ],
   "browser": [
     {
-      "roots": ["packages/app/src"],
+      "roots": ["packages/app/tests/browser"],
       "extensions": ["ts", "tsx"]
     }
   ]
