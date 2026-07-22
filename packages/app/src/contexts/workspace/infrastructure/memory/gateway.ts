@@ -1,21 +1,23 @@
-/** @file Workspace 的内存 adapter / In-memory adapter for Workspace. */
+/** @file WorkspaceAccess v2 的内存 adapter / In-memory adapter for WorkspaceAccess v2. */
 
-import type { WorkspaceGateway } from '../../application/gateway'
-import type { UiWorkspace } from '../../domain/models'
+import type { UiWorkspaceAccessPageRequest, WorkspaceGateway } from '../../application/gateway'
+import type { UiWorkspaceAccessPage } from '../../domain/models'
 import {
   cloneMemoryValue,
+  InMemoryGatewayError,
   type InMemoryGatewayOptions,
   prepareMemoryRead
 } from '../../../../infrastructure/memory'
-import { DEMO_WORKSPACES } from './data'
+import { DEMO_WORKSPACE_ACCESSES } from './data'
 
 /**
- * @brief Workspace 自动化测试内存适配器 / In-memory adapter for automated Workspace tests.
- * @note 仅从测试入口导出，不允许装配进产品运行时。 / Exported only from the testing entry point and forbidden from production composition.
+ * @brief Workspace 自动化测试内存适配器 / In-memory Workspace adapter for automated tests.
+ * @note 该 fixture 是一页有限集合；产品 ACL 必须保留真实 v2 cursor Page。 / This fixture is one bounded page; the product ACL must preserve real v2 cursor Pages.
  */
 export class InMemoryWorkspaceGateway implements WorkspaceGateway {
   /** @brief 当前 adapter 的确定性行为选项 / Deterministic behavior options for this adapter. */
   private readonly options: InMemoryGatewayOptions
+
   /**
    * @brief 构造 Workspace 内存测试网关 / Construct the Workspace in-memory test gateway.
    * @param options 确定性测试行为选项 / Deterministic test behavior options.
@@ -25,13 +27,31 @@ export class InMemoryWorkspaceGateway implements WorkspaceGateway {
   }
 
   /**
-   * @brief 读取 Workspace 测试 fixture / Read the Workspace test fixture.
-   * @return 测试可访问 Workspace 投影 / Test accessible-Workspace projections.
+   * @brief 读取一页 WorkspaceAccess fixture / Read one WorkspaceAccess fixture page.
+   * @param request 首页请求与取消信号 / First-page request and cancellation signal.
+   * @return 合法的 v2 末页 / Valid final v2 page.
    */
-  async listAccessibleWorkspaces(): Promise<readonly UiWorkspace[]> {
+  async listWorkspaceAccessPage(
+    request: UiWorkspaceAccessPageRequest
+  ): Promise<UiWorkspaceAccessPage> {
+    request.signal.throwIfAborted()
+    if (request.limit < 1 || request.limit > 200 || !Number.isSafeInteger(request.limit)) {
+      throw new RangeError('WorkspaceAccess page limit must be a safe integer between 1 and 200.')
+    }
+    if (request.cursor !== null) {
+      throw new InMemoryGatewayError(
+        'memory.not_found',
+        'The in-memory Workspace cursor was not found.'
+      )
+    }
+
+    /** @brief 当前确定性模式 / Current deterministic mode. */
     const mode = await prepareMemoryRead(this.options)
-    /** @brief 防御性复制后的可访问 Workspace / Defensively copied accessible Workspaces. */
-    const workspaces = cloneMemoryValue(DEMO_WORKSPACES)
-    return mode === 'empty' ? [] : workspaces
+    request.signal.throwIfAborted()
+    return {
+      hasMore: false,
+      items: mode === 'empty' ? [] : cloneMemoryValue(DEMO_WORKSPACE_ACCESSES),
+      nextCursor: null
+    }
   }
 }

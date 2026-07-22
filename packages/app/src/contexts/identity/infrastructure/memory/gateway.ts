@@ -1,4 +1,4 @@
-/** @file Identity 的内存 adapter / In-memory adapter for Identity. */
+/** @file Identity v2 的内存 adapter / In-memory adapter for Identity v2. */
 
 import type { IdentityGateway } from '../../application/gateway'
 import type { UiCurrentUser } from '../../domain/models'
@@ -25,9 +25,15 @@ export class InMemoryIdentityGateway implements IdentityGateway {
     this.options = options
   }
 
-  /** @inheritdoc */
-  async loadCurrentUser(): Promise<UiCurrentUser> {
+  /**
+   * @brief 读取当前 v2 principal fixture / Read the current v2-principal fixture.
+   * @param signal 调用方取消信号 / Caller cancellation signal.
+   * @return 当前用户的防御性副本 / Defensive copy of the current user.
+   */
+  async loadCurrentUser(signal: AbortSignal): Promise<UiCurrentUser> {
+    signal.throwIfAborted()
     await prepareMemoryRead(this.options)
+    signal.throwIfAborted()
     return cloneMemoryValue(DEMO_CURRENT_USER)
   }
 }
