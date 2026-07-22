@@ -11,7 +11,6 @@ import {
   loadTemplateCatalogWithPinnedVersion
 } from '../../application/template-catalog'
 import type {
-  UiResumeCard,
   UiResumeEditorModel,
   UiResumeId,
   UiResumePdfArtifact,
@@ -19,11 +18,14 @@ import type {
   UiResumeSectionDeleteInput,
   UiResumeSectionsReorderInput,
   UiResumeSectionUpdateInput,
+  UiResumeSummaryPage,
+  UiResumeSummaryPageRead,
   UiResumeTemplateSettingsUpdateInput,
   UiTemplateManifest,
   UiTemplateSettingsModel,
   UiStartResumePdfRenderInput
 } from '../../domain/models'
+import { asUiResumeCursor } from '../../domain/models'
 import { asUiOpaqueId, type UiWorkspaceId } from '../../../../shared-kernel/identity'
 import type { UiContentLocale } from '../../../../shared-kernel/locale'
 import {
@@ -34,9 +36,9 @@ import {
   type InMemoryGatewayOptions
 } from '../../../../infrastructure/memory'
 import {
-  MOCK_RESUME_CARDS,
   MOCK_RESUME_EDITOR,
   MOCK_RESUME_ID,
+  MOCK_RESUME_SUMMARIES,
   MOCK_RESUME_WORKSPACE_ID,
   MOCK_TEMPLATE_MANIFESTS,
   MOCK_TEMPLATE_MANIFEST_VERSIONS
@@ -68,17 +70,40 @@ export class InMemoryResumeGateway implements ResumeGateway {
   }
 
   /**
-   * @brief 列出 Mock 简历卡片 / List Mock resume cards.
-   * @param workspaceId 工作区 ID / Workspace ID.
-   * @return Mock 简历卡片 / Mock resume cards.
+   * @brief 读取一页 Mock ResumeSummary / Read one page of Mock Resume summaries.
+   * @param input 显式 Workspace、cursor、limit 与取消信号 / Explicit Workspace, cursor, limit, and cancellation signal.
+   * @return 符合 API v2 关系约束的 cursor 页 / Cursor page satisfying the API v2 relation constraint.
    */
-  async listResumeCards(workspaceId: UiWorkspaceId): Promise<readonly UiResumeCard[]> {
+  async listResumeSummariesPage(input: UiResumeSummaryPageRead): Promise<UiResumeSummaryPage> {
+    input.signal.throwIfAborted()
     const mode = await prepareMemoryRead(this.options)
-    if (mode === 'empty' || workspaceId !== MOCK_RESUME_WORKSPACE_ID) {
-      return []
+    input.signal.throwIfAborted()
+    if (mode === 'empty' || input.workspaceId !== MOCK_RESUME_WORKSPACE_ID) {
+      return { hasMore: false, items: [], nextCursor: null }
     }
 
-    return cloneMemoryValue(MOCK_RESUME_CARDS)
+    /** @brief 当前 cursor 对应的起始位置 / Start offset represented by the current cursor. */
+    const offset =
+      input.cursor === null
+        ? 0
+        : MOCK_RESUME_SUMMARIES.findIndex(
+            (_summary, index) => asUiResumeCursor(`resume_cursor_${index}`) === input.cursor
+          )
+    if (offset < 0) {
+      throw new InMemoryGatewayError('memory.not_found', 'The Mock Resume cursor is not valid.')
+    }
+
+    /** @brief 当前页未共享引用的摘要 / Current-page summaries without shared references. */
+    const items = cloneMemoryValue(MOCK_RESUME_SUMMARIES.slice(offset, offset + input.limit))
+    /** @brief 下一页在固定排序中的起始位置 / Start offset of the next page in the fixed ordering. */
+    const nextOffset = offset + items.length
+    return nextOffset < MOCK_RESUME_SUMMARIES.length
+      ? {
+          hasMore: true,
+          items,
+          nextCursor: asUiResumeCursor(`resume_cursor_${nextOffset}`)
+        }
+      : { hasMore: false, items, nextCursor: null }
   }
 
   /**

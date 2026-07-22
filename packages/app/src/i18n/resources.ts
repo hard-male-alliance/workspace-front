@@ -164,6 +164,24 @@ export const zhSGTranslation = {
     assistantMessageForm: '简历助手消息',
     sendMessage: '发送消息',
     emptyResumes: '还没有简历。创建一份后，它会自动成为可配置的知识来源。',
+    library: {
+      title: '简历库',
+      description: '浏览并继续编辑当前工作区的简历。',
+      results: '简历列表',
+      loading: '正在加载简历库…',
+      error: '无法加载简历库',
+      emptyTitle: '还没有简历',
+      emptyDescription: '当前工作区还没有简历。新建后会显示在这里。',
+      noWorkspaceTitle: '尚未选择工作区',
+      noWorkspaceDescription: '选择一个可访问的工作区后，即可查看其中的简历。',
+      templateVersion: '模板 {{templateId}} · v{{version}}',
+      updatedAt: '更新于',
+      loadMore: '加载更多',
+      loadingMore: '正在加载更多简历…',
+      loadMoreError: '无法加载更多简历',
+      appended: '已加载 {{count}} 份简历',
+      end: '已显示当前工作区的全部简历'
+    },
     editor: {
       sectionTitle: '区段标题',
       semanticContent: '语义内容'
@@ -685,6 +703,25 @@ export const enUSTranslation = {
     assistantMessageForm: 'Resume assistant message',
     sendMessage: 'Send message',
     emptyResumes: 'No resumes yet. Once created, a resume becomes a configurable knowledge source.',
+    library: {
+      title: 'Resume library',
+      description: 'Browse and continue editing resumes in the current workspace.',
+      results: 'Resume list',
+      loading: 'Loading resume library…',
+      error: 'Unable to load the resume library',
+      emptyTitle: 'No resumes yet',
+      emptyDescription: 'This workspace has no resumes yet. New resumes will appear here.',
+      noWorkspaceTitle: 'No workspace selected',
+      noWorkspaceDescription:
+        'Select an accessible workspace to view the resumes that belong to it.',
+      templateVersion: 'Template {{templateId}} · v{{version}}',
+      updatedAt: 'Updated',
+      loadMore: 'Load more',
+      loadingMore: 'Loading more resumes…',
+      loadMoreError: 'Unable to load more resumes',
+      appended: 'Loaded {{count}} resumes',
+      end: 'All resumes in this workspace are shown'
+    },
     editor: {
       sectionTitle: 'Section title',
       semanticContent: 'Semantic content'

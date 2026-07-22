@@ -3,6 +3,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { InMemoryGatewayError } from '../../../../infrastructure/memory'
+import { asUiResumePageLimit } from '../../domain/models'
 import {
   MOCK_EDITORIAL_TEMPLATE,
   MOCK_HISTORICAL_DAWN_TEMPLATE,
@@ -15,10 +16,68 @@ describe('InMemoryResumeGateway', () => {
   it('makes the configured empty state explicit', async () => {
     const gateway = new InMemoryResumeGateway({ mode: 'empty' })
 
-    await expect(gateway.listResumeCards(MOCK_RESUME_WORKSPACE_ID)).resolves.toEqual([])
+    await expect(
+      gateway.listResumeSummariesPage({
+        cursor: null,
+        limit: asUiResumePageLimit(20),
+        signal: new AbortController().signal,
+        workspaceId: MOCK_RESUME_WORKSPACE_ID
+      })
+    ).resolves.toEqual({ hasMore: false, items: [], nextCursor: null })
     await expect(
       gateway.getResumeEditor(MOCK_RESUME_WORKSPACE_ID, MOCK_RESUME_ID)
     ).rejects.toBeInstanceOf(InMemoryGatewayError)
+  })
+
+  it('paginates Resume summaries with a closed cursor relation', async () => {
+    /** @brief 独享 Resume 内存网关 / Dedicated Resume in-memory gateway. */
+    const resumeGateway = new InMemoryResumeGateway()
+    /** @brief 可取消的测试读取 / Abortable test read. */
+    const controller = new AbortController()
+    /** @brief 只取一条的首页 / First page containing one item. */
+    const firstPage = await resumeGateway.listResumeSummariesPage({
+      cursor: null,
+      limit: asUiResumePageLimit(1),
+      signal: controller.signal,
+      workspaceId: MOCK_RESUME_WORKSPACE_ID
+    })
+
+    expect(firstPage).toMatchObject({
+      hasMore: true,
+      items: [{ workspaceId: MOCK_RESUME_WORKSPACE_ID }]
+    })
+    if (!firstPage.hasMore) throw new Error('Expected the first Mock Resume page to continue.')
+
+    /** @brief 使用服务端游标读取的末页 / Terminal page read with the service cursor. */
+    const lastPage = await resumeGateway.listResumeSummariesPage({
+      cursor: firstPage.nextCursor,
+      limit: asUiResumePageLimit(1),
+      signal: controller.signal,
+      workspaceId: MOCK_RESUME_WORKSPACE_ID
+    })
+    expect(lastPage).toMatchObject({
+      hasMore: false,
+      items: [{ workspaceId: MOCK_RESUME_WORKSPACE_ID }],
+      nextCursor: null
+    })
+    expect(new Set([...firstPage.items, ...lastPage.items].map((summary) => summary.id)).size).toBe(
+      2
+    )
+  })
+
+  it('honours an aborted Resume page read before publishing data', async () => {
+    const resumeGateway = new InMemoryResumeGateway({ delayMs: 5 })
+    const controller = new AbortController()
+    const page = resumeGateway.listResumeSummariesPage({
+      cursor: null,
+      limit: asUiResumePageLimit(20),
+      signal: controller.signal,
+      workspaceId: MOCK_RESUME_WORKSPACE_ID
+    })
+
+    controller.abort(new DOMException('Workspace changed.', 'AbortError'))
+
+    await expect(page).rejects.toMatchObject({ name: 'AbortError' })
   })
 
   it('keeps PDF rendering split into start and status recovery', async () => {

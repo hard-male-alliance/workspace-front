@@ -1,6 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 
-import { ResumeEditorPage, ResumeEntryPage, TemplateSettingsPage } from '../../contexts/resume'
+import { ResumeEditorPage, ResumeListPage, TemplateSettingsPage } from '../../contexts/resume'
 
 /**
  * @brief 简历限界上下文的异步路由入口 / Async route entry for the Resume bounded context.
@@ -10,7 +10,7 @@ import { ResumeEditorPage, ResumeEntryPage, TemplateSettingsPage } from '../../c
 export default function ResumeRoutes(): React.JSX.Element {
   return (
     <Routes>
-      <Route element={<ResumeEntryPage />} index />
+      <Route element={<ResumeListPage />} index />
       <Route element={<ResumeEditorPage />} path=":resumeId/edit" />
       <Route element={<TemplateSettingsPage />} path=":resumeId/template" />
       <Route element={<Navigate replace to="/" />} path="*" />

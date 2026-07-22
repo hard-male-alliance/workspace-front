@@ -1,9 +1,9 @@
 /** @file Resume 限界上下文的确定性内存数据 / Deterministic in-memory data for the Resume bounded context. */
 
 import type {
-  UiResumeCard,
   UiResumeDocument,
   UiResumeEditorModel,
+  UiResumeSummary,
   UiTemplateManifest,
   UiTemplateSettingsModel
 } from '../../domain/models'
@@ -387,21 +387,29 @@ export const MOCK_RESUME_DOCUMENT: UiResumeDocument = {
   updatedAt: '2026-07-15T03:56:00.000Z'
 }
 
-/** @brief Mock 简历卡片 / Mock resume cards. */
-export const MOCK_RESUME_CARDS: readonly UiResumeCard[] = [
+/** @brief Mock API v2 ResumeSummary 投影 / Mock API v2 ResumeSummary projections. */
+export const MOCK_RESUME_SUMMARIES: readonly UiResumeSummary[] = [
   {
+    createdAt: '2026-07-01T02:00:00.000Z',
     id: MOCK_RESUME_DOCUMENT.id,
-    title: MOCK_RESUME_DOCUMENT.title,
-    templateName: MOCK_DAWN_TEMPLATE.name,
+    locale: MOCK_RESUME_DOCUMENT.locale,
     revision: MOCK_RESUME_DOCUMENT.revision,
-    updatedAt: MOCK_RESUME_DOCUMENT.updatedAt
+    templateId: MOCK_RESUME_DOCUMENT.template.templateId,
+    templateVersion: MOCK_RESUME_DOCUMENT.template.templateVersion,
+    title: MOCK_RESUME_DOCUMENT.title,
+    updatedAt: MOCK_RESUME_DOCUMENT.updatedAt,
+    workspaceId: MOCK_RESUME_DOCUMENT.workspaceId
   },
   {
+    createdAt: '2026-07-03T08:12:00.000Z',
     id: asUiOpaqueId<'resume'>('res_mock_english'),
-    title: 'AI Platform Engineer · EN',
-    templateName: MOCK_EDITORIAL_TEMPLATE.name,
+    locale: 'en-US',
     revision: 7,
-    updatedAt: '2026-07-10T10:30:00.000Z'
+    templateId: MOCK_EDITORIAL_TEMPLATE.id,
+    templateVersion: MOCK_EDITORIAL_TEMPLATE.version,
+    title: 'AI Platform Engineer · EN',
+    updatedAt: '2026-07-10T10:30:00.000Z',
+    workspaceId: MOCK_RESUME_WORKSPACE_ID
   }
 ]
 

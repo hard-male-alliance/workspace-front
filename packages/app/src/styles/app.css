@@ -8,6 +8,7 @@
 @import './shared-ui/core.css';
 @import './workspace/home.css';
 @import './shared-ui/status.css';
+@import './resume/library.css';
 @import './resume/editor.css';
 @import './shared-ui/domain-layouts.css';
 @import './resume/templates.css';

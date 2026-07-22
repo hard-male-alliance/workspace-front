@@ -27,7 +27,11 @@ export type {
   UiResumeStyleIntent,
   UiTemplateReference,
   UiResumeDocument,
-  UiResumeCard,
+  UiResumeCursor,
+  UiResumePageLimit,
+  UiResumeSummary,
+  UiResumeSummaryPage,
+  UiResumeSummaryPageRead,
   UiTemplateSettingControl,
   UiTemplateSettingValueType,
   UiTemplateSettingChoice,
@@ -47,7 +51,8 @@ export type {
   UiResumeTemplateSettingsUpdateInput,
   UiTemplateSettingsModel
 } from './domain/models'
+export { asUiResumeCursor, asUiResumePageLimit, UI_RESUME_PAGE_LIMIT_MAX } from './domain/models'
 export type { ResumeGateway } from './application/gateway'
 export { ResumeEditorPage } from './presentation/ResumeEditorPage'
-export { ResumeEntryPage } from './presentation/ResumeEntryPage'
+export { ResumeListPage } from './presentation/ResumeListPage'
 export { TemplateSettingsPage } from './presentation/TemplateSettingsPage'

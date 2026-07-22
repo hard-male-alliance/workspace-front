@@ -289,18 +289,109 @@ export interface UiResumeDocument {
   readonly updatedAt: string
 }
 
-/** @brief 简历卡片模型 / Resume card model. */
-export interface UiResumeCard {
+/** @brief Resume cursor 的名义类型品牌 / Nominal type brand for Resume cursors. */
+declare const resumeCursorBrand: unique symbol
+
+/**
+ * @brief 服务端签发的不透明 Resume 分页游标 / Opaque Resume pagination cursor issued by the service.
+ * @note 游标不是 offset、ID 或可由客户端解析的值 / A cursor is not an offset, an ID, or a client-decodable value.
+ */
+export type UiResumeCursor = string & { readonly [resumeCursorBrand]: 'resume-cursor' }
+
+/**
+ * @brief 将有界字符串提升为 Resume cursor / Refine a bounded string into a Resume cursor.
+ * @param value 服务端返回的不透明游标 / Opaque cursor returned by the service.
+ * @return 带 Resume 分页语义的游标 / Cursor carrying Resume pagination semantics.
+ * @throws {TypeError} 当 cursor 为空或超过 API v2 上限时抛出 / Thrown when the cursor is empty or exceeds the API v2 limit.
+ */
+export function asUiResumeCursor(value: string): UiResumeCursor {
+  if (value.length < 1 || [...value].length > 2048) {
+    throw new TypeError('A Resume cursor must contain between 1 and 2048 characters.')
+  }
+  return value as UiResumeCursor
+}
+
+/** @brief Resume 列表单页最大条目数 / Maximum items in one Resume-list page. */
+export const UI_RESUME_PAGE_LIMIT_MAX = 200
+
+/** @brief Resume 页大小的名义类型品牌 / Nominal type brand for Resume page sizes. */
+declare const resumePageLimitBrand: unique symbol
+
+/** @brief 经验证的 Resume 列表页大小 / Validated Resume-list page size. */
+export type UiResumePageLimit = number & { readonly [resumePageLimitBrand]: 'resume-page-limit' }
+
+/**
+ * @brief 构造受 API v2 上限约束的 Resume 页大小 / Construct a Resume page size constrained by the API v2 upper bound.
+ * @param value 候选页大小 / Candidate page size.
+ * @return 1 至 200 之间的名义页大小 / Nominal page size between 1 and 200.
+ * @throws {RangeError} 当值不是合法整数时抛出 / Thrown when the value is not a valid integer.
+ */
+export function asUiResumePageLimit(value: number): UiResumePageLimit {
+  if (!Number.isInteger(value) || value < 1 || value > UI_RESUME_PAGE_LIMIT_MAX) {
+    throw new RangeError(
+      `Resume page limit must be an integer from 1 to ${UI_RESUME_PAGE_LIMIT_MAX}.`
+    )
+  }
+  return value as UiResumePageLimit
+}
+
+/**
+ * @brief API v2 ResumeSummary 的产品领域投影 / Product-domain projection of API v2 ResumeSummary.
+ * @note 保留 Resource 时间与 revision，避免列表卡片发明契约不存在的模板名 / Resource timestamps and revision are preserved; the card does not invent a template name absent from the contract.
+ */
+export interface UiResumeSummary {
   /** @brief 简历 ID / Resume ID. */
   readonly id: UiResumeId
+  /** @brief 所属 Workspace ID / Owning Workspace ID. */
+  readonly workspaceId: UiWorkspaceId
   /** @brief 标题 / Title. */
   readonly title: string
-  /** @brief 模板名 / Template name. */
-  readonly templateName: string
+  /** @brief 内容语言 / Content locale. */
+  readonly locale: UiContentLocale
+  /** @brief 固定模板 ID / Pinned template ID. */
+  readonly templateId: UiTemplateId
+  /** @brief 固定的不可变模板版本 / Pinned immutable template version. */
+  readonly templateVersion: string
   /** @brief 当前 revision / Current revision. */
   readonly revision: number
-  /** @brief 更新时刻 / Update time. */
+  /** @brief 创建时刻 / Creation timestamp. */
+  readonly createdAt: string
+  /** @brief 更新时刻 / Update timestamp. */
   readonly updatedAt: string
+}
+
+/**
+ * @brief ResumeSummary 的 cursor 页 / Cursor page of Resume summaries.
+ * @note 判别联合封闭 `hasMore` 与 `nextCursor` 的合法关系：有下页必须有 cursor，无下页必须为 null / The discriminated union closes the valid relation: more pages require a cursor; a terminal page requires null.
+ */
+export type UiResumeSummaryPage =
+  | {
+      /** @brief 当前页条目 / Current-page items. */
+      readonly items: readonly UiResumeSummary[]
+      /** @brief 仍有下一页 / Another page exists. */
+      readonly hasMore: true
+      /** @brief 下一页不透明游标 / Opaque cursor for the next page. */
+      readonly nextCursor: UiResumeCursor
+    }
+  | {
+      /** @brief 当前页条目 / Current-page items. */
+      readonly items: readonly UiResumeSummary[]
+      /** @brief 已达末页 / The terminal page has been reached. */
+      readonly hasMore: false
+      /** @brief 末页不存在下一页游标 / A terminal page has no next cursor. */
+      readonly nextCursor: null
+    }
+
+/** @brief 读取一页 ResumeSummary 的显式 Workspace 输入 / Explicit Workspace-scoped input for one ResumeSummary page read. */
+export interface UiResumeSummaryPageRead {
+  /** @brief 授权路径所属 Workspace / Workspace owning the authorization path. */
+  readonly workspaceId: UiWorkspaceId
+  /** @brief 首页为 null，后续页使用上页返回的游标 / Null for the first page; subsequent pages use the prior cursor. */
+  readonly cursor: UiResumeCursor | null
+  /** @brief 经契约约束的页大小 / Contract-constrained page size. */
+  readonly limit: UiResumePageLimit
+  /** @brief 资源身份变化时必须传递的取消信号 / Cancellation signal required when the resource identity changes. */
+  readonly signal: AbortSignal
 }
 
 /** @brief 模板设置控件类型 / Template-setting control type. */

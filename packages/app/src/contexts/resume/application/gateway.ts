@@ -3,13 +3,14 @@
 import type { UiWorkspaceId } from '../../../shared-kernel/identity'
 import type { UiContentLocale } from '../../../shared-kernel/locale'
 import type {
-  UiResumeCard,
   UiResumeEditorModel,
   UiResumeId,
   UiResumeRenderJob,
   UiResumeSectionDeleteInput,
   UiResumeSectionsReorderInput,
   UiResumeSectionUpdateInput,
+  UiResumeSummaryPage,
+  UiResumeSummaryPageRead,
   UiResumeTemplateSettingsUpdateInput,
   UiStartResumePdfRenderInput,
   UiTemplateManifest,
@@ -19,11 +20,11 @@ import type {
 /** @brief 简历与模板页面数据端口 / Resume and template page-data port. */
 export interface ResumeGateway {
   /**
-   * @brief 列出工作区的简历卡片 / List resume cards in a workspace.
-   * @param workspaceId 工作区 ID / Workspace ID.
-   * @return 简历卡片列表 / Resume-card list.
+   * @brief 读取 Workspace 中的一页 ResumeSummary / Read one ResumeSummary page in a Workspace.
+   * @param input 显式 Workspace、不透明 cursor、页大小与取消信号 / Explicit Workspace, opaque cursor, page size, and cancellation signal.
+   * @return 保持 `hasMore` 与 `nextCursor` 封闭关系的摘要页 / Summary page preserving the closed `hasMore`/`nextCursor` relation.
    */
-  listResumeCards(workspaceId: UiWorkspaceId): Promise<readonly UiResumeCard[]>
+  listResumeSummariesPage(input: UiResumeSummaryPageRead): Promise<UiResumeSummaryPage>
 
   /**
    * @brief 获取三栏编辑器数据 / Get three-pane editor data.
