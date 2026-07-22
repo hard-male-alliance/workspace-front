@@ -1,5 +1,4 @@
 import type { DiagnosticsConfigurationErrorReason } from './diagnostics'
-import type { ArtifactSavePort } from './artifact-save'
 
 /**
  * @brief 运行时宿主类型 / Runtime host type.
@@ -43,7 +42,7 @@ export type RuntimeInfo = ElectronRuntimeInfo | WebRuntimeInfo
  *
  * @note 此接口刻意不暴露 Node.js、Electron IPC 或文件系统对象。
  */
-export interface PlatformBridge extends ArtifactSavePort {
+export interface PlatformBridge {
   /**
    * @brief 获取经过主进程确认的运行时信息 / Get runtime information verified by the main process.
    * @return 异步返回最小运行时信息 / A promise for minimal runtime information.

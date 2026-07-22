@@ -8,7 +8,7 @@ const trustedRenderer = {
   webContentsId: 42
 }
 
-describe('artifact-save IPC authorization', () => {
+describe('trusted main-frame IPC sender', () => {
   it('只接受当前窗口、可信 URL 的主 frame', () => {
     expect(
       isTrustedMainFrameRequest(

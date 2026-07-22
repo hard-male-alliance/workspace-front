@@ -1,10 +1,5 @@
-import { isOpaqueResourceId } from './contract-formats'
-
 /** @brief 经过净化且以 .pdf 结尾的建议文件名 / Sanitized suggested filename ending in .pdf. */
 export type SafePdfFileName = string & { readonly __safePdfFileName: unique symbol }
-
-/** @brief 本地允许保存的 PDF 产物最大字节数（25 MiB） / Maximum locally savable PDF artifact size in bytes (25 MiB). */
-export const MAX_PDF_ARTIFACT_BYTES = 25 * 1024 * 1024
 
 /** @brief 建议文件名允许的最大字符数 / Maximum character count allowed for a suggested filename. */
 const MAX_SUGGESTED_FILE_NAME_LENGTH = 120
@@ -44,44 +39,6 @@ export interface SaveArtifactRequest {
   readonly suggestedFileName: SafePdfFileName
 }
 
-/**
- * @brief 在每个宿主信任边界严格解码产物保存请求 / Strictly decode an artifact-save request at every host trust boundary.
- * @param value renderer 或上层传入的未知值 / Unknown value supplied by a renderer or upper layer.
- * @return 仅含不透明 ID 与规范文件名的新快照 / New snapshot containing only an opaque ID and canonical filename.
- * @throws Error 形状、ID 或文件名越界时抛出 / Thrown when shape, ID, or filename crosses the boundary.
- * @note Web、preload 与 Electron main 必须各自重新调用，不得传递“已验证”权限 / Web, preload, and Electron main must each call this again rather than forwarding trusted authority.
- */
-export function parseArtifactSaveRequest(value: unknown): SaveArtifactRequest {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new Error('Artifact-save payload must be an object.')
-  }
-
-  /** @brief 仅用于边界读取的未知字段映射 / Unknown field map used only for boundary reads. */
-  const payload = value as Record<string, unknown>
-  /** @brief 请求允许的精确字段集 / Exact field set allowed by the request. */
-  const keys = Object.keys(payload).sort()
-  if (keys.length !== 2 || keys[0] !== 'artifactId' || keys[1] !== 'suggestedFileName') {
-    throw new Error('Artifact-save payload contains unsupported fields.')
-  }
-  if (typeof payload.artifactId !== 'string' || typeof payload.suggestedFileName !== 'string') {
-    throw new Error('Artifact-save payload string fields are invalid.')
-  }
-  if (!isOpaqueResourceId(payload.artifactId)) {
-    throw new Error('Artifact-save artifact ID must match the frozen opaque-ID format.')
-  }
-
-  /** @brief 在当前边界重新净化的文件名 / Filename sanitized again at the current boundary. */
-  const safeSuggestedFileName = sanitizePdfFileName(payload.suggestedFileName)
-  if (safeSuggestedFileName !== payload.suggestedFileName) {
-    throw new Error('Artifact-save suggested filename is not canonical and safe.')
-  }
-
-  return {
-    artifactId: payload.artifactId,
-    suggestedFileName: safeSuggestedFileName
-  }
-}
-
 /** @brief 宿主产物保存结果 / Host artifact-save result. */
 export type SaveArtifactResult =
   | {
@@ -109,6 +66,3 @@ export interface ArtifactSavePort {
    */
   readonly saveArtifact: (request: SaveArtifactRequest) => Promise<SaveArtifactResult>
 }
-
-/** @brief 产物保存专用 IPC 通道 / Dedicated artifact-save IPC channel. */
-export const SAVE_ARTIFACT_CHANNEL = 'platform:save-artifact' as const
