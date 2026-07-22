@@ -2,8 +2,8 @@
 
 import { ApiV2ContractError } from '../http/errors'
 import {
-  assertActiveWebAuthorizationTransaction,
-  type WebAuthorizationTransaction
+  assertActivePublicClientAuthorizationTransaction,
+  type PublicClientAuthorizationTransaction
 } from './authorization'
 import { OAuthAuthorizationResponseError } from './errors'
 
@@ -63,8 +63,15 @@ function singleParameter(url: URL, name: string, required: boolean): string | nu
  * @brief 校验 callback 仍指向精确注册 redirect / Validate that the callback still targets the exact registered redirect.
  * @param callback 实际 callback / Actual callback.
  * @param redirect 注册 redirect / Registered redirect.
+ * @param rawCallbackUrl 未规范化的 callback URL / Non-normalized callback URL.
+ * @param transaction 原 public-client 事务 / Original public-client transaction.
  */
-function assertRedirectTarget(callback: URL, redirect: URL): void {
+function assertRedirectTarget(
+  callback: URL,
+  redirect: URL,
+  rawCallbackUrl: string,
+  transaction: PublicClientAuthorizationTransaction
+): void {
   if (
     callback.origin !== redirect.origin ||
     callback.pathname !== redirect.pathname ||
@@ -73,6 +80,15 @@ function assertRedirectTarget(callback: URL, redirect: URL): void {
     callback.password !== ''
   ) {
     throw new ApiV2ContractError('OAuth callback does not match the registered redirect URI.')
+  }
+  /** @brief 动态响应 query 之前的原始 callback target / Raw callback target before dynamic response query. */
+  const rawCallbackTarget = rawCallbackUrl.split(/[?#]/u, 1)[0]
+  /** @brief 固定 query 之前的原始注册 target / Raw registered target before fixed query parameters. */
+  const rawRedirectTarget = transaction.redirectUri.split(/[?#]/u, 1)[0]
+  if (rawCallbackTarget !== rawRedirectTarget) {
+    throw new ApiV2ContractError(
+      'OAuth callback does not exactly match the authorization redirect target.'
+    )
   }
   /** @brief 注册 URI 中固定 query 的多重集合 / Multiset of fixed query values in the registered URI. */
   const expectedStatic = new Map<string, readonly string[]>()
@@ -105,10 +121,10 @@ function assertRedirectTarget(callback: URL, redirect: URL): void {
  */
 export function parseAuthorizationCallback(
   callbackUrl: string,
-  transaction: WebAuthorizationTransaction,
+  transaction: PublicClientAuthorizationTransaction,
   nowEpochSeconds: number = Date.now() / 1000
 ): AuthorizationCodeResponse {
-  assertActiveWebAuthorizationTransaction(transaction, nowEpochSeconds)
+  assertActivePublicClientAuthorizationTransaction(transaction, nowEpochSeconds)
   /** @brief 实际 callback URL / Actual callback URL. */
   let callback: URL
   try {
@@ -118,7 +134,7 @@ export function parseAuthorizationCallback(
   }
   /** @brief 注册 redirect URL / Registered redirect URL. */
   const redirect = new URL(transaction.redirectUri)
-  assertRedirectTarget(callback, redirect)
+  assertRedirectTarget(callback, redirect, callbackUrl, transaction)
   /** @brief 返回的 state / Returned state. */
   const state = singleParameter(callback, 'state', true) ?? ''
   if (!correlationMatches(transaction.state, state)) {

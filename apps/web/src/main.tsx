@@ -6,7 +6,7 @@ import {
   completeWebAuthorization,
   InMemoryWebTokenSession,
   WebCryptoJwksIdTokenVerifier,
-  type WebAuthorizationScreenHint
+  type AuthorizationScreenHint
 } from '@ai-job-workspace/product-api-v2'
 import { createProductGateways } from '@ai-job-workspace/product-runtime'
 import {
@@ -61,7 +61,7 @@ try {
  */
 function renderAuthentication(configuration: WebOAuthConfiguration, error?: unknown): void {
   /** @brief 发起一次 Authorization Code + PKCE 导航 / Start one Authorization Code + PKCE navigation. */
-  const authorize = (screenHint: WebAuthorizationScreenHint): Promise<void> =>
+  const authorize = (screenHint: AuthorizationScreenHint): Promise<void> =>
     beginWebAuthorization(configuration, screenHint, {
       crypto: globalThis.crypto,
       fetchImpl: globalThis.fetch,

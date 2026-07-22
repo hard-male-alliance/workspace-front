@@ -1,7 +1,7 @@
 /** @file Web 登录、注册与恢复入口 / Web sign-in, registration, and recovery entry. */
 
 import { useState } from 'react'
-import type { WebAuthorizationScreenHint } from '@ai-job-workspace/product-api-v2'
+import type { AuthorizationScreenHint } from '@ai-job-workspace/product-api-v2'
 
 import './web-auth.css'
 
@@ -12,13 +12,13 @@ export interface WebAuthenticationScreenProps {
   /** @brief 当前界面 locale / Current interface locale. */
   readonly locale: string
   /** @brief 发起 hosted authorization / Start hosted authorization. */
-  readonly onAuthorize: (screenHint: WebAuthorizationScreenHint) => Promise<void>
+  readonly onAuthorize: (screenHint: AuthorizationScreenHint) => Promise<void>
 }
 
 /** @brief 当前授权导航状态 / Current authorization-navigation state. */
 type AuthorizationNavigationState =
   | { readonly kind: 'idle' }
-  | { readonly kind: 'loading'; readonly screenHint: WebAuthorizationScreenHint }
+  | { readonly kind: 'loading'; readonly screenHint: AuthorizationScreenHint }
   | { readonly kind: 'error' }
 
 /**
@@ -37,7 +37,7 @@ export function WebAuthenticationScreen({
   const [navigation, setNavigation] = useState<AuthorizationNavigationState>({ kind: 'idle' })
 
   /** @brief 发起一次 hosted identity 导航 / Start one hosted-identity navigation. */
-  async function authorize(screenHint: WebAuthorizationScreenHint): Promise<void> {
+  async function authorize(screenHint: AuthorizationScreenHint): Promise<void> {
     if (navigation.kind === 'loading') return
     setNavigation({ kind: 'loading', screenHint })
     try {

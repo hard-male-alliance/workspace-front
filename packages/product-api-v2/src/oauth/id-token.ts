@@ -1,7 +1,10 @@
 /** @file 注入式 ID Token 签名验证端口与强制 claim 校验 / Injectable ID Token signature-verification port and mandatory claim validation. */
 
 import { ApiV2ContractError, ApiV2NetworkError } from '../http/errors'
-import type { WebAuthorizationTransaction } from './authorization'
+import {
+  assertActivePublicClientAuthorizationTransaction,
+  type PublicClientAuthorizationTransaction
+} from './authorization'
 
 /** @brief 通过签名验证器的输入 / Input to the signature verifier. */
 export interface IdTokenSignatureVerificationInput {
@@ -221,14 +224,15 @@ function validateTokenTimes(
  */
 export function validateIdTokenClaims(
   claimsValue: unknown,
-  transaction: WebAuthorizationTransaction,
+  transaction: PublicClientAuthorizationTransaction,
   nowEpochSeconds: number = Date.now() / 1000,
   clockSkewSeconds = 60
 ): VerifiedIdTokenClaims {
+  assertTimeConfiguration(nowEpochSeconds, clockSkewSeconds)
+  assertActivePublicClientAuthorizationTransaction(transaction, nowEpochSeconds)
   if (typeof claimsValue !== 'object' || claimsValue === null || Array.isArray(claimsValue)) {
     throw new ApiV2ContractError('ID Token claims must be an object.')
   }
-  assertTimeConfiguration(nowEpochSeconds, clockSkewSeconds)
   /** @brief Claims 对象 / Claims object. */
   const claims = claimsValue as Record<string, unknown>
   /** @brief issuer / Issuer. */
@@ -368,11 +372,19 @@ export async function verifyRefreshIdToken(options: VerifyRefreshIdTokenOptions)
  */
 export async function verifyIdToken(
   idToken: string,
-  transaction: WebAuthorizationTransaction,
+  transaction: PublicClientAuthorizationTransaction,
   verifier: IdTokenSignatureVerifier = new RejectingIdTokenSignatureVerifier(),
   nowEpochSeconds: () => number = (): number => Date.now() / 1000,
   signal?: AbortSignal
 ): Promise<VerifiedIdTokenClaims> {
+  /** @brief 签名网络动作前的事务检查时间 / Transaction-check time before any signature-verification network action. */
+  let transactionCheckTime: number
+  try {
+    transactionCheckTime = nowEpochSeconds()
+  } catch {
+    throw new ApiV2ContractError('ID Token clock failed.')
+  }
+  assertActivePublicClientAuthorizationTransaction(transaction, transactionCheckTime)
   /** @brief 加密 verifier 输入 / Cryptographic-verifier input. */
   const verificationInput: IdTokenSignatureVerificationInput = {
     allowedAlgorithms: transaction.idTokenSigningAlgorithms,

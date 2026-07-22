@@ -251,6 +251,18 @@ describe('Authorization Code + PKCE request', (): void => {
     ).rejects.toBeInstanceOf(ApiV2ContractError)
   })
 
+  it('rejects a Web redirect URI whose source spelling normalizes to another path', async (): Promise<void> => {
+    await expect(
+      createWebAuthorizationRequest({
+        clientId: CLIENT_ID,
+        discovery: discovery(),
+        redirectUri: 'https://app.hmalliances.org/oauth/ignored/../callback',
+        scopes: ['openid'],
+        screenHint: 'login'
+      })
+    ).rejects.toBeInstanceOf(ApiV2ContractError)
+  })
+
   it('round-trips only a strict token-free transaction snapshot across navigation', async (): Promise<void> => {
     /** @brief 原始事务 / Original transaction. */
     const original = await transaction()

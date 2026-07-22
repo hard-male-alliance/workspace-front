@@ -121,15 +121,21 @@ export type {
   WorkspaceRole
 } from './workspace/workspace-access'
 export {
+  createNativeAuthorizationRequest,
   createWebAuthorizationRequest,
   restoreWebAuthorizationTransaction,
   snapshotWebAuthorizationTransaction
 } from './oauth/authorization'
 export type {
+  AuthorizationScreenHint,
+  CreateNativeAuthorizationOptions,
+  CreatePublicClientAuthorizationOptions,
   CreateWebAuthorizationOptions,
+  NativeAuthorizationRequest,
+  NativeAuthorizationTransaction,
   OfflineAccessConsent,
+  PublicClientAuthorizationTransaction,
   WebAuthorizationRequest,
-  WebAuthorizationScreenHint,
   WebAuthorizationTransaction,
   WebAuthorizationTransactionSnapshot
 } from './oauth/authorization'
@@ -162,6 +168,8 @@ export type {
   VerifyRefreshIdTokenOptions,
   VerifiedIdTokenClaims
 } from './oauth/id-token'
+export { exchangeAuthorizationCode } from './oauth/token'
+export type { AuthorizationCodeTokenResponse } from './oauth/token'
 export {
   completeWebAuthorization,
   InMemoryWebTokenSession,

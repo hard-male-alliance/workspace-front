@@ -3,7 +3,10 @@
 import { boundedInteger, boundedString, exactRecord } from '../http/contract'
 import { ApiV2ContractError, ApiV2NetworkError } from '../http/errors'
 import { readBoundedJson } from '../http/bounded-json'
-import { claimAuthorizationCodeExchange, type WebAuthorizationTransaction } from './authorization'
+import {
+  claimAuthorizationCodeExchange,
+  type PublicClientAuthorizationTransaction
+} from './authorization'
 import { API_V2_OAUTH_TOKEN_ENDPOINT } from './discovery'
 import { OAuthTokenResponseError } from './errors'
 
@@ -235,7 +238,7 @@ async function postTokenForm<T>(
  */
 export async function exchangeAuthorizationCode(
   code: string,
-  transaction: WebAuthorizationTransaction,
+  transaction: PublicClientAuthorizationTransaction,
   fetchImpl: typeof fetch = fetch,
   signal?: AbortSignal
 ): Promise<AuthorizationCodeTokenResponse> {

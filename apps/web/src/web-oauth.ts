@@ -3,7 +3,7 @@
 import {
   createWebAuthorizationRequest,
   fetchOidcDiscovery,
-  type WebAuthorizationScreenHint
+  type AuthorizationScreenHint
 } from '@ai-job-workspace/product-api-v2'
 
 import type { WebOAuthConfiguration } from './auth-config'
@@ -45,7 +45,7 @@ const AUTHORIZATION_PREPARATION_TIMEOUT_MS = 30_000
  */
 export async function beginWebAuthorization(
   configuration: WebOAuthConfiguration,
-  screenHint: WebAuthorizationScreenHint,
+  screenHint: AuthorizationScreenHint,
   dependencies: BeginWebAuthorizationDependencies,
   signal?: AbortSignal
 ): Promise<void> {
