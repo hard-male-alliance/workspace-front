@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { ApiV2Client, ApiV2JsonResponse } from '../http/client'
 import { ApiV2ContractError } from '../http/errors'
 import { readCanonicalExample } from '../test-support/contract.node-test-fixtures'
-import { parseWorkspaceList, WorkspaceAccessGateway } from './workspace-access'
+import { listWorkspaceAccessPage, parseWorkspaceList } from './workspace-access'
 
 /**
  * @brief 构造 WorkspaceAccess 项 / Build one WorkspaceAccess item.
@@ -71,10 +71,7 @@ describe('API v2 WorkspaceAccess consumer', (): void => {
         page: { has_more: true, next_cursor: 'cursor_page_2' }
       })
     )
-    /** @brief 被测 WorkspaceAccess Gateway / WorkspaceAccess gateway under test. */
-    const gateway = new WorkspaceAccessGateway({ getJson })
-
-    await expect(gateway.listWorkspaceAccessesPage({ limit: 100 })).resolves.toMatchObject({
+    await expect(listWorkspaceAccessPage({ getJson }, { limit: 100 })).resolves.toMatchObject({
       items: [{ role: 'owner' }],
       page: { has_more: true, next_cursor: 'cursor_page_2' }
     })
@@ -88,10 +85,7 @@ describe('API v2 WorkspaceAccess consumer', (): void => {
   it('rejects an invalid page limit before issuing a request', async (): Promise<void> => {
     /** @brief 不应调用的 v2 GET / v2 GET that must not be called. */
     const getJson = vi.fn<ApiV2Client['getJson']>()
-    /** @brief 被测 WorkspaceAccess Gateway / WorkspaceAccess gateway under test. */
-    const gateway = new WorkspaceAccessGateway({ getJson })
-
-    await expect(gateway.listWorkspaceAccessesPage({ limit: 201 })).rejects.toBeInstanceOf(
+    await expect(listWorkspaceAccessPage({ getJson }, { limit: 201 })).rejects.toBeInstanceOf(
       ApiV2ContractError
     )
     expect(getJson).not.toHaveBeenCalled()

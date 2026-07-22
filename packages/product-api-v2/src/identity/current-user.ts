@@ -102,33 +102,23 @@ export function parseCurrentUser(value: unknown): CurrentUser {
   }
 }
 
-/** @brief v2 CurrentUser 读取 Gateway / v2 CurrentUser read gateway. */
-export class CurrentUserGateway {
-  /** @brief API v2 HTTP 边界 / API v2 HTTP boundary. */
-  readonly #client: ApiV2Client
-
-  /**
-   * @brief 构造 CurrentUser Gateway / Construct the CurrentUser gateway.
-   * @param client v2-only Bearer 客户端 / v2-only Bearer client.
-   */
-  constructor(client: ApiV2Client) {
-    this.#client = client
-  }
-
-  /**
-   * @brief 读取当前用户权威资源 / Read the authoritative current-user resource.
-   * @param signal 调用方取消信号 / Caller cancellation signal.
-   * @return 当前 OAuth principal 与强 ETag / Current OAuth principal and its strong ETag.
-   */
-  async getCurrentUser(signal?: AbortSignal): Promise<CurrentUserRepresentation> {
-    /** @brief `/me` 原始响应 / Raw `/me` response. */
-    const response = await this.#client.getJson('/me', {
-      maxResponseBytes: 64 * 1024,
-      ...(signal === undefined ? {} : { signal })
-    })
-    return {
-      etag: strongEntityTag(response.headers.get('ETag'), 'response.headers.ETag'),
-      value: parseCurrentUser(response.data)
-    }
+/**
+ * @brief 读取当前用户权威资源 / Read the authoritative current-user resource.
+ * @param client v2-only Bearer 客户端 / v2-only Bearer client.
+ * @param signal 调用方取消信号 / Caller cancellation signal.
+ * @return 当前 OAuth principal 与强 ETag / Current OAuth principal and its strong ETag.
+ */
+export async function getCurrentUser(
+  client: ApiV2Client,
+  signal?: AbortSignal
+): Promise<CurrentUserRepresentation> {
+  /** @brief `/me` 原始响应 / Raw `/me` response. */
+  const response = await client.getJson('/me', {
+    maxResponseBytes: 64 * 1024,
+    ...(signal === undefined ? {} : { signal })
+  })
+  return {
+    etag: strongEntityTag(response.headers.get('ETag'), 'response.headers.ETag'),
+    value: parseCurrentUser(response.data)
   }
 }

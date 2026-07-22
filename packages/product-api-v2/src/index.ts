@@ -18,15 +18,15 @@ export type { ApiV2NetworkErrorKind } from './http/errors'
 export { ApiV2ProblemError } from './http/problem-error'
 export { parseProblemDetails } from './http/problem'
 export type { ProblemDetails, ProblemFieldError } from './http/problem'
-export { CurrentUserGateway, parseCurrentUser } from './identity/current-user'
+export { getCurrentUser, parseCurrentUser } from './identity/current-user'
 export type { CurrentUser, CurrentUserRepresentation } from './identity/current-user'
-export { ResumeListGateway, parseResumeList } from './resume/resume-list'
+export { listResumePage, parseResumeList } from './resume/resume-list'
 export type {
   ResumeListPageRequest,
   ResumeSummary,
   ResumeTemplateReference
 } from './resume/resume-list'
-export { WorkspaceAccessGateway, parseWorkspaceList } from './workspace/workspace-access'
+export { listWorkspaceAccessPage, parseWorkspaceList } from './workspace/workspace-access'
 export type {
   Workspace,
   WorkspaceAccess,

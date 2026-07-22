@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { ApiV2Client } from '../http/client'
 import { ApiV2ContractError } from '../http/errors'
 import { readCanonicalExample } from '../test-support/contract.node-test-fixtures'
-import { CurrentUserGateway, parseCurrentUser } from './current-user'
+import { getCurrentUser, parseCurrentUser } from './current-user'
 
 /**
  * @brief 将测试 fixture 限定为普通对象 / Narrow a test fixture to a plain object.
@@ -49,10 +49,7 @@ describe('API v2 CurrentUser consumer', (): void => {
       headers: new Headers({ ETag: '"current-user-17"' }),
       status: 200
     })
-    /** @brief 被测 CurrentUser Gateway / CurrentUser gateway under test. */
-    const gateway = new CurrentUserGateway({ getJson })
-
-    await expect(gateway.getCurrentUser()).resolves.toMatchObject({
+    await expect(getCurrentUser({ getJson })).resolves.toMatchObject({
       etag: '"current-user-17"',
       value: { display_name: 'Klee' }
     })
@@ -72,8 +69,6 @@ describe('API v2 CurrentUser consumer', (): void => {
       status: 200
     })
 
-    await expect(new CurrentUserGateway({ getJson }).getCurrentUser()).rejects.toBeInstanceOf(
-      ApiV2ContractError
-    )
+    await expect(getCurrentUser({ getJson })).rejects.toBeInstanceOf(ApiV2ContractError)
   })
 })

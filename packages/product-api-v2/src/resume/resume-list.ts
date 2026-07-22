@@ -103,54 +103,42 @@ export function parseResumeList(value: unknown): CursorCollection<ResumeSummary>
   }
 }
 
-/** @brief API v2 Workspace-scoped Resume 列表 Gateway / API v2 Workspace-scoped Resume-list gateway. */
-export class ResumeListGateway {
-  /** @brief API v2 HTTP 边界 / API v2 HTTP boundary. */
-  readonly #client: ApiV2Client
-
-  /**
-   * @brief 构造 ResumeList Gateway / Construct the ResumeList gateway.
-   * @param client v2-only Bearer 客户端 / v2-only Bearer client.
-   */
-  constructor(client: ApiV2Client) {
-    this.#client = client
+/**
+ * @brief 读取一个 Workspace 的一页 ResumeSummary / Read one ResumeSummary page in one Workspace.
+ * @param client v2-only Bearer 客户端 / v2-only Bearer client.
+ * @param workspaceId 显式授权上下文 / Explicit authorization context.
+ * @param request opaque cursor、limit 与取消信号 / Opaque cursor, limit, and cancellation signal.
+ * @return 与路径 Workspace 一致的摘要页 / Summary page matching the path Workspace.
+ */
+export async function listResumePage(
+  client: ApiV2Client,
+  workspaceId: string,
+  request: ResumeListPageRequest = {}
+): Promise<CursorCollection<ResumeSummary>> {
+  /** @brief 已验证 Workspace ID / Validated Workspace ID. */
+  const validatedWorkspaceId = opaqueId(workspaceId, 'request.workspace_id')
+  /** @brief Workspace-scoped Resume collection path / Workspace-scoped Resume collection path. */
+  const path = `/workspaces/${encodeURIComponent(validatedWorkspaceId)}/resumes`
+  /** @brief 已验证页大小 / Validated page size. */
+  const limit =
+    request.limit === undefined ? 50 : boundedInteger(request.limit, 'request.limit', 1, 200)
+  /** @brief 已验证 cursor / Validated cursor. */
+  const cursor =
+    request.cursor === undefined || request.cursor === null
+      ? null
+      : boundedString(request.cursor, 'request.cursor', 1, 2048)
+  /** @brief 当前 ResumeList 页响应 / Current ResumeList page response. */
+  const response = await client.getJson(path, {
+    maxResponseBytes: 512 * 1024,
+    query: { cursor, limit },
+    ...(request.signal === undefined ? {} : { signal: request.signal })
+  })
+  /** @brief 当前已验证 ResumeList 页 / Current validated ResumeList page. */
+  const page = parseResumeList(response.data)
+  if (page.items.some((summary) => summary.workspace_id !== validatedWorkspaceId)) {
+    throw new ApiV2ContractError(
+      'API v2 returned a ResumeSummary from a different Workspace than the request path.'
+    )
   }
-
-  /**
-   * @brief 读取一个 Workspace 的一页 ResumeSummary / Read one ResumeSummary page in one Workspace.
-   * @param workspaceId 显式授权上下文 / Explicit authorization context.
-   * @param request opaque cursor、limit 与取消信号 / Opaque cursor, limit, and cancellation signal.
-   * @return 与路径 Workspace 一致的摘要页 / Summary page matching the path Workspace.
-   */
-  async listResumesPage(
-    workspaceId: string,
-    request: ResumeListPageRequest = {}
-  ): Promise<CursorCollection<ResumeSummary>> {
-    /** @brief 已验证 Workspace ID / Validated Workspace ID. */
-    const validatedWorkspaceId = opaqueId(workspaceId, 'request.workspace_id')
-    /** @brief Workspace-scoped Resume collection path / Workspace-scoped Resume collection path. */
-    const path = `/workspaces/${encodeURIComponent(validatedWorkspaceId)}/resumes`
-    /** @brief 已验证页大小 / Validated page size. */
-    const limit =
-      request.limit === undefined ? 50 : boundedInteger(request.limit, 'request.limit', 1, 200)
-    /** @brief 已验证 cursor / Validated cursor. */
-    const cursor =
-      request.cursor === undefined || request.cursor === null
-        ? null
-        : boundedString(request.cursor, 'request.cursor', 1, 2048)
-    /** @brief 当前 ResumeList 页响应 / Current ResumeList page response. */
-    const response = await this.#client.getJson(path, {
-      maxResponseBytes: 512 * 1024,
-      query: { cursor, limit },
-      ...(request.signal === undefined ? {} : { signal: request.signal })
-    })
-    /** @brief 当前已验证 ResumeList 页 / Current validated ResumeList page. */
-    const page = parseResumeList(response.data)
-    if (page.items.some((summary) => summary.workspace_id !== validatedWorkspaceId)) {
-      throw new ApiV2ContractError(
-        'API v2 returned a ResumeSummary from a different Workspace than the request path.'
-      )
-    }
-    return page
-  }
+  return page
 }

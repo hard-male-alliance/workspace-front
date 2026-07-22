@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { ApiV2Client, ApiV2JsonResponse } from '../http/client'
 import { ApiV2ContractError } from '../http/errors'
-import { parseResumeList, ResumeListGateway } from './resume-list'
+import { listResumePage, parseResumeList } from './resume-list'
 
 /** @brief 当前测试 Workspace / Workspace used by the current tests. */
 const WORKSPACE_ID = 'ws_01K0EXAMPLE00000000000001'
@@ -77,10 +77,7 @@ describe('API v2 ResumeList consumer', (): void => {
     const getJson = vi
       .fn<ApiV2Client['getJson']>()
       .mockResolvedValue(response(resumePage([resumeSummary()])))
-    /** @brief 被测 ResumeList Gateway / ResumeList gateway under test. */
-    const gateway = new ResumeListGateway({ getJson })
-
-    await expect(gateway.listResumesPage(WORKSPACE_ID)).resolves.toMatchObject({
+    await expect(listResumePage({ getJson }, WORKSPACE_ID)).resolves.toMatchObject({
       items: [{ title: 'Klee Resume' }],
       page: { has_more: false, next_cursor: null }
     })
@@ -95,20 +92,14 @@ describe('API v2 ResumeList consumer', (): void => {
     const getJson = vi
       .fn<ApiV2Client['getJson']>()
       .mockResolvedValue(response(resumePage([resumeSummary('ws_01K0OTHER000000000000001')])))
-    /** @brief 被测 ResumeList Gateway / ResumeList gateway under test. */
-    const gateway = new ResumeListGateway({ getJson })
-
-    await expect(gateway.listResumesPage(WORKSPACE_ID)).rejects.toThrow('different Workspace')
+    await expect(listResumePage({ getJson }, WORKSPACE_ID)).rejects.toThrow('different Workspace')
     expect(getJson).toHaveBeenCalledOnce()
   })
 
   it('rejects an invalid Workspace ID before issuing a request', async (): Promise<void> => {
     /** @brief 不应调用的 v2 GET / v2 GET that must not be called. */
     const getJson = vi.fn<ApiV2Client['getJson']>()
-    /** @brief 被测 ResumeList Gateway / ResumeList gateway under test. */
-    const gateway = new ResumeListGateway({ getJson })
-
-    await expect(gateway.listResumesPage('../other')).rejects.toBeInstanceOf(ApiV2ContractError)
+    await expect(listResumePage({ getJson }, '../other')).rejects.toBeInstanceOf(ApiV2ContractError)
     expect(getJson).not.toHaveBeenCalled()
   })
 })

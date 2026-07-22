@@ -147,41 +147,29 @@ export function parseWorkspaceList(value: unknown): CursorCollection<WorkspaceAc
   }
 }
 
-/** @brief API v2 WorkspaceAccess 读取 Gateway / API v2 WorkspaceAccess read gateway. */
-export class WorkspaceAccessGateway {
-  /** @brief API v2 HTTP 边界 / API v2 HTTP boundary. */
-  readonly #client: ApiV2Client
-
-  /**
-   * @brief 构造 WorkspaceAccess Gateway / Construct the WorkspaceAccess gateway.
-   * @param client v2-only Bearer 客户端 / v2-only Bearer client.
-   */
-  constructor(client: ApiV2Client) {
-    this.#client = client
-  }
-
-  /**
-   * @brief 读取当前 principal 的一页 WorkspaceAccess / Read one WorkspaceAccess page for the current principal.
-   * @param request opaque cursor、limit 与取消信号 / Opaque cursor, limit, and cancellation signal.
-   * @return 服务端授权的访问页 / Access page authorized by the server.
-   */
-  async listWorkspaceAccessesPage(
-    request: WorkspaceAccessPageRequest = {}
-  ): Promise<CursorCollection<WorkspaceAccess>> {
-    /** @brief 已验证页大小 / Validated page size. */
-    const limit =
-      request.limit === undefined ? 50 : boundedInteger(request.limit, 'request.limit', 1, 200)
-    /** @brief 已验证 cursor / Validated cursor. */
-    const cursor =
-      request.cursor === undefined || request.cursor === null
-        ? null
-        : boundedString(request.cursor, 'request.cursor', 1, 2048)
-    /** @brief 当前 WorkspaceList 页响应 / Current WorkspaceList page response. */
-    const response = await this.#client.getJson('/workspaces', {
-      maxResponseBytes: 512 * 1024,
-      query: { cursor, limit },
-      ...(request.signal === undefined ? {} : { signal: request.signal })
-    })
-    return parseWorkspaceList(response.data)
-  }
+/**
+ * @brief 读取当前 principal 的一页 WorkspaceAccess / Read one WorkspaceAccess page for the current principal.
+ * @param client v2-only Bearer 客户端 / v2-only Bearer client.
+ * @param request opaque cursor、limit 与取消信号 / Opaque cursor, limit, and cancellation signal.
+ * @return 服务端授权的访问页 / Access page authorized by the server.
+ */
+export async function listWorkspaceAccessPage(
+  client: ApiV2Client,
+  request: WorkspaceAccessPageRequest = {}
+): Promise<CursorCollection<WorkspaceAccess>> {
+  /** @brief 已验证页大小 / Validated page size. */
+  const limit =
+    request.limit === undefined ? 50 : boundedInteger(request.limit, 'request.limit', 1, 200)
+  /** @brief 已验证 cursor / Validated cursor. */
+  const cursor =
+    request.cursor === undefined || request.cursor === null
+      ? null
+      : boundedString(request.cursor, 'request.cursor', 1, 2048)
+  /** @brief 当前 WorkspaceList 页响应 / Current WorkspaceList page response. */
+  const response = await client.getJson('/workspaces', {
+    maxResponseBytes: 512 * 1024,
+    query: { cursor, limit },
+    ...(request.signal === undefined ? {} : { signal: request.signal })
+  })
+  return parseWorkspaceList(response.data)
 }
