@@ -296,12 +296,21 @@ function getResponse(
 /**
  * @brief 构造结构型 updated-result response / Build a structural updated-result response.
  * @param data 待领域解码的数据 / Data awaiting domain decoding.
+ * @param metadataOverrides 当前用例覆盖的响应 metadata / Response metadata overridden by the current case.
  * @return 带强 ETag 的固定 200 response / Fixed 200 response carrying a strong ETag.
  */
-function decisionResponse(data: unknown): ApiV2UpdatedWriteJsonResponse {
+function decisionResponse(
+  data: unknown,
+  metadataOverrides: Partial<ApiV2UpdatedWriteJsonResponse['metadata']> = {}
+): ApiV2UpdatedWriteJsonResponse {
   return {
     data,
-    metadata: { entityTag: RESULT_ETAG, location: null, requestId: REQUEST_ID },
+    metadata: {
+      entityTag: RESULT_ETAG,
+      location: null,
+      requestId: REQUEST_ID,
+      ...metadataOverrides
+    },
     status: 200
   }
 }
@@ -659,6 +668,7 @@ describe('API v2 Resume Proposals', (): void => {
       'cross-Workspace Resume',
       operationResult({ resume: resumeDocument({ workspace_id: OTHER_WORKSPACE_ID }) })
     ],
+    ['cross-path Resume', operationResult({ resume: resumeDocument({ id: OTHER_RESUME_ID }) })],
     [
       'unselected applied operation',
       operationResult({ applied_operation_ids: [OPERATION_IDS[1]] })
@@ -703,15 +713,54 @@ describe('API v2 Resume Proposals', (): void => {
         applied_operation_ids: [OPERATION_IDS[0]],
         resume: resumeDocument({ revision: BASE_REVISION })
       })
-    ]
-  ])('rejects a non-atomic accept_selected result: %s', async (_label, result) => {
-    /** @brief 只选择首个 operation 的 decision / Decision selecting only the first operation. */
-    const execution = executeDecision(result, {
-      accepted_operation_ids: [OPERATION_IDS[0]],
-      decision: 'accept_selected'
-    })
+    ],
+    ['malformed result body', { unexpected: true }]
+  ])(
+    'preserves an unknown 200 outcome for an invalid accept_selected result: %s',
+    async (_label, result) => {
+      /** @brief 只选择首个 operation 的 decision / Decision selecting only the first operation. */
+      const execution = executeDecision(result, {
+        accepted_operation_ids: [OPERATION_IDS[0]],
+        decision: 'accept_selected'
+      })
 
-    await expect(execution.promise).rejects.toBeInstanceOf(ApiV2ContractError)
+      await expect(execution.promise).rejects.toMatchObject({
+        kind: 'contract',
+        name: 'ApiV2WriteOutcomeUnknownError',
+        problemCode: null,
+        requestId: REQUEST_ID,
+        status: 200
+      })
+    }
+  )
+
+  it('preserves an unknown 200 outcome when decision response metadata is invalid', async (): Promise<void> => {
+    /** @brief 返回弱 ETag 的决策 POST / Decision POST returning a weak ETag. */
+    const postJson = vi
+      .fn<ResumeProposalDecisionHttpClient['postJson']>()
+      .mockResolvedValue(
+        decisionResponse(operationResult(), { entityTag: 'W/"resume-validator-8"' })
+      )
+
+    await expect(
+      decideResumeProposal(
+        { postJson },
+        {
+          decision: { accepted_operation_ids: [], decision: 'accept' },
+          idempotencyKey: IDEMPOTENCY_KEY,
+          ifMatch: PROPOSAL_ETAG,
+          proposal: pendingProposalSnapshot(),
+          proposalId: PROPOSAL_ID,
+          resumeId: RESUME_ID,
+          workspaceId: WORKSPACE_ID
+        }
+      )
+    ).rejects.toMatchObject({
+      kind: 'contract',
+      name: 'ApiV2WriteOutcomeUnknownError',
+      requestId: REQUEST_ID,
+      status: 200
+    })
   })
 
   it('rejects terminal Proposal snapshots and invalid strong preconditions before dispatch', async (): Promise<void> => {

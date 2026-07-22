@@ -144,7 +144,7 @@ describe('API v2 Job cancellation consumer', (): void => {
     expect(postEmpty).not.toHaveBeenCalled()
   })
 
-  it('rejects a response Job whose identity differs from the command path', async (): Promise<void> => {
+  it('preserves an unknown 200 outcome when the response Job differs from the command path', async (): Promise<void> => {
     /** @brief 返回其他 Job 的写端口 / Write port returning another Job. */
     const execution = cancellationClient(await cancelledJob({ id: OTHER_JOB_ID }))
 
@@ -155,11 +155,16 @@ describe('API v2 Job cancellation consumer', (): void => {
         jobId: JOB_ID,
         workspaceId: WORKSPACE_ID
       })
-    ).rejects.toBeInstanceOf(ApiV2ContractError)
+    ).rejects.toMatchObject({
+      kind: 'contract',
+      name: 'ApiV2WriteOutcomeUnknownError',
+      requestId: REQUEST_ID,
+      status: 200
+    })
   })
 
   it.each(['W/"weak-next"', 'not-an-etag'])(
-    'rejects an invalid response ETag (%s)',
+    'preserves an unknown 200 outcome for an invalid response ETag (%s)',
     async (etag) => {
       /** @brief 返回非法校验器的写端口 / Write port returning an invalid validator. */
       const execution = cancellationClient(await cancelledJob(), etag)
@@ -171,7 +176,32 @@ describe('API v2 Job cancellation consumer', (): void => {
           jobId: JOB_ID,
           workspaceId: WORKSPACE_ID
         })
-      ).rejects.toBeInstanceOf(ApiV2ContractError)
+      ).rejects.toMatchObject({
+        kind: 'contract',
+        name: 'ApiV2WriteOutcomeUnknownError',
+        requestId: REQUEST_ID,
+        status: 200
+      })
     }
   )
+
+  it('preserves an unknown 200 outcome for a malformed response body', async (): Promise<void> => {
+    /** @brief 返回非法 Job body 的写端口 / Write port returning an invalid Job body. */
+    const execution = cancellationClient({ unexpected: true })
+
+    await expect(
+      cancelWorkspaceJob(execution.client, {
+        idempotencyKey: IDEMPOTENCY_KEY,
+        ifMatch: IF_MATCH,
+        jobId: JOB_ID,
+        workspaceId: WORKSPACE_ID
+      })
+    ).rejects.toMatchObject({
+      kind: 'contract',
+      name: 'ApiV2WriteOutcomeUnknownError',
+      problemCode: null,
+      requestId: REQUEST_ID,
+      status: 200
+    })
+  })
 })

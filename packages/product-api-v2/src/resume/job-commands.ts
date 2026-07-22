@@ -1,6 +1,7 @@
 /** @file API v2 Resume import、restore 与 render Job commands / API v2 Resume import, restore, and render Job commands. */
 
 import type { ApiV2AcceptedResourceResponse, ApiV2PostJsonOptions } from '../http/client'
+import { decodeAcknowledgedWrite } from '../http/acknowledged-write'
 import {
   arrayBetween,
   boundedInteger,
@@ -219,9 +220,12 @@ function assertResumeJobSubject(
   expectedId: string,
   expectedRevision?: number
 ): void {
-  if (representation.value.subject.id !== expectedId) {
+  if (
+    representation.value.subject.resource_type !== 'resume' ||
+    representation.value.subject.id !== expectedId
+  ) {
     throw new ApiV2ContractError(
-      'API v2 accepted a Resume Job for a subject different from the submitted command.'
+      'API v2 accepted a Resume Job for a non-Resume subject or identity different from the submitted command.'
     )
   }
   if (
@@ -261,8 +265,9 @@ export async function createWorkspaceResumeImportJob(
     ...(signal === undefined ? {} : { signal }),
     successKind: 'accepted-resource'
   })
-  /** @brief 已接受的权威 Job / Authoritative accepted Job. */
-  return parseAcceptedWorkspaceJob(response, workspaceId)
+  return decodeAcknowledgedWrite(response, 202, (): AcceptedWorkspaceJobRepresentation =>
+    parseAcceptedWorkspaceJob(response, workspaceId)
+  )
 }
 
 /**
@@ -301,10 +306,12 @@ export async function createWorkspaceResumeRestoreJob(
       successKind: 'accepted-resource'
     }
   )
-  /** @brief 已接受的权威 Job / Authoritative accepted Job. */
-  const representation = parseAcceptedWorkspaceJob(response, workspaceId)
-  assertResumeJobSubject(representation, resumeId)
-  return representation
+  return decodeAcknowledgedWrite(response, 202, (): AcceptedWorkspaceJobRepresentation => {
+    /** @brief 已接受的权威 Job / Authoritative accepted Job. */
+    const representation = parseAcceptedWorkspaceJob(response, workspaceId)
+    assertResumeJobSubject(representation, resumeId)
+    return representation
+  })
 }
 
 /**
@@ -340,8 +347,10 @@ export async function createWorkspaceResumeRenderJob(
       successKind: 'accepted-resource'
     }
   )
-  /** @brief 已接受的权威 Job / Authoritative accepted Job. */
-  const representation = parseAcceptedWorkspaceJob(response, workspaceId)
-  assertResumeJobSubject(representation, resumeId, request.resume_revision)
-  return representation
+  return decodeAcknowledgedWrite(response, 202, (): AcceptedWorkspaceJobRepresentation => {
+    /** @brief 已接受的权威 Job / Authoritative accepted Job. */
+    const representation = parseAcceptedWorkspaceJob(response, workspaceId)
+    assertResumeJobSubject(representation, resumeId, request.resume_revision)
+    return representation
+  })
 }

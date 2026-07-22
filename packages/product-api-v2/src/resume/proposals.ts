@@ -5,6 +5,7 @@ import type {
   ApiV2PostJsonOptions,
   ApiV2UpdatedWriteJsonResponse
 } from '../http/client'
+import { decodeAcknowledgedWrite } from '../http/acknowledged-write'
 import {
   arrayBetween,
   boundedInteger,
@@ -554,12 +555,14 @@ export async function decideResumeProposal(
     ...(signal === undefined ? {} : { signal }),
     successKind: 'updated-result'
   })
-  /** @brief 无损解码的 Resume operation result / Losslessly decoded Resume operation result. */
-  const value = parseResumeOperationResult(response.data, 'proposal_decision_result')
-  assertProposalDecisionResult(value, proposal, decision, selected, workspaceId, resumeId)
-  return {
-    entityTag: strongEntityTag(response.metadata.entityTag, 'response.headers.ETag'),
-    requestId: opaqueId(response.metadata.requestId, 'response.headers.X-Request-Id'),
-    value
-  }
+  return decodeAcknowledgedWrite(response, 200, (): ResumeProposalDecisionRepresentation => {
+    /** @brief 无损解码的 Resume operation result / Losslessly decoded Resume operation result. */
+    const value = parseResumeOperationResult(response.data, 'proposal_decision_result')
+    assertProposalDecisionResult(value, proposal, decision, selected, workspaceId, resumeId)
+    return {
+      entityTag: strongEntityTag(response.metadata.entityTag, 'response.headers.ETag'),
+      requestId: opaqueId(response.metadata.requestId, 'response.headers.X-Request-Id'),
+      value
+    }
+  })
 }

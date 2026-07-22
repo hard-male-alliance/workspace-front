@@ -1,6 +1,7 @@
 /** @file API v2 Job 并发安全取消 command / API v2 concurrency-safe Job cancellation command. */
 
 import type { ApiV2PostEmptyOptions, ApiV2UpdatedWriteJsonResponse } from '../http/client'
+import { decodeAcknowledgedWrite } from '../http/acknowledged-write'
 import { idempotencyKey, opaqueId, strongEntityTag } from '../http/contract'
 import { ApiV2ContractError } from '../http/errors'
 import { JOB_MAX_RESPONSE_BYTES, parseJob, type JobRepresentation } from './job'
@@ -72,16 +73,18 @@ export async function cancelWorkspaceJob(
     ...(signal === undefined ? {} : { signal }),
     successKind: 'updated-resource'
   })
-  /** @brief 严格解码的权威 Job / Strictly decoded authoritative Job. */
-  const value = parseJob(response.data)
-  if (value.workspace_id !== workspaceId || value.id !== jobId) {
-    throw new ApiV2ContractError(
-      'API v2 returned a cancellation Job whose Workspace or identity differs from the command path.'
-    )
-  }
-  return {
-    entityTag: strongEntityTag(response.metadata.entityTag, 'response.headers.ETag'),
-    requestId: opaqueId(response.metadata.requestId, 'response.headers.X-Request-Id'),
-    value
-  }
+  return decodeAcknowledgedWrite(response, 200, (): JobRepresentation => {
+    /** @brief 严格解码的权威 Job / Strictly decoded authoritative Job. */
+    const value = parseJob(response.data)
+    if (value.workspace_id !== workspaceId || value.id !== jobId) {
+      throw new ApiV2ContractError(
+        'API v2 returned a cancellation Job whose Workspace or identity differs from the command path.'
+      )
+    }
+    return {
+      entityTag: strongEntityTag(response.metadata.entityTag, 'response.headers.ETag'),
+      requestId: opaqueId(response.metadata.requestId, 'response.headers.X-Request-Id'),
+      value
+    }
+  })
 }

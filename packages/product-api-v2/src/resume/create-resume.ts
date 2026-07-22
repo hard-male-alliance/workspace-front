@@ -1,6 +1,7 @@
 /** @file API v2 Workspace Resume 创建 command 消费者 / API v2 Workspace Resume creation-command consumer. */
 
 import type { ApiV2CreatedResourceResponse, ApiV2PostJsonOptions } from '../http/client'
+import { decodeAcknowledgedWrite } from '../http/acknowledged-write'
 import { idempotencyKey, opaqueId, strongEntityTag } from '../http/contract'
 import { ApiV2ContractError } from '../http/errors'
 import {
@@ -165,14 +166,16 @@ export async function createWorkspaceResume(
     ...(signal === undefined ? {} : { signal }),
     successKind: 'created-resource'
   })
-  /** @brief 已严格解码的权威 Resume / Strictly decoded authoritative Resume. */
-  const value = parseResumeDocument(response.data)
-  assertCreatedResumeMatchesCommand(value, workspaceId, request)
-  /** @brief 与权威 Resume 配对的强 ETag / Strong ETag paired with the authoritative Resume. */
-  const entityTag = strongEntityTag(response.metadata.entityTag, 'response.headers.ETag')
-  /** @brief 已验证服务端请求 ID / Validated server request ID. */
-  const requestId = opaqueId(response.metadata.requestId, 'response.headers.X-Request-Id')
-  /** @brief 精确指向响应 Resume 的绝对 Location / Absolute Location pointing exactly to the response Resume. */
-  const location = createdResumeLocation(response.metadata.location, workspaceId, value.id)
-  return { entityTag, location, requestId, value }
+  return decodeAcknowledgedWrite(response, 201, (): CreatedResumeRepresentation => {
+    /** @brief 已严格解码的权威 Resume / Strictly decoded authoritative Resume. */
+    const value = parseResumeDocument(response.data)
+    assertCreatedResumeMatchesCommand(value, workspaceId, request)
+    /** @brief 与权威 Resume 配对的强 ETag / Strong ETag paired with the authoritative Resume. */
+    const entityTag = strongEntityTag(response.metadata.entityTag, 'response.headers.ETag')
+    /** @brief 已验证服务端请求 ID / Validated server request ID. */
+    const requestId = opaqueId(response.metadata.requestId, 'response.headers.X-Request-Id')
+    /** @brief 精确指向响应 Resume 的绝对 Location / Absolute Location pointing exactly to the response Resume. */
+    const location = createdResumeLocation(response.metadata.location, workspaceId, value.id)
+    return { entityTag, location, requestId, value }
+  })
 }

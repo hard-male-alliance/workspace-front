@@ -453,38 +453,28 @@ describe('API v2 Workspace Resume creation endpoint', (): void => {
     ])
   })
 
-  it('rejects cross-Workspace and mismatched authoritative response fields', async (): Promise<void> => {
+  it.each([
+    ['malformed body', { unexpected: true }],
+    ['cross-Workspace body', resumeDocument({ workspace_id: OTHER_WORKSPACE_ID })],
+    ['mismatched title', resumeDocument({ title: 'Different title' })],
+    ['mismatched locale', resumeDocument({ locale: 'en-US' })],
+    [
+      'mismatched Template',
+      resumeDocument({ template: { template_id: TEMPLATE_ID, version: '2.5.0' } })
+    ]
+  ])('preserves an unknown 201 outcome for a %s', async (_label, responseBody): Promise<void> => {
     await expect(
-      createWorkspaceResume(
-        fixedCreationClient(resumeDocument({ workspace_id: OTHER_WORKSPACE_ID })),
-        createCommand()
-      )
-    ).rejects.toThrow(/different Workspace/u)
-    await expect(
-      createWorkspaceResume(
-        fixedCreationClient(resumeDocument({ title: 'Different title' })),
-        createCommand()
-      )
-    ).rejects.toThrow(/different title/u)
-    await expect(
-      createWorkspaceResume(
-        fixedCreationClient(resumeDocument({ locale: 'en-US' })),
-        createCommand()
-      )
-    ).rejects.toThrow(/different locale/u)
-    await expect(
-      createWorkspaceResume(
-        fixedCreationClient(
-          resumeDocument({
-            template: { template_id: TEMPLATE_ID, version: '2.5.0' }
-          })
-        ),
-        createCommand()
-      )
-    ).rejects.toThrow(/different immutable Template/u)
+      createWorkspaceResume(fixedCreationClient(responseBody), createCommand())
+    ).rejects.toMatchObject({
+      kind: 'contract',
+      name: 'ApiV2WriteOutcomeUnknownError',
+      problemCode: null,
+      requestId: REQUEST_ID,
+      status: 201
+    })
   })
 
-  it('rejects a Location that does not identify the decoded Resume exactly', async (): Promise<void> => {
+  it('preserves an unknown 201 outcome when Location does not identify the decoded Resume', async (): Promise<void> => {
     await expect(
       createWorkspaceResume(
         fixedCreationClient(resumeDocument(), {
@@ -492,10 +482,15 @@ describe('API v2 Workspace Resume creation endpoint', (): void => {
         }),
         createCommand()
       )
-    ).rejects.toThrow(/does not identify/u)
+    ).rejects.toMatchObject({
+      kind: 'contract',
+      name: 'ApiV2WriteOutcomeUnknownError',
+      requestId: REQUEST_ID,
+      status: 201
+    })
   })
 
-  it('requires clone creation to mint a distinct Resume identity', async (): Promise<void> => {
+  it('preserves an unknown 201 outcome when clone creation reuses its source identity', async (): Promise<void> => {
     /** @brief 指向来源 Resume 的 clone command / Clone command pointing to the source Resume. */
     const command = createCommand({
       request: createRequest({ clone_from_resume_id: CLONE_SOURCE_ID })
@@ -508,7 +503,12 @@ describe('API v2 Workspace Resume creation endpoint', (): void => {
         }),
         command
       )
-    ).rejects.toThrow(/source Resume identity/u)
+    ).rejects.toMatchObject({
+      kind: 'contract',
+      name: 'ApiV2WriteOutcomeUnknownError',
+      requestId: REQUEST_ID,
+      status: 201
+    })
   })
 
   it('rejects a pre-aborted command without dispatching the POST', async (): Promise<void> => {
@@ -526,12 +526,30 @@ describe('API v2 Workspace Resume creation endpoint', (): void => {
     expect(postJson).not.toHaveBeenCalled()
   })
 
-  it('rejects weak metadata even when a structural client lies about its type', async (): Promise<void> => {
+  it('keeps invalid creation commands as pre-dispatch contract errors', async (): Promise<void> => {
+    /** @brief 不应接收非法创建 command 的 POST / POST that must not receive an invalid creation command. */
+    const postJson = vi.fn<ResumeCreationHttpClient['postJson']>()
+
+    await expect(
+      createWorkspaceResume(
+        { postJson },
+        createCommand({ idempotencyKey: 'short', request: createRequest({ title: '' }) })
+      )
+    ).rejects.toBeInstanceOf(ApiV2ContractError)
+    expect(postJson).not.toHaveBeenCalled()
+  })
+
+  it('preserves an unknown 201 outcome for an invalid response ETag', async (): Promise<void> => {
     await expect(
       createWorkspaceResume(
         fixedCreationClient(resumeDocument(), { entityTag: 'W/"resume-revision-1"' }),
         createCommand()
       )
-    ).rejects.toBeInstanceOf(ApiV2ContractError)
+    ).rejects.toMatchObject({
+      kind: 'contract',
+      name: 'ApiV2WriteOutcomeUnknownError',
+      requestId: REQUEST_ID,
+      status: 201
+    })
   })
 })

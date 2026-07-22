@@ -261,7 +261,7 @@ describe('API v2 Resume Job commands', (): void => {
     expect(client.postJson).not.toHaveBeenCalled()
   })
 
-  it('rejects cross-Workspace, cross-subject, cross-revision, and mismatched Location responses', async (): Promise<void> => {
+  it('preserves unknown 202 outcomes for invalid render Job identities and metadata', async (): Promise<void> => {
     /** @brief 公共 render command / Shared render command. */
     const command = {
       idempotencyKey: IDEMPOTENCY_KEY,
@@ -270,35 +270,41 @@ describe('API v2 Resume Job commands', (): void => {
       workspaceId: WORKSPACE_ID
     }
 
-    await expect(
-      createWorkspaceResumeRenderJob(
-        jobClient(
-          acceptedResponse(
-            queuedJob(RESUME_ID, 7, { workspace_id: 'workspace_01K0OTHER0000000001' })
-          )
-        ),
-        command
-      )
-    ).rejects.toThrow(/outside the Workspace/u)
-    await expect(
-      createWorkspaceResumeRenderJob(
-        jobClient(acceptedResponse(queuedJob('resume_01K0OTHER0000000000001', 7))),
-        command
-      )
-    ).rejects.toThrow(/subject different/u)
-    await expect(
-      createWorkspaceResumeRenderJob(jobClient(acceptedResponse(queuedJob(RESUME_ID, 8))), command)
-    ).rejects.toThrow(/different Resume revision/u)
-    await expect(
-      createWorkspaceResumeRenderJob(
-        jobClient(
-          acceptedResponse(
-            queuedJob(RESUME_ID, 7),
-            `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}/jobs/job_01K0OTHER0000000000001`
-          )
-        ),
-        command
-      )
-    ).rejects.toThrow(/Location/u)
+    /** @brief 响应类型说谎时仍需验证的 202 cases / 202 cases still requiring validation when the structural response type lies. */
+    const responses = [
+      acceptedResponse({ unexpected: true }),
+      acceptedResponse(queuedJob(RESUME_ID, 7, { workspace_id: 'workspace_01K0OTHER0000000001' })),
+      acceptedResponse(queuedJob('resume_01K0OTHER0000000000001', 7)),
+      acceptedResponse(
+        queuedJob(RESUME_ID, 7, {
+          subject: { id: RESUME_ID, resource_type: 'artifact', revision: 7 }
+        })
+      ),
+      acceptedResponse(queuedJob(RESUME_ID, 8)),
+      acceptedResponse(
+        queuedJob(RESUME_ID, 7),
+        `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}/jobs/job_01K0OTHER0000000000001`
+      ),
+      {
+        ...acceptedResponse(queuedJob(RESUME_ID, 7)),
+        metadata: {
+          entityTag: 'W/"job-revision-1"',
+          location: `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}/jobs/${JOB_ID}`,
+          requestId: REQUEST_ID
+        }
+      }
+    ]
+
+    for (const response of responses) {
+      await expect(
+        createWorkspaceResumeRenderJob(jobClient(response), command)
+      ).rejects.toMatchObject({
+        kind: 'contract',
+        name: 'ApiV2WriteOutcomeUnknownError',
+        problemCode: null,
+        requestId: REQUEST_ID,
+        status: 202
+      })
+    }
   })
 })
