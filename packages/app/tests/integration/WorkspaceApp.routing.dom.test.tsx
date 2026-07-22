@@ -21,6 +21,9 @@ const routeCases: readonly { readonly path: string; readonly heading: string }[]
 /** @brief 所有可见性卡片会链接到的来源 ID / Source IDs linked from visibility cards. */
 const sourceIds = ['ks_mock_resume', 'ks_mock_git', 'ks_mock_blog', 'ks_mock_file'] as const
 
+/** @brief 并行套件中懒加载路由的最大装配时间 / Maximum lazy-route composition time in the parallel suite. */
+const routeCompositionTimeout = 5_000
+
 /** @brief 应用级路由可达性测试 / Application-level route reachability tests. */
 describe('WorkspaceApp routing', (): void => {
   it.each(routeCases)(
@@ -30,7 +33,9 @@ describe('WorkspaceApp routing', (): void => {
 
       render(<WorkspaceApp initialPath={path} />)
 
-      expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument()
+      expect(
+        await screen.findByRole('heading', { name: heading }, { timeout: routeCompositionTimeout })
+      ).toBeInTheDocument()
     }
   )
 
@@ -40,7 +45,13 @@ describe('WorkspaceApp routing', (): void => {
       await setWorkspaceAppTestLocale('zh-SG')
 
       render(<WorkspaceApp initialPath={`/knowledge/${sourceId}/visibility`} />)
-      expect(await screen.findByRole('heading', { name: 'Agent 可见性' })).toBeInTheDocument()
+      expect(
+        await screen.findByRole(
+          'heading',
+          { name: 'Agent 可见性' },
+          { timeout: routeCompositionTimeout }
+        )
+      ).toBeInTheDocument()
     }
   )
 
@@ -51,7 +62,13 @@ describe('WorkspaceApp routing', (): void => {
 
       render(<WorkspaceApp initialPath={initialPath} />)
 
-      expect(await screen.findByRole('heading', { name: '今日工作台' })).toBeInTheDocument()
+      expect(
+        await screen.findByRole(
+          'heading',
+          { name: '今日工作台' },
+          { timeout: routeCompositionTimeout }
+        )
+      ).toBeInTheDocument()
     }
   )
 })
