@@ -12,6 +12,9 @@ const LOCALE_PATTERN = /^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/u
 /** @brief API v2 稳定 code 的冻结格式 / Frozen API v2 stable-code format. */
 const STABLE_CODE_PATTERN = /^[a-z][a-z0-9_.-]{2,127}$/u
 
+/** @brief API v2 幂等键的冻结格式 / Frozen API v2 idempotency-key format. */
+const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9._~-]{16,128}$/u
+
 /** @brief API v2 RFC 3339 UTC 时间戳分组 / Capturing pattern for API v2 RFC 3339 UTC timestamps. */
 const UTC_TIMESTAMP_PATTERN = /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?Z$/u
 
@@ -52,6 +55,21 @@ export interface ResourceFields {
   readonly created_at: string
   /** @brief 更新时间 / Update time. */
   readonly updated_at: string
+}
+
+/**
+ * @brief 断言未知值为 API v2 幂等键 / Assert that an unknown value is an API v2 idempotency key.
+ * @param value 未知幂等键 / Unknown idempotency key.
+ * @param path 诊断字段路径 / Diagnostic field path.
+ * @return 可原样发送的已验证幂等键 / Validated idempotency key safe to send unchanged.
+ */
+export function idempotencyKey(value: unknown, path = 'request.headers.Idempotency-Key'): string {
+  if (typeof value !== 'string' || !IDEMPOTENCY_KEY_PATTERN.test(value)) {
+    throw new ApiV2ContractError(
+      `API v2 field ${path} must contain 16-128 URL-safe ASCII characters.`
+    )
+  }
+  return value
 }
 
 /**

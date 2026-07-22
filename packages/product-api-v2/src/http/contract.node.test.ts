@@ -4,6 +4,7 @@ import { API_V2_CONTROLLED_TEST_ORIGIN } from '../origin'
 import {
   extensions,
   httpsUrl,
+  idempotencyKey,
   jsonObject,
   jsonValue,
   networkUrl,
@@ -163,5 +164,23 @@ describe('API v2 RFC 3986 URL primitives', (): void => {
     )
     expect(() => safeLinkUrl('javascript:alert(1)', 'url')).toThrow(/safe link URL/u)
     expect(() => safeLinkUrl('https://user:secret@example.com/', 'url')).toThrow(/safe link URL/u)
+  })
+})
+
+describe('API v2 command primitives', (): void => {
+  it('accepts the frozen Idempotency-Key alphabet and exact length bounds', (): void => {
+    expect(idempotencyKey('A._~-0123456789ab')).toBe('A._~-0123456789ab')
+    expect(idempotencyKey('a'.repeat(128))).toBe('a'.repeat(128))
+  })
+
+  it('rejects short, oversized, whitespace, and non-ASCII idempotency keys', (): void => {
+    for (const value of [
+      'a'.repeat(15),
+      'a'.repeat(129),
+      'contains whitespace',
+      '幂等キー-1234567890123456'
+    ]) {
+      expect(() => idempotencyKey(value)).toThrow(ApiV2ContractError)
+    }
   })
 })

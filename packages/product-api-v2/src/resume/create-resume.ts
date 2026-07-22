@@ -1,7 +1,7 @@
 /** @file API v2 Workspace Resume 创建 command 消费者 / API v2 Workspace Resume creation-command consumer. */
 
 import type { ApiV2CreatedResourceResponse, ApiV2PostJsonOptions } from '../http/client'
-import { opaqueId, strongEntityTag } from '../http/contract'
+import { idempotencyKey, opaqueId, strongEntityTag } from '../http/contract'
 import { ApiV2ContractError } from '../http/errors'
 import {
   encodeCreateResumeRequest,
@@ -145,7 +145,7 @@ export async function createWorkspaceResume(
   /** @brief 仅读取一次的 Workspace ID 候选值 / Workspace-ID candidate read exactly once. */
   const workspaceIdCandidate = command.workspaceId
   /** @brief 仅读取一次的幂等键 / Idempotency key read exactly once. */
-  const idempotencyKey = command.idempotencyKey
+  const validatedIdempotencyKey = idempotencyKey(command.idempotencyKey)
   /** @brief 仅读取一次的 wire payload / Wire payload read exactly once. */
   const requestCandidate = command.request
   /** @brief 仅读取一次的取消信号 / Cancellation signal read exactly once. */
@@ -159,7 +159,7 @@ export async function createWorkspaceResume(
   const path = `/workspaces/${encodeURIComponent(workspaceId)}/resumes`
   /** @brief 固定 201 创建语义的 transport 响应 / Transport response with fixed 201 creation semantics. */
   const response = await client.postJson(path, request, {
-    idempotencyKey,
+    idempotencyKey: validatedIdempotencyKey,
     maxRequestBytes: CREATE_RESUME_MAX_REQUEST_BYTES,
     maxResponseBytes: CREATE_RESUME_MAX_RESPONSE_BYTES,
     ...(signal === undefined ? {} : { signal }),

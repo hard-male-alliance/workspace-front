@@ -1,6 +1,6 @@
 /** @file 带内存 Bearer 凭证的 API v2 HTTP 边界 / API v2 HTTP boundary with in-memory Bearer credentials. */
 
-import { locale, opaqueId, strongEntityTag } from './contract'
+import { idempotencyKey, locale, opaqueId, strongEntityTag } from './contract'
 import type { ApiV2AuthenticationPort } from './authentication'
 import { readBoundedJson } from './bounded-json'
 import {
@@ -15,9 +15,6 @@ import { API_V2_CONTROLLED_TEST_ORIGIN, API_V2_PRODUCTION_ORIGIN } from '../orig
 
 /** @brief OAuth Bearer b64token 语法 / OAuth Bearer b64token syntax. */
 const BEARER_TOKEN_PATTERN = /^[A-Za-z0-9\-._~+/]+=*$/u
-
-/** @brief API v2 Idempotency-Key 的冻结语法 / Frozen API v2 Idempotency-Key syntax. */
-const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9._~-]{16,128}$/u
 
 /** @brief v2 401 challenge 固定的 Protected Resource Metadata / Frozen Protected Resource Metadata used by v2 401 challenges. */
 const PROTECTED_RESOURCE_METADATA =
@@ -679,18 +676,6 @@ function serializeJsonRequest(value: unknown, maximumBytes: number): string {
     throw new ApiV2ContractError('API v2 JSON request exceeds its pre-dispatch byte limit.')
   }
   return serialized
-}
-
-/**
- * @brief 验证 API v2 幂等键 / Validate an API v2 idempotency key.
- * @param value 未知幂等键 / Unknown idempotency key.
- * @return 可原样发送的键 / Key safe to send unchanged.
- */
-function idempotencyKey(value: unknown): string {
-  if (typeof value !== 'string' || !IDEMPOTENCY_KEY_PATTERN.test(value)) {
-    throw new ApiV2ContractError('API v2 Idempotency-Key must be 16-128 URL-safe ASCII characters.')
-  }
-  return value
 }
 
 /**
