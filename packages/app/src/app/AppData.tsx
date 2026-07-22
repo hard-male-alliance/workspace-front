@@ -171,12 +171,15 @@ type AsyncResourceState<TValue> =
   | { readonly status: 'ready'; readonly data: TValue }
   | { readonly status: 'error'; readonly error: Error }
 
+/** @brief 可取消的异步资源加载器 / Abortable asynchronous-resource loader. */
+export type AsyncResourceLoader<TValue> = (signal: AbortSignal) => Promise<TValue>
+
 /** @brief 绑定到一次资源身份与加载尝试的异步快照 / Async snapshot bound to one resource identity and load attempt. */
 interface AsyncResourceSnapshot<TValue> {
   /** @brief 触发当前快照的尝试序号 / Attempt sequence that produced this snapshot. */
   readonly attempt: number
   /** @brief 触发当前快照的加载函数 / Loader that produced this snapshot. */
-  readonly load: () => Promise<TValue>
+  readonly load: AsyncResourceLoader<TValue>
   /** @brief 调用方声明的资源身份 / Resource identity declared by the caller. */
   readonly resourceKey: unknown
   /** @brief 当前身份与尝试对应的异步状态 / Async state for the bound identity and attempt. */
@@ -200,14 +203,14 @@ function nowMilliseconds(): number {
 /**
  * @brief 加载 gateway 返回的异步资源 / Load an asynchronous resource returned by a gateway.
  * @template TValue 成功资源类型 / Successful resource type.
- * @param load 稳定的异步加载函数 / Stable async loader function.
+ * @param load 稳定且接受取消信号的异步加载函数 / Stable async loader accepting a cancellation signal.
  * @param resourceKey 可选的领域资源身份；变化时当前 render 立即进入 loading / Optional domain resource identity; a change makes the current render loading immediately.
  * @return 加载中、成功或失败的资源状态 / Loading, ready, or failed resource state.
  * @note 调用方应以 useCallback 包装 load，避免无意重复请求。
  */
 export function useAsyncResource<TValue>(
   resourceName: DiagnosticResourceName,
-  load: () => Promise<TValue>,
+  load: AsyncResourceLoader<TValue>,
   resourceKey?: string | number
 ): AsyncResource<TValue> {
   /** @brief 未显式传入领域 key 时以稳定加载函数作为资源身份 / Stable loader used as the resource identity when no domain key is supplied. */
@@ -235,10 +238,13 @@ export function useAsyncResource<TValue>(
   useEffect((): (() => void) => {
     /** @brief effect 是否仍然存活 / Whether the effect is still active. */
     let active = true
+    /** @brief 当前资源身份独占的取消控制器 / Abort controller owned by the current resource identity. */
+    const controller = new AbortController()
     /** @brief 资源读取的起始单调时间 / Monotonic start time for the resource read. */
     const startedAt = nowMilliseconds()
 
-    void load()
+    void Promise.resolve()
+      .then(() => load(controller.signal))
       .then((data): void => {
         if (active) {
           setSnapshot({
@@ -274,6 +280,7 @@ export function useAsyncResource<TValue>(
 
     return (): void => {
       active = false
+      controller.abort(new DOMException('Resource identity changed.', 'AbortError'))
     }
   }, [attempt, currentResourceKey, diagnostics, load, resourceName])
 
