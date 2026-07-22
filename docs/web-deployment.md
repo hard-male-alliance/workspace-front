@@ -30,8 +30,8 @@ VITE_API_PORT=443
 
 ## 当前联调边界
 
-Web 与 Electron 的 Resume、Knowledge 使用同一组正式 HTTP Gateway；Workspace 与 Interview 在路由级请求/响应入口尚未完全冻结处继续使用显式进程内 Demo adapter。不得为未冻结的 SSE、WebSocket、WebRTC 或上传会话协议虚构代理规则。两种宿主共享业务装配语义，但分别拥有环境配置与安全启动边界。
+Web 与 Electron 的 Workspace、Resume、Interview、Knowledge 使用同一组正式 HTTP Gateway。不得为未冻结的上传会话、Agent SSE、WebSocket 或 WebRTC 协议虚构代理规则；对应界面应保持诚实的不可用状态。两种宿主共享业务装配语义，但分别拥有环境配置与安全启动边界。
 
-当前公开配置只确定 API origin，并不提供身份。正式契约要求除公开模板预览外携带 `Authorization: Bearer …`，但授权端点、client ID、scope 与 token 生命周期尚未冻结，所以当前 adapter 不会伪造认证头，受保护的 Resume/Knowledge 请求也不能据此宣称生产联调完成。生产启用条件记录在[契约待确认项](contract-open-questions.md)；任何 `VITE_*` token 方案都不被接受。
+当前 HTTP 边界已统一发送经校验的 `Accept-Language` 与每请求唯一 `X-Request-Id`，但公开配置只确定 API origin，并不提供身份。正式契约要求除公开模板预览外携带 `Authorization: Bearer …`，但授权端点、client ID、scope 与 token 生命周期尚未冻结，所以当前 adapter 不会伪造认证头，受保护的 Resume/Knowledge 请求也不能据此宣称生产联调完成。生产启用条件记录在[契约待确认项](contract-open-questions.md)；任何 `VITE_*` token 方案都不被接受。
 
 Resume PDF 保存通过独立宿主端口表达。Web adapter 为每次用户动作创建并立即移除一个受控临时 `anchor`，维持原有浏览器下载语义；共享应用包不直接操作 `download` 属性。浏览器不会向页面暴露下载的最终成功状态，所以 Web 只播报“下载已开始”，不会误报“文件已保存”。对于跨源 URL，`download` 中的建议文件名不具有强制力，最终名称仍可能由响应 `Content-Disposition` 与浏览器策略决定；产品 API 应返回安全且一致的 PDF 下载头。

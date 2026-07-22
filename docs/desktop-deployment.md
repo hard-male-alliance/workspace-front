@@ -20,7 +20,7 @@ AI_JOB_WORKSPACE_API_PORT=443
 
 四项均未配置时使用 `https://api.hmalliances.org`。地址必须是无凭证、path、query 和 fragment 的 origin；公网产品 API 必须使用 HTTPS，明文 HTTP 只允许 `localhost` 或 `127.0.0.1` 本地开发目标。无效配置会令桌面应用安全地启动失败，绝不回退到 Web runtime 或另一套数据组合。该 origin 经主进程验证后由窄 bridge 下发，并被精确加入 Content Security Policy（CSP）的 `connect-src` 与 PDF `frame-src`；`object-src` 始终为 `none`。
 
-目标 API 仍须显式允许 `ai-job-workspace://renderer` 的跨源资源共享（Cross-Origin Resource Sharing, CORS）请求；renderer 不发送可信代理断言，也不持有服务端密钥。当前配置只建立公开 transport origin，不建立身份：正式契约要求除公开模板预览外使用 Bearer token，而授权端点、client ID、scope、系统浏览器回调、刷新和注销生命周期尚未冻结。因此当前受保护的 Resume、Knowledge 与 PDF content 不能宣称生产认证可用；实现条件见[契约待确认项](contract-open-questions.md)。
+目标 API 仍须显式允许 `ai-job-workspace://renderer` 的跨源资源共享（Cross-Origin Resource Sharing, CORS）请求；renderer 不发送可信代理断言，也不持有服务端密钥。共享 HTTP 边界已发送经校验的 `Accept-Language` 与每请求唯一 `X-Request-Id`，但当前配置只建立公开 transport origin，不建立身份：正式契约要求除公开模板预览外使用 Bearer token，而授权端点、client ID、scope、系统浏览器回调、刷新和注销生命周期尚未冻结。因此当前受保护的 Resume、Knowledge 与 PDF content 不能宣称生产认证可用；实现条件见[契约待确认项](contract-open-questions.md)。
 
 ## 构建、打包与制品
 
@@ -33,7 +33,7 @@ pnpm verify:desktop:package    # 串行执行 package 与 packaged smoke
 pnpm dist:desktop              # 生成当前平台原生安装制品
 ```
 
-两种 smoke 的失败含义不同：build smoke 直接运行开发依赖中的 Electron 与 `out/`，用于快速定位构建或进程边界回归；packaged smoke 只运行 `release/*-unpacked` 中的实际二进制，并从该二进制读取 Fuse wire。packaged smoke 还会启动一个仅监听 `127.0.0.1` 随机端口、明确不要求认证的最小 transport fixture，将其 origin 通过正式 main 配置下发，要求 renderer 的 HTTP adapter 成功读取 `/api/v1/knowledge-sources/ks_mock_git`，并要求同 origin 的 artifact iframe 被实际请求。因此验证不依赖公网，也没有给 preload 或 renderer 增加测试后门；它只证明宿主、CSP、CORS 与 adapter wiring，绝不证明契约 Bearer 认证。
+两种 smoke 的失败含义不同：build smoke 直接运行开发依赖中的 Electron 与 `out/`，用于快速定位构建或进程边界回归；packaged smoke 只运行 `release/*-unpacked` 中的实际二进制，并从该二进制读取 Fuse wire。packaged smoke 还会启动一个仅监听 `127.0.0.1` 随机端口、明确不要求认证的最小 transport fixture，将其 origin 通过正式 main 配置下发，要求 renderer 的 HTTP adapter 成功读取 `/api/v1/knowledge-sources/ks_smoke_git`，并要求同 origin 的 artifact iframe 被实际请求。因此验证不依赖公网，也没有给 preload 或 renderer 增加测试后门；它只证明宿主、CSP、CORS 与 adapter wiring，绝不证明契约 Bearer 认证。
 
 CI 在 Linux、macOS 与 Windows runner 上分别构建并启动当前平台的 unpacked 应用，读取各自真实二进制的 Fuse wire，再执行同一 packaged runtime smoke；Linux 使用隔离的 Xvfb 显示服务。该矩阵覆盖进程边界与打包布局，但不会绕过原生保存对话框，也不替代签名、公证和安装器级验收。
 
@@ -52,5 +52,6 @@ Renderer 生产输出启用 esbuild minification，并按 Resume、Interview、K
 - 所有 Chromium 权限默认拒绝；新增摄像头或麦克风能力必须绑定可信 origin 和明确用户操作。
 - IPC 同时校验主窗口 `webContents`、main frame 和精确 renderer URL；不得暴露通用 `send`、`invoke` 或 Electron 对象。
 - PDF 保存 IPC 仅接受安全文件名和与已验证产品 API 完全同 origin、精确匹配 `/api/v1/render-artifacts/{opaque-id}/content` 的无歧义 URL；每个重定向重新验证。下载使用发送方 `session.fetch(credentials: 'include')`，这只会保留该 Electron session 已有的 Cookie，不等于正式契约要求的 Bearer 身份；身份链路冻结前，受保护 content 的原生保存仍是明确的发布阻塞项。响应只接受 `200 application/pdf`，同时限制 `Content-Length` 与实际流为 25 MiB，并以统一总时限中止慢响应。
+- 契约允许短期签名 `download_url`，但尚未冻结对象存储/CDN origin 与重定向信任清单；因此当前安全边界只接受上述同源 content 路径。跨 origin 产物必须在上游确定 allowlist 与 CSP/CORS 后显式启用，不能退化成允许主进程抓取任意 HTTPS URL。
 - 原生保存使用用户选择目标同目录下的 `0600` 独占临时文件，刷新后尽量以原子 `rename` 完成；取消、超限和写入失败均清理临时文件。renderer 只获得 `saved/cancelled` 判别结果，绝不获得本地文件路径。
 - 新窗口、WebView 和越界导航默认拒绝。安全策略与 Electron 官方清单保持对齐：[Electron Security](https://www.electronjs.org/docs/latest/tutorial/security)。

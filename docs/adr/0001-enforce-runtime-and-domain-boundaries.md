@@ -35,6 +35,15 @@ Vitest Test Projects 使用互斥文件约定：
 
 真实 Electron 是第四条独立 lane，不由 Browser Mode 或 jsdom 代替。页面集成测试继续围绕角色、可访问名称、导航与可见结果，不围绕 hook、组件实例或私有状态。
 
+测试采用混合放置（Hybrid Test Layout），不建立与全部源码镜像的单一根 `tests/` 树：
+
+- 单一模块或 adapter 的 Node/DOM 测试与被测源码就近放置，便于共同演进和删除；
+- 跨多个业务上下文的 App 集成测试集中在 `packages/app/tests/integration/`；
+- 依赖真实浏览器能力的测试集中在 `packages/app/tests/browser/`；
+- 跨包、仓库级约束和全局 setup 才放在根 `tests/`。
+
+文件后缀决定执行环境，目录决定测试作用域；两者分别表达不同维度，不能互相替代。
+
 ### 3. 宿主差异只能存在于组合根和 adapter
 
 Web 与 Desktop 共享业务模型、用例、React UI 与可复用 HTTP adapter；各自拥有独立组合根。
