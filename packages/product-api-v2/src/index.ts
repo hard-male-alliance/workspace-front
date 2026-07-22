@@ -113,6 +113,19 @@ export type {
 } from './resume/create-resume'
 export { getWorkspaceResume } from './resume/get-resume'
 export type { ResumeDocumentReadRequest, ResumeRepresentation } from './resume/get-resume'
+export {
+  getWorkspaceResumeRevision,
+  listWorkspaceResumeRevisionPage,
+  parseResumeRevision,
+  parseResumeRevisionList,
+  parseResumeRevisionSummary
+} from './resume/revision-history'
+export type {
+  ResumeRevision,
+  ResumeRevisionListPageRequest,
+  ResumeRevisionReadRequest,
+  ResumeRevisionSummary
+} from './resume/revision-history'
 export { listWorkspaceAccessPage, parseWorkspaceList } from './workspace/workspace-access'
 export type {
   Workspace,
