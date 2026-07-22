@@ -1,5 +1,7 @@
 # PR #2 Backend Contract Alignment Implementation Plan
 
+> **Status: Archived.** This is a historical execution record, not a current implementation plan. [ADR 0002](../../adr/0002-protect-production-api-truth.md), the pinned shared contract, and current deployment documentation supersede its Mock composition and capability assumptions.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Absorb the non-duplicated configuration work from PR #2 and finish the Web frontend's Knowledge and Resume contract alignment without modifying `workspace-back/`.

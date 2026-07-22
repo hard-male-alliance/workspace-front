@@ -18,7 +18,7 @@ AI_JOB_WORKSPACE_API_HOSTNAME=api.hmalliances.org
 AI_JOB_WORKSPACE_API_PORT=443
 ```
 
-四项均未配置时使用 `https://api.hmalliances.org`。地址必须是无凭证、path、query 和 fragment 的 origin；公网产品 API 必须使用 HTTPS，明文 HTTP 只允许 `localhost` 或 `127.0.0.1` 本地开发目标。无效配置会令桌面应用安全地启动失败，绝不回退到 Web runtime 或另一套数据组合。该 origin 经主进程验证后由窄 bridge 下发，并被精确加入 Content Security Policy（CSP）的 `connect-src` 与 PDF `frame-src`；`object-src` 始终为 `none`。
+四项均未配置时使用 `https://api.hmalliances.org`。地址必须是无凭证、path、query 和 fragment 的 origin；公网产品 API 必须使用 HTTPS，明文 HTTP 只允许 `localhost` 或 `127.0.0.1` 本地开发目标。无效配置会令桌面应用安全地启动失败，绝不回退到 Web runtime 或另一套数据组合。main 会使用安全读取的宿主 locale 先显示中/英文脱敏原生错误，再以非零状态结束；未知 locale 与读取失败回退英文，不依赖 renderer i18n。该 origin 经主进程验证后由窄 bridge 下发，并被精确加入 Content Security Policy（CSP）的 `connect-src` 与 PDF `frame-src`；`object-src` 始终为 `none`。
 
 目标 API 仍须显式允许 `ai-job-workspace://renderer` 的跨源资源共享（Cross-Origin Resource Sharing, CORS）请求；renderer 不发送可信代理断言，也不持有服务端密钥。共享 HTTP 边界已发送经校验的 `Accept-Language` 与每请求唯一 `X-Request-Id`，但当前配置只建立公开 transport origin，不建立身份：正式契约要求除公开模板预览外使用 Bearer token，而授权端点、client ID、scope、系统浏览器回调、刷新和注销生命周期尚未冻结。因此当前受保护的 Resume、Knowledge 与 PDF content 不能宣称生产认证可用；实现条件见[契约待确认项](contract-open-questions.md)。
 
@@ -51,8 +51,8 @@ Renderer 生产输出启用 esbuild minification，并按 Resume、Interview、K
 - 生产只加载 `ai-job-workspace://renderer`，开发服务器 URL 在 packaged 应用中无效。
 - 所有 Chromium 权限默认拒绝；新增摄像头或麦克风能力必须绑定可信 origin 和明确用户操作。
 - IPC 同时校验主窗口 `webContents`、main frame 和精确 renderer URL；不得暴露通用 `send`、`invoke` 或 Electron 对象。
-- PDF 保存 IPC 仅接受符合冻结 OpaqueId 的 artifact ID 与安全文件名，不接受 renderer 提供的 URL、大小或摘要。用户完成保存对话框后，main 使用发送方 `session.fetch(credentials: 'omit')` 重新读取 `/api/v1/render-artifacts/{artifact_id}` 的完整权威 metadata，核对身份、PDF 格式、媒体类型与有效期后才立即下载。content URL 和每个重定向都必须与已验证产品 API 完全同 origin、精确匹配同一 artifact 的 `/api/v1/render-artifacts/{opaque-id}/content`。请求不携带 Cookie，也不伪造正式契约要求的 Bearer 身份；身份链路冻结前，受保护 metadata/content 的原生保存应明确失败，仍是发布阻塞项。响应只接受 `200 application/pdf`，并显式限定为 Fetch 可解码的 `gzip`/`br`/`deflate`/`zstd` 或缺省/`identity` 内容编码；`Content-Length` 只在缺省/`identity` 编码下用作提前拒绝，实际解码流始终受 25 MiB、`size_bytes` 和 SHA-256 的最终核对，并以统一总时限中止慢响应。
-- 契约允许短期签名 `download_url`，但尚未冻结对象存储/CDN origin 与重定向信任清单；因此当前安全边界只接受上述同源 content 路径。跨 origin 产物必须在上游确定 allowlist 与 CSP/CORS 后显式启用，不能退化成允许主进程抓取任意 HTTPS URL。
+- PDF 保存 IPC 仅接受符合冻结 OpaqueId 的 artifact ID 与安全文件名，不接受 renderer 提供的 URL、大小或摘要。Web、preload 和 main 在各自信任边界均重新调用 `platform` 的同一纯 decoder，不把 preload 校验视为 main 的授权。用户完成保存对话框后，main 使用发送方 `session.fetch(credentials: 'omit', redirect: 'error')` 重新读取 `/api/v1/render-artifacts/{artifact_id}` 的完整权威 metadata，核对身份、PDF 格式、媒体类型与有效期后才立即下载。content URL 必须与已验证产品 API 完全同 origin、精确匹配同一 artifact 的 `/api/v1/render-artifacts/{opaque-id}/content`；metadata 和 content 的任何重定向都由 Chromium 网络栈直接拒绝。请求不携带 Cookie，也不伪造正式契约要求的 Bearer 身份；身份链路冻结前，受保护 metadata/content 的原生保存应明确失败，仍是发布阻塞项。响应只接受 `200 application/pdf`，并显式限定为 Fetch 可解码的 `gzip`/`br`/`deflate`/`zstd` 或缺省/`identity` 内容编码；`Content-Length` 只在缺省/`identity` 编码下用作提前拒绝，实际解码流始终受 25 MiB、`size_bytes` 和 SHA-256 的最终核对，并以统一总时限中止慢响应。
+- 契约允许短期签名 `download_url`，但尚未冻结对象存储/CDN origin 与重定向信任清单；因此 Web 与 Electron 当前都 fail closed：只接受上述同源 content 路径并拒绝所有重定向。跨 origin 或重定向产物必须在上游确定 allowlist、认证传播与 CSP/CORS 后显式启用，不能退化成允许主进程抓取任意 HTTPS URL。
 - 原生保存使用用户选择目标同目录下的 `0600` 独占临时文件，`fsync` 后尽量以原子 `rename` 完成；取消、超限和写入失败均清理临时文件。renderer 只获得 `saved/cancelled` 判别结果，绝不获得本地文件路径。
 - PDF 预览仍由 sandboxed iframe 承载以保持既有界面，但 iframe 导航不等于 main 中可审计的无 Cookie Fetch，也不提供 Bearer token 生命周期。正式身份方案必须单独冻结预览的数据通道；当前 CSP/frame smoke 只证明 origin 约束，不证明认证。
 - 新窗口、WebView 和越界导航默认拒绝。安全策略与 Electron 官方清单保持对齐：[Electron Security](https://www.electronjs.org/docs/latest/tutorial/security)。

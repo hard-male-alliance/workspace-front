@@ -1,5 +1,7 @@
 # Resume 写入、Proposal 审批与 PDF 渲染接入设计
 
+> **状态：已归档（Archived）。** 本文只记录历史阶段设计，不是现行产品能力说明。[ADR 0002](../../adr/0002-protect-production-api-truth.md)、固定的共享契约与当前部署文档已取代其中的 Mock、模板切换和未冻结能力假设。
+
 ## 目标
 
 在不改变现有 React 页面、领域 Gateway、Mock adapter 与平台边界的前提下，让 Web 端完成以下能力：

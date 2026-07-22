@@ -1,5 +1,7 @@
 # Resolve Main Merge Conflicts Implementation Plan
 
+> **Status: Archived.** This is a historical execution record, not a current implementation plan. [ADR 0002](../../adr/0002-protect-production-api-truth.md), the pinned shared contract, and current deployment documentation supersede its Mock composition and capability assumptions.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Merge the latest `hard-male-alliance/workspace-front` `main` into `feat/frontend-ui-refresh`, preserve the branch's completed frontend/backend-alignment work, and leave GitHub able to merge the PR automatically.
