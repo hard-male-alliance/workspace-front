@@ -42,11 +42,73 @@ export type { ProblemDetails, ProblemFieldError } from './http/problem'
 export { getCurrentUser, parseCurrentUser } from './identity/current-user'
 export type { CurrentUser, CurrentUserRepresentation } from './identity/current-user'
 export { listResumePage, parseResumeList } from './resume/resume-list'
+export type { ResumeListPageRequest, ResumeSummary } from './resume/resume-list'
+export {
+  assertResumeMatchesTemplate,
+  encodeCreateResumeRequest,
+  parseResumeDocument
+} from './resume/resume-document'
 export type {
-  ResumeListPageRequest,
-  ResumeSummary,
-  ResumeTemplateReference
-} from './resume/resume-list'
+  ContactMethod,
+  ContactMethodKind,
+  CreateResumeRequest,
+  DateRange,
+  LinkTextMark,
+  PageInsets,
+  PaletteIntent,
+  ResumeDocument,
+  ResumeItem,
+  ResumeItemKind,
+  ResumePageIntent,
+  ResumePageOrientation,
+  ResumeProfile,
+  ResumeSection,
+  ResumeSectionKind,
+  ResumeStyleIntent,
+  RichText,
+  SectionLayoutIntent,
+  StyleTextMark,
+  TextMark,
+  TextMarkKind,
+  TypographyIntent
+} from './resume/resume-document'
+export {
+  assertTemplateSettingValue,
+  parseColorValue,
+  parseMeasurement,
+  parseTemplateList,
+  parseTemplateManifest,
+  parseTemplateRef
+} from './resume/template'
+export type {
+  ColorSpace,
+  ColorValue,
+  Measurement,
+  MeasurementUnit,
+  ResumeOutputFormat,
+  ResumePageSize,
+  TemplateCapabilities,
+  TemplateList,
+  TemplateManifest,
+  TemplateRef,
+  TemplateSettingChoice,
+  TemplateSettingControl,
+  TemplateSettingDefinition,
+  TemplateSettingValueType,
+  TemplateSettingVisibility,
+  TemplateZone
+} from './resume/template'
+export { getResumeTemplate, listResumeTemplatePage } from './resume/template-catalog'
+export type {
+  ResumeTemplatePageRequest,
+  ResumeTemplateReadRequest
+} from './resume/template-catalog'
+export { createWorkspaceResume } from './resume/create-resume'
+export type {
+  CreatedResumeRepresentation,
+  CreateWorkspaceResumeCommand,
+  ResumeCreationHttpClient
+} from './resume/create-resume'
 export { listWorkspaceAccessPage, parseWorkspaceList } from './workspace/workspace-access'
 export type {
   Workspace,

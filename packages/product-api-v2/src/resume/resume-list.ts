@@ -14,14 +14,7 @@ import {
   type ResourceFields
 } from '../http/contract'
 import { ApiV2ContractError } from '../http/errors'
-
-/** @brief Resume 固定的不可变模板引用 / Immutable template reference pinned by a Resume. */
-export interface ResumeTemplateReference {
-  /** @brief 模板资源 ID / Template-resource ID. */
-  readonly template_id: string
-  /** @brief 不可变模板版本 / Immutable template version. */
-  readonly version: string
-}
+import { parseTemplateRef, type TemplateRef } from './template'
 
 /** @brief API v2 Resume 列表摘要 / API v2 Resume-list summary. */
 export interface ResumeSummary extends ResourceFields {
@@ -32,7 +25,7 @@ export interface ResumeSummary extends ResourceFields {
   /** @brief Resume 内容 Locale / Resume-content locale. */
   readonly locale: string
   /** @brief 固定模板版本 / Pinned template version. */
-  readonly template: ResumeTemplateReference
+  readonly template: TemplateRef
 }
 
 /** @brief ResumeSummary 单页查询 / One-page ResumeSummary query. */
@@ -43,21 +36,6 @@ export interface ResumeListPageRequest {
   readonly limit?: number
   /** @brief 调用方取消信号 / Caller cancellation signal. */
   readonly signal?: AbortSignal
-}
-
-/**
- * @brief 严格解码模板引用 / Strictly decode a template reference.
- * @param value 未知模板引用 / Unknown template reference.
- * @param path 诊断字段路径 / Diagnostic field path.
- * @return 已验证模板引用 / Validated template reference.
- */
-function parseTemplateReference(value: unknown, path: string): ResumeTemplateReference {
-  /** @brief 精确模板引用对象 / Exact template-reference object. */
-  const input = exactRecord(value, path, ['template_id', 'version'])
-  return {
-    template_id: opaqueId(input.template_id, `${path}.template_id`),
-    version: boundedString(input.version, `${path}.version`, 1, 80)
-  }
 }
 
 /**
@@ -81,7 +59,7 @@ function parseResumeSummary(value: unknown, path: string): ResumeSummary {
   return {
     ...parseResourceFields(input, path),
     locale: locale(input.locale, `${path}.locale`),
-    template: parseTemplateReference(input.template, `${path}.template`),
+    template: parseTemplateRef(input.template, `${path}.template`),
     title: boundedString(input.title, `${path}.title`, 1, 300),
     workspace_id: opaqueId(input.workspace_id, `${path}.workspace_id`)
   }
