@@ -9,4 +9,6 @@ export type {
 } from './contexts/interview/domain/models'
 export type { UiKnowledgeSource } from './contexts/knowledge/domain/models'
 export type { UiResumeCard } from './contexts/resume/domain/models'
+export type { UiCurrentUser } from './contexts/identity/domain/models'
+export type { UiWorkspace } from './contexts/workspace/domain/models'
 export type { UiWorkspaceId } from './shared-kernel/identity'

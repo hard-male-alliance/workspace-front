@@ -4,6 +4,7 @@ import type { AppGateways } from '@ai-job-workspace/app/application'
 import type { Diagnostics } from '@ai-job-workspace/app/diagnostics'
 import {
   createHttpClient,
+  HttpIdentityGateway,
   HttpInterviewGateway,
   type HttpInterviewGatewayOptions,
   HttpKnowledgeGateway,
@@ -98,6 +99,7 @@ export function createProductGateways(
   })
 
   return {
+    identity: new HttpIdentityGateway(client),
     interview: new HttpInterviewGateway(client, createInterviewOptions(options)),
     knowledge: new HttpKnowledgeGateway(client),
     resume: new HttpResumeGateway(client),

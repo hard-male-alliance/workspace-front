@@ -1,12 +1,12 @@
 /** @file Workspace 正式 HTTP Gateway / Production HTTP Gateway for Workspace. */
 
 import type { WorkspaceGateway } from '../../application/gateway'
-import type { UiWorkspaceAccess } from '../../domain/models'
+import type { UiWorkspace } from '../../domain/models'
 import type { PaginatedDto } from '../../../../infrastructure/http/decoder'
 import type { HttpClient } from '../../../../infrastructure/http/http-client'
 import { HttpContractError } from '../../../../infrastructure/http/http-client'
-import { mapCurrentUserDto, mapWorkspaceDto } from './mappers'
-import { parseCurrentUserDto, parseWorkspaceListDto } from './validators'
+import { mapWorkspaceDto } from './mappers'
+import { parseWorkspaceListDto } from './validators'
 
 /** @brief 分页响应解析器 / Paginated-response parser. */
 type PageParser<TItem> = (value: unknown) => PaginatedDto<TItem>
@@ -25,25 +25,10 @@ export class HttpWorkspaceGateway implements WorkspaceGateway {
   }
 
   /** @inheritdoc */
-  async loadAccess(): Promise<UiWorkspaceAccess> {
-    /** @brief 当前用户与可访问工作区的并行读取 / Concurrent reads of current user and accessible Workspaces. */
-    const [currentUserResponse, workspaceDtos] = await Promise.all([
-      this.#client.getJson('/me'),
-      this.#readAll('/workspaces', parseWorkspaceListDto)
-    ])
-    /** @brief 当前用户 / Current user. */
-    const currentUser = mapCurrentUserDto(parseCurrentUserDto(currentUserResponse.data))
-    /** @brief UI Workspace 投影 / UI Workspace projections. */
-    const mapped = workspaceDtos.map(mapWorkspaceDto)
-    const workspaces =
-      currentUser.defaultWorkspaceId === null
-        ? mapped
-        : [...mapped].sort((left, right) => {
-            if (left.id === currentUser.defaultWorkspaceId) return -1
-            if (right.id === currentUser.defaultWorkspaceId) return 1
-            return 0
-          })
-    return { currentUser, workspaces }
+  async listAccessibleWorkspaces(): Promise<readonly UiWorkspace[]> {
+    /** @brief 已验证的 Workspace DTO 列表 / Validated Workspace DTO list. */
+    const workspaceDtos = await this.#readAll('/workspaces', parseWorkspaceListDto)
+    return workspaceDtos.map(mapWorkspaceDto)
   }
 
   /**

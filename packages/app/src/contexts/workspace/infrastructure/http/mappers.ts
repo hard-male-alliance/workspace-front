@@ -1,8 +1,8 @@
 /** @file Workspace HTTP DTO 到领域投影的映射 / Mapping from Workspace HTTP DTOs to domain projections. */
 
-import type { UiCurrentUser, UiWorkspace } from '../../domain/models'
+import type { UiWorkspace } from '../../domain/models'
 import { asUiOpaqueId } from '../../../../shared-kernel/identity'
-import type { CurrentUserDto, WorkspaceDto } from './transport-types'
+import type { WorkspaceDto } from './transport-types'
 
 /** @brief Workspace 套餐的当前已知值 / Currently known Workspace-plan values. */
 const KNOWN_WORKSPACE_PLANS = ['free', 'pro', 'team', 'enterprise'] as const
@@ -16,24 +16,6 @@ function mapWorkspacePlan(plan: string): UiWorkspace['plan'] {
   return KNOWN_WORKSPACE_PLANS.includes(plan as (typeof KNOWN_WORKSPACE_PLANS)[number])
     ? (plan as (typeof KNOWN_WORKSPACE_PLANS)[number])
     : 'unknown'
-}
-
-/**
- * @brief 映射当前用户资源 / Map the current-user resource.
- * @param currentUser 当前用户 DTO / Current-user DTO.
- * @return 当前用户领域投影 / Current-user domain projection.
- */
-export function mapCurrentUserDto(currentUser: CurrentUserDto): UiCurrentUser {
-  return {
-    defaultWorkspaceId:
-      currentUser.default_workspace_id === null
-        ? null
-        : asUiOpaqueId<'workspace'>(currentUser.default_workspace_id),
-    displayName: currentUser.display_name,
-    id: asUiOpaqueId<'user'>(currentUser.id),
-    locale: currentUser.locale,
-    timezone: currentUser.timezone
-  }
 }
 
 /**

@@ -14,16 +14,13 @@ import {
   type PaginatedDto
 } from '../../../../infrastructure/http/decoder'
 import { HttpContractError } from '../../../../infrastructure/http/http-client'
-import type { CurrentUserDto, WorkspaceDto } from './transport-types'
+import type { WorkspaceDto } from './transport-types'
 
 /** @brief Locale 的冻结结构格式 / Frozen structural format for Locale. */
 const LOCALE_PATTERN = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/u
 
 /** @brief Workspace slug 的冻结格式 / Frozen Workspace-slug format. */
 const WORKSPACE_SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{1,62}$/u
-
-/** @brief Email format 的保守结构校验 / Conservative structural validation for the email format. */
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+$/u
 
 /**
  * @brief 校验 Locale 结构 / Validate a Locale structure.
@@ -38,20 +35,6 @@ function locale(value: unknown, path: string): string {
     throw new HttpContractError(`Backend field ${path} must be a locale code.`, 200)
   }
   return decoded
-}
-
-/**
- * @brief 校验可选邮箱字段 / Validate an optional email field.
- * @param value 未知邮箱 / Unknown email.
- * @param path 字段路径 / Field path.
- */
-function validateNullableEmail(value: unknown, path: string): void {
-  if (value === undefined || value === null) return
-  /** @brief 已解码邮箱 / Decoded email. */
-  const decoded = string(value, path)
-  if (!EMAIL_PATTERN.test(decoded)) {
-    throw new HttpContractError(`Backend field ${path} must be an email address.`, 200)
-  }
 }
 
 /**
@@ -90,36 +73,6 @@ function parseWorkspace(value: unknown, path: string): WorkspaceDto {
     slug,
     timezone: boundedString(input.timezone, `${path}.timezone`, 1, 100),
     updated_at: timestamp(input.updated_at, `${path}.updated_at`)
-  }
-}
-
-/**
- * @brief 校验当前用户 / Validate the current user.
- * @param value 未知用户 JSON / Unknown user JSON.
- * @return 已验证用户 DTO / Validated user DTO.
- */
-export function parseCurrentUserDto(value: unknown): CurrentUserDto {
-  /** @brief 精确用户对象 / Exact user object. */
-  const input = exactRecord(value, 'currentUser', [
-    'id',
-    'display_name',
-    'email',
-    'locale',
-    'timezone',
-    'default_workspace_id',
-    'created_at'
-  ])
-  validateNullableEmail(input.email, 'currentUser.email')
-  return {
-    created_at: timestamp(input.created_at, 'currentUser.created_at'),
-    default_workspace_id:
-      input.default_workspace_id === undefined || input.default_workspace_id === null
-        ? null
-        : opaqueId(input.default_workspace_id, 'currentUser.default_workspace_id'),
-    display_name: boundedString(input.display_name, 'currentUser.display_name', 1, 200),
-    id: opaqueId(input.id, 'currentUser.id'),
-    locale: locale(input.locale, 'currentUser.locale'),
-    timezone: boundedString(input.timezone, 'currentUser.timezone', 1, 100)
   }
 }
 

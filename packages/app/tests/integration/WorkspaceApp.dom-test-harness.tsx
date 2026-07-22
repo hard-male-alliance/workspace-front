@@ -5,6 +5,7 @@ import type { WorkspaceAppProps } from '@ai-job-workspace/app'
 import { createDiagnostics } from '@ai-job-workspace/app/diagnostics'
 import { appI18n, appI18nReady } from '@ai-job-workspace/app/i18n'
 import {
+  InMemoryIdentityGateway,
   InMemoryInterviewGateway,
   InMemoryWorkspaceGateway,
   InMemoryKnowledgeGateway,
@@ -46,6 +47,7 @@ export function createTestGateways(
   overrides: TestGatewayOverrides = {}
 ): WorkspaceAppProps['gateways'] {
   return {
+    identity: new InMemoryIdentityGateway(),
     interview: new InMemoryInterviewGateway(),
     knowledge: new InMemoryKnowledgeGateway(),
     resume: new InMemoryResumeGateway(),

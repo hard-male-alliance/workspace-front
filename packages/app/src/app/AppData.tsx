@@ -4,8 +4,8 @@ import type { AppGateways } from '../application'
 import { classifyDiagnosticError } from '../observability'
 import type { DiagnosticResourceName } from '../observability'
 import { useDiagnostics } from './Diagnostics'
-import { createAppQueries, createWorkspaceSession } from './AppQueries'
-import type { AppQueries, WorkspaceSession } from './AppQueries'
+import { createAppQueries, type AppQueries } from './AppQueries'
+import { createWorkspaceSession, type WorkspaceSession } from './session/workspace-session'
 
 /** @brief Workspace gateway 依赖注入上下文 / Workspace-gateway dependency-injection context. */
 const WorkspaceGatewayContext = createContext<AppGateways['workspace'] | null>(null)
@@ -41,8 +41,8 @@ export interface AppDataProviderProps {
 export function AppDataProvider({ children, gateways }: AppDataProviderProps): React.JSX.Element {
   /** @brief 在 provider 生命周期内稳定的当前工作区选择 / Current-workspace selection stable for the provider lifecycle. */
   const workspaceSession = useMemo(
-    () => createWorkspaceSession(gateways.workspace),
-    [gateways.workspace]
+    () => createWorkspaceSession(gateways.identity, gateways.workspace),
+    [gateways.identity, gateways.workspace]
   )
   /** @brief 将跨上下文编排收敛在应用层的命名查询 / Named queries containing cross-context orchestration in the application layer. */
   const appQueries = useMemo(

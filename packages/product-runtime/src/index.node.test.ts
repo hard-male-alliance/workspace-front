@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createDiagnostics } from '@ai-job-workspace/app/diagnostics'
 import {
+  HttpIdentityGateway,
   HttpInterviewGateway,
   HttpKnowledgeGateway,
   HttpResumeGateway,
@@ -20,6 +21,7 @@ describe('createProductGateways', (): void => {
       platform: 'web'
     })
 
+    expect(gateways.identity).toBeInstanceOf(HttpIdentityGateway)
     expect(gateways.resume).toBeInstanceOf(HttpResumeGateway)
     expect(gateways.knowledge).toBeInstanceOf(HttpKnowledgeGateway)
     expect(gateways.workspace).toBeInstanceOf(HttpWorkspaceGateway)

@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { createHttpClient } from '../../../../infrastructure/http/http-client'
 import { HttpWorkspaceGateway } from './gateway'
-import { parseCurrentUserDto, parseWorkspaceListDto } from './validators'
+import { parseWorkspaceListDto } from './validators'
 
 /**
  * @brief 从 fetch 输入读取 URL / Read a URL from fetch input.
@@ -38,22 +38,6 @@ function workspace(id = 'ws_primary'): Record<string, unknown> {
 }
 
 /**
- * @brief 构造正式当前用户 DTO / Build a formal CurrentUser DTO.
- * @return 当前用户 JSON / Current-user JSON.
- */
-function currentUser(): Record<string, unknown> {
-  return {
-    created_at: '2026-01-01T00:00:00Z',
-    default_workspace_id: 'ws_primary',
-    display_name: 'Ada Lovelace',
-    email: null,
-    id: 'user_ada',
-    locale: 'zh-SG',
-    timezone: 'Asia/Singapore'
-  }
-}
-
-/**
  * @brief 构造单页契约响应 / Build a single-page contract response.
  * @param items 页面条目 / Page items.
  * @return 游标分页 JSON / Cursor-page JSON.
@@ -75,7 +59,6 @@ function workspaceFetch(
 ): ReturnType<typeof vi.fn<typeof fetch>> {
   /** @brief 默认正式路径响应 / Default formal-path responses. */
   const responses: Readonly<Record<string, unknown>> = {
-    '/api/v1/me': currentUser(),
     '/api/v1/workspaces': page([workspace('ws_other'), workspace()]),
     ...overrides
   }
@@ -91,7 +74,7 @@ function workspaceFetch(
 }
 
 describe('HttpWorkspaceGateway', (): void => {
-  it('maps accessible Workspaces and puts the formal default Workspace first', async (): Promise<void> => {
+  it('只读取并映射可访问 Workspace，保留服务端顺序', async (): Promise<void> => {
     /** @brief 路径分发 fetch / Path-dispatching fetch. */
     const fetchImpl = workspaceFetch()
     /** @brief 正式 Workspace Gateway / Production Workspace Gateway. */
@@ -100,17 +83,11 @@ describe('HttpWorkspaceGateway', (): void => {
     )
 
     /** @brief 映射后的可访问 Workspace / Mapped accessible Workspaces. */
-    const access = await gateway.loadAccess()
+    const workspaces = await gateway.listAccessibleWorkspaces()
 
-    expect(access.currentUser).toEqual({
-      defaultWorkspaceId: 'ws_primary',
-      displayName: 'Ada Lovelace',
-      id: 'user_ada',
-      locale: 'zh-SG',
-      timezone: 'Asia/Singapore'
-    })
-    expect(access.workspaces).toHaveLength(2)
-    expect(access.workspaces[0]).toEqual({
+    expect(workspaces).toHaveLength(2)
+    expect(workspaces[0]).toMatchObject({ id: 'ws_other' })
+    expect(workspaces[1]).toEqual({
       id: 'ws_primary',
       locale: 'zh-SG',
       name: 'Klee 的职业实验室',
@@ -121,10 +98,8 @@ describe('HttpWorkspaceGateway', (): void => {
     })
     /** @brief 发出的请求 URL / Emitted request URLs. */
     const urls = fetchImpl.mock.calls.map(([input]) => fetchUrl(input).toString())
-    expect(urls).toContain('http://127.0.0.1:8000/api/v1/me')
-    expect(urls).toContain('http://127.0.0.1:8000/api/v1/workspaces?limit=200')
+    expect(urls).toEqual(['http://127.0.0.1:8000/api/v1/workspaces?limit=200'])
     expect(urls.some((url) => url.includes('/members'))).toBe(false)
-    expect(urls).toHaveLength(2)
     for (const [, init] of fetchImpl.mock.calls) {
       /** @brief 当前请求头 / Current request headers. */
       const headers = init?.headers ?? {}
@@ -143,9 +118,7 @@ describe('HttpWorkspaceGateway', (): void => {
       createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
     )
 
-    await expect(gateway.loadAccess()).resolves.toMatchObject({
-      workspaces: [{ plan: 'unknown' }]
-    })
+    await expect(gateway.listAccessibleWorkspaces()).resolves.toMatchObject([{ plan: 'unknown' }])
   })
 
   it.each([
@@ -157,13 +130,6 @@ describe('HttpWorkspaceGateway', (): void => {
     ['a plan outside the open-enum code pattern', { ...workspace(), plan: 'Trial Plan' }]
   ])('rejects %s', (_label, candidate): void => {
     expect(() => parseWorkspaceListDto(page([candidate]))).toThrowError()
-  })
-
-  it('rejects malformed CurrentUser identity fields and undeclared fields', (): void => {
-    expect(() =>
-      parseCurrentUserDto({ ...currentUser(), default_workspace_id: 'bad' })
-    ).toThrowError()
-    expect(() => parseCurrentUserDto({ ...currentUser(), access_token: 'secret' })).toThrowError()
   })
 
   it('rejects CursorPage extras and fractional total estimates', (): void => {

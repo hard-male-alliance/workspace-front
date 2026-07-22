@@ -1,12 +1,12 @@
 /** @file Workspace Experience 应用端口 / Workspace Experience application port. */
 
-import type { UiWorkspaceAccess } from '../domain/models'
+import type { UiWorkspace } from '../domain/models'
 
 /** @brief 工作区页面数据端口 / Workspace page-data port. */
 export interface WorkspaceGateway {
   /**
-   * @brief 加载当前用户与可访问工作区的启动权威 / Load bootstrap authority for the current user and accessible Workspaces.
-   * @return 当前 Workspace 访问投影 / Current Workspace-access projection.
+   * @brief 列出当前主体可访问的 Workspace / List Workspaces accessible to the current principal.
+   * @return 可访问 Workspace 的权威投影 / Authoritative projections of accessible Workspaces.
    */
-  loadAccess(): Promise<UiWorkspaceAccess>
+  listAccessibleWorkspaces(): Promise<readonly UiWorkspace[]>
 }

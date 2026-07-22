@@ -1,13 +1,13 @@
 /** @file Workspace 的内存 adapter / In-memory adapter for Workspace. */
 
 import type { WorkspaceGateway } from '../../application/gateway'
-import type { UiWorkspaceAccess } from '../../domain/models'
+import type { UiWorkspace } from '../../domain/models'
 import {
   cloneMemoryValue,
   type InMemoryGatewayOptions,
   prepareMemoryRead
 } from '../../../../infrastructure/memory'
-import { DEMO_WORKSPACE_ACCESS } from './data'
+import { DEMO_WORKSPACES } from './data'
 
 /**
  * @brief Workspace 自动化测试内存适配器 / In-memory adapter for automated Workspace tests.
@@ -26,12 +26,12 @@ export class InMemoryWorkspaceGateway implements WorkspaceGateway {
 
   /**
    * @brief 读取 Workspace 测试 fixture / Read the Workspace test fixture.
-   * @return 测试访问权威投影 / Test access-authority projection.
+   * @return 测试可访问 Workspace 投影 / Test accessible-Workspace projections.
    */
-  async loadAccess(): Promise<UiWorkspaceAccess> {
+  async listAccessibleWorkspaces(): Promise<readonly UiWorkspace[]> {
     const mode = await prepareMemoryRead(this.options)
-    /** @brief 防御性复制后的 Workspace 访问权威 / Defensively copied Workspace-access authority. */
-    const access = cloneMemoryValue(DEMO_WORKSPACE_ACCESS)
-    return mode === 'empty' ? { ...access, workspaces: [] } : access
+    /** @brief 防御性复制后的可访问 Workspace / Defensively copied accessible Workspaces. */
+    const workspaces = cloneMemoryValue(DEMO_WORKSPACES)
+    return mode === 'empty' ? [] : workspaces
   }
 }

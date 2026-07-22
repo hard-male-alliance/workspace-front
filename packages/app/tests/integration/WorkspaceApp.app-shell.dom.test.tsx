@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { InMemoryWorkspaceGateway } from '@ai-job-workspace/app/testing'
+import { InMemoryIdentityGateway, InMemoryWorkspaceGateway } from '@ai-job-workspace/app/testing'
 import { HttpProblemError } from '@ai-job-workspace/app/http'
 
 import {
@@ -19,22 +19,25 @@ describe('WorkspaceApp app shell', (): void => {
 
     /** @brief 跨路由复用的测试 Gateway / Test gateways reused across routes. */
     const gateways = createTestGateways()
-    /** @brief 内存 authority 原始读取 / Original in-memory authority read. */
-    const readDemoAccess = gateways.workspace.loadAccess.bind(gateways.workspace)
-    /** @brief 非固定姓名与工作区的访问读取 / Access read with a non-hardcoded name and Workspace. */
-    const loadWorkspaceAccess = vi
-      .spyOn(gateways.workspace, 'loadAccess')
-      .mockImplementation(async () => {
-        /** @brief 原始测试访问权威 / Original test-access authority. */
-        const access = await readDemoAccess()
-        return {
-          currentUser: { ...access.currentUser, displayName: 'Ada Lovelace' },
-          workspaces: access.workspaces.map((workspace, index) =>
-            index === 0 ? { ...workspace, name: 'Production Workspace' } : workspace
-          )
-        }
-      })
-    /** @brief Workspace 访问读取记录 / Workspace-access read record. */
+    /** @brief 内存 Identity 原始读取 / Original in-memory Identity read. */
+    const readDemoUser = gateways.identity.loadCurrentUser.bind(gateways.identity)
+    /** @brief 内存 Workspace 原始读取 / Original in-memory Workspace read. */
+    const readDemoWorkspaces = gateways.workspace.listAccessibleWorkspaces.bind(gateways.workspace)
+    /** @brief 非固定姓名的 Identity 读取 / Identity read with a non-hardcoded name. */
+    const loadCurrentUser = vi
+      .spyOn(gateways.identity, 'loadCurrentUser')
+      .mockImplementation(async () => ({
+        ...(await readDemoUser()),
+        displayName: 'Ada Lovelace'
+      }))
+    /** @brief 非固定工作区名称的 Workspace 读取 / Workspace read with a non-hardcoded name. */
+    const listAccessibleWorkspaces = vi
+      .spyOn(gateways.workspace, 'listAccessibleWorkspaces')
+      .mockImplementation(async () =>
+        (await readDemoWorkspaces()).map((workspace, index) =>
+          index === 0 ? { ...workspace, name: 'Production Workspace' } : workspace
+        )
+      )
 
     render(<WorkspaceApp gateways={gateways} initialPath="/" />)
 
@@ -48,27 +51,28 @@ describe('WorkspaceApp app shell', (): void => {
     expect(screen.getByText('A', { selector: '.aw-avatar' })).toBeInTheDocument()
     expect(screen.getByText('Production Workspace')).toBeInTheDocument()
     expect(screen.queryByText('Klee')).not.toBeInTheDocument()
-    expect(loadWorkspaceAccess).toHaveBeenCalledTimes(1)
+    expect(loadCurrentUser).toHaveBeenCalledTimes(1)
+    expect(listAccessibleWorkspaces).toHaveBeenCalledTimes(1)
   })
 
   it('requires an explicit selection when authority has no valid default Workspace', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
-    const base = new InMemoryWorkspaceGateway()
-    const access = await base.loadAccess()
-    const workspace = {
-      loadAccess: vi.fn().mockResolvedValue({
-        currentUser: { ...access.currentUser, defaultWorkspaceId: null },
-        workspaces: access.workspaces
-      })
+    /** @brief 无默认 Workspace 的身份权威 / Identity authority without a default Workspace. */
+    const currentUser = await new InMemoryIdentityGateway().loadCurrentUser()
+    /** @brief 可访问 Workspace 列表 / Accessible Workspace list. */
+    const workspaces = await new InMemoryWorkspaceGateway().listAccessibleWorkspaces()
+    /** @brief 测试 Identity gateway / Test Identity gateway. */
+    const identity = {
+      loadCurrentUser: vi.fn().mockResolvedValue({ ...currentUser, defaultWorkspaceId: null })
     }
 
-    render(<WorkspaceApp gateways={createTestGateways({ workspace })} initialPath="/" />)
+    render(<WorkspaceApp gateways={createTestGateways({ identity })} initialPath="/" />)
 
     expect(await screen.findByRole('heading', { name: '选择工作区' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '今日工作台' })).not.toBeInTheDocument()
 
     fireEvent.change(screen.getByRole('combobox', { name: '当前工作区' }), {
-      target: { value: access.workspaces[0]?.id }
+      target: { value: workspaces[0]?.id }
     })
 
     expect(await screen.findByRole('heading', { name: '今日工作台' })).toBeInTheDocument()
@@ -76,9 +80,11 @@ describe('WorkspaceApp app shell', (): void => {
 
   it('switches Workspace explicitly and reloads Workspace-scoped route data', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
-    const base = new InMemoryWorkspaceGateway()
-    const access = await base.loadAccess()
-    const firstWorkspace = access.workspaces[0]
+    /** @brief 测试身份权威 / Test Identity authority. */
+    const currentUser = await new InMemoryIdentityGateway().loadCurrentUser()
+    /** @brief 测试 Workspace 权威 / Test Workspace authority. */
+    const workspaces = await new InMemoryWorkspaceGateway().listAccessibleWorkspaces()
+    const firstWorkspace = workspaces[0]
     if (firstWorkspace === undefined) throw new Error('Workspace fixture is missing.')
     const secondWorkspace = {
       ...firstWorkspace,
@@ -87,11 +93,13 @@ describe('WorkspaceApp app shell', (): void => {
       slug: 'second-workspace'
     }
     const gateways = createTestGateways({
+      identity: {
+        loadCurrentUser: vi
+          .fn()
+          .mockResolvedValue({ ...currentUser, defaultWorkspaceId: firstWorkspace.id })
+      },
       workspace: {
-        loadAccess: vi.fn().mockResolvedValue({
-          currentUser: { ...access.currentUser, defaultWorkspaceId: firstWorkspace.id },
-          workspaces: [firstWorkspace, secondWorkspace]
-        })
+        listAccessibleWorkspaces: vi.fn().mockResolvedValue([firstWorkspace, secondWorkspace])
       }
     })
     const listResumeCards = vi.spyOn(gateways.resume, 'listResumeCards')
@@ -115,8 +123,8 @@ describe('WorkspaceApp app shell', (): void => {
 
   it('shows a safe error when the Workspace picker rejects a stale selection', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
-    const base = new InMemoryWorkspaceGateway()
-    const access = await base.loadAccess()
+    /** @brief 测试身份权威 / Test Identity authority. */
+    const currentUser = await new InMemoryIdentityGateway().loadCurrentUser()
 
     render(<WorkspaceApp gateways={createTestGateways()} initialPath="/" />)
 
@@ -130,20 +138,20 @@ describe('WorkspaceApp app shell', (): void => {
       'alert'
     )
     expect(screen.getByRole('combobox', { name: '当前工作区' })).toHaveValue(
-      access.currentUser.defaultWorkspaceId
+      currentUser.defaultWorkspaceId
     )
   })
 
   it('does not invent an account while the Workspace authority is loading', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
 
-    /** @brief 永不完成的 Workspace 启动读取 / Workspace bootstrap read that never settles. */
-    const pendingAccess = new Promise<never>(() => undefined)
+    /** @brief 永不完成的 Identity 启动读取 / Identity bootstrap read that never settles. */
+    const pendingIdentity = new Promise<never>(() => undefined)
 
     render(
       <WorkspaceApp
         gateways={createTestGateways({
-          workspace: { loadAccess: (): Promise<never> => pendingAccess }
+          identity: { loadCurrentUser: (): Promise<never> => pendingIdentity }
         })}
         initialPath="/"
       />
@@ -157,26 +165,26 @@ describe('WorkspaceApp app shell', (): void => {
   it('shows a safe retryable shell error without leaking adapter details', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
 
-    /** @brief 明确失败的 Workspace gateway / Explicitly failing Workspace gateway. */
-    const workspace = new InMemoryWorkspaceGateway({ mode: 'error' })
+    /** @brief 明确失败的 Identity gateway / Explicitly failing Identity gateway. */
+    const identity = new InMemoryIdentityGateway({ mode: 'error' })
     /** @brief 启动读取观察 / Bootstrap-read observation. */
-    const loadWorkspaceAccess = vi.spyOn(workspace, 'loadAccess')
+    const loadCurrentUser = vi.spyOn(identity, 'loadCurrentUser')
 
-    render(<WorkspaceApp gateways={createTestGateways({ workspace })} initialPath="/" />)
+    render(<WorkspaceApp gateways={createTestGateways({ identity })} initialPath="/" />)
 
     expect(await screen.findByText('账户信息暂时不可用')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '无法加载工作区' })).toBeInTheDocument()
     expect(screen.queryByText('In-memory gateway is configured to fail.')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '重试' }))
-    expect(loadWorkspaceAccess).toHaveBeenCalledTimes(2)
+    expect(loadCurrentUser).toHaveBeenCalledTimes(2)
   })
 
   it('turns a Workspace 401 into localized guidance without exposing ProblemDetails text', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('en-US')
-    /** @brief 返回真实 HTTP 身份失败语义的 Workspace 端口 / Workspace port returning real HTTP authentication-failure semantics. */
-    const workspace = {
-      loadAccess: vi.fn().mockRejectedValue(
+    /** @brief 返回真实 HTTP 身份失败语义的 Identity 端口 / Identity port returning real HTTP authentication-failure semantics. */
+    const identity = {
+      loadCurrentUser: vi.fn().mockRejectedValue(
         new HttpProblemError({
           code: 'auth.token_expired',
           detail: 'private auth detail at https://internal.example.test/oidc',
@@ -189,7 +197,7 @@ describe('WorkspaceApp app shell', (): void => {
       )
     }
 
-    render(<WorkspaceApp gateways={createTestGateways({ workspace })} initialPath="/" />)
+    render(<WorkspaceApp gateways={createTestGateways({ identity })} initialPath="/" />)
 
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent('This content requires sign-in')

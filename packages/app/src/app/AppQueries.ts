@@ -11,12 +11,10 @@ import type {
   UiResumeCard,
   UiWorkspaceId
 } from '../published-language'
+import type { WorkspaceSession } from './session/workspace-session'
 
-/** @brief Workspace gateway 发布的访问权威 / Workspace-access authority published by the Workspace gateway. */
-type WorkspaceAuthority = Awaited<ReturnType<AppGateways['workspace']['loadAccess']>>
-
-/** @brief Workspace gateway 发布的单个工作区投影 / One workspace projection published by the Workspace gateway. */
-type CurrentWorkspace = WorkspaceAuthority['workspaces'][number]
+/** @brief 当前 Workspace 会话返回的已选 Workspace / Selected Workspace returned by the current session. */
+type CurrentWorkspace = NonNullable<Awaited<ReturnType<WorkspaceSession['getCurrentWorkspace']>>>
 
 /** @brief 首页资源更新类别 / Workspace-home resource-update kind. */
 export type WorkspaceRecentUpdateKind = 'resume' | 'interview' | 'knowledge'
@@ -48,48 +46,6 @@ export interface WorkspaceHomeModel {
   readonly completedInterviewCount: number
   /** @brief 近期资源更新 / Recent resource updates. */
   readonly recentUpdates: readonly WorkspaceRecentUpdate[]
-}
-
-/** @brief 当前应用会话的 Workspace 访问快照 / Workspace-access snapshot for the current application session. */
-export interface WorkspaceSessionAccess {
-  /** @brief 当前已认证用户 / Current authenticated user. */
-  readonly currentUser: WorkspaceAuthority['currentUser']
-  /** @brief 本次应用会话选中的工作区 / Workspace selected for this application session. */
-  readonly currentWorkspace: CurrentWorkspace | undefined
-  /** @brief 当前用户可访问的工作区 / Workspaces accessible to the current user. */
-  readonly workspaces: WorkspaceAuthority['workspaces']
-}
-
-/** @brief 当前工作区会话端口 / Current-workspace session port. */
-export interface WorkspaceSession {
-  /**
-   * @brief 读取本次应用会话缓存的访问快照 / Read the access snapshot cached for this application session.
-   * @return 当前用户、当前工作区与全部可访问工作区 / Current user, current Workspace, and all accessible Workspaces.
-   */
-  readonly getAccess: () => Promise<WorkspaceSessionAccess>
-  /**
-   * @brief 读取本次应用会话选中的工作区 / Read the workspace selected for this application session.
-   * @return 当前工作区；无可访问工作区时为 undefined / Current workspace, or undefined when none is accessible.
-   */
-  readonly getCurrentWorkspace: () => Promise<CurrentWorkspace | undefined>
-  /** @brief 读取 Workspace 选择修订号，用于隔离依赖当前 Workspace 的资源 / Read the selection revision used to isolate Workspace-scoped resources. */
-  readonly getSelectionRevision: () => number
-  /**
-   * @brief 重新读取身份与 Workspace 访问权威 / Reload identity and Workspace-access authority.
-   * @return 重新校验选择后的访问快照 / Access snapshot after revalidating the selection.
-   */
-  readonly refreshAccess: () => Promise<WorkspaceSessionAccess>
-  /**
-   * @brief 显式选择一个可访问的 Workspace / Explicitly select an accessible Workspace.
-   * @param workspaceId 用户选择的 Workspace ID / Workspace ID selected by the user.
-   */
-  readonly selectWorkspace: (workspaceId: UiWorkspaceId) => Promise<void>
-  /**
-   * @brief 订阅 Workspace 选择变化 / Subscribe to Workspace-selection changes.
-   * @param listener 不接收用户数据的失效通知 / Invalidation listener receiving no user data.
-   * @return 取消订阅函数 / Unsubscribe function.
-   */
-  readonly subscribe: (listener: () => void) => () => void
 }
 
 /** @brief Workspace 首页所需的跨上下文只读投影 / Cross-context read projection required by the Workspace home page. */
@@ -152,137 +108,6 @@ export interface AppQueries {
   readonly interviewSetup: InterviewSetupQuery
   /** @brief Interview 总结查询 / Interview-summary query. */
   readonly interviewSummary: InterviewSummaryQuery
-}
-
-/**
- * @brief 为应用生命周期创建单一工作区选择 / Create one workspace selection for the application lifecycle.
- * @param workspaceGateway Workspace 上下文端口 / Workspace context port.
- * @return 会合并并发读取、失败后允许重试的会话端口 / Session port that coalesces concurrent reads and permits retry after failure.
- */
-export function createWorkspaceSession(
-  workspaceGateway: AppGateways['workspace']
-): WorkspaceSession {
-  /** @brief 当前共享的 Workspace 访问权威读取 / Current shared Workspace-access authority read. */
-  let currentAccessRequest: Promise<WorkspaceSessionAccess> | undefined
-  /** @brief 最近一次成功读取的原始访问权威 / Most recently loaded raw access authority. */
-  let currentAuthority: WorkspaceAuthority | undefined
-  /** @brief 当前权威对应的用户身份 / User identity associated with the current authority. */
-  let currentUserId: WorkspaceAuthority['currentUser']['id'] | undefined
-  /** @brief 用户显式选择或有效默认偏好得到的 Workspace ID / Workspace ID from explicit selection or a valid default preference. */
-  let selectedWorkspaceId: UiWorkspaceId | undefined
-  /** @brief Workspace 选择变化的单调修订号 / Monotonic Workspace-selection revision. */
-  let selectionRevision = 0
-  /** @brief 选择失效订阅者 / Selection-invalidation subscribers. */
-  const listeners = new Set<() => void>()
-
-  /** @brief 从权威中查找一个 Workspace / Find one Workspace in an authority snapshot. */
-  function findWorkspace(
-    authority: WorkspaceAuthority,
-    workspaceId: UiWorkspaceId | null | undefined
-  ): CurrentWorkspace | undefined {
-    if (workspaceId === null || workspaceId === undefined) return undefined
-    return authority.workspaces.find((workspace) => workspace.id === workspaceId)
-  }
-
-  /** @brief 投影当前访问快照，不把列表顺序当作选择 / Project current access without treating list order as selection. */
-  function projectAccess(authority: WorkspaceAuthority): WorkspaceSessionAccess {
-    return {
-      currentUser: authority.currentUser,
-      currentWorkspace: findWorkspace(authority, selectedWorkspaceId),
-      workspaces: authority.workspaces
-    }
-  }
-
-  /** @brief 通知依赖 Workspace 身份的消费者丢弃旧资源 / Notify Workspace-scoped consumers to discard stale resources. */
-  function notifySelectionChanged(): void {
-    selectionRevision += 1
-    for (const listener of listeners) listener()
-  }
-
-  /** @brief 依据新权威校验当前选择 / Reconcile the selection against newly loaded authority. */
-  function acceptAuthority(authority: WorkspaceAuthority): WorkspaceSessionAccess {
-    const previousWorkspaceId = selectedWorkspaceId
-    const principalChanged =
-      currentUserId !== undefined && currentUserId !== authority.currentUser.id
-    const isInitialAuthority = currentUserId === undefined
-
-    if (isInitialAuthority || principalChanged) {
-      selectedWorkspaceId = findWorkspace(authority, authority.currentUser.defaultWorkspaceId)?.id
-    } else if (findWorkspace(authority, selectedWorkspaceId) === undefined) {
-      selectedWorkspaceId = undefined
-    }
-
-    currentAuthority = authority
-    currentUserId = authority.currentUser.id
-    if (!isInitialAuthority && (principalChanged || previousWorkspaceId !== selectedWorkspaceId)) {
-      notifySelectionChanged()
-    }
-    return projectAccess(authority)
-  }
-
-  /**
-   * @brief 读取并缓存会话访问快照 / Read and cache the session-access snapshot.
-   * @return 当前会话访问快照 / Current session-access snapshot.
-   */
-  function getAccess(): Promise<WorkspaceSessionAccess> {
-    currentAccessRequest ??= workspaceGateway
-      .loadAccess()
-      .then(acceptAuthority)
-      .catch((error: unknown): never => {
-        currentAccessRequest = undefined
-        throw error
-      })
-
-    return currentAccessRequest
-  }
-
-  /**
-   * @brief 从缓存的访问快照读取当前工作区 / Read the current Workspace from the cached access snapshot.
-   * @return 当前工作区引用 / Current Workspace reference.
-   */
-  function getCurrentWorkspace(): Promise<CurrentWorkspace | undefined> {
-    return getAccess().then((access) => access.currentWorkspace)
-  }
-
-  function getSelectionRevision(): number {
-    return selectionRevision
-  }
-
-  function refreshAccess(): Promise<WorkspaceSessionAccess> {
-    currentAccessRequest = undefined
-    return getAccess()
-  }
-
-  async function selectWorkspace(workspaceId: UiWorkspaceId): Promise<void> {
-    await getAccess()
-    if (
-      currentAuthority === undefined ||
-      findWorkspace(currentAuthority, workspaceId) === undefined
-    ) {
-      throw new Error('The selected Workspace is not accessible to the current user.')
-    }
-    if (selectedWorkspaceId === workspaceId) return
-
-    selectedWorkspaceId = workspaceId
-    currentAccessRequest = Promise.resolve(projectAccess(currentAuthority))
-    notifySelectionChanged()
-  }
-
-  function subscribe(listener: () => void): () => void {
-    listeners.add(listener)
-    return (): void => {
-      listeners.delete(listener)
-    }
-  }
-
-  return {
-    getAccess,
-    getCurrentWorkspace,
-    getSelectionRevision,
-    refreshAccess,
-    selectWorkspace,
-    subscribe
-  }
 }
 
 /** @brief Interview 历史端口的已解析列表类型 / Resolved list type of the Interview-history port. */

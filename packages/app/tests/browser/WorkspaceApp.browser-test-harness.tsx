@@ -5,6 +5,7 @@ import type { AppGateways } from '@ai-job-workspace/app/application'
 import { createDiagnostics } from '@ai-job-workspace/app/diagnostics'
 import { appI18n, appI18nReady } from '@ai-job-workspace/app/i18n'
 import {
+  InMemoryIdentityGateway,
   InMemoryInterviewGateway,
   InMemoryKnowledgeGateway,
   InMemoryResumeGateway,
@@ -18,6 +19,7 @@ import { APPLICATION_VERSION } from '@ai-job-workspace/platform'
  */
 function createBrowserTestGateways(): AppGateways {
   return {
+    identity: new InMemoryIdentityGateway(),
     interview: new InMemoryInterviewGateway(),
     knowledge: new InMemoryKnowledgeGateway(),
     resume: new InMemoryResumeGateway(),

@@ -10,29 +10,25 @@ describe('InMemoryWorkspaceGateway', () => {
     /** @brief 工作区演示网关 / Workspace demo gateway. */
     const workspaceGateway = new InMemoryWorkspaceGateway()
     /** @brief 首次工作区列表 / First workspace list. */
-    const firstRead = await workspaceGateway.loadAccess()
+    const firstRead = await workspaceGateway.listAccessibleWorkspaces()
     /** @brief 第二次工作区列表 / Second workspace list. */
-    const secondRead = await workspaceGateway.loadAccess()
+    const secondRead = await workspaceGateway.listAccessibleWorkspaces()
 
     expect(firstRead).not.toBe(secondRead)
-    expect(firstRead.currentUser).not.toBe(secondRead.currentUser)
-    expect(firstRead.workspaces[0]).not.toBe(secondRead.workspaces[0])
-    expect(firstRead.currentUser.displayName).toBe('Klee')
+    expect(firstRead[0]).not.toBe(secondRead[0])
+    expect(firstRead[0]?.name).toBe('Klee 的职业实验室')
   })
 
   it('makes the configured error state explicit', async () => {
     const gateway = new InMemoryWorkspaceGateway({ mode: 'error' })
 
-    await expect(gateway.loadAccess()).rejects.toBeInstanceOf(InMemoryGatewayError)
+    await expect(gateway.listAccessibleWorkspaces()).rejects.toBeInstanceOf(InMemoryGatewayError)
   })
 
-  it('keeps the authenticated user when no Workspace is accessible', async () => {
+  it('returns an empty list when no Workspace is accessible', async () => {
     /** @brief 无可访问 Workspace 的测试 gateway / Test gateway without an accessible Workspace. */
     const gateway = new InMemoryWorkspaceGateway({ mode: 'empty' })
 
-    await expect(gateway.loadAccess()).resolves.toMatchObject({
-      currentUser: { displayName: 'Klee' },
-      workspaces: []
-    })
+    await expect(gateway.listAccessibleWorkspaces()).resolves.toEqual([])
   })
 })
