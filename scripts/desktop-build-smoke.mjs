@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
 import { createDesktopSmokeLaunch } from './desktop-smoke-launch.mjs'
-import { runDesktopSmokeProcess } from './desktop-smoke-runner.mjs'
+import { runDesktopRuntimeSmoke } from './desktop-packaged-runtime.mjs'
 
 /** @brief 仓库根目录 / Repository root directory. */
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -54,7 +54,7 @@ async function verifyRendererAssetBase() {
 }
 
 await verifyRendererAssetBase()
-await runDesktopSmokeProcess({
+await runDesktopRuntimeSmoke({
   ...createDesktopSmokeLaunch(process.execPath, electronCliScriptPath, desktopMainPath),
   cwd: repositoryRoot
 })

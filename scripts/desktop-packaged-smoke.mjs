@@ -10,7 +10,7 @@ import {
   verifyPackagedAsar
 } from './desktop-packaged-layout.mjs'
 import { requiredDesktopFuseStates } from './desktop-fuses.mjs'
-import { runPackagedDesktopRuntimeSmoke } from './desktop-packaged-runtime.mjs'
+import { runDesktopRuntimeSmoke } from './desktop-packaged-runtime.mjs'
 
 /** @brief CommonJS `@electron/asar` 导出的归档读取 API / Archive-reading API exported by CommonJS `@electron/asar`. */
 const { listPackage } = electronAsar
@@ -103,7 +103,7 @@ const asarBytes = await verifyPackagedAsar(packagedLayout)
 const asarEntryCount = verifyPackagedAsarEntries(packagedLayout.asarPath)
 
 await verifyPackagedFuses(packagedLayout.executablePath)
-await runPackagedDesktopRuntimeSmoke({
+await runDesktopRuntimeSmoke({
   args: [],
   command: packagedLayout.executablePath,
   cwd: packagedLayout.applicationPath

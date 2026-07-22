@@ -24,7 +24,7 @@ async function reserveLoopbackPort() {
   const address = server.address()
   if (address === null || typeof address === 'string') {
     server.close()
-    throw new Error('Packaged desktop smoke could not reserve a debugging port.')
+    throw new Error('Desktop runtime smoke could not reserve a debugging port.')
   }
   await new Promise((resolve, reject) => {
     server.close((error) => {
@@ -36,7 +36,7 @@ async function reserveLoopbackPort() {
 }
 
 /**
- * @brief 在截止时间前连接 packaged Chromium 调试端点 / Connect to the packaged Chromium debugging endpoint before the deadline.
+ * @brief 在截止时间前连接 Electron Chromium 调试端点 / Connect to the Electron Chromium debugging endpoint before the deadline.
  * @param endpoint Chromium DevTools Protocol HTTP endpoint / Chromium DevTools Protocol HTTP endpoint.
  * @param child Electron 子进程 / Electron child process.
  * @return Playwright 的 CDP 浏览器连接 / Playwright browser connection over CDP.
@@ -49,7 +49,7 @@ async function connectToPackagedChromium(endpoint, child) {
 
   while (Date.now() < deadline) {
     if (child.exitCode !== null || child.signalCode !== null) {
-      throw new Error(`Packaged desktop exited before CDP became ready: ${String(child.exitCode)}.`)
+      throw new Error(`Desktop runtime exited before CDP became ready: ${String(child.exitCode)}.`)
     }
     try {
       return await chromium.connectOverCDP(endpoint)
@@ -60,12 +60,12 @@ async function connectToPackagedChromium(endpoint, child) {
   }
 
   throw new Error(
-    `Packaged desktop CDP endpoint did not become ready: ${lastError instanceof Error ? lastError.message : String(lastError)}.`
+    `Desktop runtime CDP endpoint did not become ready: ${lastError instanceof Error ? lastError.message : String(lastError)}.`
   )
 }
 
 /**
- * @brief 等待 packaged renderer 创建首个页面 / Wait for the packaged renderer's first page.
+ * @brief 等待 Electron renderer 创建首个页面 / Wait for the Electron renderer's first page.
  * @param browser Playwright 的 CDP 浏览器连接 / Playwright browser connection over CDP.
  * @return 产品 renderer 页面 / Product renderer page.
  */
@@ -82,7 +82,7 @@ async function resolvePackagedRendererPage(browser) {
     await new Promise((resolve) => setTimeout(resolve, 50))
   }
 
-  throw new Error('Packaged desktop did not expose its trusted renderer page.')
+  throw new Error('Desktop runtime did not expose its trusted renderer page.')
 }
 
 /**
@@ -170,7 +170,7 @@ async function verifyPackagedArtifactFrame(page, apiProbe) {
  * @return 根路由、深链与 API 观察结果 / Root route, deep link, and API observation results.
  * @note Chromium 调试端口只为该子进程显式启用并绑定回环地址，不改变发布配置。 / The Chromium debugging port is explicitly enabled only for this child process and bound to loopback; release configuration is unchanged.
  */
-export async function runPackagedDesktopRuntimeSmoke(launch) {
+export async function runDesktopRuntimeSmoke(launch) {
   /** @brief 受控产品 API 探针 / Controlled product API probe. */
   const apiProbe = await startDesktopSmokeApiProbe()
   /** @brief 临时 Chromium CDP 端口 / Temporary Chromium CDP port. */
@@ -184,7 +184,6 @@ export async function runPackagedDesktopRuntimeSmoke(launch) {
   delete smokeEnvironment.AI_JOB_WORKSPACE_API_HOSTNAME
   delete smokeEnvironment.AI_JOB_WORKSPACE_API_PORT
   delete smokeEnvironment.AI_JOB_WORKSPACE_API_PROTOCOL
-  delete smokeEnvironment.AI_JOB_WORKSPACE_SMOKE
   delete smokeEnvironment.ELECTRON_RUN_AS_NODE
   delete smokeEnvironment.NODE_OPTIONS
 
@@ -277,7 +276,7 @@ export async function runPackagedDesktopRuntimeSmoke(launch) {
     /** @brief 根路由可观察运行时信息 / Observable runtime information on the root route. */
     const rootResult = await inspectPackagedRenderer(page)
     /** @brief 生产知识可见性深链 / Production knowledge-visibility deep link. */
-    const deepLinkUrl = 'ai-job-workspace://renderer/knowledge/ks_mock_git/visibility'
+    const deepLinkUrl = 'ai-job-workspace://renderer/knowledge/ks_smoke_git/visibility'
     /** @brief 当前页面的 CDP 会话 / CDP session for the current page. */
     const cdpSession = await page.context().newCDPSession(page)
 
@@ -321,7 +320,7 @@ export async function runPackagedDesktopRuntimeSmoke(launch) {
     }
 
     console.info(
-      `Packaged runtime smoke passed: root=${String(rootResult.rootTextLength)} chars, deep-link=${String(deepLinkResult.rootTextLength)} chars, api=${String(observedPath)}, frame=${String(observedFramePath)}, platform=${deepLinkResult.platform}, version=${deepLinkResult.appVersion}.`
+      `Desktop runtime smoke passed: root=${String(rootResult.rootTextLength)} chars, deep-link=${String(deepLinkResult.rootTextLength)} chars, api=${String(observedPath)}, frame=${String(observedFramePath)}, platform=${deepLinkResult.platform}, version=${deepLinkResult.appVersion}.`
     )
     return { deepLinkResult, observedFramePath, observedPath, rootResult, stderr, stdout }
   } finally {

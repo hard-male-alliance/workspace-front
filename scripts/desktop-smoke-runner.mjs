@@ -1,8 +1,7 @@
-import { spawn } from 'node:child_process'
 import { createServer } from 'node:http'
 
 /** @brief smoke 必须触发的产品 API 路径 / Product API path that the smoke must exercise. */
-export const desktopSmokeApiPath = '/api/v1/knowledge-sources/ks_mock_git'
+export const desktopSmokeApiPath = '/api/v1/knowledge-sources/ks_smoke_git'
 /** @brief smoke 必须允许嵌入的产品 artifact 路径 / Product artifact path the smoke must permit in a frame. */
 export const desktopSmokeFramePath = '/api/v1/render-artifacts/artifact_smoke/content'
 
@@ -11,7 +10,7 @@ const smokeKnowledgeSource = Object.freeze({
   config: { filename: 'artifact-smoke.pdf', source_type: 'file' },
   created_at: '2026-01-01T00:00:00Z',
   enabled: true,
-  id: 'ks_mock_git',
+  id: 'ks_smoke_git',
   ingestion: {
     chunk_count: 1,
     document_count: 1,
@@ -39,6 +38,31 @@ const smokeKnowledgeSource = Object.freeze({
     session_override_allowed: false
   },
   workspace_id: 'workspace_smoke'
+})
+
+/** @brief 本地探针返回的最小合法当前用户 / Minimal valid current user returned by the local probe. */
+const smokeCurrentUser = Object.freeze({
+  created_at: '2026-01-01T00:00:00Z',
+  default_workspace_id: 'workspace_smoke',
+  display_name: 'Packaged Smoke User',
+  email: 'packaged-smoke@example.invalid',
+  id: 'user_smoke',
+  locale: 'en-US',
+  timezone: 'UTC'
+})
+
+/** @brief 本地探针返回的最小合法 Workspace / Minimal valid Workspace returned by the local probe. */
+const smokeWorkspace = Object.freeze({
+  created_at: '2026-01-01T00:00:00Z',
+  default_locale: 'en-US',
+  extensions: {},
+  id: 'workspace_smoke',
+  name: 'Packaged Smoke Workspace',
+  plan: 'team',
+  revision: 1,
+  slug: 'packaged-smoke',
+  timezone: 'UTC',
+  updated_at: '2026-01-01T00:00:00Z'
 })
 
 /**
@@ -70,20 +94,44 @@ export async function startDesktopSmokeApiProbe() {
     /** @brief Chromium 序列化后的自定义协议 Origin / Custom-protocol Origin serialized by Chromium. */
     const requestOrigin = request.headers.origin
     response.setHeader('Access-Control-Allow-Origin', requestOrigin ?? '*')
+    response.setHeader('Access-Control-Expose-Headers', 'ETag')
     response.setHeader('Vary', 'Origin')
     response.setHeader('Cache-Control', 'no-store')
 
     if (request.method === 'OPTIONS') {
-      response.setHeader('Access-Control-Allow-Headers', 'Content-Type, Idempotency-Key, If-Match')
-      response.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+      response.setHeader(
+        'Access-Control-Allow-Headers',
+        'Accept-Language, Content-Type, Idempotency-Key, If-Match, X-Request-Id'
+      )
+      response.setHeader('Access-Control-Allow-Methods', 'GET, PATCH, POST, OPTIONS')
       response.writeHead(204)
       response.end()
+      return
+    }
+
+    if (request.method === 'GET' && requestUrl.pathname === '/api/v1/me') {
+      response.setHeader('Content-Type', 'application/json; charset=utf-8')
+      response.writeHead(200)
+      response.end(JSON.stringify(smokeCurrentUser))
+      return
+    }
+
+    if (request.method === 'GET' && requestUrl.pathname === '/api/v1/workspaces') {
+      response.setHeader('Content-Type', 'application/json; charset=utf-8')
+      response.writeHead(200)
+      response.end(
+        JSON.stringify({
+          items: [smokeWorkspace],
+          page: { has_more: false, next_cursor: null, total_estimate: 1 }
+        })
+      )
       return
     }
 
     if (request.method === 'GET' && requestUrl.pathname === desktopSmokeApiPath) {
       resolveObservedRequest(requestUrl.pathname)
       response.setHeader('Content-Type', 'application/json; charset=utf-8')
+      response.setHeader('ETag', '"knowledge-source-smoke-1"')
       response.writeHead(200)
       response.end(JSON.stringify(smokeKnowledgeSource))
       return
@@ -139,98 +187,5 @@ export async function startDesktopSmokeApiProbe() {
         })
       })
     }
-  }
-}
-
-/**
- * @brief 等待指定 Promise，超时则抛错 / Await a promise and throw when the deadline expires.
- * @param promise 需要等待的工作 / Work to await.
- * @param timeoutMilliseconds 最大等待毫秒数 / Maximum wait in milliseconds.
- * @param message 超时错误信息 / Timeout error message.
- * @return 原 Promise 的兑现值 / Fulfilled value of the original promise.
- */
-async function withTimeout(promise, timeoutMilliseconds, message) {
-  /** @brief 超时计时器标识 / Timeout timer identifier. */
-  let timeout
-
-  try {
-    return await Promise.race([
-      promise,
-      new Promise((_, reject) => {
-        timeout = setTimeout(() => reject(new Error(message)), timeoutMilliseconds)
-      })
-    ])
-  } finally {
-    clearTimeout(timeout)
-  }
-}
-
-/**
- * @brief 通过本地 API 运行一次真实 Electron smoke / Run one real Electron smoke against a local API.
- * @param launch Electron 启动命令、参数和工作目录 / Electron launch command, arguments, and working directory.
- * @return 已观察业务请求与进程输出 / Observed product request and process output.
- */
-export async function runDesktopSmokeProcess(launch) {
-  /** @brief 受控产品 API 探针 / Controlled product API probe. */
-  const apiProbe = await startDesktopSmokeApiProbe()
-  /** @brief Electron 子进程环境 / Electron child-process environment. */
-  const smokeEnvironment = {
-    ...process.env,
-    AI_JOB_WORKSPACE_API_BASE_URL: apiProbe.origin,
-    AI_JOB_WORKSPACE_SMOKE: '1'
-  }
-
-  delete smokeEnvironment.AI_JOB_WORKSPACE_API_HOSTNAME
-  delete smokeEnvironment.AI_JOB_WORKSPACE_API_PORT
-  delete smokeEnvironment.AI_JOB_WORKSPACE_API_PROTOCOL
-  delete smokeEnvironment.ELECTRON_RUN_AS_NODE
-
-  /** @brief Electron stdout 文本 / Electron stdout text. */
-  let stdout = ''
-  /** @brief Electron stderr 文本 / Electron stderr text. */
-  let stderr = ''
-  /** @brief 正在运行的 Electron 子进程 / Running Electron child process. */
-  const child = spawn(launch.command, launch.args, {
-    cwd: launch.cwd,
-    env: smokeEnvironment,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    windowsHide: true
-  })
-
-  child.stdout.setEncoding('utf8')
-  child.stderr.setEncoding('utf8')
-  child.stdout.on('data', (chunk) => {
-    stdout += chunk
-    process.stdout.write(chunk)
-  })
-  child.stderr.on('data', (chunk) => {
-    stderr += chunk
-    process.stderr.write(chunk)
-  })
-
-  try {
-    /** @brief Electron 的退出码与退出信号 / Electron exit code and exit signal. */
-    const [exitCode, exitSignal] = await withTimeout(
-      new Promise((resolve, reject) => {
-        child.once('error', reject)
-        child.once('exit', (code, signal) => resolve([code, signal]))
-      }),
-      20_000,
-      'Desktop smoke process did not exit before the timeout.'
-    )
-
-    if (exitCode !== 0) {
-      throw new Error(
-        `Desktop smoke failed with exit code ${String(exitCode)} and signal ${String(exitSignal)}.`
-      )
-    }
-    if (!stdout.includes('Desktop smoke passed:')) {
-      throw new Error('Desktop smoke process exited without reporting renderer verification.')
-    }
-
-    return { stderr, stdout }
-  } finally {
-    if (child.exitCode === null && child.signalCode === null) child.kill()
-    await apiProbe.close()
   }
 }

@@ -5,7 +5,6 @@ import type { BrowserWindow } from 'electron'
 
 import { resolveDesktopApiBaseUrl } from './api-config'
 import { registerArtifactSaveHandler } from './artifact-save-ipc'
-import { isDesktopSmokeEnabled, verifyDesktopSmoke } from './desktop-smoke'
 import {
   createProductionContentSecurityPolicy,
   resolveDesktopDiagnosticsConfiguration
@@ -92,14 +91,7 @@ async function initializeDesktopApplication(): Promise<void> {
   registerRuntimeInfoHandler(runtimeInfo, resolveTrustedRendererIdentity)
   registerArtifactSaveHandler(apiBaseUrl, resolveTrustedRendererIdentity)
 
-  /** @brief 已创建且已加载的主窗口 / Created and loaded main window. */
-  const window = await openMainWindow()
-
-  if (isDesktopSmokeEnabled(process.env)) {
-    await verifyDesktopSmoke(window)
-    app.quit()
-    return
-  }
+  await openMainWindow()
 
   app.on('activate', recreateMainWindowOnActivate)
 }
