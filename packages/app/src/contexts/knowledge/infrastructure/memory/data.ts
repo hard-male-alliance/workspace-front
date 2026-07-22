@@ -24,11 +24,13 @@ export const MOCK_DEFAULT_VISIBILITY_POLICY = {
   agentGrants: [
     {
       agentScope: 'resume_assistant',
+      agentScopeCode: 'resume_assistant',
       effect: 'allow',
       allowedOperations: ['retrieve', 'quote', 'summarize', 'derive']
     },
     {
       agentScope: 'interview_agent',
+      agentScopeCode: 'interview_agent',
       effect: 'allow',
       allowedOperations: ['retrieve', 'summarize', 'derive']
     }
@@ -108,6 +110,7 @@ export const MOCK_KNOWLEDGE_SOURCES: readonly UiKnowledgeSource[] = [
 
 /** @brief Mock 知识可见性页面数据 / Mock knowledge-visibility page data. */
 export const MOCK_KNOWLEDGE_VISIBILITY: UiKnowledgeVisibilityModel = {
+  concurrencyToken: 'memory-knowledge-1',
   source: MOCK_KNOWLEDGE_SOURCES[1]!,
   availableAgentScopes: [
     'resume_assistant',

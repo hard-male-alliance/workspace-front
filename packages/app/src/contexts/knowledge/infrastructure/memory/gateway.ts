@@ -25,6 +25,8 @@ export class InMemoryKnowledgeGateway implements KnowledgeGateway {
   private readonly options: InMemoryGatewayOptions
   /** @brief 当前实例拥有的可变知识来源投影 / Mutable knowledge-source projection owned by this instance. */
   private knowledgeSources: UiKnowledgeSource[] = cloneMemoryValue([...MOCK_KNOWLEDGE_SOURCES])
+  /** @brief 各测试来源当前的不透明并发版本 / Current opaque concurrency version for each test source. */
+  private readonly concurrencyVersions = new Map<UiKnowledgeSourceId, number>()
 
   /**
    * @brief 构造 Knowledge 内存测试网关 / Construct the Knowledge in-memory test gateway.
@@ -64,7 +66,8 @@ export class InMemoryKnowledgeGateway implements KnowledgeGateway {
 
     return cloneMemoryValue({
       source,
-      availableAgentScopes: MOCK_KNOWLEDGE_VISIBILITY.availableAgentScopes
+      availableAgentScopes: MOCK_KNOWLEDGE_VISIBILITY.availableAgentScopes,
+      concurrencyToken: this.concurrencyToken(source.id)
     })
   }
 
@@ -84,18 +87,32 @@ export class InMemoryKnowledgeGateway implements KnowledgeGateway {
     if (sourceIndex < 0) return throwMemoryNotFound('knowledge visibility')
     /** @brief 当前测试来源 / Current test source. */
     const source = this.knowledgeSources[sourceIndex]!
+    if (input.concurrencyToken !== this.concurrencyToken(source.id)) {
+      return Promise.reject(new Error('The test knowledge policy snapshot is stale.'))
+    }
     /** @brief 更新后的测试来源 / Updated test source. */
     const updatedSource: UiKnowledgeSource = {
       ...source,
       visibility: cloneMemoryValue(input.visibility)
     }
     this.knowledgeSources[sourceIndex] = updatedSource
+    this.concurrencyVersions.set(source.id, (this.concurrencyVersions.get(source.id) ?? 1) + 1)
     return Promise.resolve(
       cloneMemoryValue({
         availableAgentScopes: MOCK_KNOWLEDGE_VISIBILITY.availableAgentScopes,
+        concurrencyToken: this.concurrencyToken(source.id),
         source: updatedSource
       })
     )
+  }
+
+  /**
+   * @brief 取得测试来源当前的不透明并发令牌 / Get the current opaque concurrency token for a test source.
+   * @param sourceId 测试知识来源 ID / Test knowledge-source ID.
+   * @return 当前测试并发令牌 / Current test concurrency token.
+   */
+  private concurrencyToken(sourceId: UiKnowledgeSourceId): string {
+    return `memory-knowledge-${String(this.concurrencyVersions.get(sourceId) ?? 1)}`
   }
 
   /** @brief 在 Mock 边界遵守请求取消 / Honor request cancellation at the Mock boundary. */

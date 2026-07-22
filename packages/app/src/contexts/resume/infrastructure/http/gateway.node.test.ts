@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { getResumeConflictStatus, ResumeOperationRejectedError } from '../../application/errors'
 import { createHttpClient } from '../../../../infrastructure/http/http-client'
 import { HttpResumeGateway } from './gateway'
 
@@ -92,14 +93,48 @@ function resumeDocument(revision = 4): Record<string, unknown> {
   }
 }
 
-function operationResult(normalizedDocument = resumeDocument(5)): Record<string, unknown> {
+function operationResult(
+  normalizedDocument: Record<string, unknown> | null = resumeDocument(5),
+  operationIds: readonly string[] = ['op_result_12345678']
+): Record<string, unknown> {
   return {
     new_revision: 5,
     normalized_document: normalizedDocument,
     previous_revision: 4,
     render_job: null,
-    results: [{ operation_id: 'op_result_12345678', problem: null, status: 'applied' }],
+    results: operationIds.map((operationId) => ({
+      operation_id: operationId,
+      problem: null,
+      status: 'applied'
+    })),
     resume_id: 'res_example'
+  }
+}
+
+/**
+ * @brief 从实际请求中回显 operation ID 的后端响应 / Backend response echoing operation IDs from the actual request.
+ * @param normalizedDocument 可选权威归一化简历 / Optional authoritative normalized Resume.
+ * @param override 可选结果改写器 / Optional result override.
+ * @return 可作为 fetch mock implementation 的响应函数 / Response function usable as a fetch mock implementation.
+ */
+function operationResponse(
+  normalizedDocument: Record<string, unknown> | null = resumeDocument(5),
+  override?: (operationIds: readonly string[]) => Readonly<Record<string, unknown>>
+): (_input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => Promise<Response> {
+  return (_input, init): Promise<Response> => {
+    /** @brief 被测 Gateway 发送的 JSON body / JSON body sent by the Gateway under test. */
+    const requestBody = init?.body
+    if (typeof requestBody !== 'string') {
+      return Promise.reject(new Error('Expected an operation request JSON body.'))
+    }
+    const body = JSON.parse(requestBody) as {
+      readonly operations: readonly { readonly operation_id: string }[]
+    }
+    const operationIds = body.operations.map((operation) => operation.operation_id)
+    const result = operationResult(normalizedDocument, operationIds)
+    return Promise.resolve(
+      Response.json(override === undefined ? result : { ...result, ...override(operationIds) })
+    )
   }
 }
 
@@ -123,7 +158,7 @@ function renderArtifact(): Record<string, unknown> {
     resume_id: 'res_example',
     resume_revision: 4,
     revision: 1,
-    sha256: 'a'.repeat(64),
+    sha256: 'A'.repeat(64),
     size_bytes: 2048,
     source_map_artifact_id: null,
     updated_at: '2026-07-19T00:00:00Z'
@@ -159,7 +194,7 @@ function renderJob(
   }
 }
 
-function templateManifest(id: string): Record<string, unknown> {
+function templateManifest(id: string, version = '1.0'): Record<string, unknown> {
   return {
     bullet_style_tokens: ['bullet.default'],
     capabilities: {
@@ -183,7 +218,7 @@ function templateManifest(id: string): Record<string, unknown> {
     supported_output_formats: ['pdf'],
     supported_page_sizes: ['A4'],
     supported_section_kinds: ['summary'],
-    template_version: '1.0',
+    template_version: version,
     updated_at: '2026-07-19T00:00:00Z',
     zones: [
       {
@@ -197,6 +232,81 @@ function templateManifest(id: string): Record<string, unknown> {
 }
 
 describe('HttpResumeGateway', (): void => {
+  it.each(['*', 'W/"resume-4"', '"resume-4", "resume-5"'])(
+    'rejects an ETag that cannot safely guard Resume operations: %s',
+    async (etag): Promise<void> => {
+      /** @brief 返回非法并发令牌的网络替身 / Network double returning an invalid concurrency token. */
+      const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(JSON.stringify(resumeDocument()), {
+          headers: { 'Content-Type': 'application/json', ETag: etag }
+        })
+      )
+      /** @brief 被测 Resume gateway / Resume gateway under test. */
+      const gateway = new HttpResumeGateway(
+        createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
+      )
+
+      await expect(gateway.getResumeEditor('res_example' as never)).rejects.toMatchObject({
+        name: 'HttpContractError'
+      })
+      expect(fetchImpl).toHaveBeenCalledTimes(1)
+    }
+  )
+
+  it('resolves a Resume card pinned to a historical template through the exact version route', async (): Promise<void> => {
+    /** @brief 固定历史模板版本的 Resume 列表 / Resume list pinned to a historical template version. */
+    const pinnedResume = {
+      ...resumeDocument(),
+      template: { template_id: 'tpl_default_v1', template_version: '0.9.0' }
+    }
+    /** @brief 返回 Resume、最新目录和历史清单的网络替身 / Network double returning the Resume, latest catalog, and historical manifest. */
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({
+          items: [pinnedResume],
+          page: { has_more: false, next_cursor: null, total_estimate: 1 }
+        })
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          items: [templateManifest('tpl_default_v1', '2.0.0')],
+          page: { has_more: false, next_cursor: null, total_estimate: 1 }
+        })
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          ...templateManifest('tpl_default_v1', '0.9.0'),
+          name: 'Dawn historical'
+        })
+      )
+    /** @brief 被测 Resume Gateway / Resume Gateway under test. */
+    const gateway = new HttpResumeGateway(
+      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
+    )
+
+    await expect(gateway.listResumeCards('ws_example' as never)).resolves.toMatchObject([
+      { templateName: 'Dawn historical' }
+    ])
+    expect(fetchImpl.mock.calls[2]?.[0]).toBe(
+      'http://127.0.0.1:8000/api/v1/resume-templates/tpl_default_v1?version=0.9.0'
+    )
+  })
+
+  it.each([409, 412] as const)(
+    'preserves rejected operation status %i as a Resume conflict',
+    (status): void => {
+      /** @brief 携带安全冲突投影的应用错误 / Application error carrying a safe conflict projection. */
+      const error = new ResumeOperationRejectedError({
+        code: 'resume.revision_conflict',
+        retryable: true,
+        status
+      })
+
+      expect(getResumeConflictStatus(error)).toBe(status)
+    }
+  )
+
   it('follows opaque template cursors until the backend page is complete', async (): Promise<void> => {
     const fetchImpl = vi
       .fn<typeof fetch>()
@@ -224,17 +334,142 @@ describe('HttpResumeGateway', (): void => {
     )
   })
 
+  it('reads an exact immutable template version through the contract route', async (): Promise<void> => {
+    /** @brief 返回指定历史版本的网络替身 / Network double returning the requested historical version. */
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(Response.json(templateManifest('tpl_default_v1', '0.9.0')))
+    /** @brief 被测 Resume Gateway / Resume Gateway under test. */
+    const gateway = new HttpResumeGateway(
+      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
+    )
+
+    await expect(
+      gateway.getTemplateManifest('tpl_default_v1' as never, '0.9.0')
+    ).resolves.toMatchObject({ id: 'tpl_default_v1', version: '0.9.0' })
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe(
+      'http://127.0.0.1:8000/api/v1/resume-templates/tpl_default_v1?version=0.9.0'
+    )
+  })
+
+  it.each([
+    ['id', templateManifest('tpl_other_v1', '0.9.0')],
+    ['version', templateManifest('tpl_default_v1', '2.0.0')]
+  ] as const)(
+    'rejects an exact template response with a mismatched %s',
+    async (_field, responseBody): Promise<void> => {
+      /** @brief 返回串错模板资源的网络替身 / Network double returning a mismatched template resource. */
+      const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(Response.json(responseBody))
+      /** @brief 被测 Resume Gateway / Resume Gateway under test. */
+      const gateway = new HttpResumeGateway(
+        createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
+      )
+
+      await expect(
+        gateway.getTemplateManifest('tpl_default_v1' as never, '0.9.0')
+      ).rejects.toMatchObject({ name: 'HttpContractError', status: 200 })
+    }
+  )
+
+  it('merges a Resume pinned historical version when the latest catalog omits it', async (): Promise<void> => {
+    /** @brief 固定在历史模板版本的 Resume / Resume pinned to a historical template version. */
+    const pinnedResume = {
+      ...resumeDocument(),
+      template: { template_id: 'tpl_default_v1', template_version: '0.9.0' }
+    }
+    /** @brief 依次返回 Resume、最新目录与历史精确版本的网络替身 / Network double returning the Resume, latest catalog, and exact historical version. */
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(pinnedResume), {
+          headers: { 'Content-Type': 'application/json', ETag: '"resume-4"' },
+          status: 200
+        })
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          items: [templateManifest('tpl_default_v1', '2.0.0')],
+          page: { has_more: false, next_cursor: null, total_estimate: 1 }
+        })
+      )
+      .mockResolvedValueOnce(Response.json(templateManifest('tpl_default_v1', '0.9.0')))
+    /** @brief 被测 Resume Gateway / Resume Gateway under test. */
+    const gateway = new HttpResumeGateway(
+      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
+    )
+
+    const settings = await gateway.getTemplateSettings('res_example' as never)
+
+    expect(settings.availableTemplates.map(({ id, version }) => [id, version])).toEqual([
+      ['tpl_default_v1', '2.0.0'],
+      ['tpl_default_v1', '0.9.0']
+    ])
+    expect(settings.selectedTemplate).toMatchObject({
+      id: 'tpl_default_v1',
+      version: '0.9.0'
+    })
+    expect(fetchImpl.mock.calls[2]?.[0]).toBe(
+      'http://127.0.0.1:8000/api/v1/resume-templates/tpl_default_v1?version=0.9.0'
+    )
+  })
+
+  it('rejects a Resume read whose response belongs to another resource', async (): Promise<void> => {
+    /** @brief 返回其他 Resume 的网络替身 / Network double returning another Resume. */
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ ...resumeDocument(), id: 'res_other' }), {
+        headers: { 'Content-Type': 'application/json', ETag: '"resume-other"' },
+        status: 200
+      })
+    )
+    /** @brief 被测 Resume Gateway / Resume Gateway under test. */
+    const gateway = new HttpResumeGateway(
+      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
+    )
+
+    await expect(gateway.getResumeEditor('res_example' as never)).rejects.toMatchObject({
+      name: 'HttpContractError',
+      status: 200
+    })
+  })
+
+  it('clears a cached ETag when a newer Resume read omits it', async (): Promise<void> => {
+    /** @brief 先返回 ETag、随后两次省略 ETag 的网络替身 / Network double returning an ETag first and omitting it on the next two reads. */
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(resumeResponse())
+      .mockResolvedValueOnce(Response.json(resumeDocument()))
+      .mockResolvedValueOnce(Response.json(resumeDocument()))
+    /** @brief 被测 Resume Gateway / Resume Gateway under test. */
+    const gateway = new HttpResumeGateway(
+      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
+    )
+
+    await gateway.getResumeEditor('res_example' as never)
+    await gateway.getResumeEditor('res_example' as never)
+    await expect(
+      gateway.updateResumeSection({
+        baseRevision: 4,
+        resumeId: 'res_example' as never,
+        sectionId: 'sec_summary' as never,
+        title: '职业摘要'
+      })
+    ).rejects.toThrow('require an ETag')
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
+    expect(fetchImpl.mock.calls.every((call) => call[1]?.method === 'GET')).toBe(true)
+  })
+
   it('maps a section edit to formal set_field operations with ETag and idempotency', async (): Promise<void> => {
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(resumeResponse())
-      .mockResolvedValueOnce(Response.json(operationResult()))
+      .mockImplementationOnce(operationResponse())
     const gateway = new HttpResumeGateway(
       createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
     )
     await gateway.getResumeEditor('res_example' as never)
 
     const editor = await gateway.updateResumeSection({
+      baseRevision: 4,
       content: '新的摘要',
       resumeId: 'res_example' as never,
       sectionId: 'sec_summary' as never,
@@ -255,17 +490,399 @@ describe('HttpResumeGateway', (): void => {
     expect(editor.resume.revision).toBe(5)
   })
 
+  it('updates only the title without reconstructing an authoritative RichText body', async (): Promise<void> => {
+    /** @brief 省略 plain_text 且保留结构块的权威简历 / Authoritative Resume omitting plain_text while retaining structured blocks. */
+    const document = resumeDocument()
+    const sections = document.sections as Record<string, unknown>[]
+    sections[0] = {
+      ...sections[0],
+      content: {
+        blocks: [
+          {
+            block_id: 'block_existing_12345678',
+            spans: [{ marks: ['strong'], text: '不应被标题修改覆盖' }],
+            type: 'paragraph'
+          }
+        ],
+        schema_version: '1.0'
+      }
+    }
+    /** @brief 依次返回富文本快照与成功 operation 的网络替身 / Network double returning the RichText snapshot and a successful operation. */
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(document), {
+          headers: { 'Content-Type': 'application/json', ETag: '"resume-4"' },
+          status: 200
+        })
+      )
+      .mockImplementationOnce(operationResponse())
+    /** @brief 被测 Resume Gateway / Resume Gateway under test. */
+    const gateway = new HttpResumeGateway(
+      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
+    )
+    await gateway.getResumeEditor('res_example' as never)
+
+    await gateway.updateResumeSection({
+      baseRevision: 4,
+      resumeId: 'res_example' as never,
+      sectionId: 'sec_summary' as never,
+      title: '新标题'
+    })
+
+    /** @brief 发往后端的字段 operations / Field operations sent to the backend. */
+    const body = JSON.parse(fetchBody(fetchImpl, 1)) as {
+      readonly operations: readonly Readonly<Record<string, unknown>>[]
+    }
+    expect(body.operations).toEqual([
+      expect.objectContaining({ field_path: ['title'], op: 'set_field', value: '新标题' })
+    ])
+  })
+
+  it('does not report a rejected operation batch as a successful save', async (): Promise<void> => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(resumeResponse())
+      .mockImplementationOnce(
+        operationResponse(null, (operationIds) => ({
+          new_revision: 4,
+          results: operationIds.map((operationId) => ({
+            operation_id: operationId,
+            problem: {
+              code: 'resume.revision_conflict',
+              detail: 'private rejected value',
+              retryable: true,
+              status: 412,
+              title: 'private title',
+              type: 'urn:aiws:error:resume:revision_conflict'
+            },
+            status: 'rejected'
+          }))
+        }))
+      )
+      .mockResolvedValueOnce(resumeResponse())
+      .mockImplementationOnce(operationResponse())
+    const gateway = new HttpResumeGateway(
+      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
+    )
+    await gateway.getResumeEditor('res_example' as never)
+
+    const rejection: unknown = await gateway
+      .updateResumeSection({
+        baseRevision: 4,
+        content: '新的摘要',
+        resumeId: 'res_example' as never,
+        sectionId: 'sec_summary' as never,
+        title: '职业摘要'
+      })
+      .catch((error: unknown): unknown => error)
+
+    expect(rejection).toBeInstanceOf(ResumeOperationRejectedError)
+    expect(rejection).toMatchObject({
+      code: 'resume.revision_conflict',
+      retryable: true,
+      status: 412
+    })
+    expect(getResumeConflictStatus(rejection)).toBe(412)
+    expect(JSON.stringify(rejection)).not.toContain('private')
+
+    await expect(
+      gateway.updateResumeSection({
+        baseRevision: 4,
+        content: '修正后的摘要',
+        resumeId: 'res_example' as never,
+        sectionId: 'sec_summary' as never,
+        title: '职业摘要'
+      })
+    ).resolves.toMatchObject({ resume: { revision: 5 } })
+    expect(fetchImpl.mock.calls[2]?.[0]).toBe('http://127.0.0.1:8000/api/v1/resumes/res_example')
+    expect(fetchImpl).toHaveBeenCalledTimes(4)
+  })
+
+  it('reloads authority before writing again after an outcome-unknown command', async (): Promise<void> => {
+    /** @brief 首次写入无法确认、随后允许权威重载的网络替身 / Network double whose first write is unconfirmed before an authority reload. */
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(resumeResponse())
+      .mockRejectedValueOnce(
+        Object.assign(new Error('private command state'), {
+          name: 'HttpCommandOutcomeUnknownError'
+        })
+      )
+      .mockResolvedValueOnce(resumeResponse())
+      .mockImplementationOnce(operationResponse())
+    /** @brief 使用真实 HTTP client 的 Resume Gateway / Resume Gateway using the real HTTP client. */
+    const gateway = new HttpResumeGateway(
+      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
+    )
+    await gateway.getResumeEditor('res_example' as never)
+
+    await expect(
+      gateway.updateResumeSection({
+        baseRevision: 4,
+        content: '结果未知的摘要',
+        resumeId: 'res_example' as never,
+        sectionId: 'sec_summary' as never,
+        title: '职业摘要'
+      })
+    ).rejects.toMatchObject({ name: 'HttpCommandOutcomeUnknownError' })
+
+    await expect(
+      gateway.updateResumeSection({
+        baseRevision: 4,
+        content: '权威重载后的摘要',
+        resumeId: 'res_example' as never,
+        sectionId: 'sec_summary' as never,
+        title: '职业摘要'
+      })
+    ).resolves.toMatchObject({ resume: { revision: 5 } })
+    expect(fetchImpl.mock.calls[2]?.[0]).toBe('http://127.0.0.1:8000/api/v1/resumes/res_example')
+    expect(fetchImpl).toHaveBeenCalledTimes(4)
+  })
+
+  it('refuses to replay an old draft when authority advanced after an unknown outcome', async (): Promise<void> => {
+    /** @brief 初次写入未知且权威 revision 已前进的网络替身 / Network double whose first write is unknown and whose authoritative revision then advances. */
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(resumeResponse(4))
+      .mockRejectedValueOnce(new TypeError('private connection failure'))
+      .mockResolvedValueOnce(resumeResponse(5))
+    /** @brief 使用真实 HTTP client 的 Resume Gateway / Resume Gateway using the real HTTP client. */
+    const gateway = new HttpResumeGateway(
+      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
+    )
+    await gateway.getResumeEditor('res_example' as never)
+
+    await expect(
+      gateway.updateResumeSection({
+        baseRevision: 4,
+        resumeId: 'res_example' as never,
+        sectionId: 'sec_summary' as never,
+        title: '旧版本草稿'
+      })
+    ).rejects.toMatchObject({ name: 'HttpCommandOutcomeUnknownError' })
+    await expect(
+      gateway.updateResumeSection({
+        baseRevision: 4,
+        resumeId: 'res_example' as never,
+        sectionId: 'sec_summary' as never,
+        title: '旧版本草稿'
+      })
+    ).rejects.toMatchObject({ name: 'ResumeSnapshotConflictError', status: 412 })
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
+    expect(fetchImpl.mock.calls[2]?.[1]?.method).toBe('GET')
+  })
+
+  it('keeps the original ETag after a deterministic top-level rejection', async (): Promise<void> => {
+    /** @brief 明确拒绝首个命令、随后接受同版本修正的网络替身 / Network double definitively rejecting the first command and accepting a correction on the same version. */
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(resumeResponse(4))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            code: 'resume.invalid_field',
+            detail: null,
+            retryable: false,
+            status: 422,
+            title: 'Resume field is invalid',
+            type: 'about:blank'
+          }),
+          {
+            headers: { 'Content-Type': 'application/problem+json' },
+            status: 422
+          }
+        )
+      )
+      .mockImplementationOnce(operationResponse())
+    /** @brief 使用真实 HTTP client 的 Resume Gateway / Resume Gateway using the real HTTP client. */
+    const gateway = new HttpResumeGateway(
+      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
+    )
+    await gateway.getResumeEditor('res_example' as never)
+
+    await expect(
+      gateway.updateResumeSection({
+        baseRevision: 4,
+        resumeId: 'res_example' as never,
+        sectionId: 'sec_summary' as never,
+        title: '无效输入'
+      })
+    ).rejects.toMatchObject({ name: 'HttpProblemError', status: 422 })
+    await expect(
+      gateway.updateResumeSection({
+        baseRevision: 4,
+        resumeId: 'res_example' as never,
+        sectionId: 'sec_summary' as never,
+        title: '修正输入'
+      })
+    ).resolves.toMatchObject({ resume: { revision: 5 } })
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
+    expect(fetchImpl.mock.calls[2]?.[1]).toMatchObject({
+      headers: { 'If-Match': '"resume-4"' },
+      method: 'POST'
+    })
+  })
+
+  it('prioritizes a conflict when one operation batch contains multiple rejections', async (): Promise<void> => {
+    /** @brief 返回混合领域拒绝的网络替身 / Network double returning mixed domain rejections. */
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(resumeResponse())
+      .mockImplementationOnce(
+        operationResponse(null, (operationIds) => ({
+          new_revision: 4,
+          results: operationIds.map((operationId, index) => ({
+            operation_id: operationId,
+            problem: {
+              code: index === 0 ? 'resume.invalid_field' : 'resume.revision_conflict',
+              retryable: index !== 0,
+              status: index === 0 ? 422 : 412,
+              title: 'private title',
+              type:
+                index === 0
+                  ? 'urn:aiws:error:resume:invalid_field'
+                  : 'urn:aiws:error:resume:revision_conflict'
+            },
+            status: 'rejected'
+          }))
+        }))
+      )
+    /** @brief 使用真实 HTTP client 的 Resume Gateway / Resume Gateway using the real HTTP client. */
+    const gateway = new HttpResumeGateway(
+      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
+    )
+    await gateway.getResumeEditor('res_example' as never)
+
+    await expect(
+      gateway.updateResumeSection({
+        baseRevision: 4,
+        content: '混合拒绝摘要',
+        resumeId: 'res_example' as never,
+        sectionId: 'sec_summary' as never,
+        title: '职业摘要'
+      })
+    ).rejects.toMatchObject({
+      code: 'resume.revision_conflict',
+      name: 'ResumeOperationRejectedError',
+      status: 412
+    })
+  })
+
+  it.each([
+    [
+      'missing operation result',
+      (operationIds: readonly string[]): Readonly<Record<string, unknown>> => ({
+        results: operationIds.slice(0, 1).map((operationId) => ({
+          operation_id: operationId,
+          problem: null,
+          status: 'applied'
+        }))
+      })
+    ],
+    [
+      'duplicate operation result',
+      (operationIds: readonly string[]): Readonly<Record<string, unknown>> => ({
+        results: [operationIds[0], operationIds[0]].map((operationId) => ({
+          operation_id: operationId,
+          problem: null,
+          status: 'applied'
+        }))
+      })
+    ],
+    [
+      'extra operation result',
+      (operationIds: readonly string[]): Readonly<Record<string, unknown>> => ({
+        results: [...operationIds, 'op_unrequested_12345678'].map((operationId) => ({
+          operation_id: operationId,
+          problem: null,
+          status: 'applied'
+        }))
+      })
+    ],
+    [
+      'malformed operation result',
+      (operationIds: readonly string[]): Readonly<Record<string, unknown>> => ({
+        results: operationIds.map((operationId) => ({
+          operation_id: operationId,
+          problem: null,
+          status: 'invented'
+        }))
+      })
+    ],
+    [
+      'normalized Resume identity mismatch',
+      (): Readonly<Record<string, unknown>> => ({
+        normalized_document: { ...resumeDocument(5), id: 'res_other_12345678' }
+      })
+    ],
+    [
+      'normalized Resume revision mismatch',
+      (): Readonly<Record<string, unknown>> => ({
+        normalized_document: resumeDocument(6)
+      })
+    ],
+    [
+      'batch Resume identity mismatch',
+      (): Readonly<Record<string, unknown>> => ({
+        resume_id: 'res_other_12345678'
+      })
+    ],
+    [
+      'batch previous revision mismatch',
+      (): Readonly<Record<string, unknown>> => ({
+        previous_revision: 3
+      })
+    ]
+  ] as const)(
+    'rejects a contract-invalid %s and reloads authority before the next write',
+    async (_caseName, override): Promise<void> => {
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(resumeResponse())
+        .mockImplementationOnce(operationResponse(resumeDocument(5), override))
+        .mockResolvedValueOnce(resumeResponse())
+        .mockImplementationOnce(operationResponse())
+      const gateway = new HttpResumeGateway(
+        createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
+      )
+      await gateway.getResumeEditor('res_example' as never)
+
+      await expect(
+        gateway.updateResumeSection({
+          baseRevision: 4,
+          content: '不应接受的摘要',
+          resumeId: 'res_example' as never,
+          sectionId: 'sec_summary' as never,
+          title: '职业摘要'
+        })
+      ).rejects.toMatchObject({ name: 'HttpCommandOutcomeUnknownError' })
+
+      await expect(
+        gateway.updateResumeSection({
+          baseRevision: 4,
+          content: '重载后的摘要',
+          resumeId: 'res_example' as never,
+          sectionId: 'sec_summary' as never,
+          title: '职业摘要'
+        })
+      ).resolves.toMatchObject({ resume: { revision: 5 } })
+      expect(fetchImpl.mock.calls[2]?.[0]).toBe('http://127.0.0.1:8000/api/v1/resumes/res_example')
+    }
+  )
+
   it('maps a complete section order to ordered move_section operations', async (): Promise<void> => {
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(resumeResponse())
-      .mockResolvedValueOnce(Response.json(operationResult()))
+      .mockImplementationOnce(operationResponse())
     const gateway = new HttpResumeGateway(
       createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
     )
     await gateway.getResumeEditor('res_example' as never)
 
     await gateway.reorderResumeSections({
+      baseRevision: 4,
       orderedSectionIds: ['sec_projects', 'sec_summary'] as never,
       resumeId: 'res_example' as never
     })
@@ -291,13 +908,14 @@ describe('HttpResumeGateway', (): void => {
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(resumeResponse())
-      .mockResolvedValueOnce(Response.json(operationResult()))
+      .mockImplementationOnce(operationResponse())
     const gateway = new HttpResumeGateway(
       createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
     )
     await gateway.getResumeEditor('res_example' as never)
 
     await gateway.deleteResumeSection({
+      baseRevision: 4,
       resumeId: 'res_example' as never,
       sectionId: 'sec_projects' as never
     })
@@ -324,15 +942,17 @@ describe('HttpResumeGateway', (): void => {
           page: { has_more: false, next_cursor: null, total_estimate: 1 }
         })
       )
-      .mockResolvedValueOnce(Response.json(operationResult(changedDocument)))
+      .mockImplementationOnce(operationResponse(changedDocument))
     const gateway = new HttpResumeGateway(
       createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
     )
     await gateway.getResumeEditor('res_example' as never)
 
     await gateway.selectResumeTemplate({
+      baseRevision: 4,
       resumeId: 'res_example' as never,
-      templateId: 'tpl_focus_v1' as never
+      templateId: 'tpl_focus_v1' as never,
+      templateVersion: '2.0'
     })
 
     const body = JSON.parse(fetchBody(fetchImpl, 2)) as {
@@ -344,6 +964,37 @@ describe('HttpResumeGateway', (): void => {
         template: { template_id: 'tpl_focus_v1', template_version: '2.0' }
       })
     ])
+  })
+
+  it('marks template selection unknown when the normalized Resume ignores the requested template', async (): Promise<void> => {
+    /** @brief 返回原模板而非请求模板的网络替身 / Network double returning the original template instead of the requested template. */
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(resumeResponse())
+      .mockResolvedValueOnce(
+        Response.json({
+          items: [{ ...templateManifest('tpl_focus_v1'), template_version: '2.0' }],
+          page: { has_more: false, next_cursor: null, total_estimate: 1 }
+        })
+      )
+      .mockImplementationOnce(operationResponse(resumeDocument(5)))
+    /** @brief 被测 Resume Gateway / Resume Gateway under test. */
+    const gateway = new HttpResumeGateway(
+      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
+    )
+    await gateway.getResumeEditor('res_example' as never)
+
+    await expect(
+      gateway.selectResumeTemplate({
+        baseRevision: 4,
+        resumeId: 'res_example' as never,
+        templateId: 'tpl_focus_v1' as never,
+        templateVersion: '2.0'
+      })
+    ).rejects.toMatchObject({
+      diagnosticKind: 'contract',
+      name: 'HttpCommandOutcomeUnknownError'
+    })
   })
 
   it('atomically persists template settings as a formal semantic style intent', async (): Promise<void> => {
@@ -365,7 +1016,7 @@ describe('HttpResumeGateway', (): void => {
           page: { has_more: false, next_cursor: null, total_estimate: 1 }
         })
       )
-      .mockResolvedValueOnce(Response.json(operationResult(changedDocument)))
+      .mockImplementationOnce(operationResponse(changedDocument))
     /** @brief 被测 Resume Gateway / Resume Gateway under test. */
     const gateway = new HttpResumeGateway(
       createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
@@ -374,9 +1025,11 @@ describe('HttpResumeGateway', (): void => {
     const editor = await gateway.getResumeEditor('res_example' as never)
 
     const saved = await gateway.updateTemplateSettings({
+      baseRevision: editor.resume.revision,
       resumeId: 'res_example' as never,
       styleIntent: { ...editor.resume.styleIntent, density: 0.75 },
-      templateId: 'tpl_default_v1' as never
+      templateId: 'tpl_default_v1' as never,
+      templateVersion: '1.0'
     })
 
     /** @brief 发往 operation endpoint 的 JSON body / JSON body sent to the operation endpoint. */
@@ -396,6 +1049,44 @@ describe('HttpResumeGateway', (): void => {
     expect(saved.styleIntent.density).toBe(0.75)
   })
 
+  it('marks template-settings persistence unknown when the normalized Resume names another template', async (): Promise<void> => {
+    /** @brief 串错到其他模板的归一化简历 / Normalized Resume correlated to a different template. */
+    const wrongTemplateDocument = {
+      ...resumeDocument(5),
+      template: { template_id: 'tpl_other_v1', template_version: '9.0' }
+    }
+    /** @brief 依次返回简历、模板目录与串错 operation 结果的网络替身 / Network double returning Resume, catalog, and a mismatched operation result. */
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(resumeResponse())
+      .mockResolvedValueOnce(
+        Response.json({
+          items: [templateManifest('tpl_default_v1')],
+          page: { has_more: false, next_cursor: null, total_estimate: 1 }
+        })
+      )
+      .mockImplementationOnce(operationResponse(wrongTemplateDocument))
+    /** @brief 被测 Resume Gateway / Resume Gateway under test. */
+    const gateway = new HttpResumeGateway(
+      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
+    )
+    /** @brief 作为编辑基线的权威简历 / Authoritative Resume used as the edit baseline. */
+    const editor = await gateway.getResumeEditor('res_example' as never)
+
+    await expect(
+      gateway.updateTemplateSettings({
+        baseRevision: editor.resume.revision,
+        resumeId: 'res_example' as never,
+        styleIntent: editor.resume.styleIntent,
+        templateId: 'tpl_default_v1' as never,
+        templateVersion: '1.0'
+      })
+    ).rejects.toMatchObject({
+      diagnosticKind: 'contract',
+      name: 'HttpCommandOutcomeUnknownError'
+    })
+  })
+
   it('starts a formal PDF preview Render Job', async (): Promise<void> => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
       Response.json(renderJob(), {
@@ -408,6 +1099,7 @@ describe('HttpResumeGateway', (): void => {
     )
 
     const job = await gateway.startResumePdfRender({
+      commandId: 'command_render_gateway_test' as never,
       resumeId: 'res_example' as never,
       resumeRevision: 4
     })
@@ -421,24 +1113,19 @@ describe('HttpResumeGateway', (): void => {
       page_range: null,
       resume_revision: 4
     })
+    expect(
+      (fetchImpl.mock.calls[0]?.[1]?.headers as Record<string, string>)['Idempotency-Key']
+    ).toBe('command_render_gateway_test')
     expect(job).toMatchObject({ id: 'job_render_example', status: 'queued' })
   })
 
   it.each([
-    [
-      200,
-      '/api/v1/resume-render-jobs/job_render_example',
-      'Backend returned an unexpected success status; expected 202.'
-    ],
-    [202, null, 'Backend creation response is missing Location.'],
-    [
-      202,
-      '/api/v1/resume-render-jobs/job_other',
-      'Backend creation response Location does not identify the created resource.'
-    ]
+    [200, '/api/v1/resume-render-jobs/job_render_example'],
+    [202, null],
+    [202, '/api/v1/resume-render-jobs/job_other']
   ] as const)(
-    'rejects Render Job creation status %s and Location %s when the creation contract is violated',
-    async (status, location, expectedMessage): Promise<void> => {
+    'marks Render Job creation status %s and Location %s as outcome unknown when success cannot be verified',
+    async (status, location): Promise<void> => {
       /** @brief 当前非法创建响应的响应头 / Headers for the current invalid creation response. */
       const headers = location === null ? undefined : { Location: location }
       /** @brief 返回当前非法创建响应的网络替身 / Network double returning this invalid creation response. */
@@ -455,16 +1142,41 @@ describe('HttpResumeGateway', (): void => {
 
       await expect(
         gateway.startResumePdfRender({
+          commandId: 'command_render_invalid_response' as never,
           resumeId: 'res_example' as never,
           resumeRevision: 4
         })
       ).rejects.toMatchObject({
-        message: expectedMessage,
-        name: 'HttpContractError',
-        status
+        diagnosticKind: 'contract',
+        name: 'HttpCommandOutcomeUnknownError'
       })
     }
   )
+
+  it('marks a successful Render Job response for another Resume revision as outcome unknown', async (): Promise<void> => {
+    /** @brief 返回错误 Resume revision 的成功创建响应 / Successful creation response for the wrong Resume revision. */
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json(
+        { ...renderJob(), resume_revision: 5 },
+        {
+          headers: { Location: '/api/v1/resume-render-jobs/job_render_example' },
+          status: 202
+        }
+      )
+    )
+    /** @brief 被测 Resume Gateway / Resume Gateway under test. */
+    const gateway = new HttpResumeGateway(
+      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
+    )
+
+    await expect(
+      gateway.startResumePdfRender({
+        commandId: 'command_render_wrong_revision' as never,
+        resumeId: 'res_example' as never,
+        resumeRevision: 4
+      })
+    ).rejects.toMatchObject({ name: 'HttpCommandOutcomeUnknownError' })
+  })
 
   it('maps a completed Render Job and its trusted PDF artifact', async (): Promise<void> => {
     const fetchImpl = vi
@@ -480,6 +1192,36 @@ describe('HttpResumeGateway', (): void => {
     expect(job.artifacts[0]).toMatchObject({
       contentUrl: 'http://127.0.0.1:8000/api/v1/render-artifacts/artifact_example/content',
       pageCount: 2
+    })
+  })
+
+  it('maps a future contract-valid Render Job status to a safe unknown UI state', async (): Promise<void> => {
+    /** @brief 返回未来开放枚举状态的轮询响应 / Polling response returning a future open-enum status. */
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(Response.json(renderJob('awaiting_capacity')))
+    /** @brief 被测 Resume Gateway / Resume Gateway under test. */
+    const gateway = new HttpResumeGateway(
+      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
+    )
+
+    await expect(gateway.getResumeRenderJob('job_render_example' as never)).resolves.toMatchObject({
+      status: 'unknown'
+    })
+  })
+
+  it('rejects a polling response for a different Render Job', async (): Promise<void> => {
+    /** @brief 返回错误 Job ID 的轮询响应 / Polling response returning the wrong Job ID. */
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(Response.json({ ...renderJob(), id: 'job_render_other' }))
+    /** @brief 被测 Resume Gateway / Resume Gateway under test. */
+    const gateway = new HttpResumeGateway(
+      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
+    )
+
+    await expect(gateway.getResumeRenderJob('job_render_example' as never)).rejects.toMatchObject({
+      name: 'HttpContractError'
     })
   })
 })

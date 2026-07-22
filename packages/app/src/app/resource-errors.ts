@@ -6,10 +6,12 @@ export type ResourceFailureKind =
   | 'forbidden'
   | 'not-found'
   | 'conflict'
+  | 'invalid-request'
   | 'rate-limited'
   | 'service-unavailable'
   | 'invalid-response'
   | 'network'
+  | 'outcome-unknown'
   | 'capability-unavailable'
   | 'unknown'
 
@@ -53,14 +55,19 @@ function classifyHttpStatus(
   retryable: boolean,
   referenceId: string | null
 ): ResourceFailure {
-  if (status === 401) return { kind: 'authentication-required', referenceId, retryable: false }
-  if (status === 403) return { kind: 'forbidden', referenceId, retryable: false }
-  if (status === 404) return { kind: 'not-found', referenceId, retryable: false }
-  if (status === 409 || status === 412) {
-    return { kind: 'conflict', referenceId, retryable: true }
+  if (status === 401) return { kind: 'authentication-required', referenceId, retryable }
+  if (status === 403) return { kind: 'forbidden', referenceId, retryable }
+  if (status === 404) return { kind: 'not-found', referenceId, retryable }
+  if (status === 400 || status === 413 || status === 415 || status === 422) {
+    return { kind: 'invalid-request', referenceId, retryable }
   }
-  if (status === 429) return { kind: 'rate-limited', referenceId, retryable: true }
-  if (status >= 500) return { kind: 'service-unavailable', referenceId, retryable: true }
+  if (status === 409 || status === 412) {
+    return { kind: 'conflict', referenceId, retryable }
+  }
+  if (status === 429) return { kind: 'rate-limited', referenceId, retryable }
+  if (status === 408 || status >= 500) {
+    return { kind: 'service-unavailable', referenceId, retryable }
+  }
   return { kind: 'unknown', referenceId, retryable }
 }
 
@@ -88,8 +95,20 @@ export function classifyResourceFailure(error: unknown): ResourceFailure {
       }
       return { kind: 'invalid-response', referenceId: null, retryable: true }
     }
+    if (name === 'HttpCommandOutcomeUnknownError') {
+      return { kind: 'outcome-unknown', referenceId: null, retryable: false }
+    }
     if (name.endsWith('CapabilityError')) {
       return { kind: 'capability-unavailable', referenceId: null, retryable: false }
+    }
+    if (name === 'ResumeOperationRejectedError') {
+      return typeof error.status === 'number'
+        ? classifyHttpStatus(
+            error.status,
+            typeof error.retryable === 'boolean' ? error.retryable : false,
+            null
+          )
+        : { kind: 'invalid-request', referenceId: null, retryable: false }
     }
     if (name === 'TimeoutError') {
       return { kind: 'service-unavailable', referenceId: null, retryable: true }

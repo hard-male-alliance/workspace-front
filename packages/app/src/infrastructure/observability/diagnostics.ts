@@ -208,6 +208,7 @@ const diagnosticErrorKinds = new Set<DiagnosticErrorKind>([
   'configuration',
   'contract',
   'network',
+  'outcome_unknown',
   'react_render',
   'timeout',
   'unknown'

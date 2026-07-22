@@ -19,7 +19,7 @@ export interface WorkspaceDto {
   /** @brief IANA 时区 / IANA timezone. */
   readonly timezone: string
   /** @brief 套餐代码 / Plan code. */
-  readonly plan: 'free' | 'pro' | 'team' | 'enterprise'
+  readonly plan: string
 }
 
 /** @brief 当前用户 DTO / Current-user DTO. */

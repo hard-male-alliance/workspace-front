@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { userEvent } from 'vitest/browser'
+import { MOCK_EDITORIAL_TEMPLATE } from '@ai-job-workspace/app/testing'
 
 import {
   installBrowserWorkspaceTestSetup,
@@ -32,8 +33,13 @@ describe('WorkspaceApp Resume browser behaviour', (): void => {
 
     /** @brief 简历模板选择器 / Resume-template selector. */
     const template = screen.getByRole('combobox', { name: '快速切换简历模板' })
-    await userEvent.selectOptions(template, 'tpl_mock_editorial')
+    /** @brief 同时锁定 ID 与不可变版本的 Editorial 选项 / Editorial option pinning both ID and immutable version. */
+    const editorialIdentity = JSON.stringify([
+      MOCK_EDITORIAL_TEMPLATE.id,
+      MOCK_EDITORIAL_TEMPLATE.version
+    ])
+    await userEvent.selectOptions(template, editorialIdentity)
 
-    await expect.element(template).toHaveValue('tpl_mock_editorial')
+    await expect.element(template).toHaveValue(editorialIdentity)
   })
 })

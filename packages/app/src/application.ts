@@ -5,6 +5,9 @@ import type { KnowledgeGateway } from './contexts/knowledge/application/gateway'
 import type { ResumeGateway } from './contexts/resume/application/gateway'
 import type { WorkspaceGateway } from './contexts/workspace/application/gateway'
 
+export { createUiCommandId } from './shared-kernel/command'
+export type { UiCommandId } from './shared-kernel/command'
+
 /** @brief 产品应用依赖的上下文端口集合 / Context ports required by the product application. */
 export interface AppGateways {
   /** @brief Workspace Experience 端口 / Workspace Experience port. */

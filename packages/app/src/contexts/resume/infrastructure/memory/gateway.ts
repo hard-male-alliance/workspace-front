@@ -1,6 +1,11 @@
 /** @file Resume 的内存 adapter / In-memory adapter for Resume. */
 
 import type { ResumeGateway } from '../../application/gateway'
+import { ResumeSnapshotConflictError } from '../../application/errors'
+import {
+  getTemplateIdentity,
+  loadTemplateCatalogWithPinnedVersion
+} from '../../application/template-catalog'
 import type {
   UiResumeCard,
   UiResumeEditorModel,
@@ -31,7 +36,7 @@ import {
   MOCK_RESUME_ID,
   MOCK_RESUME_WORKSPACE_ID,
   MOCK_TEMPLATE_MANIFESTS,
-  MOCK_TEMPLATE_SETTINGS
+  MOCK_TEMPLATE_MANIFEST_VERSIONS
 } from './data'
 
 /**
@@ -90,7 +95,6 @@ export class InMemoryResumeGateway implements ResumeGateway {
     if (input.resumeId !== MOCK_RESUME_ID) return throwMemoryNotFound('resume editor')
     const job: UiResumeRenderJob = {
       artifacts: [],
-      diagnostic: null,
       id: asUiOpaqueId<'resume-render-job'>(`render_mock_${input.resumeRevision}`),
       progressPercent: 0,
       resumeId: input.resumeId,
@@ -137,6 +141,7 @@ export class InMemoryResumeGateway implements ResumeGateway {
     if (input.resumeId !== MOCK_RESUME_ID) {
       return throwMemoryNotFound('resume editor')
     }
+    this.assertBaseRevision(input.baseRevision)
 
     const sectionExists = this.editor.resume.sections.some(
       (section) => section.id === input.sectionId
@@ -152,7 +157,11 @@ export class InMemoryResumeGateway implements ResumeGateway {
         revision: this.editor.resume.revision + 1,
         sections: this.editor.resume.sections.map((section) =>
           section.id === input.sectionId
-            ? { ...section, title: input.title, contentPreview: input.content }
+            ? {
+                ...section,
+                ...(input.title === undefined ? {} : { title: input.title }),
+                ...(input.content === undefined ? {} : { contentPreview: input.content })
+              }
             : section
         ),
         updatedAt: '2026-07-18T00:00:01.000Z'
@@ -167,6 +176,7 @@ export class InMemoryResumeGateway implements ResumeGateway {
     if (input.resumeId !== MOCK_RESUME_ID) {
       return throwMemoryNotFound('resume editor')
     }
+    this.assertBaseRevision(input.baseRevision)
 
     const sectionById = new Map(this.editor.resume.sections.map((section) => [section.id, section]))
     const reorderedSections = input.orderedSectionIds.map((sectionId) => sectionById.get(sectionId))
@@ -196,6 +206,7 @@ export class InMemoryResumeGateway implements ResumeGateway {
     if (input.resumeId !== MOCK_RESUME_ID) {
       return throwMemoryNotFound('resume editor')
     }
+    this.assertBaseRevision(input.baseRevision)
 
     const remainingSections = this.editor.resume.sections.filter(
       (section) => section.id !== input.sectionId
@@ -228,8 +239,11 @@ export class InMemoryResumeGateway implements ResumeGateway {
     if (input.resumeId !== MOCK_RESUME_ID) {
       return throwMemoryNotFound('resume editor')
     }
+    this.assertBaseRevision(input.baseRevision)
 
-    const template = MOCK_TEMPLATE_MANIFESTS.find((item) => item.id === input.templateId)
+    const template = MOCK_TEMPLATE_MANIFEST_VERSIONS.find(
+      (item) => item.id === input.templateId && item.version === input.templateVersion
+    )
     if (template === undefined) {
       return throwMemoryNotFound('resume template')
     }
@@ -254,7 +268,10 @@ export class InMemoryResumeGateway implements ResumeGateway {
     if (input.resumeId !== MOCK_RESUME_ID) {
       return throwMemoryNotFound('template settings')
     }
-    const template = MOCK_TEMPLATE_MANIFESTS.find((item) => item.id === input.templateId)
+    this.assertBaseRevision(input.baseRevision)
+    const template = MOCK_TEMPLATE_MANIFEST_VERSIONS.find(
+      (item) => item.id === input.templateId && item.version === input.templateVersion
+    )
     if (template === undefined) {
       return throwMemoryNotFound('resume template')
     }
@@ -268,9 +285,16 @@ export class InMemoryResumeGateway implements ResumeGateway {
         updatedAt: '2026-07-18T00:00:05.000Z'
       }
     }
+    /** @brief 最新目录与已保存精确版本的合并结果 / Latest catalog merged with the exact saved version. */
+    const availableTemplates = MOCK_TEMPLATE_MANIFESTS.some(
+      (item) => getTemplateIdentity(item) === getTemplateIdentity(template)
+    )
+      ? MOCK_TEMPLATE_MANIFESTS
+      : [...MOCK_TEMPLATE_MANIFESTS, template]
     return {
-      availableTemplates: cloneMemoryValue(MOCK_TEMPLATE_MANIFESTS),
+      availableTemplates: cloneMemoryValue(availableTemplates),
       resumeId: input.resumeId,
+      resumeRevision: this.editor.resume.revision,
       selectedTemplate: cloneMemoryValue(template),
       styleIntent: cloneMemoryValue(input.styleIntent)
     }
@@ -294,6 +318,30 @@ export class InMemoryResumeGateway implements ResumeGateway {
   }
 
   /**
+   * @brief 获取精确 Mock 模板版本 / Get an exact Mock template version.
+   * @param templateId 模板 ID / Template ID.
+   * @param version 不可变模板版本 / Immutable template version.
+   * @return 精确匹配的 Mock 模板 / Exact matching Mock template.
+   */
+  async getTemplateManifest(
+    templateId: UiTemplateManifest['id'],
+    version: string
+  ): Promise<UiTemplateManifest> {
+    const mode = await prepareMemoryRead(this.options)
+    if (mode === 'empty') {
+      return throwMemoryNotFound('resume template')
+    }
+    /** @brief 由复合身份命中的 Mock 模板 / Mock template matched by composite identity. */
+    const template = MOCK_TEMPLATE_MANIFEST_VERSIONS.find(
+      (item) => item.id === templateId && item.version === version
+    )
+    if (template === undefined) {
+      return throwMemoryNotFound('resume template')
+    }
+    return cloneMemoryValue(template)
+  }
+
+  /**
    * @brief 获取 Mock 模板设置页数据 / Get Mock template-settings page data.
    * @param resumeId 简历 ID / Resume ID.
    * @return Mock 模板设置数据 / Mock template-settings data.
@@ -304,17 +352,32 @@ export class InMemoryResumeGateway implements ResumeGateway {
       return throwMemoryNotFound('template settings')
     }
 
-    const selectedTemplate = MOCK_TEMPLATE_MANIFESTS.find(
-      (template) => template.id === this.editor.resume.template.templateId
+    const templates = await loadTemplateCatalogWithPinnedVersion(
+      this,
+      this.editor.resume.locale,
+      this.editor.resume.template
+    )
+    const selectedIdentity = getTemplateIdentity(this.editor.resume.template)
+    const selectedTemplate = templates.find(
+      (template) => getTemplateIdentity(template) === selectedIdentity
     )
     if (selectedTemplate === undefined) {
       return throwMemoryNotFound('resume template')
     }
     return {
-      availableTemplates: cloneMemoryValue(MOCK_TEMPLATE_SETTINGS.availableTemplates),
+      availableTemplates: cloneMemoryValue(templates),
       resumeId,
+      resumeRevision: this.editor.resume.revision,
       selectedTemplate: cloneMemoryValue(selectedTemplate),
       styleIntent: cloneMemoryValue(this.editor.resume.styleIntent)
     }
+  }
+
+  /**
+   * @brief 保证测试 mutation 仍绑定调用方读取的 Resume revision / Ensure a test mutation remains bound to the Resume revision read by its caller.
+   * @param baseRevision 调用方编辑的基础 revision / Base revision edited by the caller.
+   */
+  private assertBaseRevision(baseRevision: number): void {
+    if (baseRevision !== this.editor.resume.revision) throw new ResumeSnapshotConflictError()
   }
 }

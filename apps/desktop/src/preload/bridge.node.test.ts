@@ -7,6 +7,7 @@ import {
 } from '@ai-job-workspace/platform'
 
 import { createDesktopPlatformBridge } from './bridge'
+import { validatePreloadArtifactSaveRequest } from './bridge'
 
 describe('createDesktopPlatformBridge', () => {
   it('只经固定通道请求运行时信息', async () => {
@@ -68,14 +69,51 @@ describe('createDesktopPlatformBridge', () => {
 
     await expect(
       bridge.saveArtifact({
-        contentUrl: 'https://api.example.test/api/v1/render-artifacts/a/content',
+        artifactId: 'artifact_123',
         suggestedFileName
       })
     ).resolves.toEqual({ status: 'cancelled' })
     expect(invokeArtifactSave).toHaveBeenCalledWith(SAVE_ARTIFACT_CHANNEL, {
-      contentUrl: 'https://api.example.test/api/v1/render-artifacts/a/content',
+      artifactId: 'artifact_123',
       suggestedFileName: 'Klee Resume.pdf'
     })
     expect(invokeRuntimeInfo).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    null,
+    {},
+    {
+      artifactId: 'artifact_123',
+      hiddenPath: '/tmp/private.pdf',
+      suggestedFileName: 'resume.pdf'
+    },
+    {
+      artifactId: 'short',
+      suggestedFileName: 'resume.pdf'
+    },
+    {
+      artifactId: 'artifact_123',
+      suggestedFileName: '../unsafe.pdf'
+    }
+  ])('preload 拒绝扩权或非规范保存载荷：%o', (payload) => {
+    expect(() => validatePreloadArtifactSaveRequest(payload)).toThrow()
+  })
+
+  it('不把 preload 拒绝的产物 ID 发送到 IPC', () => {
+    /** @brief 运行时信息 IPC mock / Runtime-info IPC mock. */
+    const invokeRuntimeInfo = vi.fn()
+    /** @brief 产物保存 IPC mock / Artifact-save IPC mock. */
+    const invokeArtifactSave = vi.fn()
+    /** @brief 待测的桌面端平台桥接 / Desktop platform bridge under test. */
+    const bridge = createDesktopPlatformBridge(invokeRuntimeInfo, invokeArtifactSave)
+
+    expect(() =>
+      bridge.saveArtifact({
+        artifactId: 'short',
+        suggestedFileName: sanitizePdfFileName('Klee Resume')
+      })
+    ).toThrow('opaque-ID')
+    expect(invokeArtifactSave).not.toHaveBeenCalled()
   })
 })

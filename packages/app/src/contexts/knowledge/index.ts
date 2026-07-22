@@ -3,6 +3,7 @@
 export type { UiKnowledgeSourceId } from '../../shared-kernel/identity'
 export type {
   UiKnowledgeSourceType,
+  UiKnowledgeAgentScope,
   UiKnowledgeIngestionStatus,
   UiVisibilityEffect,
   UiKnowledgeSensitivity,

@@ -2,6 +2,7 @@
 
 import { classifyDiagnosticError, getDiagnosticHttpStatus } from '../../observability'
 import type {
+  DiagnosticErrorKind,
   DiagnosticHttpMethod,
   DiagnosticHttpOperation,
   Diagnostics
@@ -19,7 +20,12 @@ export interface HttpClientOptions {
   readonly fetchImpl?: typeof fetch
   /** @brief 测试可替换的客户端请求关联 ID 生成器 / Client request-correlation-ID generator replaceable in tests. */
   readonly createRequestId?: () => string
+  /** @brief 单次控制面请求的总截止时间（毫秒）/ Total deadline in milliseconds for one control-plane request. */
+  readonly timeoutMilliseconds?: number
 }
+
+/** @brief 单次控制面 HTTP 请求的默认截止时间 / Default deadline for one control-plane HTTP request. */
+const DEFAULT_HTTP_TIMEOUT_MS = 30_000
 
 /** @brief GET 查询参数值 / GET query value. */
 type QueryValue = boolean | number | string | null | undefined
@@ -113,6 +119,64 @@ export class HttpContractError extends Error {
   }
 }
 
+/**
+ * @brief 严格校验可用于 If-Match 的单一强实体标签 / Strictly validate one strong entity-tag usable by If-Match.
+ * @param value 未经信任的 ETag 值 / Untrusted ETag value.
+ * @param path 诊断字段路径 / Diagnostic field path.
+ * @param status 产生该值的 HTTP 状态 / HTTP status that produced the value.
+ * @return 可安全原样用于 If-Match 的强实体标签 / Strong entity-tag safe to reuse verbatim in If-Match.
+ * @note If-Match 使用强比较；通配符、弱标签、标签列表和控制字符均不能充当资源版本令牌。
+ */
+export function parseStrongEntityTag(value: unknown, path: string, status = 200): string {
+  if (typeof value !== 'string' || !value.startsWith('"') || !value.endsWith('"')) {
+    throw new HttpContractError(`Backend field ${path} must be one strong entity-tag.`, status)
+  }
+  /** @brief 引号内部的不透明标签 / Opaque tag inside the quotes. */
+  const opaqueTag = value.slice(1, -1)
+  for (const character of opaqueTag) {
+    /** @brief 当前字符的 Unicode code point / Unicode code point of the current character. */
+    const codePoint = character.codePointAt(0)
+    if (
+      codePoint === undefined ||
+      !(
+        codePoint === 0x21 ||
+        (codePoint >= 0x23 && codePoint <= 0x7e) ||
+        (codePoint >= 0x80 && codePoint <= 0xff)
+      )
+    ) {
+      throw new HttpContractError(`Backend field ${path} must be one strong entity-tag.`, status)
+    }
+  }
+  return value
+}
+
+/** @brief 写命令已发送但客户端无法确认最终结果 / Write command sent without a confirmable final outcome. */
+export class HttpCommandOutcomeUnknownError extends Error {
+  override readonly name = 'HttpCommandOutcomeUnknownError'
+  /** @brief 导致无法确认结果的脱敏诊断类别 / Sanitized diagnostic category that made the outcome unconfirmable. */
+  readonly diagnosticKind: DiagnosticErrorKind
+
+  /**
+   * @brief 构造不包含请求或响应内容的未知结果错误 / Construct an outcome-unknown error without request or response content.
+   * @param diagnosticKind 原始失败的安全诊断类别 / Safe diagnostic category of the original failure.
+   */
+  constructor(diagnosticKind: DiagnosticErrorKind = 'timeout') {
+    super('The product API command may have been processed, but its outcome is unknown.')
+    this.diagnosticKind = diagnosticKind
+  }
+}
+
+/**
+ * @brief 将命令确认阶段错误收敛为安全的未知结果 / Narrow a command-confirmation failure to a safe outcome-unknown error.
+ * @param error 无法安全向用户暴露的原始错误 / Original error unsafe to expose to users.
+ * @return 保留低基数诊断类别的未知结果错误 / Outcome-unknown error retaining only a low-cardinality diagnostic kind.
+ */
+export function toHttpCommandOutcomeUnknownError(error: unknown): HttpCommandOutcomeUnknownError {
+  return error instanceof HttpCommandOutcomeUnknownError
+    ? error
+    : new HttpCommandOutcomeUnknownError(classifyDiagnosticError(error))
+}
+
 /** @brief 判断未知值是否为对象 / Determine whether an unknown value is an object. */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -158,13 +222,20 @@ const EXTENSION_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_.-]{2,127}$/u
 const URI_REFERENCE_PATTERN = /^(?:[A-Za-z0-9._~:/?#[\]@!$&'()*+,;=-]|%[0-9A-Fa-f]{2})*$/u
 
 /** @brief 已验证的 ProblemDetails 最小投影 / Validated minimal ProblemDetails projection. */
-interface ParsedProblemDetails {
+export interface ParsedProblemDetails {
+  /** @brief 稳定机器可读错误码 / Stable machine-readable error code. */
   readonly code: string
+  /** @brief 可选诊断说明；不得直接展示 / Optional diagnostic detail that must not be displayed directly. */
   readonly detail: string | null
+  /** @brief 可安全检索的请求关联编号 / Request correlation identifier safe for lookup. */
   readonly requestId: string | null
+  /** @brief 服务端声明的重试语义 / Retry semantics declared by the service. */
   readonly retryable: boolean
+  /** @brief 可选重试等待时间 / Optional retry delay. */
   readonly retryAfterMs: number | null
+  /** @brief Problem 对应的 HTTP 状态 / HTTP status represented by the problem. */
   readonly status: number
+  /** @brief 后端诊断标题；不得直接展示 / Backend diagnostic title that must not be displayed directly. */
   readonly title: string
 }
 
@@ -238,10 +309,13 @@ function isFieldViolation(value: unknown): boolean {
 /**
  * @brief 严格解析冻结的 ProblemDetails / Strictly parse the frozen ProblemDetails schema.
  * @param value 未经信任的响应 JSON / Untrusted response JSON.
- * @param responseStatus HTTP 响应状态 / HTTP response status.
+ * @param responseStatus 可选 HTTP 响应状态；顶层错误必须与之相等 / Optional HTTP response status that a top-level error must match.
  * @return 安全的错误投影，失败时为 null / Safe error projection, or null on validation failure.
  */
-function parseProblemDetails(value: unknown, responseStatus: number): ParsedProblemDetails | null {
+export function parseProblemDetails(
+  value: unknown,
+  responseStatus?: number
+): ParsedProblemDetails | null {
   if (!isRecord(value) || !hasOnlyKeys(value, PROBLEM_DETAIL_KEYS)) return null
   if (
     !isUriReference(value.type) ||
@@ -252,7 +326,7 @@ function parseProblemDetails(value: unknown, responseStatus: number): ParsedProb
     !Number.isInteger(value.status) ||
     value.status < 400 ||
     value.status > 599 ||
-    value.status !== responseStatus ||
+    (responseStatus !== undefined && value.status !== responseStatus) ||
     typeof value.code !== 'string' ||
     !ERROR_CODE_PATTERN.test(value.code) ||
     typeof value.retryable !== 'boolean'
@@ -315,15 +389,41 @@ export interface HttpClient {
   postJson(path: string, body: unknown, options?: PostJsonOptions): Promise<HttpJsonResponse>
   /** @brief 发送并解析 JSON Merge Patch / Send and parse a JSON Merge Patch. */
   patchJson(path: string, body: unknown, options: PatchJsonOptions): Promise<HttpJsonResponse>
-  /** @brief 校验并解析同源产品 API URL / Validate and resolve a same-origin product API URL. */
-  resolveProductUrl(value: string): string
+  /** @brief 校验并解析指定 PDF 产物的同源 content URL / Validate and resolve the same-origin content URL for a specific PDF artifact. */
+  resolveArtifactUrl(value: string, artifactId: string): string
+}
+
+/**
+ * @brief 解析受信任的同源产品 API URL / Resolve a trusted same-origin product API URL.
+ * @param value 后端返回的绝对或相对 URI / Absolute or relative URI returned by the backend.
+ * @param apiBaseUrl 已验证的产品 API 根 / Validated product API base URL.
+ * @return 不含凭证与 fragment 的同源产品 URL / Same-origin product URL without credentials or a fragment.
+ * @throws URL 越出产品 API 边界时抛出错误 / Throws when the URL escapes the product API boundary.
+ */
+function resolveTrustedProductUrl(value: string, apiBaseUrl: URL): URL {
+  if (value.includes('\\')) {
+    throw new Error('Backend returned an untrusted product API URL.')
+  }
+  const url = new URL(value, apiBaseUrl)
+  if (
+    url.origin !== apiBaseUrl.origin ||
+    url.username.length > 0 ||
+    url.password.length > 0 ||
+    url.hash.length > 0 ||
+    !url.pathname.startsWith('/api/v1/')
+  ) {
+    throw new Error('Backend returned an untrusted product API URL.')
+  }
+  return url
 }
 
 /** @brief 解析 JSON 或 Problem Details 响应 / Parse a JSON or Problem Details response. */
 async function parseJsonResponse(response: Response): Promise<HttpJsonResponse> {
-  const contentType = response.headers.get('Content-Type')?.toLowerCase() ?? ''
-  const isJson =
-    contentType.includes('application/json') || contentType.includes('application/problem+json')
+  /** @brief 去除参数并统一大小写的响应媒体类型 / Response media-type essence without parameters and casing differences. */
+  const mediaType =
+    response.headers.get('Content-Type')?.split(';', 1)[0]?.trim().toLowerCase() ?? ''
+  /** @brief 是否为契约支持的 JSON 媒体类型 / Whether the response uses a contract-supported JSON media type. */
+  const isJson = mediaType === 'application/json' || mediaType === 'application/problem+json'
   if (!isJson) {
     throw new HttpContractError(
       response.ok
@@ -337,11 +437,14 @@ async function parseJsonResponse(response: Response): Promise<HttpJsonResponse> 
   let data: unknown
   try {
     data = await response.json()
-  } catch {
+  } catch (error: unknown) {
+    /** @brief body 读取期间仍须保留的取消或截止错误 / Cancellation or deadline error preserved during body reading. */
+    const errorKind = classifyDiagnosticError(error)
+    if (errorKind === 'aborted' || errorKind === 'timeout') throw error
     throw new HttpContractError('Backend returned malformed JSON.', response.status)
   }
   if (!response.ok) {
-    if (contentType.includes('application/problem+json')) {
+    if (mediaType === 'application/problem+json') {
       /** @brief 严格校验后的错误投影 / Strictly validated error projection. */
       const problem = parseProblemDetails(data, response.status)
       if (problem === null) {
@@ -495,6 +598,51 @@ interface ExecuteJsonRequestOptions {
   readonly diagnosticsPolicy: 'record' | 'suppress'
   /** @brief 当前端点冻结的成功状态 / Success status frozen for the endpoint. */
   readonly expectedStatus: HttpSuccessStatus
+  /** @brief 单次请求截止时间 / Deadline for this request. */
+  readonly timeoutMilliseconds: number
+}
+
+/** @brief 可在请求完成后释放的截止时间信号 / Deadline signal disposable after request completion. */
+interface RequestDeadline {
+  /** @brief 同时传播调用方取消与本地超时的信号 / Signal propagating caller cancellation and the local timeout. */
+  readonly signal: AbortSignal
+  /** @brief 释放 timer 与调用方监听器 / Release the timer and caller listener. */
+  readonly dispose: () => void
+}
+
+/**
+ * @brief 合并调用方取消与本地请求截止时间 / Combine caller cancellation with a local request deadline.
+ * @param callerSignal 调用方可选取消信号 / Optional caller cancellation signal.
+ * @param timeoutMilliseconds 截止时间毫秒数 / Deadline in milliseconds.
+ * @return 请求信号及其清理动作 / Request signal and its cleanup action.
+ * @note 超时使用 TimeoutError，页面导航等调用方取消保留原始 AbortError 语义。 / A deadline uses TimeoutError while caller cancellation preserves its AbortError semantics.
+ */
+function createRequestDeadline(
+  callerSignal: AbortSignal | null | undefined,
+  timeoutMilliseconds: number
+): RequestDeadline {
+  /** @brief 当前请求的组合取消控制器 / Combined abort controller for this request. */
+  const controller = new AbortController()
+  /** @brief 将调用方取消原因透传到组合信号 / Forward caller cancellation to the combined signal. */
+  const forwardCallerAbort = (): void => controller.abort(callerSignal?.reason)
+
+  if (callerSignal?.aborted === true) forwardCallerAbort()
+  else callerSignal?.addEventListener('abort', forwardCallerAbort, { once: true })
+
+  /** @brief 请求截止 timer / Request-deadline timer. */
+  const timeout = setTimeout((): void => {
+    controller.abort(
+      new DOMException('The product API request exceeded its deadline.', 'TimeoutError')
+    )
+  }, timeoutMilliseconds)
+
+  return {
+    dispose(): void {
+      clearTimeout(timeout)
+      callerSignal?.removeEventListener('abort', forwardCallerAbort)
+    },
+    signal: controller.signal
+  }
 }
 
 /**
@@ -512,9 +660,16 @@ async function executeJsonRequest(options: ExecuteJsonRequestOptions): Promise<H
   let responseStatus: number | null = null
   /** @brief 当前请求是否应生成独立 HTTP 事件 / Whether this request should generate an individual HTTP event. */
   const shouldRecord = options.diagnosticsPolicy === 'record'
+  /** @brief 当前请求的组合截止信号 / Combined deadline signal for this request. */
+  const deadline = createRequestDeadline(options.init.signal, options.timeoutMilliseconds)
 
   try {
-    const response = await options.fetchImpl(options.requestUrl.toString(), options.init)
+    const response = await options.fetchImpl(options.requestUrl.toString(), {
+      ...options.init,
+      credentials: 'omit',
+      redirect: 'error',
+      signal: deadline.signal
+    })
     responseStatus = response.status
     if (response.ok && response.status !== options.expectedStatus) {
       throw new HttpContractError(
@@ -556,7 +711,20 @@ async function executeJsonRequest(options: ExecuteJsonRequestOptions): Promise<H
           status: responseStatus ?? getDiagnosticHttpStatus(error)
         })
       })
+    /** @brief 当前请求是否为可能已经产生副作用的命令 / Whether this request is a command that may already have produced a side effect. */
+    const isCommand = options.method === 'POST' || options.method === 'PATCH'
+    /** @brief 未收到响应、无法验证的成功响应或任意 5xx 都不能证明命令未提交 / A missing response, unverifiable success, or any 5xx cannot prove that a command was not committed. */
+    const commandOutcomeIsUnknown =
+      isCommand &&
+      (responseStatus === null ||
+        (responseStatus >= 200 && responseStatus < 300) ||
+        responseStatus >= 500)
+    if (commandOutcomeIsUnknown) {
+      throw toHttpCommandOutcomeUnknownError(error)
+    }
     throw error
+  } finally {
+    deadline.dispose()
   }
 }
 
@@ -576,6 +744,15 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
   const acceptLanguage = options.acceptLanguage
   /** @brief 当前 client 统一使用的可选诊断端口 / Optional diagnostics port uniformly used by this client. */
   const diagnostics = options.diagnostics
+  /** @brief 每个请求统一使用的截止时间 / Deadline uniformly applied to every request. */
+  const timeoutMilliseconds = options.timeoutMilliseconds ?? DEFAULT_HTTP_TIMEOUT_MS
+  if (
+    !Number.isFinite(timeoutMilliseconds) ||
+    !Number.isInteger(timeoutMilliseconds) ||
+    timeoutMilliseconds <= 0
+  ) {
+    throw new Error('HTTP request timeout must be a positive integer.')
+  }
 
   return {
     assertResourceLocation(response, resourcePath): void {
@@ -589,7 +766,7 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
       }
       try {
         /** @brief 实际 Location 的可信产品 URL / Trusted product URL from the actual Location. */
-        const actual = new URL(this.resolveProductUrl(location))
+        const actual = resolveTrustedProductUrl(location, apiBaseUrl)
         /** @brief 根据请求资源构造的预期 URL / Expected URL constructed from the requested resource. */
         const expected = new URL(resourcePath.replace(/^\//u, ''), apiBaseUrl)
         if (actual.toString() !== expected.toString()) {
@@ -607,12 +784,25 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
       }
     },
 
-    resolveProductUrl(value): string {
-      const url = new URL(value, apiBaseUrl)
-      if (url.origin !== apiBaseUrl.origin || !url.pathname.startsWith('/api/v1/')) {
-        throw new Error('Backend returned an untrusted product artifact URL.')
+    resolveArtifactUrl(value, artifactId): string {
+      try {
+        /** @brief Schema 要求的绝对 artifact URI / Absolute artifact URI required by the schema. */
+        new URL(value)
+        /** @brief 通过同源产品边界后的 artifact URL / Artifact URL after the same-origin product boundary. */
+        const url = resolveTrustedProductUrl(value, apiBaseUrl)
+        /** @brief 当前 artifact 唯一允许的 content 路径 / Only allowed content path for the current artifact. */
+        const expectedPath = `/api/v1/render-artifacts/${encodeURIComponent(artifactId)}/content`
+        if (url.pathname !== expectedPath) {
+          throw new HttpContractError(
+            'Backend artifact URL identifies a different product resource.',
+            200
+          )
+        }
+        return url.toString()
+      } catch (error: unknown) {
+        if (error instanceof HttpContractError) throw error
+        throw new HttpContractError('Backend returned an untrusted product artifact URL.', 200)
       }
-      return url.toString()
     },
 
     async getJson(path, requestOptions = {}): Promise<HttpJsonResponse> {
@@ -639,7 +829,8 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
         method: 'GET',
         path,
         requestId,
-        requestUrl
+        requestUrl,
+        timeoutMilliseconds
       })
     },
 
@@ -655,7 +846,11 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
         headers['Idempotency-Key'] = requestOptions.idempotencyKey
       }
       if (requestOptions.ifMatch !== undefined) {
-        headers['If-Match'] = requestOptions.ifMatch
+        headers['If-Match'] = parseStrongEntityTag(
+          requestOptions.ifMatch,
+          'request.headers.If-Match',
+          0
+        )
       }
       return executeJsonRequest({
         diagnostics,
@@ -671,7 +866,8 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
         method: 'POST',
         path,
         requestId,
-        requestUrl
+        requestUrl,
+        timeoutMilliseconds
       })
     },
 
@@ -689,7 +885,7 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
           headers: {
             ...createCommonHeaders(requestId, acceptLanguage),
             'Content-Type': 'application/merge-patch+json',
-            'If-Match': requestOptions.ifMatch
+            'If-Match': parseStrongEntityTag(requestOptions.ifMatch, 'request.headers.If-Match', 0)
           },
           method: 'PATCH',
           ...(requestOptions.signal === undefined ? {} : { signal: requestOptions.signal })
@@ -697,7 +893,8 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
         method: 'PATCH',
         path,
         requestId,
-        requestUrl
+        requestUrl,
+        timeoutMilliseconds
       })
     }
   }

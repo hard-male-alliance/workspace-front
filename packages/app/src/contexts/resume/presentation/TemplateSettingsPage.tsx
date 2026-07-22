@@ -16,6 +16,9 @@ import { classifyResourceFailure } from '../../../app/resource-errors'
 import { asUiOpaqueId } from '../../../shared-kernel/identity'
 import { LoadingState } from '../../../ui'
 import type {
+  UiColorValue,
+  UiMeasurement,
+  UiMeasurementUnit,
   UiTemplateManifest,
   UiResumePageSize,
   UiTemplateSettingDefinition,
@@ -23,6 +26,8 @@ import type {
   UiTemplateSettingsModel
 } from '../domain/models'
 import type { ResumeGateway } from '../application/gateway'
+import { isResumeOperationRejected } from '../application/errors'
+import { getTemplateIdentity } from '../application/template-catalog'
 
 /**
  * @brief 选择模板缩略图的样式 / Select a template-thumbnail style.
@@ -38,25 +43,28 @@ function getTemplateThumbnailClass(template: UiTemplateManifest): string {
 }
 
 /**
- * @brief 将语义模板值转换为稳定的输入键 / Convert a semantic template value into a stable input key.
+ * @brief 将任意 JSON 模板值规范化为稳定比较键 / Canonicalize any JSON template value into a stable comparison key.
  * @param value 模板设置值 / Template setting value.
- * @return 不丢失结构类型的用户界面键 / UI key without erasing structural type.
+ * @return 对象键顺序无关且保留 JSON 类型的键 / Key preserving JSON types independently of object-key order.
  * @note 该函数只服务本地控件匹配，不是传输序列化，也不会生成 CSS。
  */
 function getTemplateSettingValueKey(value: UiTemplateSettingValue): string {
-  if (value === null) {
-    return 'null'
+  if (value === null) return 'null'
+  if (typeof value === 'string') return `string:${JSON.stringify(value)}`
+  if (typeof value === 'number') return `number:${JSON.stringify(value)}`
+  if (typeof value === 'boolean') return `boolean:${value ? 'true' : 'false'}`
+  if (Array.isArray(value)) {
+    return `array:[${value.map(getTemplateSettingValueKey).join(',')}]`
   }
-
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-    return `${typeof value}:${String(value)}`
-  }
-
-  if ('space' in value) {
-    return `color:${value.space}:${value.value}`
-  }
-
-  return `measurement:${value.value}:${value.unit}`
+  /** @brief 已窄化为 JSON 对象的设置值 / Setting value narrowed to a JSON object. */
+  const objectValue = value as Readonly<Record<string, UiTemplateSettingValue>>
+  /** @brief 按字符串词典序稳定排列的对象成员 / Object members in stable string-lexicographic order. */
+  const entries = Object.entries(objectValue).sort(([left], [right]) =>
+    left < right ? -1 : left > right ? 1 : 0
+  )
+  return `object:{${entries
+    .map(([key, item]) => `${JSON.stringify(key)}:${getTemplateSettingValueKey(item)}`)
+    .join(',')}}`
 }
 
 /**
@@ -73,11 +81,288 @@ function getTemplateSettingValueText(value: UiTemplateSettingValue): string {
     return String(value)
   }
 
-  if ('space' in value) {
-    return value.value
+  if (isColorValue(value)) return value.value
+  if (isMeasurementValue(value)) return `${value.value} ${value.unit}`
+  return getTemplateSettingValueKey(value).replace(/^(?:array:|object:)/u, '')
+}
+
+/** @brief 模板设置草稿中由页面直接编辑的值 / Template-setting draft values directly edited by the page. */
+interface TemplateSettingsDraft {
+  /** @brief 目标模板的不可变身份 / Immutable target-template identity. */
+  readonly templateIdentity: string
+  /** @brief 页面规格 / Page size. */
+  readonly pageSize: UiResumePageSize
+  /** @brief 字体令牌 / Font-family token. */
+  readonly fontFamilyToken: string
+  /** @brief 内容密度 / Content density. */
+  readonly density: number
+  /** @brief 日期格式令牌 / Date-format token. */
+  readonly dateFormatToken: string
+  /** @brief 项目符号令牌 / Bullet-style token. */
+  readonly bulletStyleToken: string
+  /** @brief 模板自定义设置 / Template-defined settings. */
+  readonly settings: Readonly<Record<string, UiTemplateSettingValue>>
+}
+
+/** @brief 受支持的测量单位 / Supported measurement units. */
+const measurementUnitValues: readonly UiMeasurementUnit[] = [
+  'pt',
+  'mm',
+  'cm',
+  'in',
+  'px',
+  'em',
+  'percent'
+]
+
+/** @brief 受支持的测量单位集合 / Supported measurement-unit set. */
+const measurementUnits = new Set<UiMeasurementUnit>(measurementUnitValues)
+
+/**
+ * @brief 判断模板值是否为颜色值 / Determine whether a template value is a color value.
+ * @param value 待检查值 / Value to inspect.
+ * @return 值具有受支持颜色结构时为 true / True when the value has a supported color shape.
+ */
+function isColorValue(value: UiTemplateSettingValue): value is UiColorValue {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  /** @brief 待识别的颜色对象 / Candidate color object. */
+  const candidate = value as Readonly<Record<string, UiTemplateSettingValue>>
+  if (!Object.keys(candidate).every((key) => key === 'space' || key === 'value')) return false
+  if (candidate.space !== 'srgb_hex' && candidate.space !== 'rgba') return false
+  if (typeof candidate.value !== 'string') return false
+  return candidate.space === 'srgb_hex'
+    ? /^#[0-9A-Fa-f]{6}(?:[0-9A-Fa-f]{2})?$/u.test(candidate.value)
+    : /^rgba\([^)]+\)$/u.test(candidate.value)
+}
+
+/**
+ * @brief 判断模板值是否为有限测量值 / Determine whether a template value is a finite measurement.
+ * @param value 待检查值 / Value to inspect.
+ * @return 值具有受支持测量结构时为 true / True when the value has a supported measurement shape.
+ */
+function isMeasurementValue(value: UiTemplateSettingValue): value is UiMeasurement {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  /** @brief 待识别的测量对象 / Candidate measurement object. */
+  const candidate = value as Readonly<Record<string, UiTemplateSettingValue>>
+  return (
+    Object.keys(candidate).every((key) => key === 'unit' || key === 'value') &&
+    typeof candidate.value === 'number' &&
+    Number.isFinite(candidate.value) &&
+    candidate.value >= 0 &&
+    typeof candidate.unit === 'string' &&
+    measurementUnits.has(candidate.unit as UiMeasurementUnit)
+  )
+}
+
+/**
+ * @brief 判断一个设置定义当前是否可见 / Determine whether a setting definition is currently visible.
+ * @param definition 设置定义 / Setting definition.
+ * @param settings 当前完整设置值 / Current complete setting values.
+ * @return 条件为空或精确匹配时为 true / True when no condition exists or its value matches exactly.
+ */
+function isTemplateSettingVisible(
+  definition: UiTemplateSettingDefinition,
+  settings: Readonly<Record<string, UiTemplateSettingValue>>
+): boolean {
+  if (definition.visibleWhen === null) return true
+  /** @brief 条件来源设置的当前值 / Current value of the condition-source setting. */
+  const conditionValue = settings[definition.visibleWhen.key]
+  return (
+    conditionValue !== undefined &&
+    getTemplateSettingValueKey(conditionValue) ===
+      getTemplateSettingValueKey(definition.visibleWhen.equals)
+  )
+}
+
+/**
+ * @brief 读取设置的当前值并保留合法 null / Read a setting's current value while preserving a valid null.
+ * @param definition 设置定义 / Setting definition.
+ * @param settings 当前设置值 / Current setting values.
+ * @return 当前值或定义默认值 / Current value or the definition default.
+ */
+function getCurrentTemplateSettingValue(
+  definition: UiTemplateSettingDefinition,
+  settings: Readonly<Record<string, UiTemplateSettingValue>>
+): UiTemplateSettingValue {
+  /** @brief 可能缺失但可以为 null 的候选值 / Candidate value that may be absent but may validly be null. */
+  const candidate = settings[definition.key]
+  return candidate === undefined ? definition.defaultValue : candidate
+}
+
+/** @brief 一组具有相同语义 group key 的模板设置 / Template settings sharing one semantic group key. */
+interface TemplateSettingGroup {
+  /** @brief 可选本地化组 key / Optional localized group key. */
+  readonly key: string | null
+  /** @brief 保持清单顺序的设置定义 / Setting definitions preserving manifest order. */
+  readonly definitions: readonly UiTemplateSettingDefinition[]
+}
+
+/**
+ * @brief 按清单 group key 聚合当前可见设置 / Group currently visible settings by their manifest group key.
+ * @param definitions 模板设置定义 / Template setting definitions.
+ * @param settings 当前设置值 / Current setting values.
+ * @return 首次出现顺序稳定的设置组 / Setting groups in stable first-occurrence order.
+ */
+function groupVisibleTemplateSettings(
+  definitions: readonly UiTemplateSettingDefinition[],
+  settings: Readonly<Record<string, UiTemplateSettingValue>>
+): readonly TemplateSettingGroup[] {
+  /** @brief 逐步构建且保持顺序的设置组 / Incrementally built ordered setting groups. */
+  const groups: { key: string | null; definitions: UiTemplateSettingDefinition[] }[] = []
+  for (const definition of definitions) {
+    if (!isTemplateSettingVisible(definition, settings)) continue
+    /** @brief 已存在的同名组 / Existing group with the same key. */
+    const group = groups.find((candidate) => candidate.key === definition.groupKey)
+    if (group === undefined) {
+      groups.push({ definitions: [definition], key: definition.groupKey })
+    } else {
+      group.definitions.push(definition)
+    }
+  }
+  return groups
+}
+
+/**
+ * @brief 判断用户生成的值是否满足清单声明 / Check whether a user-generated value satisfies the manifest declaration.
+ * @param definition 当前设置定义 / Current setting definition.
+ * @param value 控件准备提交的值 / Value about to be committed by a control.
+ * @return 值满足声明类型、离散选项与上下界时为 true / True when value type, choices, and bounds accept the value.
+ */
+function isTemplateSettingValueCompatible(
+  definition: UiTemplateSettingDefinition,
+  value: UiTemplateSettingValue
+): boolean {
+  /** @brief 值是否满足声明类型 / Whether the value satisfies the declared value type. */
+  const matchesValueType =
+    definition.valueType === 'boolean'
+      ? typeof value === 'boolean'
+      : definition.valueType === 'integer'
+        ? typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value)
+        : definition.valueType === 'number'
+          ? typeof value === 'number' && Number.isFinite(value)
+          : definition.valueType === 'string'
+            ? typeof value === 'string'
+            : definition.valueType === 'choice'
+              ? definition.choices.some(
+                  (choice) =>
+                    getTemplateSettingValueKey(choice.value) === getTemplateSettingValueKey(value)
+                )
+              : definition.valueType === 'color'
+                ? isColorValue(value)
+                : isMeasurementValue(value)
+
+  if (!matchesValueType) return false
+
+  if (
+    (definition.valueType === 'choice' ||
+      definition.control === 'select' ||
+      definition.control === 'radio') &&
+    !definition.choices.some(
+      (choice) => getTemplateSettingValueKey(choice.value) === getTemplateSettingValueKey(value)
+    )
+  ) {
+    return false
   }
 
-  return `${value.value} ${value.unit}`
+  /** @brief 可应用上下界的数值 / Numeric value to which bounds apply. */
+  const boundedValue =
+    typeof value === 'number' ? value : isMeasurementValue(value) ? value.value : null
+
+  return !(
+    (definition.minimum !== null && boundedValue !== null && boundedValue < definition.minimum) ||
+    (definition.maximum !== null && boundedValue !== null && boundedValue > definition.maximum)
+  )
+}
+
+/**
+ * @brief 按目标模板定义无损投影同名设置 / Losslessly project same-key settings through the target template definition.
+ * @param template 目标模板 / Target template.
+ * @param candidateSettings 权威值或本地草稿设置 / Authoritative or local-draft settings.
+ * @return 仅含目标 key、首次定义获胜且不改写服务端值的设置 / Settings containing target keys with first-definition wins and server values unchanged.
+ */
+function projectTemplateSettings(
+  template: UiTemplateManifest,
+  candidateSettings: Readonly<Record<string, UiTemplateSettingValue>>
+): Readonly<Record<string, UiTemplateSettingValue>> {
+  /** @brief 以首次出现定义稳定构造的设置 / Settings built deterministically from first-seen definitions. */
+  const migrated: Record<string, UiTemplateSettingValue> = {}
+  for (const definition of template.settings) {
+    if (Object.hasOwn(migrated, definition.key)) continue
+    migrated[definition.key] = Object.hasOwn(candidateSettings, definition.key)
+      ? candidateSettings[definition.key]!
+      : definition.defaultValue
+  }
+  return migrated
+}
+
+/**
+ * @brief 在用户切换模板时迁移可兼容设置 / Migrate compatible settings when the user switches templates.
+ * @param template 新选择的目标模板 / Newly selected target template.
+ * @param previousSettings 前一模板的本地值 / Local values from the previous template.
+ * @return 保留兼容同名值、其余使用目标默认值的设置 / Settings retaining compatible same-key values and otherwise using target defaults.
+ * @note 这是显式的用户切换策略；从服务端读取的权威值始终由 projectTemplateSettings 无损保留。 / This is an explicit user-switch policy; authoritative server values are always preserved by projectTemplateSettings.
+ */
+function migrateTemplateSettings(
+  template: UiTemplateManifest,
+  previousSettings: Readonly<Record<string, UiTemplateSettingValue>>
+): Readonly<Record<string, UiTemplateSettingValue>> {
+  /** @brief 按目标清单首次定义构造的迁移值 / Migrated values built from first-seen target definitions. */
+  const migrated: Record<string, UiTemplateSettingValue> = {}
+  for (const definition of template.settings) {
+    if (Object.hasOwn(migrated, definition.key)) continue
+    /** @brief 前一模板可能缺失的同名值 / Same-key value that may be absent from the previous template. */
+    const previousValue = previousSettings[definition.key]
+    migrated[definition.key] =
+      previousValue !== undefined && isTemplateSettingValueCompatible(definition, previousValue)
+        ? previousValue
+        : definition.defaultValue
+  }
+  return migrated
+}
+
+/**
+ * @brief 比较草稿与权威模型中可编辑的模板意图 / Compare editable template intent between a draft and an authoritative model.
+ * @param draft 本地模板设置草稿 / Local template-settings draft.
+ * @param model 服务端权威模型 / Authoritative server model.
+ * @return 权威模型已经确认同一意图时为 true / True when the authoritative model confirms the same intent.
+ */
+function doesTemplateDraftMatchModel(
+  draft: TemplateSettingsDraft,
+  model: UiTemplateSettingsModel
+): boolean {
+  /** @brief 权威目录中的草稿目标模板 / Draft target template in the authoritative catalog. */
+  const template = model.availableTemplates.find(
+    (candidate) => getTemplateIdentity(candidate) === draft.templateIdentity
+  )
+  if (
+    template === undefined ||
+    getTemplateIdentity(model.selectedTemplate) !== draft.templateIdentity
+  ) {
+    return false
+  }
+
+  /** @brief 经当前模板定义规整的草稿设置 / Draft settings normalized through the current definition. */
+  const normalizedDraftSettings = projectTemplateSettings(template, draft.settings)
+  /** @brief 经当前模板定义规整的权威设置 / Authoritative settings normalized through the current definition. */
+  const normalizedAuthoritativeSettings = projectTemplateSettings(
+    template,
+    model.styleIntent.templateSettings
+  )
+  /** @brief 目标模板声明的设置 key / Setting keys declared by the target template. */
+  const settingKeys = template.settings.map((definition) => definition.key)
+
+  return (
+    draft.pageSize === model.styleIntent.page.size &&
+    draft.fontFamilyToken === model.styleIntent.typography.fontFamilyToken &&
+    draft.density === model.styleIntent.density &&
+    draft.dateFormatToken === model.styleIntent.dateFormatToken &&
+    draft.bulletStyleToken === model.styleIntent.bulletStyleToken &&
+    settingKeys.every(
+      (key) =>
+        getTemplateSettingValueKey(normalizedDraftSettings[key]!) ===
+        getTemplateSettingValueKey(normalizedAuthoritativeSettings[key]!)
+    )
+  )
 }
 
 /**
@@ -87,22 +372,37 @@ function getTemplateSettingValueText(value: UiTemplateSettingValue): string {
  */
 function TemplateSettingControl({
   definition,
+  disabled,
   value,
   onChange
 }: {
   readonly definition: UiTemplateSettingDefinition
+  readonly disabled: boolean
   readonly value: UiTemplateSettingValue
   readonly onChange: (value: UiTemplateSettingValue) => void
 }): React.JSX.Element {
   /** @brief 翻译函数 / Translation function. */
   const { t } = useTranslation()
+  /** @brief 控件的本地化可访问名称 / Localized accessible name for the control. */
+  const label = t(definition.labelKey, { defaultValue: definition.labelKey })
+  /** @brief 当前值无法由声明控件安全编辑时的只读投影 / Read-only projection used when the declared control cannot safely edit the current value. */
+  const readOnlyValue = (
+    <output aria-label={label} className="aw-muted-copy">
+      {getTemplateSettingValueText(value)}
+    </output>
+  )
 
-  if (definition.control === 'switch') {
+  if (
+    definition.control === 'switch' &&
+    definition.valueType === 'boolean' &&
+    typeof value === 'boolean'
+  ) {
     return (
       <button
         aria-checked={value === true}
-        aria-label={t(definition.labelKey, { defaultValue: definition.labelKey })}
+        aria-label={label}
         className="aw-switch"
+        disabled={disabled}
         onClick={(): void => onChange(value !== true)}
         role="switch"
         type="button"
@@ -110,62 +410,255 @@ function TemplateSettingControl({
     )
   }
 
-  if (definition.control === 'slider') {
+  if (
+    definition.control === 'slider' &&
+    (definition.valueType === 'number' || definition.valueType === 'integer') &&
+    typeof value === 'number' &&
+    definition.minimum !== null &&
+    definition.maximum !== null &&
+    definition.minimum <= definition.maximum &&
+    isTemplateSettingValueCompatible(definition, value)
+  ) {
     /** @brief 当前滑块数值 / Current slider value. */
-    const numericValue = typeof value === 'number' ? value : (definition.minimum ?? 0)
     return (
       <input
-        aria-label={t(definition.labelKey, { defaultValue: definition.labelKey })}
-        max={definition.maximum ?? 1}
-        min={definition.minimum ?? 0}
-        onChange={(event): void => onChange(Number(event.target.value))}
-        step={0.05}
+        aria-label={label}
+        disabled={disabled}
+        max={definition.maximum}
+        min={definition.minimum}
+        onChange={(event): void => {
+          /** @brief 浏览器已解析的有限滑块值 / Finite slider value parsed by the browser. */
+          const nextValue = event.currentTarget.valueAsNumber
+          if (Number.isFinite(nextValue)) onChange(nextValue)
+        }}
+        step={definition.valueType === 'integer' ? 1 : 'any'}
         type="range"
-        value={numericValue}
+        value={value}
       />
     )
   }
 
-  if (definition.choices.length > 0) {
+  if (
+    (definition.control === 'number' || definition.control === 'slider') &&
+    (definition.valueType === 'number' || definition.valueType === 'integer') &&
+    typeof value === 'number' &&
+    (definition.minimum === null ||
+      definition.maximum === null ||
+      definition.minimum <= definition.maximum) &&
+    isTemplateSettingValueCompatible(definition, value)
+  ) {
+    return (
+      <input
+        aria-label={label}
+        className="aw-text-input"
+        disabled={disabled}
+        max={definition.maximum ?? undefined}
+        min={definition.minimum ?? undefined}
+        onChange={(event): void => {
+          /** @brief 浏览器已解析的有限数字 / Finite number parsed by the browser. */
+          const nextValue = event.currentTarget.valueAsNumber
+          if (Number.isFinite(nextValue)) onChange(nextValue)
+        }}
+        step={definition.valueType === 'integer' ? 1 : 'any'}
+        style={{ width: 120 }}
+        type="number"
+        value={value}
+      />
+    )
+  }
+
+  if (definition.control === 'select' && definition.choices.length > 0) {
+    /** @brief 当前值首次匹配的选项位置 / First choice index matching the current value. */
+    const selectedIndex = definition.choices.findIndex(
+      (choice) => getTemplateSettingValueKey(choice.value) === getTemplateSettingValueKey(value)
+    )
     return (
       <select
-        aria-label={t(definition.labelKey, { defaultValue: definition.labelKey })}
+        aria-label={label}
         className="aw-select"
+        disabled={disabled}
         onChange={(event): void => {
           /** @brief 被选择的完整语义选项 / Selected full semantic choice. */
-          const selectedChoice = definition.choices.find(
-            (choice) => getTemplateSettingValueKey(choice.value) === event.target.value
-          )
+          const selectedChoice = definition.choices[Number(event.target.value)]
 
-          if (selectedChoice !== undefined) {
+          if (
+            selectedChoice !== undefined &&
+            isTemplateSettingValueCompatible(definition, selectedChoice.value)
+          ) {
             onChange(selectedChoice.value)
           }
         }}
-        value={getTemplateSettingValueKey(value)}
+        value={String(selectedIndex)}
       >
-        {definition.choices.map((choice) => (
-          <option
-            key={getTemplateSettingValueKey(choice.value)}
-            value={getTemplateSettingValueKey(choice.value)}
-          >
-            {t(choice.labelKey, { defaultValue: choice.labelKey })}
-          </option>
-        ))}
+        {selectedIndex < 0 ? (
+          <option value="-1">{getTemplateSettingValueText(value)}</option>
+        ) : null}
+        {definition.choices.map((choice, index) => {
+          /** @brief 当前值第一次出现的位置 / First occurrence of the current choice value. */
+          const firstEquivalentIndex = definition.choices.findIndex(
+            (candidate) =>
+              getTemplateSettingValueKey(candidate.value) ===
+              getTemplateSettingValueKey(choice.value)
+          )
+          return (
+            <option
+              disabled={
+                firstEquivalentIndex !== index ||
+                !isTemplateSettingValueCompatible(definition, choice.value)
+              }
+              key={`${String(index)}:${getTemplateSettingValueKey(choice.value)}`}
+              title={
+                choice.descriptionKey === null
+                  ? undefined
+                  : t(choice.descriptionKey, { defaultValue: choice.descriptionKey })
+              }
+              value={String(index)}
+            >
+              {t(choice.labelKey, { defaultValue: choice.labelKey })}
+            </option>
+          )
+        })}
       </select>
     )
   }
 
-  return (
-    <input
-      aria-label={t(definition.labelKey, { defaultValue: definition.labelKey })}
-      className="aw-text-input"
-      onChange={
-        typeof value === 'string' ? (event): void => onChange(event.target.value) : undefined
-      }
-      readOnly={typeof value !== 'string'}
-      value={getTemplateSettingValueText(value)}
-    />
-  )
+  if (definition.control === 'radio' && definition.choices.length > 0) {
+    /** @brief 当前值首次匹配的选项位置 / First choice index matching the current value. */
+    const selectedIndex = definition.choices.findIndex(
+      (choice) => getTemplateSettingValueKey(choice.value) === getTemplateSettingValueKey(value)
+    )
+    return (
+      <div aria-label={label} className="aw-chip-row" role="radiogroup">
+        {selectedIndex < 0 ? (
+          <span className="aw-muted-copy">{getTemplateSettingValueText(value)}</span>
+        ) : null}
+        {definition.choices.map((choice, index) => {
+          /** @brief 当前选项的稳定值 key / Stable value key for the current choice. */
+          const choiceKey = getTemplateSettingValueKey(choice.value)
+          /** @brief 当前值第一次出现的位置 / First occurrence of the current choice value. */
+          const firstEquivalentIndex = definition.choices.findIndex(
+            (candidate) => getTemplateSettingValueKey(candidate.value) === choiceKey
+          )
+          /** @brief 可选选项说明 / Optional choice description. */
+          const choiceDescription =
+            choice.descriptionKey === null
+              ? null
+              : t(choice.descriptionKey, { defaultValue: choice.descriptionKey })
+          return (
+            <label className="aw-chip" key={`${String(index)}:${choiceKey}`}>
+              <input
+                checked={selectedIndex === index}
+                disabled={
+                  disabled ||
+                  firstEquivalentIndex !== index ||
+                  !isTemplateSettingValueCompatible(definition, choice.value)
+                }
+                name={`template-setting-${definition.key}`}
+                onChange={(event): void => {
+                  if (event.currentTarget.checked) onChange(choice.value)
+                }}
+                type="radio"
+                value={String(index)}
+              />
+              {t(choice.labelKey, { defaultValue: choice.labelKey })}
+              {choiceDescription === null ? null : (
+                <span className="aw-sr-only"> — {choiceDescription}</span>
+              )}
+            </label>
+          )
+        })}
+      </div>
+    )
+  }
+
+  if (definition.control === 'color' && definition.valueType === 'color' && isColorValue(value)) {
+    /** @brief 当前结构化颜色值 / Current structured color value. */
+    const colorValue: UiColorValue = value
+    /** @brief 原生颜色选择器能无损表达该值 / Whether the native color picker can express this value losslessly. */
+    const useNativeColorPicker =
+      colorValue.space === 'srgb_hex' && /^#[0-9A-Fa-f]{6}$/u.test(colorValue.value)
+    return (
+      <input
+        aria-label={label}
+        className="aw-text-input"
+        disabled={disabled}
+        onChange={(event): void => onChange({ ...colorValue, value: event.currentTarget.value })}
+        style={{ width: useNativeColorPicker ? 54 : 180 }}
+        type={useNativeColorPicker ? 'color' : 'text'}
+        value={colorValue.value}
+      />
+    )
+  }
+
+  if (
+    definition.control === 'measurement' &&
+    definition.valueType === 'measurement' &&
+    isMeasurementValue(value) &&
+    isTemplateSettingValueCompatible(definition, value)
+  ) {
+    /** @brief 当前结构化测量值 / Current structured measurement value. */
+    const measurementValue: UiMeasurement = value
+    return (
+      <div className="aw-inline-actions">
+        <input
+          aria-label={`${label} · ${t('template.measurementValue', { defaultValue: '数值' })}`}
+          className="aw-text-input"
+          disabled={disabled}
+          max={definition.maximum ?? undefined}
+          min={Math.max(0, definition.minimum ?? 0)}
+          onChange={(event): void => {
+            /** @brief 浏览器已解析的有限测量数值 / Finite measurement magnitude parsed by the browser. */
+            const nextValue = event.currentTarget.valueAsNumber
+            if (Number.isFinite(nextValue)) {
+              onChange({ ...measurementValue, value: nextValue })
+            }
+          }}
+          step="any"
+          style={{ width: 100 }}
+          type="number"
+          value={measurementValue.value}
+        />
+        <select
+          aria-label={`${label} · ${t('template.measurementUnit', { defaultValue: '单位' })}`}
+          className="aw-select"
+          disabled={disabled}
+          onChange={(event): void =>
+            onChange({
+              ...measurementValue,
+              unit: event.currentTarget.value as UiMeasurementUnit
+            })
+          }
+          style={{ width: 90 }}
+          value={measurementValue.unit}
+        >
+          {measurementUnitValues.map((unit) => (
+            <option key={unit} value={unit}>
+              {unit}
+            </option>
+          ))}
+        </select>
+      </div>
+    )
+  }
+
+  if (
+    definition.control === 'text' &&
+    definition.valueType === 'string' &&
+    typeof value === 'string'
+  ) {
+    return (
+      <input
+        aria-label={label}
+        className="aw-text-input"
+        disabled={disabled}
+        onChange={(event): void => onChange(event.currentTarget.value)}
+        type="text"
+        value={value}
+      />
+    )
+  }
+
+  return readOnlyValue
 }
 
 /**
@@ -175,22 +668,22 @@ function TemplateSettingControl({
  */
 function TemplateSettingsContent({
   gateway,
-  model,
-  onReload
+  model
 }: {
   readonly gateway: ResumeGateway
   readonly model: UiTemplateSettingsModel
-  readonly onReload: () => void
 }): React.JSX.Element {
   /** @brief 翻译函数 / Translation function. */
   const { t } = useTranslation()
   /** @brief 选择中的模板 ID / Selected template ID. */
   const [authoritativeModel, setAuthoritativeModel] = useState(model)
-  /** @brief 选择中的模板 ID / Selected template ID. */
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string>(model.selectedTemplate.id)
+  /** @brief 选择中的不可变模板身份 / Selected immutable template identity. */
+  const [selectedTemplateIdentity, setSelectedTemplateIdentity] = useState<string>(
+    getTemplateIdentity(model.selectedTemplate)
+  )
   /** @brief 页面内尚待保存的设置值 / In-page setting values pending persistence. */
   const [settings, setSettings] = useState<Readonly<Record<string, UiTemplateSettingValue>>>(
-    model.styleIntent.templateSettings
+    projectTemplateSettings(model.selectedTemplate, model.styleIntent.templateSettings)
   )
   /** @brief 页面规格的本地语义意图 / Local semantic intent for page size. */
   const [pageSize, setPageSize] = useState<UiResumePageSize>(model.styleIntent.page.size)
@@ -208,10 +701,49 @@ function TemplateSettingsContent({
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   /** @brief 最近一次安全呈现的保存错误 / Latest save error to present safely. */
   const [saveError, setSaveError] = useState<unknown>(null)
+  /** @brief 是否正在重新读取服务端权威设置 / Whether authoritative server settings are being reloaded. */
+  const [isReloadingAuthority, setReloadingAuthority] = useState(false)
+  /** @brief 权威设置重新读取是否失败 / Whether reloading authoritative settings failed. */
+  const [authorityReloadError, setAuthorityReloadError] = useState(false)
+  /** @brief 最近保存错误的安全类别 / Safe category of the latest save error. */
+  const saveFailureKind = saveError === null ? null : classifyResourceFailure(saveError).kind
+  /** @brief 是否必须先重新读取权威版本 / Whether the authoritative version must be reloaded first. */
+  const authorityReloadRequired =
+    saveFailureKind === 'conflict' ||
+    saveFailureKind === 'outcome-unknown' ||
+    isResumeOperationRejected(saveError)
+  /** @brief 写响应待定或权威恢复前是否冻结编辑 / Whether editing is frozen while a write is pending or authority must be recovered. */
+  const isWriteLocked = saveStatus === 'saving' || authorityReloadRequired
   /** @brief 当前展示的模板 / Currently displayed template. */
   const selectedTemplate =
-    authoritativeModel.availableTemplates.find((template) => template.id === selectedTemplateId) ??
-    authoritativeModel.selectedTemplate
+    authoritativeModel.availableTemplates.find(
+      (template) => getTemplateIdentity(template) === selectedTemplateIdentity
+    ) ?? authoritativeModel.selectedTemplate
+  /** @brief 当前可见且按 manifest 语义分组的设置 / Currently visible settings grouped by manifest semantics. */
+  const settingGroups = groupVisibleTemplateSettings(selectedTemplate.settings, settings)
+  /** @brief 当前页面可编辑字段组成的草稿 / Draft composed from the page's editable fields. */
+  const draft = useMemo<TemplateSettingsDraft>(
+    () => ({
+      bulletStyleToken,
+      dateFormatToken,
+      density,
+      fontFamilyToken,
+      pageSize,
+      settings,
+      templateIdentity: getTemplateIdentity(selectedTemplate)
+    }),
+    [
+      bulletStyleToken,
+      dateFormatToken,
+      density,
+      fontFamilyToken,
+      pageSize,
+      selectedTemplate,
+      settings
+    ]
+  )
+  /** @brief 草稿是否不同于最近权威模型 / Whether the draft differs from the latest authoritative model. */
+  const isDirty = !doesTemplateDraftMatchModel(draft, authoritativeModel)
   /** @brief 准备提交的完整语义样式意图 / Complete semantic-style intent prepared for submission. */
   const draftStyleIntent = useMemo(
     () => ({
@@ -236,13 +768,17 @@ function TemplateSettingsContent({
 
   /**
    * @brief 更新单个待保存模板设置 / Update one pending template setting.
-   * @param key 模板设置 key / Template setting key.
+   * @param definition 模板设置定义 / Template setting definition.
    * @param value 新的受约束值 / New constrained value.
    * @return 无返回值 / No return value.
    */
-  const updateSetting = (key: string, value: UiTemplateSettingValue): void => {
+  const updateSetting = (
+    definition: UiTemplateSettingDefinition,
+    value: UiTemplateSettingValue
+  ): void => {
+    if (isWriteLocked || !isTemplateSettingValueCompatible(definition, value)) return
     setSaveStatus('idle')
-    setSettings((currentSettings) => ({ ...currentSettings, [key]: value }))
+    setSettings((currentSettings) => ({ ...currentSettings, [definition.key]: value }))
   }
 
   /**
@@ -252,8 +788,9 @@ function TemplateSettingsContent({
    * @note 控件只保留目标模板声明的 setting key；最终兼容性仍由后端 operation 验证。
    */
   const selectTemplate = (template: UiTemplateManifest): void => {
+    if (isWriteLocked) return
     setSaveStatus('idle')
-    setSelectedTemplateId(template.id)
+    setSelectedTemplateIdentity(getTemplateIdentity(template))
     setPageSize((currentPageSize) =>
       template.supportedPageSizes.includes(currentPageSize)
         ? currentPageSize
@@ -274,14 +811,7 @@ function TemplateSettingsContent({
         ? currentToken
         : (template.bulletStyleTokens.at(0) ?? currentToken)
     )
-    setSettings((currentSettings) =>
-      Object.fromEntries(
-        template.settings.map((definition) => [
-          definition.key,
-          currentSettings[definition.key] ?? definition.defaultValue
-        ])
-      )
-    )
+    setSettings((currentSettings) => migrateTemplateSettings(template, currentSettings))
   }
 
   /**
@@ -289,18 +819,23 @@ function TemplateSettingsContent({
    * @return 保存完成的 Promise / Promise completed after persistence.
    */
   const saveSettings = async (): Promise<void> => {
+    if (isWriteLocked || !isDirty) return
     setSaveStatus('saving')
     setSaveError(null)
     try {
       /** @brief 后端返回的权威模板设置投影 / Authoritative template-settings projection returned by the backend. */
       const saved = await gateway.updateTemplateSettings({
+        baseRevision: authoritativeModel.resumeRevision,
         resumeId: authoritativeModel.resumeId,
         styleIntent: draftStyleIntent,
-        templateId: selectedTemplate.id
+        templateId: selectedTemplate.id,
+        templateVersion: selectedTemplate.version
       })
       setAuthoritativeModel(saved)
-      setSelectedTemplateId(saved.selectedTemplate.id)
-      setSettings(saved.styleIntent.templateSettings)
+      setSelectedTemplateIdentity(getTemplateIdentity(saved.selectedTemplate))
+      setSettings(
+        projectTemplateSettings(saved.selectedTemplate, saved.styleIntent.templateSettings)
+      )
       setPageSize(saved.styleIntent.page.size)
       setFontFamilyToken(saved.styleIntent.typography.fontFamilyToken)
       setDateFormatToken(saved.styleIntent.dateFormatToken)
@@ -314,13 +849,70 @@ function TemplateSettingsContent({
   }
 
   /**
+   * @brief 重新读取权威设置且尽可能保留尚未确认的本地草稿 / Reload authoritative settings while preserving the unconfirmed local draft whenever possible.
+   * @return 读取完成的 Promise / Promise completed after the read.
+   * @note 若服务端已移除本地选择的模板，草稿无法再表达，页面会回到新的权威值。 / If the service removed the locally selected template, the draft is no longer expressible and the page returns to the new authoritative values.
+   */
+  const reloadAuthoritativeSettings = useCallback(async (): Promise<void> => {
+    if (isReloadingAuthority) return
+    setReloadingAuthority(true)
+    setAuthorityReloadError(false)
+    try {
+      /** @brief 服务端当前权威模板设置 / Current authoritative template settings from the service. */
+      const authoritative = await gateway.getTemplateSettings(model.resumeId)
+      /** @brief 新目录中仍可表达本地草稿的模板 / Template in the new catalog that can still express the local draft. */
+      const draftTemplate = authoritative.availableTemplates.find(
+        (template) => getTemplateIdentity(template) === draft.templateIdentity
+      )
+      setAuthoritativeModel(authoritative)
+      if (draftTemplate === undefined) {
+        setSelectedTemplateIdentity(getTemplateIdentity(authoritative.selectedTemplate))
+        setSettings(
+          projectTemplateSettings(
+            authoritative.selectedTemplate,
+            authoritative.styleIntent.templateSettings
+          )
+        )
+        setPageSize(authoritative.styleIntent.page.size)
+        setFontFamilyToken(authoritative.styleIntent.typography.fontFamilyToken)
+        setDateFormatToken(authoritative.styleIntent.dateFormatToken)
+        setBulletStyleToken(authoritative.styleIntent.bulletStyleToken)
+        setDensity(authoritative.styleIntent.density)
+        setSaveStatus('idle')
+      } else if (doesTemplateDraftMatchModel(draft, authoritative)) {
+        setSelectedTemplateIdentity(getTemplateIdentity(authoritative.selectedTemplate))
+        setSettings(
+          projectTemplateSettings(
+            authoritative.selectedTemplate,
+            authoritative.styleIntent.templateSettings
+          )
+        )
+        setPageSize(authoritative.styleIntent.page.size)
+        setFontFamilyToken(authoritative.styleIntent.typography.fontFamilyToken)
+        setDateFormatToken(authoritative.styleIntent.dateFormatToken)
+        setBulletStyleToken(authoritative.styleIntent.bulletStyleToken)
+        setDensity(authoritative.styleIntent.density)
+        setSaveStatus('saved')
+      } else {
+        setSettings(projectTemplateSettings(draftTemplate, draft.settings))
+        setSaveStatus('idle')
+      }
+      setSaveError(null)
+    } catch {
+      setAuthorityReloadError(true)
+    } finally {
+      setReloadingAuthority(false)
+    }
+  }, [draft, gateway, isReloadingAuthority, model.resumeId])
+
+  /**
    * @brief 根据失败类别选择安全恢复动作 / Choose a safe recovery action for the failure category.
    * @return 无返回值 / No return value.
-   * @note 并发冲突必须重新读取权威版本，不能盲目重放陈旧 mutation。 / Concurrency conflicts must reload authority instead of blindly replaying a stale mutation.
+   * @note 并发冲突与未知写结果必须重新读取权威版本，不能盲目重放 mutation。 / Conflicts and unknown write outcomes must reload authority instead of blindly replaying a mutation.
    */
   const recoverFromSaveFailure = (): void => {
-    if (classifyResourceFailure(saveError).kind === 'conflict') {
-      onReload()
+    if (authorityReloadRequired) {
+      void reloadAuthoritativeSettings()
       return
     }
     void saveSettings()
@@ -375,12 +967,14 @@ function TemplateSettingsContent({
             ) : null}
             {authoritativeModel.availableTemplates.map((template) => {
               /** @brief 当前模板是否被选择 / Whether this template is selected. */
-              const isSelected = template.id === selectedTemplate.id
+              const isSelected =
+                getTemplateIdentity(template) === getTemplateIdentity(selectedTemplate)
               return (
                 <button
                   aria-pressed={isSelected}
                   className={`aw-template-card ${isSelected ? 'aw-template-card--selected' : ''}`}
-                  key={template.id}
+                  disabled={isWriteLocked}
+                  key={getTemplateIdentity(template)}
                   onClick={(): void => selectTemplate(template)}
                   type="button"
                 >
@@ -507,7 +1101,9 @@ function TemplateSettingsContent({
           <select
             aria-label={t('template.pageSize', { defaultValue: '页面规格' })}
             className="aw-select"
+            disabled={isWriteLocked}
             onChange={(event): void => {
+              if (isWriteLocked) return
               setSaveStatus('idle')
               setPageSize(event.target.value as UiResumePageSize)
             }}
@@ -531,7 +1127,9 @@ function TemplateSettingsContent({
           <select
             aria-label={t('template.fontToken', { defaultValue: '字体令牌' })}
             className="aw-select"
+            disabled={isWriteLocked}
             onChange={(event): void => {
+              if (isWriteLocked) return
               setSaveStatus('idle')
               setFontFamilyToken(event.target.value)
             }}
@@ -543,29 +1141,45 @@ function TemplateSettingsContent({
             ))}
           </select>
         </div>
-        {selectedTemplate.settings.map((definition) => {
-          /** @brief 当前设置值 / Current setting value. */
-          const currentValue = settings[definition.key] ?? definition.defaultValue
-          return (
-            <div className="aw-setting-row" key={definition.key}>
-              <div>
-                <p className="aw-setting-label">
-                  {t(definition.labelKey, { defaultValue: definition.labelKey })}
-                </p>
-                {definition.descriptionKey !== null ? (
-                  <p className="aw-setting-help">
-                    {t(definition.descriptionKey, { defaultValue: definition.descriptionKey })}
-                  </p>
-                ) : null}
-              </div>
-              <TemplateSettingControl
-                definition={definition}
-                onChange={(value): void => updateSetting(definition.key, value)}
-                value={currentValue}
-              />
-            </div>
-          )
-        })}
+        {settingGroups.map((group, groupIndex) => (
+          <fieldset
+            className="aw-template-setting-group"
+            key={group.key ?? `ungrouped-${groupIndex}`}
+          >
+            <legend className="aw-sr-only">
+              {group.key === null
+                ? t('template.ungroupedSettings', { defaultValue: '模板设置' })
+                : t(group.key, { defaultValue: group.key })}
+            </legend>
+            {group.definitions.map((definition, definitionIndex) => {
+              /** @brief 当前设置值 / Current setting value. */
+              const currentValue = getCurrentTemplateSettingValue(definition, settings)
+              return (
+                <div
+                  className="aw-setting-row"
+                  key={`${definition.key}:${String(definitionIndex)}`}
+                >
+                  <div>
+                    <p className="aw-setting-label">
+                      {t(definition.labelKey, { defaultValue: definition.labelKey })}
+                    </p>
+                    {definition.descriptionKey !== null ? (
+                      <p className="aw-setting-help">
+                        {t(definition.descriptionKey, { defaultValue: definition.descriptionKey })}
+                      </p>
+                    ) : null}
+                  </div>
+                  <TemplateSettingControl
+                    definition={definition}
+                    disabled={isWriteLocked}
+                    onChange={(value): void => updateSetting(definition, value)}
+                    value={currentValue}
+                  />
+                </div>
+              )
+            })}
+          </fieldset>
+        ))}
         <div className="aw-setting-row">
           <div>
             <p className="aw-setting-label">
@@ -577,11 +1191,13 @@ function TemplateSettingsContent({
           </div>
           <input
             aria-label={t('template.density', { defaultValue: '内容密度' })}
+            disabled={isWriteLocked}
             max="1"
             min="0"
             step="0.05"
             type="range"
             onChange={(event): void => {
+              if (isWriteLocked) return
               setSaveStatus('idle')
               setDensity(Number(event.target.value))
             }}
@@ -605,7 +1221,7 @@ function TemplateSettingsContent({
           </div>
           <button
             className="aw-primary-button"
-            disabled={saveStatus === 'saving'}
+            disabled={isWriteLocked || !isDirty}
             onClick={(): void => void saveSettings()}
             type="button"
           >
@@ -641,17 +1257,29 @@ function TemplateSettingsContent({
         ) : null}
         {saveStatus === 'error' ? (
           <ResourceErrorState
-            {...(classifyResourceFailure(saveError).kind === 'conflict'
+            {...(authorityReloadRequired
               ? {
-                  actionLabel: t('resume.workspace.reloadAuthority', {
-                    defaultValue: '重新加载服务端版本'
-                  })
+                  recoveryAction: {
+                    label: t('resume.workspace.reloadAuthority', {
+                      defaultValue: isReloadingAuthority ? '正在重新加载…' : '重新加载服务器版本'
+                    }),
+                    onInvoke: (): void => {
+                      void reloadAuthoritativeSettings()
+                    }
+                  }
                 }
               : {})}
             error={saveError}
             onRetry={recoverFromSaveFailure}
             title={t('template.saveFailed', { defaultValue: '无法保存模板设置' })}
           />
+        ) : null}
+        {saveStatus === 'error' && authorityReloadError ? (
+          <div className="aw-inline-error" role="alert">
+            {t('resume.workspace.reloadAuthorityError', {
+              defaultValue: '无法重新加载服务器版本，请重试。'
+            })}
+          </div>
         ) : null}
       </section>
     </div>
@@ -704,11 +1332,5 @@ export function TemplateSettingsPage(): React.JSX.Element {
     )
   }
 
-  return (
-    <TemplateSettingsContent
-      gateway={resume}
-      model={templateSettings.data}
-      onReload={templateSettings.retry}
-    />
-  )
+  return <TemplateSettingsContent gateway={resume} model={templateSettings.data} />
 }

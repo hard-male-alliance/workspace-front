@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { ResumeDocumentDto, TemplateManifestDto } from './transport-types'
-import { mapResumeDocumentDto, mapTemplateManifestDto } from './mappers'
+import { mapResumeDocumentDto, mapResumeStyleIntentToDto, mapTemplateManifestDto } from './mappers'
 
 const templateDto: TemplateManifestDto = {
   bullet_style_tokens: ['bullet.default'],
@@ -20,8 +20,23 @@ const templateDto: TemplateManifestDto = {
   name: 'AIWS Classic',
   preview_asset_url: 'https://example.test/preview.png',
   revision: 1,
-  settings: [],
+  settings: [
+    {
+      choices: [],
+      default: { unit: 'mm', value: 8 },
+      description_key: 'template.spacing.description',
+      group_key: 'template.groups.appearance',
+      key: 'section_spacing',
+      label_key: 'template.spacing.label',
+      maximum: 20,
+      minimum: 0,
+      ui_control: 'measurement',
+      value_type: 'measurement',
+      visible_when: { equals: true, key: 'show_advanced' }
+    }
+  ],
   supported_locales: ['zh-CN', 'en-US'],
+  supported_output_formats: ['pdf'],
   supported_page_sizes: ['A4'],
   supported_section_kinds: ['summary'],
   template_version: '1.0',
@@ -44,6 +59,7 @@ describe('mapTemplateManifestDto', (): void => {
       id: 'tpl_default_v1',
       name: 'AIWS Classic',
       supportedLocales: ['zh-CN', 'en-US'],
+      supportedOutputFormats: ['pdf'],
       version: '1.0'
     })
     expect(result.zones[0]).toEqual({
@@ -52,6 +68,45 @@ describe('mapTemplateManifestDto', (): void => {
       labelKey: 'template.zone.main',
       maxSections: 100
     })
+    expect(result.settings[0]).toMatchObject({
+      defaultValue: { unit: 'mm', value: 8 },
+      groupKey: 'template.groups.appearance',
+      visibleWhen: { equals: true, key: 'show_advanced' }
+    })
+  })
+
+  it('preserves arbitrary JSON setting values and future section-kind codes', (): void => {
+    /** @brief 不应被表示层 DTO 改写的递归 JSON 值 / Recursive JSON value that the presentation DTO must not rewrite. */
+    const futureValue = { fallback: null, layout: ['wide', { columns: 3 }] }
+    /** @brief 携带开放值的合法清单 / Valid manifest carrying open values. */
+    const futureDto: TemplateManifestDto = {
+      ...templateDto,
+      settings: [
+        {
+          ...templateDto.settings[0]!,
+          choices: [{ description_key: null, label_key: 'template.future', value: futureValue }],
+          default: futureValue,
+          visible_when: { equals: ['future', { revision: 2 }], key: 'layout_mode' }
+        }
+      ],
+      supported_section_kinds: ['summary', 'vendor.timeline'],
+      zones: [
+        {
+          ...templateDto.zones[0]!,
+          accepted_section_kinds: ['summary', 'vendor.timeline']
+        }
+      ]
+    }
+
+    const result = mapTemplateManifestDto(futureDto)
+
+    expect(result.settings[0]).toMatchObject({
+      choices: [{ descriptionKey: null, labelKey: 'template.future', value: futureValue }],
+      defaultValue: futureValue,
+      visibleWhen: { equals: ['future', { revision: 2 }], key: 'layout_mode' }
+    })
+    expect(result.supportedSectionKinds).toEqual(['summary', 'vendor.timeline'])
+    expect(result.zones[0]?.acceptedSectionKinds).toEqual(['summary', 'vendor.timeline'])
   })
 })
 
@@ -89,7 +144,10 @@ describe('mapResumeDocumentDto', (): void => {
         bullet_style_token: 'bullet.default',
         date_format_token: 'yyyy_mm',
         density: 0.5,
+        extensions: { 'vendor.layout': { keep: true } },
         page: {
+          custom_height: { unit: 'px', value: 1120 },
+          custom_width: { unit: 'px', value: 800 },
           margins: { bottom: measurement, left: measurement, right: measurement, top: measurement },
           max_pages: 2,
           orientation: 'portrait',
@@ -134,6 +192,20 @@ describe('mapResumeDocumentDto', (): void => {
       contentPreview: '关注可靠、易用的产品体验。',
       id: 'sec_summary',
       kind: 'summary'
+    })
+    expect(result.styleIntent).toMatchObject({
+      extensions: { 'vendor.layout': { keep: true } },
+      page: {
+        customHeight: { unit: 'px', value: 1120 },
+        customWidth: { unit: 'px', value: 800 }
+      }
+    })
+    expect(mapResumeStyleIntentToDto(result.styleIntent)).toMatchObject({
+      extensions: { 'vendor.layout': { keep: true } },
+      page: {
+        custom_height: { unit: 'px', value: 1120 },
+        custom_width: { unit: 'px', value: 800 }
+      }
     })
   })
 })

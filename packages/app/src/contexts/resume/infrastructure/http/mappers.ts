@@ -14,7 +14,6 @@ import type {
   UiResumeStyleIntent,
   UiTemplateManifest,
   UiTemplateSettingControl,
-  UiTemplateSettingValue,
   UiTemplateSettingValueType
 } from '../../domain/models'
 import { HttpContractError } from '../../../../infrastructure/http/http-client'
@@ -25,6 +24,9 @@ import type {
   ResumeItemDto,
   TemplateManifestDto
 } from './transport-types'
+
+/** @brief 契约允许的模板输出格式 / Template output formats allowed by the contract. */
+const outputFormats = ['pdf', 'png', 'html_snapshot', 'docx'] as const
 
 /**
  * @brief 将领域样式意图映射为正式 transport DTO / Map domain style intent to the formal transport DTO.
@@ -38,7 +40,10 @@ export function mapResumeStyleIntentToDto(
     bullet_style_token: intent.bulletStyleToken,
     date_format_token: intent.dateFormatToken,
     density: intent.density,
+    extensions: intent.extensions,
     page: {
+      custom_height: intent.page.customHeight,
+      custom_width: intent.page.customWidth,
       margins: intent.page.margins,
       max_pages: intent.page.maxPages,
       orientation: intent.page.orientation,
@@ -141,34 +146,17 @@ function enumValue<TValue extends string>(
   return value as TValue
 }
 
-/** @brief 映射模板设置值 / Map a template-setting value. */
-function mapTemplateSettingValue(value: unknown, path: string): UiTemplateSettingValue {
-  if (
-    value === null ||
-    typeof value === 'boolean' ||
-    typeof value === 'number' ||
-    typeof value === 'string'
-  ) {
-    return value
-  }
-  if (typeof value === 'object' && !Array.isArray(value)) {
-    const input = value as Record<string, unknown>
-    if ((input.space === 'srgb_hex' || input.space === 'rgba') && typeof input.value === 'string') {
-      return { space: input.space, value: input.value } satisfies UiColorValue
-    }
-    if (
-      typeof input.value === 'number' &&
-      (input.unit === 'pt' || input.unit === 'mm' || input.unit === 'cm' || input.unit === 'in')
-    ) {
-      return { unit: input.unit, value: input.value } satisfies UiMeasurement
-    }
-  }
-  throw new HttpContractError(`Backend field ${path} is not a supported template value.`, 200)
-}
-
 /** @brief 映射测量值 / Map a measurement. */
 function mapMeasurement(dto: MeasurementDto, path: string): UiMeasurement {
-  if (dto.unit !== 'pt' && dto.unit !== 'mm' && dto.unit !== 'cm' && dto.unit !== 'in') {
+  if (
+    dto.unit !== 'pt' &&
+    dto.unit !== 'mm' &&
+    dto.unit !== 'cm' &&
+    dto.unit !== 'in' &&
+    dto.unit !== 'px' &&
+    dto.unit !== 'em' &&
+    dto.unit !== 'percent'
+  ) {
     throw new HttpContractError(`Backend field ${path}.unit has an unsupported value.`, 200)
   }
   return { unit: dto.unit, value: dto.value }
@@ -251,36 +239,39 @@ export function mapTemplateManifestDto(dto: TemplateManifestDto): UiTemplateMani
     id: asUiOpaqueId<'template'>(dto.id),
     name: dto.name,
     settings: dto.settings.map((setting, index) => ({
-      choices: setting.choices.map((choice, choiceIndex) => ({
+      choices: setting.choices.map((choice) => ({
         descriptionKey: choice.description_key,
         labelKey: choice.label_key,
-        value: mapTemplateSettingValue(
-          choice.value,
-          `settings[${index}].choices[${choiceIndex}].value`
-        )
+        value: choice.value
       })),
       control: enumValue(setting.ui_control, settingControls, `settings[${index}].ui_control`),
-      defaultValue: mapTemplateSettingValue(setting.default, `settings[${index}].default`),
+      defaultValue: setting.default,
       descriptionKey: setting.description_key,
       groupKey: setting.group_key,
       key: setting.key,
       labelKey: setting.label_key,
       maximum: setting.maximum,
       minimum: setting.minimum,
-      valueType: enumValue(setting.value_type, settingValueTypes, `settings[${index}].value_type`)
+      valueType: enumValue(setting.value_type, settingValueTypes, `settings[${index}].value_type`),
+      visibleWhen:
+        setting.visible_when === null
+          ? null
+          : {
+              equals: setting.visible_when.equals,
+              key: setting.visible_when.key
+            }
     })),
     supportedLocales: dto.supported_locales,
+    supportedOutputFormats: dto.supported_output_formats.map((value, index) =>
+      enumValue(value, outputFormats, `supported_output_formats[${index}]`)
+    ),
     supportedPageSizes: dto.supported_page_sizes.map((value, index) =>
       enumValue(value, pageSizes, `supported_page_sizes[${index}]`)
     ),
-    supportedSectionKinds: dto.supported_section_kinds.map((value, index) =>
-      enumValue(value, sectionKinds, `supported_section_kinds[${index}]`)
-    ),
+    supportedSectionKinds: dto.supported_section_kinds,
     version: dto.template_version,
-    zones: dto.zones.map((zone, index) => ({
-      acceptedSectionKinds: zone.accepted_section_kinds.map((value, kindIndex) =>
-        enumValue(value, sectionKinds, `zones[${index}].accepted_section_kinds[${kindIndex}]`)
-      ),
+    zones: dto.zones.map((zone) => ({
+      acceptedSectionKinds: zone.accepted_section_kinds,
       id: zone.zone_id,
       labelKey: zone.label_key,
       maxSections: zone.max_sections
@@ -324,7 +315,19 @@ export function mapResumeDocumentDto(dto: ResumeDocumentDto): UiResumeDocument {
       bulletStyleToken: dto.style_intent.bullet_style_token,
       dateFormatToken: dto.style_intent.date_format_token,
       density: dto.style_intent.density,
+      extensions: dto.style_intent.extensions,
       page: {
+        customHeight:
+          dto.style_intent.page.custom_height === null
+            ? null
+            : mapMeasurement(
+                dto.style_intent.page.custom_height,
+                'style_intent.page.custom_height'
+              ),
+        customWidth:
+          dto.style_intent.page.custom_width === null
+            ? null
+            : mapMeasurement(dto.style_intent.page.custom_width, 'style_intent.page.custom_width'),
         margins: {
           bottom: mapMeasurement(
             dto.style_intent.page.margins.bottom,
@@ -368,12 +371,7 @@ export function mapResumeDocumentDto(dto: ResumeDocumentDto): UiResumeDocument {
         zone: layout.zone
       })),
       styleContractVersion: '1.0',
-      templateSettings: Object.fromEntries(
-        Object.entries(dto.style_intent.template_settings).map(([key, value]) => [
-          key,
-          mapTemplateSettingValue(value, `style_intent.template_settings.${key}`)
-        ])
-      ),
+      templateSettings: dto.style_intent.template_settings,
       typography: {
         baseSizePt: dto.style_intent.typography.base_size_pt,
         fontFamilyToken: dto.style_intent.typography.font_family_token,

@@ -3,6 +3,14 @@ import { useTranslation } from 'react-i18next'
 import { ErrorState } from '../ui'
 import { classifyResourceFailure } from './resource-errors'
 
+/** @brief 不重复原命令的显式恢复动作 / Explicit recovery action that does not repeat the original command. */
+export interface ResourceRecoveryAction {
+  /** @brief 用户可理解的动作标签 / User-understandable action label. */
+  readonly label: string
+  /** @brief 重新读取或导航等安全恢复动作 / Safe recovery action such as reloading or navigating. */
+  readonly onInvoke: () => void
+}
+
 /** @brief 页面资源错误状态属性 / Page-resource error-state properties. */
 export interface ResourceErrorStateProps {
   /** @brief 可选恢复动作标签 / Optional recovery-action label. */
@@ -13,6 +21,8 @@ export interface ResourceErrorStateProps {
   readonly title: string
   /** @brief 原地重新执行资源请求 / Retry the resource request in place. */
   readonly onRetry: () => void
+  /** @brief 即使原命令不可重试也可执行的安全恢复 / Safe recovery available even when the original command is not retryable. */
+  readonly recoveryAction?: ResourceRecoveryAction
 }
 
 /** @brief 失败类别到安全本地化文案的映射 / Failure-category to safe localized-copy mapping. */
@@ -21,10 +31,12 @@ const RESOURCE_FAILURE_MESSAGE_KEYS = {
   forbidden: 'errors.forbidden',
   'not-found': 'errors.notFound',
   conflict: 'errors.conflict',
+  'invalid-request': 'errors.invalidRequest',
   'rate-limited': 'errors.rateLimited',
   'service-unavailable': 'errors.serviceUnavailable',
   'invalid-response': 'errors.invalidResponse',
   network: 'errors.network',
+  'outcome-unknown': 'errors.outcomeUnknown',
   'capability-unavailable': 'errors.capabilityUnavailable',
   unknown: 'errors.unknown'
 } as const
@@ -38,6 +50,7 @@ export function ResourceErrorState({
   actionLabel,
   error,
   onRetry,
+  recoveryAction,
   title
 }: ResourceErrorStateProps): React.JSX.Element {
   /** @brief 翻译函数 / Translation function. */
@@ -55,7 +68,11 @@ export function ResourceErrorState({
   return (
     <ErrorState
       action={
-        failure.retryable ? (
+        recoveryAction !== undefined ? (
+          <button className="aw-quiet-button" onClick={recoveryAction.onInvoke} type="button">
+            {recoveryAction.label}
+          </button>
+        ) : failure.retryable ? (
           <button className="aw-quiet-button" onClick={onRetry} type="button">
             {actionLabel ?? t('common.retry')}
           </button>

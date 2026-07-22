@@ -1,9 +1,11 @@
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
+import { createHash } from 'node:crypto'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { writePdfAtomically } from './artifact-file-store'
+import type { PdfArtifactIntegrityExpectation } from './artifact-file-store'
 
 /** @brief 当前测试创建的临时目录 / Temporary directories created by the current tests. */
 const temporaryDirectories: string[] = []
@@ -30,6 +32,27 @@ function createBody(bytes: Uint8Array): ReadableStream<Uint8Array> {
   })
 }
 
+/**
+ * @brief 为测试字节创建完整性期望 / Create an integrity expectation for test bytes.
+ * @param bytes 期望保存的字节 / Bytes expected to be persisted.
+ * @param maximumBytes 测试安全上限 / Test safety limit.
+ * @param signal 可选截止信号 / Optional abort signal.
+ * @return 与字节严格匹配的期望 / Expectation exactly matching the bytes.
+ */
+function integrityFor(
+  bytes: Uint8Array,
+  maximumBytes = 100,
+  signal?: AbortSignal
+): PdfArtifactIntegrityExpectation {
+  /** @brief 与期望字节对应的基础元数据 / Base metadata corresponding to the expected bytes. */
+  const expectation = {
+    expectedSha256: createHash('sha256').update(bytes).digest('hex'),
+    expectedSizeBytes: bytes.byteLength,
+    maximumBytes
+  }
+  return signal === undefined ? expectation : { ...expectation, signal }
+}
+
 describe('writePdfAtomically', () => {
   it('经同目录独占临时文件替换目标内容且不遗留临时文件', async () => {
     /** @brief 当前测试目录 / Directory owned by this test. */
@@ -39,9 +62,14 @@ describe('writePdfAtomically', () => {
     const destination = join(directory, 'resume.pdf')
     await writeFile(destination, 'old')
 
+    /** @brief 期望完整保存的 PDF 字节 / PDF bytes expected to be persisted intact. */
+    const bytes = new TextEncoder().encode('%PDF-new')
     /** @brief 用于验证读取锁被释放的 PDF 流 / PDF stream used to verify reader-lock release. */
-    const body = createBody(new TextEncoder().encode('%PDF-new'))
-    await writePdfAtomically(destination, body, 100)
+    const body = createBody(bytes)
+    await expect(writePdfAtomically(destination, body, integrityFor(bytes))).resolves.toEqual({
+      sha256: '6dbe1e7b812a8373a5f71216240d5767b562229f32755ef2e2aacb1f98b13945',
+      sizeBytes: 8
+    })
 
     expect(await readFile(destination, 'utf8')).toBe('%PDF-new')
     expect(await readdir(directory)).toEqual(['resume.pdf'])
@@ -57,7 +85,11 @@ describe('writePdfAtomically', () => {
     await writeFile(destination, 'old')
 
     await expect(
-      writePdfAtomically(destination, createBody(new Uint8Array(11)), 10)
+      writePdfAtomically(
+        destination,
+        createBody(new Uint8Array(11)),
+        integrityFor(new Uint8Array(10), 10)
+      )
     ).rejects.toThrow('25 MiB')
     expect(await readFile(destination, 'utf8')).toBe('old')
     expect(await readdir(directory)).toEqual(['resume.pdf'])
@@ -75,7 +107,7 @@ describe('writePdfAtomically', () => {
       writePdfAtomically(
         conflictingDirectory,
         createBody(new TextEncoder().encode('%PDF-new')),
-        100
+        integrityFor(new TextEncoder().encode('%PDF-new'))
       )
     ).rejects.toThrow()
     expect(await readdir(directory)).toEqual([basename(conflictingDirectory)])
@@ -114,7 +146,11 @@ describe('writePdfAtomically', () => {
     const controller = new AbortController()
 
     /** @brief 正在等待响应流的原子写入 / Atomic write waiting for the response stream. */
-    const operation = writePdfAtomically(destination, body, 100, controller.signal)
+    const operation = writePdfAtomically(
+      destination,
+      body,
+      integrityFor(new Uint8Array(0), 100, controller.signal)
+    )
     /** @brief 在中止前即安装的失败断言 / Rejection assertion installed before aborting. */
     const rejection = expect(operation).rejects.toThrow('test deadline')
     await readerAcquired
@@ -125,4 +161,41 @@ describe('writePdfAtomically', () => {
     expect(await readdir(directory)).toEqual(['resume.pdf'])
     expect(stream.locked).toBe(false)
   })
+
+  it.each([
+    [
+      'size',
+      {
+        expectedSha256: '6dbe1e7b812a8373a5f71216240d5767b562229f32755ef2e2aacb1f98b13945',
+        expectedSizeBytes: 7,
+        maximumBytes: 100
+      },
+      'size'
+    ],
+    [
+      'digest',
+      { expectedSha256: 'a'.repeat(64), expectedSizeBytes: 8, maximumBytes: 100 },
+      'digest'
+    ]
+  ] as const)(
+    '完整性 %s 不匹配时保留旧目标并清理临时文件',
+    async (_kind, expectation, errorText) => {
+      /** @brief 当前测试目录 / Directory owned by this test. */
+      const directory = await mkdtemp(join(tmpdir(), 'ai-job-workspace-artifact-'))
+      temporaryDirectories.push(directory)
+      /** @brief 已存在的最终 PDF 路径 / Existing final PDF path. */
+      const destination = join(directory, 'resume.pdf')
+      await writeFile(destination, 'old')
+
+      await expect(
+        writePdfAtomically(
+          destination,
+          createBody(new TextEncoder().encode('%PDF-new')),
+          expectation
+        )
+      ).rejects.toThrow(errorText)
+      expect(await readFile(destination, 'utf8')).toBe('old')
+      expect(await readdir(directory)).toEqual(['resume.pdf'])
+    }
+  )
 })

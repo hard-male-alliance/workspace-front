@@ -4,6 +4,20 @@ import type { UiCurrentUser, UiWorkspace } from '../../domain/models'
 import { asUiOpaqueId } from '../../../../shared-kernel/identity'
 import type { CurrentUserDto, WorkspaceDto } from './transport-types'
 
+/** @brief Workspace 套餐的当前已知值 / Currently known Workspace-plan values. */
+const KNOWN_WORKSPACE_PLANS = ['free', 'pro', 'team', 'enterprise'] as const
+
+/**
+ * @brief 将开放套餐 code 映射为安全 UI 值 / Map an open plan code to a safe UI value.
+ * @param plan 已验证的稳定套餐 code / Validated stable plan code.
+ * @return 已知套餐或 unknown / Known plan or unknown.
+ */
+function mapWorkspacePlan(plan: string): UiWorkspace['plan'] {
+  return KNOWN_WORKSPACE_PLANS.includes(plan as (typeof KNOWN_WORKSPACE_PLANS)[number])
+    ? (plan as (typeof KNOWN_WORKSPACE_PLANS)[number])
+    : 'unknown'
+}
+
 /**
  * @brief 映射当前用户资源 / Map the current-user resource.
  * @param currentUser 当前用户 DTO / Current-user DTO.
@@ -32,7 +46,7 @@ export function mapWorkspaceDto(workspace: WorkspaceDto): UiWorkspace {
     id: asUiOpaqueId<'workspace'>(workspace.id),
     locale: workspace.default_locale,
     name: workspace.name,
-    plan: workspace.plan,
+    plan: mapWorkspacePlan(workspace.plan),
     slug: workspace.slug,
     timezone: workspace.timezone,
     updatedAt: workspace.updated_at

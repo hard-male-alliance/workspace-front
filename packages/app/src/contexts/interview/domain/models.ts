@@ -5,6 +5,7 @@ import type {
   UiOpaqueId,
   UiWorkspaceId
 } from '../../../shared-kernel/identity'
+import type { UiCommandId } from '../../../shared-kernel/command'
 import type { UiContentLocale } from '../../../shared-kernel/locale'
 
 /** @brief 面试场景标识符 / Interview scenario identifier. */
@@ -201,6 +202,8 @@ export interface UiInterviewSessionDetails {
 
 /** @brief 创建面试的领域输入 / Domain input for creating an interview. */
 export interface UiCreateInterviewInput {
+  /** @brief 本次创建意图的稳定命令身份 / Stable command identity for this creation intent. */
+  readonly commandId: UiCommandId
   /** @brief 所属工作区 ID / Owning workspace ID. */
   readonly workspaceId: UiWorkspaceId
   /** @brief 用户从真实场景目录选择的场景 ID / Scenario ID selected from the real scenario catalog. */

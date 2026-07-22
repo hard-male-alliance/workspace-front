@@ -6,6 +6,7 @@ import { ResourceErrorState } from '../../../app/ResourceErrorState'
 import { asUiOpaqueId } from '../../../shared-kernel/identity'
 import { LoadingState } from '../../../ui'
 import type { UiResumeEditorModel, UiTemplateManifest } from '../domain/models'
+import { loadTemplateCatalogWithPinnedVersion } from '../application/template-catalog'
 import { ResumeWorkspace } from './ResumeWorkspace'
 
 /** @brief 简历工作台加载结果 / Loaded resume-workspace resources. */
@@ -32,7 +33,11 @@ export function ResumeEditorPage(): React.JSX.Element {
     }
 
     const editor = await resume.getResumeEditor(requestedResumeId)
-    const templates = await resume.listTemplateManifests(editor.resume.locale)
+    const templates = await loadTemplateCatalogWithPinnedVersion(
+      resume,
+      editor.resume.locale,
+      editor.resume.template
+    )
     return { editor, templates }
   }, [requestedResumeId, resume, resumeId])
   const workspace = useAsyncResource('resume.editor', loadWorkspace)

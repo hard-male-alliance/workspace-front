@@ -106,7 +106,7 @@ function richText(text: string): Record<string, unknown> {
     blocks: [
       {
         align: 'start',
-        block_id: `block_${text.length}`,
+        block_id: `block_${text.length}_id`,
         spans: [{ marks: [], text }],
         type: 'paragraph'
       }
@@ -184,7 +184,6 @@ const options: HttpInterviewGatewayOptions = {
     webrtc: true,
     websocketBinary: true
   },
-  createIdempotencyKey: (): string => 'interview_session_request_one',
   inference: {
     allowExternalModelProcessing: false,
     allowProviderFallback: true,
@@ -287,6 +286,7 @@ describe('HttpInterviewGateway', (): void => {
     )
 
     const result = await gateway.createInterview({
+      commandId: 'interview_session_request_one' as never,
       jobTarget: {
         company: 'Example',
         location: 'Shanghai',
@@ -303,7 +303,60 @@ describe('HttpInterviewGateway', (): void => {
     expect(fetchUrl(fetchImpl, 1)).toBe('http://127.0.0.1:8000/api/v1/interview-sessions')
   })
 
-  it('rejects an Interview creation Location for a different session', async (): Promise<void> => {
+  it('confirms an unknown creation by replaying the frozen envelope without another preflight read', async (): Promise<void> => {
+    /** @brief 场景读取、未知 POST 与同键确认响应组成的网络替身 / Network double providing scenario preflight, an unknown POST, and same-key confirmation. */
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(page([scenario()]))
+      .mockRejectedValueOnce(new TypeError('private connection reset'))
+      .mockResolvedValueOnce(
+        Response.json(
+          session({ ended_at: null, report_id: null, started_at: null, status: 'created' }),
+          {
+            headers: { Location: '/api/v1/interview-sessions/session_one' },
+            status: 201
+          }
+        )
+      )
+    /** @brief 被测 Interview Gateway / Interview Gateway under test. */
+    const gateway = new HttpInterviewGateway(
+      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl }),
+      options
+    )
+    /** @brief 两次确认必须复用的创建输入 / Creation input that both confirmation attempts must reuse. */
+    const input = {
+      commandId: 'interview_session_request_confirm' as never,
+      jobTarget: {
+        company: 'Example',
+        location: 'Shanghai',
+        seniority: 'senior',
+        skills: ['TypeScript'],
+        title: 'Frontend Engineer'
+      },
+      knowledgeSourceIds: ['knowledge_one' as never],
+      scenarioId: 'scenario_one' as never,
+      workspaceId: 'workspace_one' as never
+    }
+
+    await expect(gateway.createInterview(input)).rejects.toMatchObject({
+      name: 'HttpCommandOutcomeUnknownError'
+    })
+    await expect(gateway.createInterview(input)).resolves.toEqual({ sessionId: 'session_one' })
+
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
+    expect(fetchUrl(fetchImpl, 0)).toContain('/interview-scenarios')
+    expect(fetchUrl(fetchImpl, 1)).toContain('/interview-sessions')
+    expect(fetchUrl(fetchImpl, 2)).toContain('/interview-sessions')
+    expect(fetchImpl.mock.calls[2]?.[1]?.body).toBe(fetchImpl.mock.calls[1]?.[1]?.body)
+    expect(fetchImpl.mock.calls[1]?.[1]?.headers).toMatchObject({
+      'Idempotency-Key': 'interview_session_request_confirm'
+    })
+    expect(fetchImpl.mock.calls[2]?.[1]?.headers).toMatchObject({
+      'Idempotency-Key': 'interview_session_request_confirm'
+    })
+  })
+
+  it('marks an Interview creation with a different Location as outcome unknown', async (): Promise<void> => {
     /** @brief 依次返回场景列表和错误 Location 的网络替身 / Network double returning scenarios and a wrong Location. */
     const fetchImpl = vi
       .fn<typeof fetch>()
@@ -325,6 +378,7 @@ describe('HttpInterviewGateway', (): void => {
 
     await expect(
       gateway.createInterview({
+        commandId: 'interview_session_request_one' as never,
         jobTarget: {
           company: null,
           location: null,
@@ -337,9 +391,8 @@ describe('HttpInterviewGateway', (): void => {
         workspaceId: 'workspace_one' as never
       })
     ).rejects.toMatchObject({
-      message: 'Backend creation response Location does not identify the created resource.',
-      name: 'HttpContractError',
-      status: 201
+      diagnosticKind: 'contract',
+      name: 'HttpCommandOutcomeUnknownError'
     })
   })
 
@@ -442,6 +495,7 @@ describe('HttpInterviewGateway', (): void => {
 
     await expect(
       gateway.createInterview({
+        commandId: 'interview_session_request_one' as never,
         jobTarget: {
           company: null,
           location: null,

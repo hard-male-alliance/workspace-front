@@ -7,7 +7,7 @@ import type { UiContentLocale } from '../../../shared-kernel/locale'
 export type UiCurrentUserId = UiOpaqueId<'user'>
 
 /** @brief 工作区套餐 / Workspace plan. */
-export type UiWorkspacePlan = 'free' | 'pro' | 'team' | 'enterprise'
+export type UiWorkspacePlan = 'free' | 'pro' | 'team' | 'enterprise' | 'unknown'
 
 /**
  * @brief 工作区展示模型 / Workspace display model.

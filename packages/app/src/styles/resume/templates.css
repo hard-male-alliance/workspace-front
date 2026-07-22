@@ -126,6 +126,15 @@
   padding: 19px;
 }
 
+.aw-template-setting-group {
+  display: grid;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  gap: 17px;
+}
+
 .aw-setting-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

@@ -9,8 +9,12 @@ import type { InterviewSetupQueryResult } from '../../../app/AppQueries'
 import { runDiagnosticCommand, useDiagnostics } from '../../../app/Diagnostics'
 import { ResourceErrorState } from '../../../app/ResourceErrorState'
 import { classifyResourceFailure } from '../../../app/resource-errors'
+import { createUiCommandId } from '../../../shared-kernel/command'
 import type { UiKnowledgeSourceId } from '../../knowledge'
 import { LoadingState } from '../../../ui'
+import type { UiCreateInterviewInput } from '../domain/models'
+
+/** @brief 手动岗位选择的表单哨兵值 / Form sentinel for a manually entered job target. */
 const customJobValue = '__custom__'
 
 function InterviewSetupForm({
@@ -30,7 +34,18 @@ function InterviewSetupForm({
     () => new Set(data.knowledgeSources.map((source) => source.id))
   )
   const [isSubmitting, setSubmitting] = useState(false)
-  const [submitError, setSubmitError] = useState<string | null>(null)
+  /** @brief 最近一次创建命令错误 / Latest create-command error. */
+  const [submitError, setSubmitError] = useState<unknown>(null)
+  /** @brief 尚未确认结果的完整创建命令快照 / Complete creation-command snapshot whose outcome is unconfirmed. */
+  const [unconfirmedCreation, setUnconfirmedCreation] = useState<UiCreateInterviewInput | null>(
+    null
+  )
+  /** @brief 创建错误的安全类别 / Safe category of the create error. */
+  const submitFailureKind = submitError === null ? null : classifyResourceFailure(submitError).kind
+  /** @brief 是否必须以原命令确认创建结果 / Whether creation must be confirmed with the original command. */
+  const creationOutcomeUnknown = unconfirmedCreation !== null
+  /** @brief 编辑控件是否需要冻结到当前命令快照 / Whether editors must remain frozen to the current command snapshot. */
+  const configurationLocked = isSubmitting || creationOutcomeUnknown
   const allKnowledgeSelected =
     data.knowledgeSources.length > 0 && selectedKnowledge.size === data.knowledgeSources.length
   const selectedJob = useMemo(
@@ -42,6 +57,11 @@ function InterviewSetupForm({
     [data.setup.scenarios, selectedScenarioId]
   )
 
+  /**
+   * @brief 切换一个知识来源的选择状态 / Toggle one Knowledge-source selection.
+   * @param sourceId 知识来源 ID / Knowledge-source ID.
+   * @return 无返回值 / No return value.
+   */
   const toggleKnowledge = (sourceId: UiKnowledgeSourceId): void => {
     setSelectedKnowledge((current) => {
       const next = new Set(current)
@@ -51,42 +71,68 @@ function InterviewSetupForm({
     })
   }
 
-  const submit = (event: FormEvent<HTMLFormElement>): void => {
-    event.preventDefault()
-    if (jobTitle.trim().length === 0 || selectedScenario === null || isSubmitting) return
+  /**
+   * @brief 执行或确认同一个创建命令 / Execute or confirm the same creation command.
+   * @param input 不可变的完整创建输入 / Immutable complete creation input.
+   * @return 无返回值 / No return value.
+   * @note 只有结果仍未知时保留原快照；服务端明确拒绝后可以开始新的用户意图。 / Retain the original snapshot only while the outcome remains unknown; a definitive rejection permits a new user intent.
+   */
+  const executeCreation = (input: UiCreateInterviewInput): void => {
     setSubmitting(true)
     setSubmitError(null)
     void runDiagnosticCommand(
       diagnostics,
       { operation: 'interview.create', scope: 'interview' },
-      () =>
-        interview.createInterview({
-          workspaceId: data.workspaceId,
-          jobTarget: selectedJob ?? {
-            title: jobTitle.trim(),
-            company: null,
-            location: null,
-            seniority: null,
-            skills: []
-          },
-          scenarioId: selectedScenario.id,
-          knowledgeSourceIds: [...selectedKnowledge]
-        })
+      () => interview.createInterview(input)
     )
       .then(({ sessionId }) => navigate(`/interviews/${sessionId}`))
       .catch((error: unknown) => {
-        const failure = classifyResourceFailure(error)
-        setSubmitError(
-          failure.kind === 'capability-unavailable'
-            ? t('interviewSetup.realtimeUnavailable', {
-                defaultValue: '实时面试连接尚未就绪，本次没有创建无法使用的会话。'
-              })
-            : t('interviewSetup.submitError', {
-                defaultValue: '无法创建面试，请保留当前设置并重试。'
-              })
-        )
+        /** @brief 不含技术细节的失败类别 / Failure category without technical details. */
+        const failureKind = classifyResourceFailure(error).kind
+        setSubmitError(error)
+        setUnconfirmedCreation(failureKind === 'outcome-unknown' ? input : null)
         setSubmitting(false)
       })
+  }
+
+  /**
+   * @brief 将当前表单冻结为一个新的创建命令 / Freeze the current form as one new creation command.
+   * @param event 表单提交事件 / Form-submit event.
+   * @return 无返回值 / No return value.
+   */
+  const submit = (event: FormEvent<HTMLFormElement>): void => {
+    event.preventDefault()
+    if (
+      jobTitle.trim().length === 0 ||
+      selectedScenario === null ||
+      isSubmitting ||
+      creationOutcomeUnknown
+    )
+      return
+    /** @brief 当前用户意图的不可变创建快照 / Immutable creation snapshot for the current user intent. */
+    const input: UiCreateInterviewInput = {
+      commandId: createUiCommandId(),
+      workspaceId: data.workspaceId,
+      jobTarget: selectedJob ?? {
+        title: jobTitle.trim(),
+        company: null,
+        location: null,
+        seniority: null,
+        skills: []
+      },
+      scenarioId: selectedScenario.id,
+      knowledgeSourceIds: [...selectedKnowledge]
+    }
+    executeCreation(input)
+  }
+
+  /**
+   * @brief 以原始身份和请求体确认上次创建 / Confirm the previous creation with its original identity and body.
+   * @return 无返回值 / No return value.
+   */
+  const confirmCreation = (): void => {
+    if (unconfirmedCreation === null || isSubmitting) return
+    executeCreation(unconfirmedCreation)
   }
 
   return (
@@ -110,6 +156,7 @@ function InterviewSetupForm({
             <select
               aria-label={t('interviewSetup.targetRole', { defaultValue: '目标岗位' })}
               className="aw-select"
+              disabled={configurationLocked}
               onChange={(event) => {
                 const value = event.target.value
                 setSelectedJobValue(value)
@@ -135,6 +182,7 @@ function InterviewSetupForm({
               <input
                 autoFocus
                 className="aw-text-input"
+                disabled={configurationLocked}
                 maxLength={80}
                 onChange={(event) => setJobTitle(event.target.value)}
                 placeholder={t('interviewSetup.customRolePlaceholder', {
@@ -150,7 +198,7 @@ function InterviewSetupForm({
             </span>
             <select
               className="aw-select"
-              disabled={data.setup.scenarios.length === 0}
+              disabled={configurationLocked || data.setup.scenarios.length === 0}
               onChange={(event) => setSelectedScenarioId(event.target.value)}
               value={selectedScenarioId}
             >
@@ -246,6 +294,7 @@ function InterviewSetupForm({
           {data.knowledgeSources.length > 0 ? (
             <button
               className="aw-quiet-button"
+              disabled={configurationLocked}
               onClick={() =>
                 setSelectedKnowledge(
                   allKnowledgeSelected
@@ -274,6 +323,7 @@ function InterviewSetupForm({
               <label className="aw-interview-knowledge-option" key={source.id}>
                 <input
                   checked={selectedKnowledge.has(source.id)}
+                  disabled={configurationLocked}
                   onChange={() => toggleKnowledge(source.id)}
                   type="checkbox"
                 />
@@ -304,29 +354,61 @@ function InterviewSetupForm({
       </div>
       {submitError !== null ? (
         <p className="aw-inline-error" role="alert">
-          {submitError}
+          {creationOutcomeUnknown
+            ? t('interviewSetup.outcomeUnknown', {
+                defaultValue:
+                  '上次创建结果尚未确认。当前设置已锁定；请确认上次结果，不要创建重复的面试会话。'
+              })
+            : submitFailureKind === 'capability-unavailable'
+              ? t('interviewSetup.realtimeUnavailable', {
+                  defaultValue: '实时面试连接尚未就绪，本次没有创建无法使用的会话。'
+                })
+              : t('interviewSetup.submitError', {
+                  defaultValue: '无法创建面试，请保留当前设置并重试。'
+                })}
         </p>
       ) : null}
       <div className="aw-interview-setup-actions">
-        <Link className="aw-quiet-button" to="/interviews">
+        <Link
+          aria-disabled={creationOutcomeUnknown}
+          className="aw-quiet-button"
+          onClick={(event): void => {
+            if (creationOutcomeUnknown) event.preventDefault()
+          }}
+          to="/interviews"
+        >
           <ArrowLeft aria-hidden="true" size={15} />
           {t('common.back', { defaultValue: '返回' })}
         </Link>
-        <button
-          className="aw-primary-button"
-          disabled={
-            jobTitle.trim().length === 0 ||
-            selectedScenario === null ||
-            !data.setup.realtimeAvailable ||
-            isSubmitting
-          }
-          type="submit"
-        >
-          <Mic aria-hidden="true" size={16} />
-          {isSubmitting
-            ? t('interviewSetup.starting', { defaultValue: '正在准备…' })
-            : t('interviewSetup.start', { defaultValue: '开始面试' })}
-        </button>
+        {creationOutcomeUnknown ? (
+          <button
+            className="aw-primary-button"
+            disabled={isSubmitting}
+            onClick={confirmCreation}
+            type="button"
+          >
+            <Mic aria-hidden="true" size={16} />
+            {isSubmitting
+              ? t('interviewSetup.confirming', { defaultValue: '正在确认…' })
+              : t('interviewSetup.confirmCreation', { defaultValue: '确认上次创建结果' })}
+          </button>
+        ) : (
+          <button
+            className="aw-primary-button"
+            disabled={
+              jobTitle.trim().length === 0 ||
+              selectedScenario === null ||
+              !data.setup.realtimeAvailable ||
+              isSubmitting
+            }
+            type="submit"
+          >
+            <Mic aria-hidden="true" size={16} />
+            {isSubmitting
+              ? t('interviewSetup.starting', { defaultValue: '正在准备…' })
+              : t('interviewSetup.start', { defaultValue: '开始面试' })}
+          </button>
+        )}
       </div>
     </form>
   )

@@ -2,7 +2,10 @@
 
 import { describe, expect, it, vi } from 'vitest'
 
-import { FRONTEND_DIAGNOSTICS_SCHEMA_VERSION } from '../../observability/diagnostics'
+import {
+  classifyDiagnosticError,
+  FRONTEND_DIAGNOSTICS_SCHEMA_VERSION
+} from '../../observability/diagnostics'
 import type {
   DiagnosticBatch,
   DiagnosticRecord,
@@ -160,6 +163,21 @@ function requireFlush(sink: DiagnosticSink): () => Promise<void> {
     throw new Error('Expected a buffered diagnostics sink to expose flush.')
   return sink.flush.bind(sink)
 }
+
+describe('classifyDiagnosticError', (): void => {
+  it('distinguishes a deadline from user-driven cancellation', (): void => {
+    expect(classifyDiagnosticError(new DOMException('deadline exceeded', 'TimeoutError'))).toBe(
+      'timeout'
+    )
+    expect(classifyDiagnosticError(new DOMException('navigation', 'AbortError'))).toBe('aborted')
+    expect(
+      classifyDiagnosticError({ diagnosticKind: 'network', name: 'HttpCommandOutcomeUnknownError' })
+    ).toBe('outcome_unknown')
+    expect(classifyDiagnosticError({ name: 'HttpCommandOutcomeUnknownError' })).toBe(
+      'outcome_unknown'
+    )
+  })
+})
 
 describe('createDiagnostics', (): void => {
   it('falls back to a safe session ID when the platform random source is unavailable', (): void => {

@@ -41,7 +41,7 @@ const apiBaseUrl = resolveApiBaseUrl({
 /** @brief 使用已验证依赖组合出的 Web 应用 / Web application composed with validated dependencies. */
 const application = (
   <WorkspaceApp
-    artifactSave={createBrowserArtifactSavePort()}
+    artifactSave={createBrowserArtifactSavePort(apiBaseUrl)}
     diagnostics={diagnostics}
     gateways={createProductGateways(apiBaseUrl, diagnostics, {
       locale: navigator.language,

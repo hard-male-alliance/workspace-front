@@ -15,7 +15,11 @@ import type {
 import type { UiWorkspaceId } from '../../../../shared-kernel/identity'
 import { asUiOpaqueId } from '../../../../shared-kernel/identity'
 import type { HttpClient } from '../../../../infrastructure/http/http-client'
-import { HttpContractError } from '../../../../infrastructure/http/http-client'
+import {
+  HttpCommandOutcomeUnknownError,
+  HttpContractError,
+  toHttpCommandOutcomeUnknownError
+} from '../../../../infrastructure/http/http-client'
 import {
   mapInterviewHistoryItem,
   mapInterviewReportDto,
@@ -109,8 +113,38 @@ export interface HttpInterviewGatewayOptions {
     readonly supportedAudioCodecs: readonly string[]
     readonly supportedVideoCodecs: readonly string[]
   }
-  /** @brief 可替换的幂等键生成器 / Replaceable idempotency-key factory. */
-  readonly createIdempotencyKey?: (() => string) | undefined
+}
+
+/** @brief 尚未确认结果的 Interview Session 创建信封 / Interview Session creation envelope whose outcome is not yet confirmed. */
+interface PendingInterviewCreation {
+  /** @brief 首次发送的精确协议请求体 / Exact protocol body sent by the first attempt. */
+  readonly body: InterviewSessionCreateRequestDto
+  /** @brief 用于拒绝同 key 不同用户意图的规范快照 / Canonical snapshot used to reject a different intent under the same key. */
+  readonly intentSnapshot: string
+  /** @brief 响应必须归属的场景 / Scenario the response must belong to. */
+  readonly scenarioId: UiCreateInterviewInput['scenarioId']
+  /** @brief 响应必须归属的工作区 / Workspace the response must belong to. */
+  readonly workspaceId: UiCreateInterviewInput['workspaceId']
+}
+
+/**
+ * @brief 序列化不含取消信号的创建意图 / Serialize a creation intent without its cancellation signal.
+ * @param input 创建领域输入 / Creation domain input.
+ * @return 字段顺序稳定的意图快照 / Intent snapshot with stable field order.
+ */
+function serializeInterviewCreationIntent(input: UiCreateInterviewInput): string {
+  return JSON.stringify({
+    jobTarget: {
+      company: input.jobTarget.company,
+      location: input.jobTarget.location,
+      seniority: input.jobTarget.seniority,
+      skills: input.jobTarget.skills,
+      title: input.jobTarget.title
+    },
+    knowledgeSourceIds: input.knowledgeSourceIds,
+    scenarioId: input.scenarioId,
+    workspaceId: input.workspaceId
+  })
 }
 
 /** @brief Interview REST HTTP Gateway / Interview REST HTTP Gateway. */
@@ -119,6 +153,8 @@ export class HttpInterviewGateway implements InterviewGateway {
   readonly #client: HttpClient
   /** @brief 创建会话所需的宿主策略 / Host policy required for session creation. */
   readonly #options: HttpInterviewGatewayOptions
+  /** @brief 按 command ID 保留的未确认创建信封 / Unconfirmed creation envelopes retained by command ID. */
+  readonly #pendingCreations = new Map<string, PendingInterviewCreation>()
 
   /**
    * @brief 构造 Interview HTTP adapter / Construct the Interview HTTP adapter.
@@ -214,6 +250,20 @@ export class HttpInterviewGateway implements InterviewGateway {
 
   /** @inheritdoc */
   async createInterview(input: UiCreateInterviewInput): Promise<UiCreateInterviewResult> {
+    /** @brief 当前输入的稳定意图快照 / Stable intent snapshot for the current input. */
+    const intentSnapshot = serializeInterviewCreationIntent(input)
+    /** @brief 同一 command ID 已发送但尚未确认的请求信封 / Previously sent request envelope for the same unconfirmed command ID. */
+    const pending = this.#pendingCreations.get(input.commandId)
+    if (pending !== undefined) {
+      if (pending.intentSnapshot !== intentSnapshot) {
+        throw new HttpCommandOutcomeUnknownError('configuration')
+      }
+      if (input.signal?.aborted === true) {
+        throw new HttpCommandOutcomeUnknownError('aborted')
+      }
+      return this.#submitInterviewCreation(input, pending)
+    }
+
     input.signal?.throwIfAborted()
     if (
       !this.#options.clientCapabilities.webrtc &&
@@ -306,25 +356,15 @@ export class HttpInterviewGateway implements InterviewGateway {
       scenario_id: scenario.id,
       workspace_id: input.workspaceId
     }
-    const response = await this.#client.postJson('/interview-sessions', body, {
-      expectedStatus: 201,
-      idempotencyKey:
-        this.#options.createIdempotencyKey?.() ??
-        `interview_session_${globalThis.crypto.randomUUID()}`,
-      ...(input.signal === undefined ? {} : { signal: input.signal })
-    })
-    const session = parseInterviewSessionDto(response.data)
-    if (session.workspace_id !== input.workspaceId || session.scenario_id !== scenario.id) {
-      throw new HttpContractError(
-        'Created Interview session does not belong to the requested workspace and scenario.',
-        response.status
-      )
+    /** @brief 从首次发送前开始保留的创建信封 / Creation envelope retained from immediately before the first send. */
+    const envelope: PendingInterviewCreation = {
+      body,
+      intentSnapshot,
+      scenarioId: input.scenarioId,
+      workspaceId: input.workspaceId
     }
-    this.#client.assertResourceLocation(
-      response,
-      `/interview-sessions/${encodeURIComponent(session.id)}`
-    )
-    return { sessionId: asUiOpaqueId<'interview-session'>(session.id) }
+    this.#pendingCreations.set(input.commandId, envelope)
+    return this.#submitInterviewCreation(input, envelope)
   }
 
   /** @inheritdoc */
@@ -408,6 +448,51 @@ export class HttpInterviewGateway implements InterviewGateway {
       )
     }
     return mapInterviewReportDto(report)
+  }
+
+  /**
+   * @brief 发送或以同一信封确认 Interview Session 创建 / Send or confirm an Interview Session creation with the same envelope.
+   * @param input 携带稳定 command ID 与可选取消信号的输入 / Input carrying the stable command ID and optional cancellation signal.
+   * @param envelope 首次发送前冻结的精确信封 / Exact envelope frozen before the first send.
+   * @return 服务端确认的 Session ID / Session ID confirmed by the service.
+   */
+  async #submitInterviewCreation(
+    input: UiCreateInterviewInput,
+    envelope: PendingInterviewCreation
+  ): Promise<UiCreateInterviewResult> {
+    /** @brief 是否已经收到服务端的成功创建响应 / Whether a successful creation response has already arrived. */
+    let responseReceived = false
+    try {
+      const response = await this.#client.postJson('/interview-sessions', envelope.body, {
+        expectedStatus: 201,
+        idempotencyKey: input.commandId,
+        ...(input.signal === undefined ? {} : { signal: input.signal })
+      })
+      responseReceived = true
+      const session = parseInterviewSessionDto(response.data)
+      if (
+        session.workspace_id !== envelope.workspaceId ||
+        session.scenario_id !== envelope.scenarioId
+      ) {
+        throw new HttpContractError(
+          'Created Interview session does not belong to the requested workspace and scenario.',
+          response.status
+        )
+      }
+      this.#client.assertResourceLocation(
+        response,
+        `/interview-sessions/${encodeURIComponent(session.id)}`
+      )
+      this.#pendingCreations.delete(input.commandId)
+      return { sessionId: asUiOpaqueId<'interview-session'>(session.id) }
+    } catch (error: unknown) {
+      /** @brief 2xx 后的校验失败也属于尚未确认的创建结果 / A validation failure after 2xx also leaves creation unconfirmed. */
+      const failure = responseReceived ? toHttpCommandOutcomeUnknownError(error) : error
+      if (!(failure instanceof HttpCommandOutcomeUnknownError)) {
+        this.#pendingCreations.delete(input.commandId)
+      }
+      throw failure
+    }
   }
 
   /** @brief 列出全部可访问场景 DTO / List all accessible scenario DTOs. */

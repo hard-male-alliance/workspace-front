@@ -26,6 +26,7 @@ describe('InMemoryInterviewGateway', () => {
     }
 
     const result = await interviewGateway.createInterview({
+      commandId: 'command_interview_memory_one' as never,
       workspaceId: DEMO_INTERVIEW_WORKSPACE_ID,
       jobTarget: {
         title: 'Frontend Engineer',

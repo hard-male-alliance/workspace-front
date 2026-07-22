@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { createHttpClient } from '../../../../infrastructure/http/http-client'
 import { HttpWorkspaceGateway } from './gateway'
+import { parseCurrentUserDto, parseWorkspaceListDto } from './validators'
 
 /**
  * @brief 从 fetch 输入读取 URL / Read a URL from fetch input.
@@ -132,8 +133,8 @@ describe('HttpWorkspaceGateway', (): void => {
     }
   })
 
-  it('rejects a Workspace plan outside the frozen enum', async (): Promise<void> => {
-    /** @brief 返回未知套餐的 fetch / Fetch implementation returning an unknown plan. */
+  it('maps a future Workspace plan code to a safe unknown UI value', async (): Promise<void> => {
+    /** @brief 返回未来套餐 code 的 fetch / Fetch implementation returning a future plan code. */
     const fetchImpl = workspaceFetch({
       '/api/v1/workspaces': page([{ ...workspace(), plan: 'trial' }])
     })
@@ -142,9 +143,41 @@ describe('HttpWorkspaceGateway', (): void => {
       createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
     )
 
-    await expect(gateway.loadAccess()).rejects.toMatchObject({
-      message: 'Backend field items[0].plan contains an unsupported value.',
-      name: 'HttpContractError'
+    await expect(gateway.loadAccess()).resolves.toMatchObject({
+      workspaces: [{ plan: 'unknown' }]
     })
+  })
+
+  it.each([
+    ['an undeclared resource property', { ...workspace(), internal_flag: true }],
+    ['a malformed opaque ID', { ...workspace(), id: 'short' }],
+    ['a fractional revision', { ...workspace(), revision: 1.5 }],
+    ['an invalid timestamp', { ...workspace(), updated_at: 'yesterday' }],
+    ['an invalid extension key', { ...workspace(), extensions: { '?private': true } }],
+    ['a plan outside the open-enum code pattern', { ...workspace(), plan: 'Trial Plan' }]
+  ])('rejects %s', (_label, candidate): void => {
+    expect(() => parseWorkspaceListDto(page([candidate]))).toThrowError()
+  })
+
+  it('rejects malformed CurrentUser identity fields and undeclared fields', (): void => {
+    expect(() =>
+      parseCurrentUserDto({ ...currentUser(), default_workspace_id: 'bad' })
+    ).toThrowError()
+    expect(() => parseCurrentUserDto({ ...currentUser(), access_token: 'secret' })).toThrowError()
+  })
+
+  it('rejects CursorPage extras and fractional total estimates', (): void => {
+    expect(() =>
+      parseWorkspaceListDto({
+        items: [],
+        page: { has_more: false, internal: true, next_cursor: null }
+      })
+    ).toThrowError()
+    expect(() =>
+      parseWorkspaceListDto({
+        items: [],
+        page: { has_more: false, next_cursor: null, total_estimate: 0.5 }
+      })
+    ).toThrowError()
   })
 })

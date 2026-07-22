@@ -13,6 +13,10 @@ export type UiKnowledgeSourceType =
   | 'git_repository'
   | 'manual_note'
   | 'cloud_drive'
+  | 'unknown'
+
+/** @brief Knowledge 上下文可安全展示的 Agent 作用域 / Agent scope safely displayable in the Knowledge context. */
+export type UiKnowledgeAgentScope = UiAgentScope | `unknown:${string}`
 
 /** @brief 知识摄取状态 / Knowledge-ingestion status. */
 export type UiKnowledgeIngestionStatus =
@@ -39,7 +43,9 @@ export type UiKnowledgeOperation = 'retrieve' | 'quote' | 'summarize' | 'derive'
 /** @brief Agent 作用域授权 / Agent-scope grant. */
 export interface UiAgentScopeGrant {
   /** @brief Agent 作用域 / Agent scope. */
-  readonly agentScope: UiAgentScope
+  readonly agentScope: UiKnowledgeAgentScope
+  /** @brief 后端开放枚举中的稳定作用域代码 / Stable scope code from the backend open enum. */
+  readonly agentScopeCode: string
   /** @brief 允许或拒绝 / Allow or deny effect. */
   readonly effect: UiVisibilityEffect
   /** @brief 获准操作 / Granted operations. */
@@ -102,5 +108,7 @@ export interface UiKnowledgeVisibilityModel {
   /** @brief 目标知识来源 / Target knowledge source. */
   readonly source: UiKnowledgeSource
   /** @brief 可配置的 Agent 作用域 / Configurable agent scopes. */
-  readonly availableAgentScopes: readonly UiAgentScope[]
+  readonly availableAgentScopes: readonly UiKnowledgeAgentScope[]
+  /** @brief 与该权威策略快照绑定的不透明并发令牌 / Opaque concurrency token bound to this authoritative policy snapshot. */
+  readonly concurrencyToken: string
 }

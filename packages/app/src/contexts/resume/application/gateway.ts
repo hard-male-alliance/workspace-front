@@ -71,6 +71,17 @@ export interface ResumeGateway {
   listTemplateManifests(locale: UiContentLocale): Promise<readonly UiTemplateManifest[]>
 
   /**
+   * @brief 读取指定的不可变模板版本 / Read an exact immutable template version.
+   * @param templateId 模板 ID / Template ID.
+   * @param version 不可变模板版本 / Immutable template version.
+   * @return 精确匹配 ID 与版本的模板 / Template matching the exact ID and version.
+   */
+  getTemplateManifest(
+    templateId: UiTemplateManifest['id'],
+    version: UiTemplateManifest['version']
+  ): Promise<UiTemplateManifest>
+
+  /**
    * @brief 获取模板设置页数据 / Get template-settings page data.
    * @param resumeId 简历 ID / Resume ID.
    * @return 模板设置页展示模型 / Template-settings page display model.

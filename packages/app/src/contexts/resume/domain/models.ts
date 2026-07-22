@@ -5,6 +5,7 @@ import type {
   UiOpaqueId,
   UiWorkspaceId
 } from '../../../shared-kernel/identity'
+import type { UiCommandId } from '../../../shared-kernel/command'
 import type { UiContentLocale } from '../../../shared-kernel/locale'
 
 /** @brief 简历标识符 / Resume identifier. */
@@ -116,11 +117,14 @@ export interface UiResumeProfile {
 /** @brief 简历页面大小 / Resume page size. */
 export type UiResumePageSize = 'A4' | 'LETTER' | 'LEGAL' | 'CUSTOM'
 
+/** @brief 模板声明的输出格式 / Output format declared by a template. */
+export type UiResumeOutputFormat = 'pdf' | 'png' | 'html_snapshot' | 'docx'
+
 /** @brief 简历页面方向 / Resume page orientation. */
 export type UiResumePageOrientation = 'portrait' | 'landscape'
 
 /** @brief 测量单位 / Measurement unit. */
-export type UiMeasurementUnit = 'pt' | 'mm' | 'cm' | 'in'
+export type UiMeasurementUnit = 'pt' | 'mm' | 'cm' | 'in' | 'px' | 'em' | 'percent'
 
 /** @brief 语义测量值 / Semantic measurement value. */
 export interface UiMeasurement {
@@ -146,6 +150,10 @@ export interface UiPageInsets {
 export interface UiResumePageIntent {
   /** @brief 页面规格 / Page size. */
   readonly size: UiResumePageSize
+  /** @brief CUSTOM 页面的自定义宽度 / Custom width for a CUSTOM page. */
+  readonly customWidth: UiMeasurement | null
+  /** @brief CUSTOM 页面的自定义高度 / Custom height for a CUSTOM page. */
+  readonly customHeight: UiMeasurement | null
   /** @brief 页面方向 / Page orientation. */
   readonly orientation: UiResumePageOrientation
   /** @brief 语义边距 / Semantic margins. */
@@ -212,10 +220,18 @@ export interface UiSectionLayoutIntent {
 }
 
 /**
- * @brief 模板设置可表达的语义值 / Semantic values expressible by template settings.
- * @note color 与 measurement 保持结构化，避免将其降级为 CSS 或渲染器私有字符串。
+ * @brief 模板设置可无损保留的 JSON 值 / JSON value preserved losslessly by template settings.
+ * @note 冻结 TemplateManifest 允许任意 JSON；已知 color 与 measurement 仍保留显式类型，未知结构由能力层只读呈现。
  */
-export type UiTemplateSettingValue = boolean | number | string | null | UiColorValue | UiMeasurement
+export type UiTemplateSettingValue =
+  | boolean
+  | number
+  | string
+  | null
+  | UiColorValue
+  | UiMeasurement
+  | readonly UiTemplateSettingValue[]
+  | { readonly [key: string]: UiTemplateSettingValue }
 
 /**
  * @brief 简历样式语义意图 / Resume-style semantic intent.
@@ -240,6 +256,8 @@ export interface UiResumeStyleIntent {
   readonly sectionLayout: readonly UiSectionLayoutIntent[]
   /** @brief 受模板约束的设置值 / Template-constrained setting values. */
   readonly templateSettings: Readonly<Record<string, UiTemplateSettingValue>>
+  /** @brief 需原样保留的命名扩展 / Namespaced extensions preserved losslessly. */
+  readonly extensions: Readonly<Record<string, unknown>>
 }
 
 /** @brief 简历模板引用 / Resume template reference. */
@@ -311,6 +329,14 @@ export interface UiTemplateSettingChoice {
   readonly descriptionKey: string | null
 }
 
+/** @brief 模板设置的条件可见性 / Conditional visibility for a template setting. */
+export interface UiTemplateSettingVisibility {
+  /** @brief 作为条件来源的设置 key / Setting key used as the condition source. */
+  readonly key: string
+  /** @brief 显示当前设置所需的精确语义值 / Exact semantic value required for visibility. */
+  readonly equals: UiTemplateSettingValue
+}
+
 /** @brief 模板设置定义 / Template-setting definition. */
 export interface UiTemplateSettingDefinition {
   /** @brief 设置 key / Setting key. */
@@ -333,6 +359,8 @@ export interface UiTemplateSettingDefinition {
   readonly control: UiTemplateSettingControl
   /** @brief 可选设置组 key / Optional setting-group key. */
   readonly groupKey: string | null
+  /** @brief 可选的条件可见性规则 / Optional conditional-visibility rule. */
+  readonly visibleWhen: UiTemplateSettingVisibility | null
 }
 
 /** @brief 模板语义区域 / Template semantic zone. */
@@ -341,8 +369,8 @@ export interface UiTemplateZone {
   readonly id: string
   /** @brief 本地化标签 key / Localized label key. */
   readonly labelKey: string
-  /** @brief 可放入的区段类型 / Accepted section kinds. */
-  readonly acceptedSectionKinds: readonly UiResumeSectionKind[]
+  /** @brief 可放入的开放区段类型 code / Accepted open section-kind codes. */
+  readonly acceptedSectionKinds: readonly string[]
   /** @brief 最大区段数 / Maximum section count. */
   readonly maxSections: number | null
 }
@@ -378,8 +406,10 @@ export interface UiTemplateManifest {
   readonly supportedLocales: readonly UiContentLocale[]
   /** @brief 支持页面规格 / Supported page sizes. */
   readonly supportedPageSizes: readonly UiResumePageSize[]
-  /** @brief 支持的区段类型 / Supported section kinds. */
-  readonly supportedSectionKinds: readonly UiResumeSectionKind[]
+  /** @brief 支持的输出格式 / Supported output formats. */
+  readonly supportedOutputFormats: readonly UiResumeOutputFormat[]
+  /** @brief 支持的开放区段类型 code / Supported open section-kind codes. */
+  readonly supportedSectionKinds: readonly string[]
   /** @brief 模板语义区域 / Template semantic zones. */
   readonly zones: readonly UiTemplateZone[]
   /** @brief 可用字体令牌 / Available font tokens. */
@@ -396,17 +426,23 @@ export interface UiTemplateManifest {
 
 /** @brief PDF Render artifact 展示模型 / PDF Render artifact display model. */
 export interface UiResumePdfArtifact {
-  readonly id: UiOpaqueId<'resume-pdf-artifact'>
-  readonly resumeId: UiResumeId
-  readonly resumeRevision: number
+  /** @brief 产物下载 URL / Artifact download URL. */
   readonly contentUrl: string
-  readonly pageCount: number | null
+  /** @brief 产物创建时间 / Artifact creation timestamp. */
   readonly createdAt: string
+  /** @brief 产物身份 / Artifact identity. */
+  readonly id: UiOpaqueId<'resume-pdf-artifact'>
+  /** @brief PDF 页数（如果可用） / PDF page count when available. */
+  readonly pageCount: number | null
+  /** @brief 产物对应的 Resume 身份 / Resume identity represented by the artifact. */
+  readonly resumeId: UiResumeId
+  /** @brief 产物对应的 Resume revision / Resume revision represented by the artifact. */
+  readonly resumeRevision: number
 }
 
 /** @brief Resume Render Job 状态 / Resume Render Job status. */
 export type UiResumeRenderJobStatus =
-  'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'expired'
+  'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'expired' | 'unknown'
 
 /** @brief Resume Render Job 展示模型 / Resume Render Job display model. */
 export interface UiResumeRenderJob {
@@ -416,11 +452,12 @@ export interface UiResumeRenderJob {
   readonly status: UiResumeRenderJobStatus
   readonly progressPercent: number | null
   readonly artifacts: readonly UiResumePdfArtifact[]
-  readonly diagnostic: string | null
 }
 
 /** @brief 启动 PDF preview Render Job 输入 / Start-PDF-preview input. */
 export interface UiStartResumePdfRenderInput {
+  /** @brief 一次用户生成意图内保持稳定的命令身份 / Command identity stable within one user render intent. */
+  readonly commandId: UiCommandId
   readonly resumeId: UiResumeId
   readonly resumeRevision: number
   readonly signal?: AbortSignal
@@ -436,12 +473,14 @@ export interface UiResumeEditorModel {
 export interface UiResumeSectionUpdateInput {
   /** @brief 目标简历 / Target resume. */
   readonly resumeId: UiResumeId
+  /** @brief 用户开始编辑时的权威 Resume revision / Authoritative Resume revision when the user began editing. */
+  readonly baseRevision: number
   /** @brief 目标板块 / Target section. */
   readonly sectionId: UiResumeSectionId
-  /** @brief 板块标题 / Section title. */
-  readonly title: string
-  /** @brief 纯文本正文 / Plain-text body. */
-  readonly content: string
+  /** @brief 只在用户确实修改标题时提交 / Submitted only when the user actually changed the title. */
+  readonly title?: string
+  /** @brief 只在用户确实修改正文时提交的纯文本 / Plain text submitted only when the user actually changed the body. */
+  readonly content?: string
   /** @brief 可选取消信号 / Optional cancellation signal. */
   readonly signal?: AbortSignal
 }
@@ -450,6 +489,8 @@ export interface UiResumeSectionUpdateInput {
 export interface UiResumeSectionsReorderInput {
   /** @brief 目标简历 / Target resume. */
   readonly resumeId: UiResumeId
+  /** @brief 用户开始重排时的权威 Resume revision / Authoritative Resume revision when the user began reordering. */
+  readonly baseRevision: number
   /** @brief 完整且有序的板块 ID / Complete ordered section IDs. */
   readonly orderedSectionIds: readonly UiResumeSectionId[]
   /** @brief 可选取消信号 / Optional cancellation signal. */
@@ -460,6 +501,8 @@ export interface UiResumeSectionsReorderInput {
 export interface UiResumeSectionDeleteInput {
   /** @brief 目标简历 / Target resume. */
   readonly resumeId: UiResumeId
+  /** @brief 用户确认删除时的权威 Resume revision / Authoritative Resume revision when the user confirmed deletion. */
+  readonly baseRevision: number
   /** @brief 待删除板块 / Section to delete. */
   readonly sectionId: UiResumeSectionId
   /** @brief 可选取消信号 / Optional cancellation signal. */
@@ -470,8 +513,12 @@ export interface UiResumeSectionDeleteInput {
 export interface UiResumeTemplateSelectionInput {
   /** @brief 目标简历 / Target resume. */
   readonly resumeId: UiResumeId
+  /** @brief 用户选择模板时的权威 Resume revision / Authoritative Resume revision when the user selected the template. */
+  readonly baseRevision: number
   /** @brief 目标模板 / Target template. */
   readonly templateId: UiTemplateId
+  /** @brief 目标模板的不可变版本 / Immutable version of the target template. */
+  readonly templateVersion: string
   /** @brief 可选取消信号 / Optional cancellation signal. */
   readonly signal?: AbortSignal
 }
@@ -480,8 +527,12 @@ export interface UiResumeTemplateSelectionInput {
 export interface UiResumeTemplateSettingsUpdateInput {
   /** @brief 目标简历 / Target resume. */
   readonly resumeId: UiResumeId
+  /** @brief 用户编辑设置时的权威 Resume revision / Authoritative Resume revision when the user edited the settings. */
+  readonly baseRevision: number
   /** @brief 目标模板 / Target template. */
   readonly templateId: UiTemplateId
+  /** @brief 目标模板的不可变版本 / Immutable version of the target template. */
+  readonly templateVersion: string
   /** @brief 完整且受模板约束的样式意图 / Complete template-constrained style intent. */
   readonly styleIntent: UiResumeStyleIntent
   /** @brief 可选取消信号 / Optional cancellation signal. */
@@ -492,6 +543,8 @@ export interface UiResumeTemplateSettingsUpdateInput {
 export interface UiTemplateSettingsModel {
   /** @brief 目标简历 ID / Target resume ID. */
   readonly resumeId: UiResumeId
+  /** @brief 当前设置所绑定的权威 Resume revision / Authoritative Resume revision to which these settings are bound. */
+  readonly resumeRevision: number
   /** @brief 当前选择的模板 / Currently selected template. */
   readonly selectedTemplate: UiTemplateManifest
   /** @brief 可供迁移选择的模板 / Templates available for explicit migration. */

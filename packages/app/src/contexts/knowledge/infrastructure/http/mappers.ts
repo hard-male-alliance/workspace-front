@@ -3,6 +3,7 @@
 import type { UiAgentScope } from '../../../../shared-kernel/agent-scope'
 import { asUiOpaqueId } from '../../../../shared-kernel/identity'
 import type {
+  UiKnowledgeAgentScope,
   UiKnowledgeIngestionStatus,
   UiKnowledgeOperation,
   UiKnowledgeSensitivity,
@@ -68,6 +69,28 @@ function enumValue<TValue extends string>(
   }
   return value as TValue
 }
+
+/**
+ * @brief 将开放枚举映射为已知值或安全 unknown / Map an open enum to a known value or safe unknown.
+ * @param value 已验证的稳定 code / Validated stable code.
+ * @param known 已知 UI 值 / Known UI values.
+ * @return 已知值或 unknown / Known value or unknown.
+ */
+function openEnumValue<TValue extends string>(
+  value: string,
+  known: readonly TValue[]
+): TValue | 'unknown' {
+  return known.includes(value as TValue) ? (value as TValue) : 'unknown'
+}
+
+/**
+ * @brief 映射开放 Agent scope 并保留未知 code 的行身份 / Map an open Agent scope while retaining row identity for an unknown code.
+ * @param value 已验证的后端 scope code / Validated backend scope code.
+ * @return 已知 scope 或带命名空间的未知 scope / Known scope or a namespaced unknown scope.
+ */
+function mapAgentScope(value: string): UiKnowledgeAgentScope {
+  return agentScopes.includes(value as UiAgentScope) ? (value as UiAgentScope) : `unknown:${value}`
+}
 /** @brief 读取条目中的第一个字符串字段 / Read the first string field from an item. */
 function firstString(
   raw: Readonly<Record<string, unknown>>,
@@ -105,15 +128,12 @@ export function mapKnowledgeSourceDto(dto: KnowledgeSourceDto): UiKnowledgeSourc
     lastSuccessAt: dto.ingestion.last_success_at,
     name: dto.name,
     originLabel: originLabel(dto),
-    sourceType: enumValue(dto.source_type, knowledgeSourceTypes, 'source_type'),
+    sourceType: openEnumValue(dto.source_type, knowledgeSourceTypes),
     updatedAt: dto.updated_at,
     visibility: {
       agentGrants: dto.visibility.agent_grants.map((grant, index) => ({
-        agentScope: enumValue(
-          grant.agent_scope,
-          agentScopes,
-          `visibility.agent_grants[${index}].agent_scope`
-        ),
+        agentScope: mapAgentScope(grant.agent_scope),
+        agentScopeCode: grant.agent_scope,
         allowedOperations: grant.allowed_operations.map((operation, operationIndex) =>
           enumValue(
             operation,

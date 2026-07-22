@@ -1,5 +1,7 @@
 /** @file Resume 已确认端点的 transport DTO / Transport DTOs for confirmed Resume endpoints. */
 
+import type { UiTemplateSettingValue } from '../../domain/models'
+
 /** @brief 模板区域 DTO / Template-zone DTO. */
 export interface TemplateZoneDto {
   readonly zone_id: string
@@ -10,9 +12,15 @@ export interface TemplateZoneDto {
 
 /** @brief 模板设置选项 DTO / Template-setting choice DTO. */
 export interface TemplateChoiceDto {
-  readonly value: unknown
+  readonly value: UiTemplateSettingValue
   readonly label_key: string
   readonly description_key: string | null
+}
+
+/** @brief 模板设置的条件可见性 DTO / Conditional-visibility DTO for a template setting. */
+export interface TemplateSettingVisibilityDto {
+  readonly key: string
+  readonly equals: UiTemplateSettingValue
 }
 
 /** @brief 模板设置定义 DTO / Template-setting definition DTO. */
@@ -21,12 +29,13 @@ export interface TemplateSettingDefinitionDto {
   readonly label_key: string
   readonly description_key: string | null
   readonly value_type: string
-  readonly default: unknown
+  readonly default: UiTemplateSettingValue
   readonly minimum: number | null
   readonly maximum: number | null
   readonly choices: readonly TemplateChoiceDto[]
   readonly ui_control: string
   readonly group_key: string | null
+  readonly visible_when: TemplateSettingVisibilityDto | null
 }
 
 /** @brief 模板清单 DTO / Template-manifest DTO. */
@@ -41,6 +50,7 @@ export interface TemplateManifestDto {
   readonly preview_asset_url: string | null
   readonly supported_locales: readonly string[]
   readonly supported_page_sizes: readonly string[]
+  readonly supported_output_formats: readonly string[]
   readonly supported_section_kinds: readonly string[]
   readonly zones: readonly TemplateZoneDto[]
   readonly font_family_tokens: readonly string[]
@@ -125,6 +135,8 @@ export interface ResumeDocumentDto {
     readonly style_contract_version: '1.0'
     readonly page: {
       readonly size: string
+      readonly custom_width: MeasurementDto | null
+      readonly custom_height: MeasurementDto | null
       readonly orientation: string
       readonly margins: {
         readonly top: MeasurementDto
@@ -160,9 +172,17 @@ export interface ResumeDocumentDto {
       readonly compactness: number
       readonly heading_style_token: string | null
     }[]
-    readonly template_settings: Readonly<Record<string, unknown>>
+    readonly template_settings: Readonly<Record<string, UiTemplateSettingValue>>
+    readonly extensions: Readonly<Record<string, unknown>>
   }
   readonly knowledge_source_id: string | null
+}
+
+/** @brief Resume operation 拒绝的安全 ProblemDetails 投影 / Safe ProblemDetails projection for a Resume-operation rejection. */
+export interface ResumeOperationProblemDto {
+  readonly code: string
+  readonly retryable: boolean
+  readonly status: number
 }
 
 /** @brief Resume operation 批次结果 DTO / Resume operation batch-result DTO. */
@@ -173,6 +193,7 @@ export interface ResumeOperationBatchResultDto {
   readonly results: readonly {
     readonly operation_id: string
     readonly status: 'applied' | 'deduplicated' | 'rebased' | 'rejected'
+    readonly problem: ResumeOperationProblemDto | null
   }[]
   readonly normalized_document: ResumeDocumentDto | null
 }
@@ -198,7 +219,8 @@ export interface RenderArtifactDto {
 /** @brief Resume Render Job DTO / Resume Render Job DTO. */
 export interface ResumeRenderJobDto {
   readonly id: string
-  readonly status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'expired'
+  /** @brief 契约允许服务端新增的开放状态 code / Open status code that the contract permits providers to extend. */
+  readonly status: string
   readonly progress: {
     readonly phase: string
     readonly completed_units: number
@@ -208,5 +230,4 @@ export interface ResumeRenderJobDto {
   readonly resume_id: string
   readonly resume_revision: number
   readonly artifacts: readonly RenderArtifactDto[]
-  readonly diagnostic: string | null
 }

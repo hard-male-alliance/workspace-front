@@ -14,12 +14,13 @@ import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router-dom'
 import { useAsyncResource, useKnowledgeGateway } from '../../../app/AppData'
 import { ResourceErrorState } from '../../../app/ResourceErrorState'
+import { classifyResourceFailure } from '../../../app/resource-errors'
 import { asUiOpaqueId } from '../../../shared-kernel/identity'
-import type { UiAgentScope } from '../../../shared-kernel/agent-scope'
 import { LoadingState } from '../../../ui'
 import type { KnowledgeGateway } from '../application/gateway'
 import type {
   UiKnowledgeOperation,
+  UiKnowledgeAgentScope,
   UiKnowledgeSensitivity,
   UiKnowledgeVisibilityModel,
   UiVisibilityEffect
@@ -49,9 +50,10 @@ const visibilityOperationColumns: readonly VisibilityOperationColumn[] = [
  * @param scope Agent scope 标识 / Agent scope identifier.
  * @return 用户可见名称 / User-visible name.
  */
-function getAgentScopeLabelKey(scope: UiAgentScope): string {
+function getAgentScopeLabelKey(scope: UiKnowledgeAgentScope): string {
+  if (scope.startsWith('unknown:')) return 'visibility.scopes.unknown'
   /** @brief scope 翻译键表 / Scope translation-key table. */
-  const labelKeys: Readonly<Record<UiAgentScope, string>> = {
+  const labelKeys: Readonly<Record<Exclude<UiKnowledgeAgentScope, `unknown:${string}`>, string>> = {
     resume_assistant: 'visibility.scopes.resumeAssistant',
     job_fit_analyst: 'visibility.scopes.jobFitAnalyst',
     interview_agent: 'visibility.scopes.interviewAgent',
@@ -59,7 +61,7 @@ function getAgentScopeLabelKey(scope: UiAgentScope): string {
     general_chat: 'visibility.scopes.generalChat',
     portfolio_assistant: 'visibility.scopes.portfolioAssistant'
   }
-  return labelKeys[scope]
+  return labelKeys[scope as Exclude<UiKnowledgeAgentScope, `unknown:${string}`>]
 }
 
 /**
@@ -122,7 +124,7 @@ function getRegionLabelKey(
  */
 function isOperationAllowed(
   model: UiKnowledgeVisibilityModel,
-  scope: UiAgentScope,
+  scope: UiKnowledgeAgentScope,
   operation: UiKnowledgeOperation
 ): boolean {
   /** @brief 匹配的授权条目 / Matching grant entry. */
@@ -142,12 +144,14 @@ function VisibilityMatrixRow({
   scope
 }: {
   readonly model: UiKnowledgeVisibilityModel
-  readonly scope: UiAgentScope
+  readonly scope: UiKnowledgeAgentScope
 }): React.JSX.Element {
   /** @brief 翻译函数 / Translation function. */
   const { t } = useTranslation()
   /** @brief 当前 Agent scope 的本地化标签 / Localized label for the current Agent scope. */
-  const scopeLabel = t(getAgentScopeLabelKey(scope), { defaultValue: scope })
+  const scopeLabel = t(getAgentScopeLabelKey(scope), {
+    defaultValue: scope.startsWith('unknown:') ? 'Unknown agent' : scope
+  })
 
   return (
     <tr>
@@ -211,16 +215,34 @@ function KnowledgeVisibilityContent({
     | { readonly status: 'idle' | 'saving' | 'saved' }
     | { readonly status: 'error'; readonly error: unknown }
   >({ status: 'idle' })
+  /** @brief 是否正在重新读取权威策略 / Whether the authoritative policy is being reloaded. */
+  const [isReloadingAuthority, setReloadingAuthority] = useState(false)
+  /** @brief 权威策略重新读取是否失败 / Whether reloading the authoritative policy failed. */
+  const [authorityReloadError, setAuthorityReloadError] = useState(false)
+  /** @brief 最近保存错误的安全类别 / Safe category of the latest save error. */
+  const saveFailureKind =
+    saveState.status === 'error' ? classifyResourceFailure(saveState.error).kind : null
+  /** @brief 是否必须先重新读取权威授权策略 / Whether the authoritative authorization policy must be reloaded first. */
+  const authorityReloadRequired =
+    saveFailureKind === 'conflict' || saveFailureKind === 'outcome-unknown'
+  /** @brief 当前开关草稿是否不同于最近权威策略 / Whether the toggle draft differs from the latest authoritative policy. */
+  const isDirty =
+    sessionOverrideAllowed !== model.source.visibility.sessionOverrideAllowed ||
+    externalModelAllowed !== model.source.visibility.allowExternalModelProcessing
+  /** @brief 写响应待定或权威恢复前是否冻结编辑 / Whether editing is frozen while a write is pending or authority must be recovered. */
+  const isWriteLocked = saveState.status === 'saving' || authorityReloadRequired
   /** @brief 显式允许的 Agent 授权数量 / Count of explicitly allowed agent grants. */
   const allowedGrantCount = model.source.visibility.agentGrants.filter(
     (grant) => grant.effect === 'allow'
   ).length
   /** @brief 保存当前草稿并以服务端响应回填页面 / Save the current draft and replace the page with the backend response. */
   const saveVisibility = useCallback(async (): Promise<void> => {
+    if (isWriteLocked || !isDirty) return
     setSaveState({ status: 'saving' })
     try {
       /** @brief 服务端确认的更新后模型 / Updated model confirmed by the backend. */
       const updatedModel = await gateway.updateKnowledgeVisibility({
+        concurrencyToken: model.concurrencyToken,
         sourceId: model.source.id,
         visibility: {
           ...model.source.visibility,
@@ -235,7 +257,45 @@ function KnowledgeVisibilityContent({
     } catch (error: unknown) {
       setSaveState({ error, status: 'error' })
     }
-  }, [externalModelAllowed, gateway, model.source, sessionOverrideAllowed])
+  }, [
+    externalModelAllowed,
+    gateway,
+    isDirty,
+    isWriteLocked,
+    model.concurrencyToken,
+    model.source,
+    sessionOverrideAllowed
+  ])
+
+  /**
+   * @brief 重新读取权威策略并保留未确认的本地开关草稿 / Reload the authoritative policy while preserving unconfirmed local toggle drafts.
+   * @return 读取完成的 Promise / Promise completed after the read.
+   */
+  const reloadAuthoritativeVisibility = useCallback(async (): Promise<void> => {
+    if (isReloadingAuthority) return
+    setReloadingAuthority(true)
+    setAuthorityReloadError(false)
+    try {
+      /** @brief 服务端当前权威可见性模型 / Current authoritative visibility model from the service. */
+      const authoritative = await gateway.getKnowledgeVisibility(model.source.id)
+      /** @brief 权威策略是否已确认冻结中的本地草稿 / Whether authority confirms the locally frozen draft. */
+      const authorityConfirmsDraft =
+        authoritative.source.visibility.sessionOverrideAllowed === sessionOverrideAllowed &&
+        authoritative.source.visibility.allowExternalModelProcessing === externalModelAllowed
+      setModel(authoritative)
+      if (authorityConfirmsDraft) {
+        setSessionOverrideAllowed(authoritative.source.visibility.sessionOverrideAllowed)
+        setExternalModelAllowed(authoritative.source.visibility.allowExternalModelProcessing)
+        setSaveState({ status: 'saved' })
+      } else {
+        setSaveState({ status: 'idle' })
+      }
+    } catch {
+      setAuthorityReloadError(true)
+    } finally {
+      setReloadingAuthority(false)
+    }
+  }, [externalModelAllowed, gateway, isReloadingAuthority, model.source.id, sessionOverrideAllowed])
 
   return (
     <div className="aw-page">
@@ -259,7 +319,7 @@ function KnowledgeVisibilityContent({
           </Link>
           <button
             className="aw-primary-button"
-            disabled={saveState.status === 'saving'}
+            disabled={isWriteLocked || !isDirty}
             onClick={(): void => {
               void saveVisibility()
             }}
@@ -298,8 +358,25 @@ function KnowledgeVisibilityContent({
             onRetry={(): void => {
               void saveVisibility()
             }}
+            {...(authorityReloadRequired
+              ? {
+                  recoveryAction: {
+                    label: t('common.reloadLatest', { defaultValue: '重新加载最新数据' }),
+                    onInvoke: (): void => {
+                      void reloadAuthoritativeVisibility()
+                    }
+                  }
+                }
+              : {})}
             title={t('visibility.saveFailed', { defaultValue: '无法保存可见性策略' })}
           />
+          {authorityReloadError ? (
+            <div className="aw-inline-error" role="alert">
+              {t('visibility.reloadFailed', {
+                defaultValue: '无法重新加载权威可见性策略，请重试。'
+              })}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -415,7 +492,12 @@ function KnowledgeVisibilityContent({
               aria-checked={sessionOverrideAllowed}
               aria-label={t('visibility.sessionOverride', { defaultValue: '允许会话级选择' })}
               className="aw-switch"
-              onClick={(): void => setSessionOverrideAllowed((value) => !value)}
+              disabled={isWriteLocked}
+              onClick={(): void => {
+                if (isWriteLocked) return
+                setSaveState({ status: 'idle' })
+                setSessionOverrideAllowed((value) => !value)
+              }}
               role="switch"
               type="button"
             />
@@ -435,7 +517,12 @@ function KnowledgeVisibilityContent({
               aria-checked={externalModelAllowed}
               aria-label={t('visibility.externalModel', { defaultValue: '允许外部模型处理' })}
               className="aw-switch"
-              onClick={(): void => setExternalModelAllowed((value) => !value)}
+              disabled={isWriteLocked}
+              onClick={(): void => {
+                if (isWriteLocked) return
+                setSaveState({ status: 'idle' })
+                setExternalModelAllowed((value) => !value)
+              }}
               role="switch"
               type="button"
             />

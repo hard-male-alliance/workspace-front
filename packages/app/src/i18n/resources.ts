@@ -56,6 +56,7 @@ export const zhSGTranslation = {
     edit: '编辑',
     save: '保存',
     retry: '重试',
+    reloadLatest: '重新加载最新数据',
     learnMore: '了解更多',
     updated: '已更新',
     loading: '正在加载…',
@@ -94,16 +95,18 @@ export const zhSGTranslation = {
     errorDescription: '暂时无法加载数据。请稍后重试。'
   },
   errors: {
-    authenticationRequired: '登录状态已失效。请重新登录后再试。',
+    authenticationRequired: '此内容需要登录，但当前应用尚未接通身份认证。请联系管理员完成配置。',
     forbidden: '你没有访问这项内容的权限。如认为这是错误，请联系工作区管理员。',
     notFound: '这项内容不存在，或者你没有查看它的权限。',
     conflict: '内容已在其他位置更新。请重新加载最新数据后继续。',
+    invalidRequest: '服务未接受提交的内容。请检查输入；如问题持续，请联系支持。',
     rateLimited: '请求过于频繁。请稍后再试。',
     serviceUnavailable: '服务暂时繁忙或响应超时。请稍后重试。',
     invalidResponse: '服务返回了无法识别的数据。问题已记录，请稍后重试。',
     network: '无法连接到服务。请检查网络连接后重试。',
-    capabilityUnavailable: '服务端尚未提供这项能力，请稍后再试。',
-    unknown: '暂时无法完成请求。你的本地输入不会因此自动丢失。',
+    outcomeUnknown: '请求可能已被服务处理。请先重新加载权威数据确认结果，不要立即重复提交。',
+    capabilityUnavailable: '这项功能当前尚不可用。',
+    unknown: '应用无法确认本次请求结果。继续操作前，请重新加载最新数据。',
     reference: '支持编号：{{referenceId}}'
   },
   workspace: {
@@ -182,15 +185,30 @@ export const zhSGTranslation = {
       deleteError: '无法删除这个板块。',
       conflictTitle: '简历版本已过期',
       conflictDescription: '服务器上的简历已发生变化。请先重新加载权威版本，再继续编辑。',
+      operationRejectedTitle: '部分简历操作未被接受',
+      operationRejectedDescription:
+        '服务器已返回批次结果。请先重新加载权威版本，确认已应用与未应用的修改后再继续。',
+      outcomeUnknownTitle: '简历操作结果待确认',
+      outcomeUnknownDescription:
+        '请求可能已由服务器处理。请先重新加载权威版本确认结果，不要重复提交。',
+      templateSelectionError: '无法切换简历模板',
       reloadAuthority: '重新加载服务器版本',
       reloadingAuthority: '正在重新加载…',
       reloadAuthorityError: '无法重新加载服务器版本，请重试。',
+      renderPdf: '生成 PDF 预览',
+      renderingPdf: '正在生成 PDF…',
+      renderError: 'PDF 预览生成失败，请重试。',
       downloadPdf: '下载 PDF',
       savingPdf: '正在保存 PDF…',
       pdfSaved: 'PDF 已保存。',
       pdfDownloadStarted: 'PDF 下载已开始。',
       pdfSaveCancelled: '已取消保存。',
-      pdfSaveError: 'PDF 保存失败，请重试。'
+      pdfSaveError: 'PDF 保存失败，请重试。',
+      confirmPdfRender: '确认 PDF 生成结果',
+      resumePdfPolling: '继续查询 PDF',
+      renderOutcomeUnknown:
+        '生成请求可能已被服务器处理。请确认上一次请求，不要创建重复的 PDF 任务。',
+      pdfUnsupported: '当前模板不支持 PDF 输出。'
     }
   },
   template: {
@@ -214,6 +232,9 @@ export const zhSGTranslation = {
     sourceMap: '来源映射',
     intentNotice: '模板版本固定；迁移不会静默改变现有简历。',
     settingsDescription: '控件由 TemplateManifest.settings 驱动，值受模板约束。',
+    ungroupedSettings: '模板设置',
+    measurementValue: '数值',
+    measurementUnit: '单位',
     pageSize: '页面规格',
     fontToken: '字体令牌',
     fontTokenHelp: '令牌由模板解释，不暴露字体路径。',
@@ -309,6 +330,10 @@ export const zhSGTranslation = {
     start: '开始面试',
     starting: '正在准备…',
     submitError: '无法创建面试，请保留当前设置并重试。',
+    outcomeUnknown:
+      '上次创建结果尚未确认。当前设置已锁定；请确认上次结果，不要创建重复的面试会话。',
+    confirmCreation: '确认上次创建结果',
+    confirming: '正在确认…',
     loading: '正在准备面试设置…',
     error: '无法加载面试设置'
   },
@@ -435,6 +460,7 @@ export const zhSGTranslation = {
     saved: '可见性策略已保存',
     savedDescription: '服务端已确认新的策略版本。',
     saveFailed: '无法保存可见性策略',
+    reloadFailed: '无法重新加载权威可见性策略，请重试。',
     defaultEffect: '默认效果',
     sessionControls: '会话与模型控制',
     serverOwned: '调整会保存为服务端权威策略。',
@@ -465,7 +491,8 @@ export const zhSGTranslation = {
       interviewAgent: '面试 Agent',
       interviewReporter: '面试报告 Agent',
       generalChat: '通用对话',
-      portfolioAssistant: '作品集助手'
+      portfolioAssistant: '作品集助手',
+      unknown: '未知 Agent'
     },
     beforeProduction: '最终授权说明',
     beforeProductionDescription:
@@ -529,6 +556,7 @@ export const enUSTranslation = {
     edit: 'Edit',
     save: 'Save',
     retry: 'Try again',
+    reloadLatest: 'Reload latest data',
     learnMore: 'Learn more',
     updated: 'Updated',
     loading: 'Loading…',
@@ -567,18 +595,24 @@ export const enUSTranslation = {
     errorDescription: 'The data could not be loaded. Try again shortly.'
   },
   errors: {
-    authenticationRequired: 'Your sign-in has expired. Sign in again, then retry.',
+    authenticationRequired:
+      'This content requires sign-in, but authentication is not connected in this app. Contact an administrator to finish setup.',
     forbidden:
       'You do not have permission to access this content. Contact a workspace administrator if this seems wrong.',
     notFound: 'This content does not exist, or you do not have permission to view it.',
     conflict: 'This content changed elsewhere. Reload the latest data before continuing.',
+    invalidRequest:
+      'The service did not accept the submitted content. Check the input, or contact support if the problem continues.',
     rateLimited: 'Too many requests were sent. Try again shortly.',
     serviceUnavailable: 'The service is busy or took too long to respond. Try again shortly.',
     invalidResponse:
       'The service returned data this app cannot read. The problem was recorded; try again later.',
     network: 'The service could not be reached. Check your connection, then retry.',
-    capabilityUnavailable: 'The service does not provide this capability yet. Try again later.',
-    unknown: 'The request could not be completed. Your local input is not discarded automatically.',
+    outcomeUnknown:
+      'The request may already have been processed. Reload authoritative data to confirm the result; do not submit it again immediately.',
+    capabilityUnavailable: 'This capability is currently unavailable.',
+    unknown:
+      'The app could not confirm the result of this request. Reload the latest data before continuing.',
     reference: 'Support reference: {{referenceId}}'
   },
   workspace: {
@@ -662,15 +696,30 @@ export const enUSTranslation = {
       conflictTitle: 'Resume version is stale',
       conflictDescription:
         'This resume changed on the server. Reload the authoritative version before editing.',
+      operationRejectedTitle: 'Some resume operations were rejected',
+      operationRejectedDescription:
+        'The server returned a batch result. Reload the authoritative version to reconcile applied and rejected changes before continuing.',
+      outcomeUnknownTitle: 'Resume operation result is unknown',
+      outcomeUnknownDescription:
+        'The server may have processed this request. Reload the authoritative version to confirm the result before submitting another change.',
+      templateSelectionError: 'The resume template could not be changed',
       reloadAuthority: 'Reload server version',
       reloadingAuthority: 'Reloading…',
       reloadAuthorityError: 'The server version could not be reloaded. Try again.',
+      renderPdf: 'Generate PDF preview',
+      renderingPdf: 'Generating PDF…',
+      renderError: 'The PDF preview could not be generated. Try again.',
       downloadPdf: 'Download PDF',
       savingPdf: 'Saving PDF…',
       pdfSaved: 'PDF saved.',
       pdfDownloadStarted: 'PDF download started.',
       pdfSaveCancelled: 'Save cancelled.',
-      pdfSaveError: 'The PDF could not be saved. Try again.'
+      pdfSaveError: 'The PDF could not be saved. Try again.',
+      confirmPdfRender: 'Confirm PDF generation result',
+      resumePdfPolling: 'Continue checking PDF',
+      renderOutcomeUnknown:
+        'The server may have accepted this generation request. Confirm the previous request instead of creating a duplicate PDF job.',
+      pdfUnsupported: 'The current template does not support PDF output.'
     }
   },
   template: {
@@ -698,6 +747,9 @@ export const enUSTranslation = {
       'Template versions are fixed; a migration never silently changes an existing resume.',
     settingsDescription:
       'Controls are driven by TemplateManifest.settings and their values are constrained by the template.',
+    ungroupedSettings: 'Template settings',
+    measurementValue: 'value',
+    measurementUnit: 'unit',
     pageSize: 'Page format',
     fontToken: 'Font token',
     fontTokenHelp: 'The template interprets the token; no font path is exposed.',
@@ -801,6 +853,10 @@ export const enUSTranslation = {
     start: 'Start interview',
     starting: 'Preparing…',
     submitError: 'The interview could not be created. Your settings are preserved; try again.',
+    outcomeUnknown:
+      'The previous creation is not yet confirmed. Your settings are locked; confirm the previous result instead of creating a duplicate interview session.',
+    confirmCreation: 'Confirm previous creation',
+    confirming: 'Confirming…',
     loading: 'Preparing interview settings…',
     error: 'Unable to load interview settings'
   },
@@ -937,6 +993,7 @@ export const enUSTranslation = {
     saved: 'Visibility policy saved',
     savedDescription: 'The backend confirmed the new policy version.',
     saveFailed: 'Unable to save visibility policy',
+    reloadFailed: 'The authoritative visibility policy could not be reloaded. Try again.',
     defaultEffect: 'Default effect',
     sessionControls: 'Session and model controls',
     serverOwned: 'Changes are saved as the backend-authoritative policy.',
@@ -970,7 +1027,8 @@ export const enUSTranslation = {
       interviewAgent: 'Interview agent',
       interviewReporter: 'Interview reporter',
       generalChat: 'General chat',
-      portfolioAssistant: 'Portfolio assistant'
+      portfolioAssistant: 'Portfolio assistant',
+      unknown: 'Unknown agent'
     },
     beforeProduction: 'Final authorization',
     beforeProductionDescription:

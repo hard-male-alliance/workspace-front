@@ -5,15 +5,17 @@ import type { UiKnowledgeVisibilityUpdateInput } from '../../application/command
 import type { UiKnowledgeSource, UiKnowledgeVisibilityModel } from '../../domain/models'
 import type { UiKnowledgeSourceId, UiWorkspaceId } from '../../../../shared-kernel/identity'
 import type { HttpClient } from '../../../../infrastructure/http/http-client'
-import { HttpContractError, HttpProblemError } from '../../../../infrastructure/http/http-client'
+import {
+  HttpContractError,
+  parseStrongEntityTag,
+  toHttpCommandOutcomeUnknownError
+} from '../../../../infrastructure/http/http-client'
 import { mapKnowledgeSourceDto } from './mappers'
 import { parseKnowledgeSourceDto, parseKnowledgeSourceListDto } from './validators'
 
 /** @brief KnowledgeSource HTTP Gateway / KnowledgeSource HTTP Gateway. */
 export class HttpKnowledgeGateway implements KnowledgeGateway {
   readonly #client: HttpClient
-  /** @brief 已读取知识来源对应的乐观并发 ETag / Optimistic-concurrency ETags for knowledge sources already read. */
-  readonly #etagBySourceId = new Map<UiKnowledgeSourceId, string>()
 
   constructor(client: HttpClient) {
     this.#client = client
@@ -45,6 +47,12 @@ export class HttpKnowledgeGateway implements KnowledgeGateway {
       `/knowledge-sources/${encodeURIComponent(sourceId)}`
     )
     const source = mapKnowledgeSourceDto(parseKnowledgeSourceDto(response.data))
+    if (source.id !== sourceId) {
+      throw new HttpContractError(
+        'Backend returned a different KnowledgeSource than requested.',
+        response.status
+      )
+    }
     /** @brief 服务端返回的当前资源 ETag / Current resource ETag returned by the backend. */
     const etag = response.headers.get('ETag')
     if (etag === null) {
@@ -53,11 +61,11 @@ export class HttpKnowledgeGateway implements KnowledgeGateway {
         response.status
       )
     }
-    this.#etagBySourceId.set(source.id, etag)
     return {
       availableAgentScopes: [
         ...new Set(source.visibility.agentGrants.map((grant) => grant.agentScope))
       ],
+      concurrencyToken: parseStrongEntityTag(etag, 'response.headers.ETag', response.status),
       source
     }
   }
@@ -66,23 +74,15 @@ export class HttpKnowledgeGateway implements KnowledgeGateway {
   async updateKnowledgeVisibility(
     input: UiKnowledgeVisibilityUpdateInput
   ): Promise<UiKnowledgeVisibilityModel> {
-    /** @brief 最近读取的权威 ETag / Most recently read authoritative ETag. */
-    let etag = this.#etagBySourceId.get(input.sourceId)
-    if (etag === undefined) {
-      await this.getKnowledgeVisibility(input.sourceId)
-      etag = this.#etagBySourceId.get(input.sourceId)
-    }
-    if (etag === undefined) {
-      throw new HttpContractError('KnowledgeSource ETag is unavailable for update.', 200)
-    }
-
+    /** @brief 是否已经收到服务端的成功更新响应 / Whether a successful update response has already arrived. */
+    let responseReceived = false
     try {
       const response = await this.#client.patchJson(
         `/knowledge-sources/${encodeURIComponent(input.sourceId)}`,
         {
           visibility: {
             agent_grants: input.visibility.agentGrants.map((grant) => ({
-              agent_scope: grant.agentScope,
+              agent_scope: grant.agentScopeCode,
               allowed_operations: grant.allowedOperations,
               effect: grant.effect
             })),
@@ -95,10 +95,20 @@ export class HttpKnowledgeGateway implements KnowledgeGateway {
             session_override_allowed: input.visibility.sessionOverrideAllowed
           }
         },
-        { ifMatch: etag, ...(input.signal === undefined ? {} : { signal: input.signal }) }
+        {
+          ifMatch: input.concurrencyToken,
+          ...(input.signal === undefined ? {} : { signal: input.signal })
+        }
       )
+      responseReceived = true
       /** @brief 已验证的更新后来源 / Validated source after the update. */
       const source = mapKnowledgeSourceDto(parseKnowledgeSourceDto(response.data))
+      if (source.id !== input.sourceId) {
+        throw new HttpContractError(
+          'Backend updated a different KnowledgeSource than requested.',
+          response.status
+        )
+      }
       /** @brief 更新后资源的新 ETag / New ETag for the updated resource. */
       const nextEtag = response.headers.get('ETag')
       if (nextEtag === null) {
@@ -107,18 +117,15 @@ export class HttpKnowledgeGateway implements KnowledgeGateway {
           response.status
         )
       }
-      this.#etagBySourceId.set(source.id, nextEtag)
       return {
         availableAgentScopes: [
           ...new Set(source.visibility.agentGrants.map((grant) => grant.agentScope))
         ],
+        concurrencyToken: parseStrongEntityTag(nextEtag, 'response.headers.ETag', response.status),
         source
       }
     } catch (error: unknown) {
-      if (error instanceof HttpProblemError && error.status === 412) {
-        this.#etagBySourceId.delete(input.sourceId)
-        await this.getKnowledgeVisibility(input.sourceId).catch(() => undefined)
-      }
+      if (responseReceived) throw toHttpCommandOutcomeUnknownError(error)
       throw error
     }
   }

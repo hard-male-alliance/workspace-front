@@ -85,6 +85,7 @@ export type DiagnosticErrorKind =
   | 'configuration'
   | 'contract'
   | 'network'
+  | 'outcome_unknown'
   | 'react_render'
   | 'timeout'
   | 'unknown'
@@ -294,6 +295,10 @@ export function classifyDiagnosticError(error: unknown): DiagnosticErrorKind {
 
   if (typeof error === 'object' && error !== null && 'name' in error) {
     const name = error.name
+    if (name === 'TimeoutError') return 'timeout'
+    if (name === 'HttpCommandOutcomeUnknownError') {
+      return 'outcome_unknown'
+    }
     if (name === 'HttpProblemError') return 'backend_problem'
     if (name === 'HttpContractError') return 'contract'
   }

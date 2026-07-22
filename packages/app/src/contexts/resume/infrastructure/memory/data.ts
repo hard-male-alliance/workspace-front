@@ -42,6 +42,7 @@ export const MOCK_DAWN_TEMPLATE: UiTemplateManifest = {
   name: 'Dawn',
   description: '温暖、紧凑且适合技术求职的单栏模板。',
   supportedLocales: ['zh-SG', 'en-US'],
+  supportedOutputFormats: ['pdf'],
   supportedPageSizes: ['A4', 'LETTER'],
   supportedSectionKinds: ['summary', 'experience', 'education', 'projects', 'skills', 'custom'],
   zones: [
@@ -72,7 +73,8 @@ export const MOCK_DAWN_TEMPLATE: UiTemplateManifest = {
       maximum: null,
       choices: [],
       control: 'switch',
-      groupKey: 'template.groups.header'
+      groupKey: 'template.groups.header',
+      visibleWhen: null
     },
     {
       key: 'accent_style',
@@ -95,7 +97,8 @@ export const MOCK_DAWN_TEMPLATE: UiTemplateManifest = {
         }
       ],
       control: 'radio',
-      groupKey: 'template.groups.appearance'
+      groupKey: 'template.groups.appearance',
+      visibleWhen: null
     },
     {
       key: 'section_spacing',
@@ -107,7 +110,8 @@ export const MOCK_DAWN_TEMPLATE: UiTemplateManifest = {
       maximum: 1,
       choices: [],
       control: 'slider',
-      groupKey: 'template.groups.appearance'
+      groupKey: 'template.groups.appearance',
+      visibleWhen: null
     }
   ],
   capabilities: {
@@ -126,6 +130,7 @@ export const MOCK_EDITORIAL_TEMPLATE: UiTemplateManifest = {
   name: 'Editorial',
   description: '强调项目叙事与阅读节奏的单栏模板。',
   supportedLocales: ['zh-SG', 'en-US'],
+  supportedOutputFormats: ['pdf'],
   supportedPageSizes: ['A4', 'LETTER', 'LEGAL'],
   supportedSectionKinds: [
     'summary',
@@ -164,7 +169,8 @@ export const MOCK_EDITORIAL_TEMPLATE: UiTemplateManifest = {
       maximum: null,
       choices: [],
       control: 'switch',
-      groupKey: 'template.groups.appearance'
+      groupKey: 'template.groups.appearance',
+      visibleWhen: null
     }
   ],
   capabilities: {
@@ -180,6 +186,19 @@ export const MOCK_EDITORIAL_TEMPLATE: UiTemplateManifest = {
 export const MOCK_TEMPLATE_MANIFESTS: readonly UiTemplateManifest[] = [
   MOCK_DAWN_TEMPLATE,
   MOCK_EDITORIAL_TEMPLATE
+]
+
+/** @brief 不再由最新目录列出的历史 Dawn 版本 / Historical Dawn version no longer listed by the latest catalog. */
+export const MOCK_HISTORICAL_DAWN_TEMPLATE: UiTemplateManifest = {
+  ...MOCK_DAWN_TEMPLATE,
+  name: 'Dawn Legacy',
+  version: '0.9.0'
+}
+
+/** @brief 精确版本资源路由可读取的全部 Mock 版本 / All Mock versions readable through the exact-version resource route. */
+export const MOCK_TEMPLATE_MANIFEST_VERSIONS: readonly UiTemplateManifest[] = [
+  ...MOCK_TEMPLATE_MANIFESTS,
+  MOCK_HISTORICAL_DAWN_TEMPLATE
 ]
 
 /** @brief Mock 简历文档 / Mock resume document. */
@@ -292,8 +311,11 @@ export const MOCK_RESUME_DOCUMENT: UiResumeDocument = {
   ],
   styleIntent: {
     styleContractVersion: '1.0',
+    extensions: {},
     page: {
       size: 'A4',
+      customHeight: null,
+      customWidth: null,
       orientation: 'portrait',
       margins: {
         top: { value: 16, unit: 'mm' },
@@ -391,6 +413,7 @@ export const MOCK_RESUME_EDITOR: UiResumeEditorModel = {
 /** @brief Mock 模板设置数据 / Mock template-settings data. */
 export const MOCK_TEMPLATE_SETTINGS: UiTemplateSettingsModel = {
   resumeId: MOCK_RESUME_ID,
+  resumeRevision: MOCK_RESUME_DOCUMENT.revision,
   selectedTemplate: MOCK_DAWN_TEMPLATE,
   availableTemplates: MOCK_TEMPLATE_MANIFESTS,
   styleIntent: MOCK_RESUME_DOCUMENT.styleIntent

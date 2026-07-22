@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { InMemoryInterviewGateway } from '@ai-job-workspace/app/testing'
+import { HttpCommandOutcomeUnknownError, HttpProblemError } from '@ai-job-workspace/app/http'
 
 import {
   createTestGateways,
@@ -44,6 +45,90 @@ describe('WorkspaceApp interview workflow', (): void => {
 
     fireEvent.click(screen.getByRole('button', { name: '开始面试' }))
     expect(await screen.findByRole('heading', { name: '模拟面试进行中' })).toBeInTheDocument()
+  })
+
+  it('confirms an unknown creation with the exact same command snapshot', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 可观察创建输入的 Interview 测试网关 / Interview test gateway exposing creation inputs. */
+    const interview = new InMemoryInterviewGateway()
+    /** @brief 首次结果未知、第二次确认成功的创建替身 / Creation double unknown first and confirmed on its second call. */
+    const createInterview = vi
+      .spyOn(interview, 'createInterview')
+      .mockRejectedValueOnce(new HttpCommandOutcomeUnknownError('network'))
+      .mockResolvedValueOnce({ sessionId: 'int_mock_system_design' as never })
+
+    render(
+      <WorkspaceApp gateways={createTestGateways({ interview })} initialPath="/interviews/new" />
+    )
+
+    await screen.findByRole('heading', { name: '配置模拟面试' })
+    fireEvent.click(screen.getByRole('button', { name: '开始面试' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '上次创建结果尚未确认。当前设置已锁定；请确认上次结果，不要创建重复的面试会话。'
+    )
+    expect(screen.getByRole('combobox', { name: '目标岗位' })).toBeDisabled()
+    expect(screen.getByRole('combobox', { name: '练习场景' })).toBeDisabled()
+    expect(screen.getAllByRole('checkbox').every((option) => option.hasAttribute('disabled'))).toBe(
+      true
+    )
+    expect(screen.queryByRole('button', { name: '开始面试' })).not.toBeInTheDocument()
+
+    /** @brief 结果确认前不可离开的页面内返回链接 / In-page Back link that cannot leave before confirmation. */
+    const backLink = screen.getByRole('link', { name: '返回' })
+    expect(backLink).toHaveAttribute('aria-disabled', 'true')
+    fireEvent.click(backLink)
+    expect(screen.getByRole('heading', { name: '配置模拟面试' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '确认上次创建结果' })).toBeInTheDocument()
+    expect(createInterview).toHaveBeenCalledTimes(1)
+
+    /** @brief 首次发送后保留的完整命令快照 / Complete command snapshot retained after the first send. */
+    const firstInput = createInterview.mock.calls[0]?.[0]
+    expect(firstInput?.commandId).toMatch(/^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/u)
+
+    fireEvent.click(screen.getByRole('button', { name: '确认上次创建结果' }))
+
+    expect(await screen.findByRole('heading', { name: '模拟面试进行中' })).toBeInTheDocument()
+    /** @brief 结果确认使用的命令快照 / Command snapshot used to confirm the outcome. */
+    const confirmationInput = createInterview.mock.calls[1]?.[0]
+    expect(createInterview).toHaveBeenCalledTimes(2)
+    expect(confirmationInput).toBe(firstInput)
+  })
+
+  it('unlocks a creation intent after confirmation receives a definitive rejection', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('en-US')
+    /** @brief 返回未知结果后明确拒绝同一命令的测试网关 / Test gateway returning an unknown outcome followed by a definitive rejection for the same command. */
+    const interview = new InMemoryInterviewGateway()
+    /** @brief 两阶段创建替身 / Two-stage creation double. */
+    const createInterview = vi
+      .spyOn(interview, 'createInterview')
+      .mockRejectedValueOnce(new HttpCommandOutcomeUnknownError('network'))
+      .mockRejectedValueOnce(
+        new HttpProblemError({
+          code: 'interview.invalid_request',
+          detail: 'private backend detail',
+          requestId: null,
+          retryable: false,
+          retryAfterMs: null,
+          status: 422,
+          title: 'private backend title'
+        })
+      )
+
+    render(
+      <WorkspaceApp gateways={createTestGateways({ interview })} initialPath="/interviews/new" />
+    )
+    await screen.findByRole('heading', { name: 'Set up a mock interview' })
+    fireEvent.click(screen.getByRole('button', { name: 'Start interview' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Confirm previous creation' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The interview could not be created. Your settings are preserved; try again.'
+    )
+    expect(screen.queryByText(/private backend/u)).not.toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Target role' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Start interview' })).toBeEnabled()
+    expect(createInterview).toHaveBeenCalledTimes(2)
   })
 
   it('allows a student to enter a target role that is not in the saved list', async () => {

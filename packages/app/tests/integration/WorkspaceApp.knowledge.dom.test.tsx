@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
+import { HttpCommandOutcomeUnknownError } from '@ai-job-workspace/app/http'
 import { InMemoryKnowledgeGateway } from '@ai-job-workspace/app/testing'
 import {
   createTestGateways,
@@ -89,6 +90,105 @@ describe('WorkspaceApp knowledge workflow', (): void => {
     expect(update?.sourceId).toBe('ks_mock_git')
     expect(update?.visibility.sessionOverrideAllowed).toBe(false)
     expect(await screen.findByText('可见性策略已保存')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '保存' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    expect(updateVisibility).toHaveBeenCalledTimes(1)
     expect(screen.queryByText(/本地演示/u)).not.toBeInTheDocument()
+  })
+
+  it('可见性写入结果未知时先读取权威策略并保留本地开关草稿', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 返回未知写结果的知识 Gateway / Knowledge gateway returning an unknown write outcome. */
+    const knowledge = new InMemoryKnowledgeGateway()
+    /** @brief 只发送一次的可见性写命令 / Visibility command sent exactly once. */
+    const update = vi
+      .spyOn(knowledge, 'updateKnowledgeVisibility')
+      .mockRejectedValue(new HttpCommandOutcomeUnknownError('network'))
+    /** @brief 初始与恢复阶段的权威读取 / Authoritative reads during initial load and recovery. */
+    const reload = vi.spyOn(knowledge, 'getKnowledgeVisibility')
+
+    render(
+      <WorkspaceApp
+        gateways={createTestGateways({ knowledge })}
+        initialPath="/knowledge/ks_mock_git/visibility"
+      />
+    )
+    await screen.findByRole('heading', { name: 'Agent 可见性' })
+    /** @brief 用户当前未确认的本地开关草稿 / User's current unconfirmed local switch draft. */
+    const sessionOverride = screen.getByRole('switch', { name: '允许会话级选择' })
+    fireEvent.click(sessionOverride)
+    expect(sessionOverride).toHaveAttribute('aria-checked', 'false')
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('请先重新加载权威数据')
+    expect(screen.getByRole('button', { name: '保存' })).toBeDisabled()
+    expect(sessionOverride).toBeDisabled()
+    expect(screen.getByRole('switch', { name: '允许外部模型处理' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: '重新加载最新数据' }))
+
+    await vi.waitFor((): void => expect(reload).toHaveBeenCalledTimes(2))
+    expect(update).toHaveBeenCalledTimes(1)
+    expect(sessionOverride).toHaveAttribute('aria-checked', 'false')
+    await vi.waitFor((): void => {
+      expect(screen.getByRole('button', { name: '保存' })).toBeEnabled()
+    })
+  })
+
+  it('未知结果的策略已由服务端应用时吸收权威值且不重复提交', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 模拟服务端先提交成功、响应后丢失的 Knowledge Gateway / Knowledge gateway simulating commit-before-response-loss. */
+    const knowledge = new InMemoryKnowledgeGateway()
+    /** @brief 未被 spy 包装的真实内存更新 / Original in-memory update outside the spy wrapper. */
+    const applyUpdate = knowledge.updateKnowledgeVisibility.bind(knowledge)
+    /** @brief 允许测试观察保存中冻结状态的响应闸门 / Response gate allowing the test to observe the saving lock. */
+    let releaseResponse = (): void => {
+      throw new Error('The response gate was released before initialization.')
+    }
+    /** @brief 写响应保持待定的 Promise / Promise keeping the write response pending. */
+    const responseGate = new Promise<void>((resolve) => {
+      releaseResponse = resolve
+    })
+    /** @brief 已应用但最终报告未知结果的策略更新 / Policy update applied before reporting an unknown outcome. */
+    const update = vi
+      .spyOn(knowledge, 'updateKnowledgeVisibility')
+      .mockImplementationOnce(async (input) => {
+        await applyUpdate(input)
+        await responseGate
+        throw new HttpCommandOutcomeUnknownError('network')
+      })
+    /** @brief 初始与恢复阶段的权威读取 / Authoritative reads during initial load and recovery. */
+    const reload = vi.spyOn(knowledge, 'getKnowledgeVisibility')
+
+    render(
+      <WorkspaceApp
+        gateways={createTestGateways({ knowledge })}
+        initialPath="/knowledge/ks_mock_git/visibility"
+      />
+    )
+    await screen.findByRole('heading', { name: 'Agent 可见性' })
+    /** @brief 待提交的会话选择开关 / Session-selection switch being submitted. */
+    const sessionOverride = screen.getByRole('switch', { name: '允许会话级选择' })
+    /** @brief 未参与本次提交但同样必须冻结的外部模型开关 / External-model switch not edited but still required to freeze. */
+    const externalModel = screen.getByRole('switch', { name: '允许外部模型处理' })
+    fireEvent.click(sessionOverride)
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    await vi.waitFor((): void => expect(update).toHaveBeenCalledOnce())
+    expect(sessionOverride).toBeDisabled()
+    expect(externalModel).toBeDisabled()
+    expect(screen.getByRole('button', { name: '正在保存…' })).toBeDisabled()
+    fireEvent.click(externalModel)
+    expect(externalModel).toHaveAttribute('aria-checked', 'false')
+
+    releaseResponse()
+    expect(await screen.findByRole('alert')).toHaveTextContent('请先重新加载权威数据')
+    fireEvent.click(screen.getByRole('button', { name: '重新加载最新数据' }))
+
+    await vi.waitFor((): void => expect(reload).toHaveBeenCalledTimes(2))
+    expect(await screen.findByText('可见性策略已保存')).toBeInTheDocument()
+    expect(sessionOverride).toHaveAttribute('aria-checked', 'false')
+    expect(screen.getByRole('button', { name: '保存' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    expect(update).toHaveBeenCalledTimes(1)
   })
 })

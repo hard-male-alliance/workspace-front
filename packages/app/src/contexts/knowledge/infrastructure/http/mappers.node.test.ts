@@ -52,6 +52,7 @@ describe('mapKnowledgeSourceDto', (): void => {
     })
     expect(result.visibility.agentGrants[0]).toEqual({
       agentScope: 'resume_assistant',
+      agentScopeCode: 'resume_assistant',
       allowedOperations: ['retrieve', 'derive'],
       effect: 'allow'
     })

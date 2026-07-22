@@ -7,6 +7,8 @@ import type { UiKnowledgeVisibilityPolicy } from '../domain/models'
 export interface UiKnowledgeVisibilityUpdateInput {
   /** @brief 目标知识来源 / Target knowledge source. */
   readonly sourceId: UiKnowledgeSourceId
+  /** @brief 用户所编辑权威快照的并发令牌 / Concurrency token of the authoritative snapshot edited by the user. */
+  readonly concurrencyToken: string
   /** @brief 用户确认后的完整策略 / Complete policy confirmed by the user. */
   readonly visibility: UiKnowledgeVisibilityPolicy
   /** @brief 请求取消信号 / Request cancellation signal. */
