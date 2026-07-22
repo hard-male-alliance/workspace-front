@@ -85,6 +85,13 @@ export type {
   CompleteArtifactContent,
   PartialArtifactContent
 } from './artifacts/artifact-content'
+export { getWorkspaceArtifactSourceMap, parsePdfSourceMap } from './artifacts/pdf-source-map'
+export type {
+  PdfRect,
+  PdfSourceMap,
+  PdfSourceMapReadRequest,
+  PdfSourceNode
+} from './artifacts/pdf-source-map'
 export { parseResourceReference, resourceType } from './resources/resource-reference'
 export type { ResourceReference } from './resources/resource-reference'
 export { listResumePage, parseResumeList } from './resume/resume-list'
