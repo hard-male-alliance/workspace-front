@@ -76,6 +76,12 @@ export const zhSGTranslation = {
     minutes: '分钟',
     minutesValue: '{{count}} 分钟'
   },
+  unsavedChanges: {
+    title: '放弃未保存的更改？',
+    description: '继续将丢失当前页上尚未保存的更改。',
+    stay: '继续编辑',
+    leave: '放弃更改并继续'
+  },
   status: {
     ready: '已就绪',
     rendering: '正在渲染',
@@ -697,6 +703,12 @@ export const enUSTranslation = {
     notSet: 'Company not set',
     minutes: 'min',
     minutesValue: '{{count}} min'
+  },
+  unsavedChanges: {
+    title: 'Discard unsaved changes?',
+    description: 'Continuing will discard changes on this page that have not been saved.',
+    stay: 'Keep editing',
+    leave: 'Discard changes and continue'
   },
   status: {
     ready: 'Ready',

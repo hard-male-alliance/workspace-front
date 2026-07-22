@@ -11,7 +11,8 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
+import { Link, NavLink, Outlet, useBlocker, useLocation } from 'react-router-dom'
+import type { BlockerFunction } from 'react-router-dom'
 import type { RuntimeInfo } from '@ai-job-workspace/platform'
 
 import { LoadingState } from '../ui'
@@ -19,6 +20,7 @@ import { useAsyncResource, useWorkspaceSession } from './AppData'
 import { useDiagnostics } from './Diagnostics'
 import { ResourceErrorState } from './ResourceErrorState'
 import type { WorkspaceSessionAccess } from './session/workspace-session'
+import { useHasUnsavedChanges } from './UnsavedChanges'
 
 /** @brief 主导航项 / Primary navigation item. */
 interface NavigationItem {
@@ -83,6 +85,12 @@ interface WorkspaceAccessOverride {
   readonly selectionRevision: number
   /** @brief 追加页面后的完整会话快照 / Complete session snapshot after appending a page. */
   readonly value: WorkspaceSessionAccess
+}
+
+/** @brief 等待用户确认的 Shell 动作 / Shell action awaiting user confirmation. */
+interface PendingShellAction {
+  /** @brief 用户确认放弃草稿后执行的动作 / Action executed after the user confirms discarding drafts. */
+  readonly run: () => void
 }
 
 /**
@@ -189,6 +197,21 @@ export function WorkspaceShell({ onSignOut, runtimeInfo }: WorkspaceShellProps):
     workspaceSession.getSelectionRevision,
     workspaceSession.getSelectionRevision
   )
+  /** @brief 应用子树是否存在未保存更改 / Whether the application subtree contains unsaved changes. */
+  const hasUnsavedChanges = useHasUnsavedChanges()
+  /** @brief 拦截导航以外的待确认 Shell 动作 / Pending non-navigation Shell action awaiting confirmation. */
+  const [pendingShellAction, setPendingShellAction] = useState<PendingShellAction>()
+  /** @brief 仅在 URL 真正改变且存在草稿时拦截 SPA 导航 / Block SPA navigation only when the URL changes and drafts exist. */
+  const shouldBlockNavigation = useCallback<BlockerFunction>(
+    ({ currentLocation, nextLocation }) =>
+      hasUnsavedChanges &&
+      (currentLocation.pathname !== nextLocation.pathname ||
+        currentLocation.search !== nextLocation.search ||
+        currentLocation.hash !== nextLocation.hash),
+    [hasUnsavedChanges]
+  )
+  /** @brief React Router 管理的 SPA 导航拦截器 / SPA navigation blocker managed by React Router. */
+  const navigationBlocker = useBlocker(shouldBlockNavigation)
   /** @brief 稳定的 Workspace 启动权威读取 / Stable Workspace bootstrap-authority read. */
   const loadWorkspaceAccess = useCallback(
     async (signal: AbortSignal): Promise<WorkspaceSessionAccess> => {
@@ -220,6 +243,14 @@ export function WorkspaceShell({ onSignOut, runtimeInfo }: WorkspaceShellProps):
   const [signOutState, setSignOutState] = useState<'error' | 'idle' | 'loading'>('idle')
   /** @brief 当前追加页请求的取消控制器 / Cancellation controller for the current append-page request. */
   const workspacePageController = useRef<AbortController | null>(null)
+  /** @brief 确认对话框的安全默认按钮 / Safe default button in the confirmation dialog. */
+  const stayButton = useRef<HTMLButtonElement | null>(null)
+  /** @brief 确认对话框的放弃更改按钮 / Discard-changes button in the confirmation dialog. */
+  const leaveButton = useRef<HTMLButtonElement | null>(null)
+
+  /** @brief 导航或 Shell 动作是否正在等待确认 / Whether navigation or a Shell action awaits confirmation. */
+  const confirmationVisible =
+    pendingShellAction !== undefined || navigationBlocker.state === 'blocked'
 
   /** @brief 当前 render 可见的 WorkspaceAccess 快照 / WorkspaceAccess snapshot visible in the current render. */
   const visibleWorkspaceAccess =
@@ -239,6 +270,17 @@ export function WorkspaceShell({ onSignOut, runtimeInfo }: WorkspaceShellProps):
       diagnostics.emit('preference.theme_storage_unavailable', {})
     }
   }, [diagnostics, initialTheme.storageAvailable])
+
+  useEffect((): (() => void) | undefined => {
+    if (!confirmationVisible) return undefined
+    /** @brief 打开确认框前获得焦点的触发控件 / Trigger control focused before opening the confirmation. */
+    const trigger =
+      document.activeElement instanceof HTMLElement ? document.activeElement : undefined
+    stayButton.current?.focus()
+    return (): void => {
+      if (trigger?.isConnected) trigger.focus()
+    }
+  }, [confirmationVisible])
 
   useEffect(
     (): (() => void) => (): void => {
@@ -305,14 +347,46 @@ export function WorkspaceShell({ onSignOut, runtimeInfo }: WorkspaceShellProps):
     diagnostics.emit('preference.theme_changed', { theme: nextTheme })
   }
 
+  /**
+   * @brief 在没有草稿时立即执行，否则等待用户确认 / Execute immediately without drafts, otherwise await user confirmation.
+   * @param run 确认后的 Shell 动作 / Shell action to run after confirmation.
+   * @return 无返回值 / No return value.
+   */
+  const requestShellAction = (run: () => void): void => {
+    if (hasUnsavedChanges) {
+      setPendingShellAction({ run })
+      return
+    }
+    run()
+  }
+
   /** @brief 调用宿主登出并在本 shell 未卸载时呈现安全失败 / Invoke host sign-out and present a safe failure if this shell remains mounted. */
-  const signOut = (): void => {
+  const executeSignOut = (): void => {
     if (onSignOut === undefined || signOutState === 'loading') return
     setSignOutState('loading')
     void onSignOut().then(
       (): void => setSignOutState('idle'),
       (): void => setSignOutState('error')
     )
+  }
+
+  /** @brief 保留当前页面与草稿并关闭确认框 / Keep the current page and drafts and close the confirmation. */
+  const stayWithDraft = (): void => {
+    setPendingShellAction(undefined)
+    if (navigationBlocker.state === 'blocked') navigationBlocker.reset()
+  }
+
+  /** @brief 放弃本地草稿并继续已拦截的意图 / Discard local drafts and continue the blocked intent. */
+  const leaveWithDraft = (): void => {
+    /** @brief 在清除对话框状态前冻结的 Shell 动作 / Shell action frozen before clearing dialog state. */
+    const action = pendingShellAction
+    setPendingShellAction(undefined)
+    if (action !== undefined) {
+      if (navigationBlocker.state === 'blocked') navigationBlocker.reset()
+      action.run()
+      return
+    }
+    if (navigationBlocker.state === 'blocked') navigationBlocker.proceed()
   }
 
   return (
@@ -431,9 +505,11 @@ export function WorkspaceShell({ onSignOut, runtimeInfo }: WorkspaceShellProps):
                         /** @brief 用户显式选择的 Workspace ID / Workspace ID explicitly selected by the user. */
                         const workspaceId = event.currentTarget
                           .value as (typeof workspaceAccess.data.accesses)[number]['workspace']['id']
-                        setWorkspaceSelectionFailed(false)
-                        void workspaceSession.selectWorkspace(workspaceId).catch((): void => {
-                          setWorkspaceSelectionFailed(true)
+                        requestShellAction((): void => {
+                          setWorkspaceSelectionFailed(false)
+                          void workspaceSession.selectWorkspace(workspaceId).catch((): void => {
+                            setWorkspaceSelectionFailed(true)
+                          })
                         })
                       }}
                       value={visibleWorkspaceAccess.currentWorkspaceAccess?.workspace.id ?? ''}
@@ -515,7 +591,7 @@ export function WorkspaceShell({ onSignOut, runtimeInfo }: WorkspaceShellProps):
                 aria-busy={signOutState === 'loading'}
                 className="aw-quiet-button"
                 disabled={signOutState === 'loading'}
-                onClick={signOut}
+                onClick={(): void => requestShellAction(executeSignOut)}
                 type="button"
               >
                 <LogOut aria-hidden="true" size={15} />
@@ -581,6 +657,59 @@ export function WorkspaceShell({ onSignOut, runtimeInfo }: WorkspaceShellProps):
           <Outlet key={workspaceSelectionRevision} />
         )}
       </main>
+      {confirmationVisible ? (
+        <div className="aw-unsaved-overlay">
+          <section
+            aria-describedby="aw-unsaved-description"
+            aria-labelledby="aw-unsaved-title"
+            aria-modal="true"
+            className="aw-unsaved-dialog"
+            onKeyDown={(event): void => {
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                stayWithDraft()
+                return
+              }
+              if (event.key !== 'Tab') return
+              if (event.shiftKey && document.activeElement === stayButton.current) {
+                event.preventDefault()
+                leaveButton.current?.focus()
+              } else if (!event.shiftKey && document.activeElement === leaveButton.current) {
+                event.preventDefault()
+                stayButton.current?.focus()
+              }
+            }}
+            role="alertdialog"
+          >
+            <h2 id="aw-unsaved-title">
+              {t('unsavedChanges.title', { defaultValue: '放弃未保存的更改？' })}
+            </h2>
+            <p id="aw-unsaved-description">
+              {t('unsavedChanges.description', {
+                defaultValue: '继续将丢失当前页面上尚未保存的更改。'
+              })}
+            </p>
+            <div className="aw-unsaved-actions">
+              <button
+                className="aw-quiet-button"
+                onClick={stayWithDraft}
+                ref={stayButton}
+                type="button"
+              >
+                {t('unsavedChanges.stay', { defaultValue: '继续编辑' })}
+              </button>
+              <button
+                className="aw-danger-button"
+                onClick={leaveWithDraft}
+                ref={leaveButton}
+                type="button"
+              >
+                {t('unsavedChanges.leave', { defaultValue: '放弃更改并继续' })}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   )
 }
