@@ -71,6 +71,20 @@ export default defineConfig({
       },
       {
         extends: true,
+        /** @brief 预打包已知启动依赖以减少 Browser Mode 运行期重新优化 / Prebundle known startup dependencies to reduce Browser Mode runtime re-optimization. */
+        optimizeDeps: {
+          include: [
+            'i18next',
+            'lucide-react',
+            'react',
+            'react-dom',
+            'react-i18next',
+            'react-router-dom',
+            'react/jsx-dev-runtime',
+            'react/jsx-runtime',
+            'vitest-browser-react'
+          ]
+        },
         test: {
           name: 'browser',
           root: path.resolve(directory, 'packages/app'),

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --configLoader runner",
-    "build": "vite build --configLoader runner",
+    "build": "vite build --configLoader runner && node ../../scripts/check-production-artifacts.mjs --web",
     "preview": "vite preview --configLoader runner"
   },
   "dependencies": {

@@ -343,13 +343,16 @@ describe('checkArchitecture', () => {
       {
         'apps/desktop/src/renderer/main.ts':
           "import '@ai-job-workspace/app/testing'\nimport '@ai-job-workspace/product-runtime'\n",
+        'apps/desktop/src/renderer/preview.ts':
+          "import '../../../../packages/app/src/demo/content'\n",
         'apps/web/src/main.node.test.ts': "import '@ai-job-workspace/app/testing'\n",
         'apps/web/src/main.ts': "import '@ai-job-workspace/app/testing'\n",
         'packages/app/src/app/compose.ts': "import '../testing'\n",
         'packages/app/src/app/compose.dom-test-harness.ts': "import '../testing'\n",
         'packages/product-runtime/src/index.ts':
           "import '@ai-job-workspace/app/testing'\nimport '../../app/src/contexts/resume/infrastructure/memory/gateway'\n",
-        'packages/app/src/testing.ts': 'export const fixture = {}\n'
+        'packages/app/src/testing.ts': 'export const fixture = {}\n',
+        'packages/app/src/demo/content.ts': 'export const demo = {}\n'
       },
       async (rootDir) => {
         /** @brief 生产装配 fixture 的检查结果 / Check result for the production-composition fixture. */
@@ -360,9 +363,69 @@ describe('checkArchitecture', () => {
           .sort()
         expect(violatingFiles).toEqual([
           'apps/desktop/src/renderer/main.ts',
+          'apps/desktop/src/renderer/preview.ts',
           'apps/web/src/main.ts',
           'packages/app/src/app/compose.ts',
           'packages/product-runtime/src/index.ts'
+        ])
+      }
+    )
+  })
+
+  it('禁止生产组合经由 context barrel 传递抵达内存数据 adapter', async () => {
+    await withFixture(
+      {
+        'apps/web/src/main.ts': "import '../../../packages/app/src/contexts/resume/index'\n",
+        'packages/app/src/contexts/resume/index.ts': "export * from './composition'\n",
+        'packages/app/src/contexts/resume/composition.ts':
+          "export * from './infrastructure/memory/gateway'\n",
+        'packages/app/src/contexts/resume/infrastructure/memory/gateway.ts':
+          'export const gateway = {}\n'
+      },
+      async (rootDir) => {
+        /** @brief 传递生产数据依赖 fixture 的检查结果 / Check result for the transitive production-data dependency fixture. */
+        const result = await checkArchitecture({ rootDir })
+        /** @brief 被拒绝的传递生产数据依赖 / Rejected transitive production-data dependency. */
+        const violations = violationsFor(result.violations, 'production-testing-composition')
+        expect(violations).toHaveLength(1)
+        expect(violations[0]?.file).toBe('packages/app/src/contexts/resume/composition.ts')
+        expect(violations[0]?.message).toContain(
+          'apps/web/src/main.ts -> packages/app/src/contexts/resume/index.ts -> packages/app/src/contexts/resume/composition.ts -> packages/app/src/contexts/resume/infrastructure/memory/gateway.ts'
+        )
+      }
+    )
+  })
+
+  it('禁止生产 UI 暴露非生产数据文案，同时允许模拟面试术语并排除测试与 memory', async () => {
+    await withFixture(
+      {
+        'apps/desktop/src/renderer/src/main.tsx': [
+          "export const status = 'Showing demo data'",
+          "export const interview = 'Mock interview'"
+        ].join('\n'),
+        'apps/web/src/main.ts': [
+          '// Historical note: fall back to demo data.',
+          "export const interview = '模拟面试'"
+        ].join('\n'),
+        'docs/history.ts': "export const oldCopy = 'Showing mock data'\n",
+        'packages/app/src/contexts/knowledge/infrastructure/memory/data.ts':
+          "export const placeholder = '演示数据'\n",
+        'packages/app/src/contexts/resume/presentation/ResumePage.tsx':
+          'export const ResumePage = () => <p>当前显示占位数据</p>\n',
+        'packages/app/src/i18n/resources.ts':
+          "export const resources = { status: 'Fallback data is active' }\n",
+        'packages/app/src/testing.ts': "export const copy = 'Mock data'\n",
+        'packages/app/src/ui/copy.node.test.ts': "export const copy = 'Fake data'\n"
+      },
+      async (rootDir) => {
+        /** @brief 生产 UI 非生产文案 fixture 的检查结果 / Check result for production UI non-production copy. */
+        const result = await checkArchitecture({ rootDir })
+        /** @brief 生产 UI 非生产文案违规 / Production UI non-production copy violations. */
+        const violations = violationsFor(result.violations, 'production-ui-placeholder-copy')
+        expect(violations.map((violation) => violation.file)).toEqual([
+          'apps/desktop/src/renderer/src/main.tsx',
+          'packages/app/src/contexts/resume/presentation/ResumePage.tsx',
+          'packages/app/src/i18n/resources.ts'
         ])
       }
     )

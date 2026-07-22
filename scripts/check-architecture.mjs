@@ -56,6 +56,10 @@ const BROWSER_AMBIENT_GLOBALS = new Set([
   'window'
 ])
 
+/** @brief 生产 UI 禁止暴露的非生产数据文案 / Non-production data copy forbidden in production UI. */
+const FORBIDDEN_PRODUCTION_UI_COPY =
+  /(?:\b(?:demo|fake|fixture|mock(?:ed)?)[\s_-]+(?:adapter|content|data|fallback|gateway|mode|placeholder|response|result|state)\b|\bfallback[\s_-]+(?:content|data|response|result)\b|[（(]\s*mock\s*[）)]|(?:演示|示例|占位|假|模拟|测试|回退|兜底|降级)(?:内容|数据|响应|结果|状态|模式|网关|适配器)|fallback\s*数据)/iu
+
 /** @brief Vitest project 唯一模式清单 / Canonical manifest of Vitest project patterns. */
 const TEST_PROJECTS_MANIFEST = 'test-projects.json'
 
@@ -163,6 +167,26 @@ function isProductionSource(relativePath) {
   return (
     !isTestSupportSource(relativePath) &&
     (/^apps\/[^/]+\/src\//u.test(relativePath) || /^packages\/[^/]+\/src\//u.test(relativePath))
+  )
+}
+
+/**
+ * @brief 判断源码是否属于可能呈现用户文案的生产 UI / Detect production UI source that may present user-facing copy.
+ * @param {string} relativePath 相对文件路径 / Relative file path.
+ * @return {boolean} 生产 UI 源码为 true / True for production UI source.
+ */
+function isProductionUiSource(relativePath) {
+  if (!isProductionSource(relativePath)) return false
+  if (/(?:^|\/)infrastructure\/memory(?:\/|$)/u.test(relativePath)) return false
+
+  return (
+    /^apps\/web\/src\//u.test(relativePath) ||
+    /^apps\/desktop\/src\/renderer\//u.test(relativePath) ||
+    isWithin(relativePath, 'packages/app/src/app') ||
+    isWithin(relativePath, 'packages/app/src/app-support/presentation') ||
+    isWithin(relativePath, 'packages/app/src/i18n') ||
+    isWithin(relativePath, 'packages/app/src/ui') ||
+    /^packages\/app\/src\/contexts\/[^/]+\/presentation\//u.test(relativePath)
   )
 }
 
@@ -578,6 +602,105 @@ function parseDependencies(file) {
 }
 
 /**
+ * @brief 判断字符串节点是否为模块说明符 / Detect whether a string node is a module specifier.
+ * @param {import('typescript').StringLiteralLike} literal 字符串节点 / String node.
+ * @return {boolean} 模块说明符为 true / True for module specifiers.
+ */
+function isModuleSpecifierLiteral(literal) {
+  /** @brief 字符串节点父节点 / Parent of the string node. */
+  const parent = literal.parent
+  if (
+    (ts.isImportDeclaration(parent) || ts.isExportDeclaration(parent)) &&
+    parent.moduleSpecifier === literal
+  ) {
+    return true
+  }
+  if (ts.isExternalModuleReference(parent) && parent.expression === literal) return true
+  return (
+    ts.isCallExpression(parent) &&
+    parent.arguments[0] === literal &&
+    (parent.expression.kind === ts.SyntaxKind.ImportKeyword ||
+      (ts.isIdentifier(parent.expression) && parent.expression.text === 'require'))
+  )
+}
+
+/**
+ * @brief 判断字符串节点是否只是属性名 / Detect whether a string node is only a property name.
+ * @param {import('typescript').StringLiteralLike} literal 字符串节点 / String node.
+ * @return {boolean} 属性名为 true / True for property names.
+ */
+function isStringPropertyName(literal) {
+  /** @brief 字符串节点父节点 / Parent of the string node. */
+  const parent = literal.parent
+  return 'name' in parent && parent.name === literal
+}
+
+/**
+ * @brief 检查生产 UI 是否泄漏演示、Mock、占位或回退数据文案 / Check production UI for demo, mock, placeholder, or fallback data copy.
+ * @param {SourceFile[]} files 全部源码 / All source files.
+ * @param {Violation[]} violations 输出违规列表 / Output violations.
+ * @return {void} 无返回值 / No return value.
+ * @note “Mock interview”和“模拟面试”是产品术语，不属于非生产数据标记。 / “Mock interview” and “模拟面试” are product terms, not non-production data markers.
+ */
+function checkProductionUiCopy(files, violations) {
+  for (const file of files) {
+    if (!isProductionUiSource(file.relativePath)) continue
+
+    /** @brief 当前生产 UI 的 TypeScript 语法树 / TypeScript syntax tree for the current production UI source. */
+    const sourceFile = ts.createSourceFile(
+      file.absolutePath,
+      file.text,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.Unknown
+    )
+
+    /**
+     * @brief 记录命中的用户可见文案 / Record matched user-facing copy.
+     * @param {import('typescript').Node} node 文案节点 / Copy node.
+     * @param {string} value 文案内容 / Copy content.
+     * @return {void} 无返回值 / No return value.
+     */
+    function record(node, value) {
+      if (!FORBIDDEN_PRODUCTION_UI_COPY.test(value)) return
+      /** @brief 文案节点的一基位置 / One-based position of the copy node. */
+      const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
+      violations.push({
+        column: position.character + 1,
+        file: file.relativePath,
+        line: position.line + 1,
+        message:
+          'Production UI cannot expose demo, mock, placeholder, or fallback data copy; remove the non-production branch or show a truthful unavailable/error state.',
+        rule: 'production-ui-placeholder-copy'
+      })
+    }
+
+    /**
+     * @brief 深度优先检查真实字符串节点并忽略注释 / Visit real string nodes depth-first while ignoring comments.
+     * @param {import('typescript').Node} node 当前 AST 节点 / Current AST node.
+     * @return {void} 无返回值 / No return value.
+     */
+    function visit(node) {
+      if (ts.isStringLiteralLike(node)) {
+        if (!isModuleSpecifierLiteral(node) && !isStringPropertyName(node)) record(node, node.text)
+      } else if (ts.isTemplateExpression(node)) {
+        /** @brief 模板字符串的静态片段 / Static fragments of the template string. */
+        const staticText = [
+          node.head.text,
+          ...node.templateSpans.map((span) => span.literal.text)
+        ].join(' ')
+        record(node, staticText)
+      } else if (ts.isJsxText(node)) {
+        record(node, node.getText(sourceFile))
+      }
+      ts.forEachChild(node, visit)
+    }
+
+    visit(sourceFile)
+  }
+}
+
+/**
  * @brief 判断标识符是否只是成员或声明的名称 / Detect identifiers that are merely member or declaration names.
  * @param {import('typescript').Identifier} identifier 待分类标识符 / Identifier to classify.
  * @return {boolean} 非值引用名称为 true / True for a non-value-reference name.
@@ -937,7 +1060,10 @@ function isNonProductionDataDependency(specifier, targetRelativePath) {
     targetRelativePath === 'packages/app/src/testing.ts' ||
     targetRelativePath?.startsWith('packages/app/src/testing/') === true ||
     targetRelativePath === 'packages/app/src/demo.ts' ||
-    targetRelativePath?.includes('/infrastructure/memory/') === true
+    targetRelativePath?.startsWith('packages/app/src/demo/') === true ||
+    /(?:^|\/)infrastructure\/(?:fake|fakes|memory|mock|mocks)(?:\/|$)/u.test(
+      targetRelativePath ?? ''
+    )
   )
 }
 
@@ -1159,6 +1285,101 @@ function checkDependencyBoundaries(file, dependency, rootDir, workspacePackages,
 }
 
 /**
+ * @brief 检查生产组合根能否传递抵达非生产数据 adapter / Check whether production composition roots transitively reach non-production data adapters.
+ * @param {SourceFile[]} files 全部源码 / All source files.
+ * @param {Map<string, Dependency[]>} dependenciesByFile 按文件索引的依赖 / Dependencies indexed by source file.
+ * @param {string} rootDir 仓库绝对根目录 / Absolute repository root.
+ * @param {Violation[]} violations 输出违规列表 / Output violations.
+ * @return {void} 无返回值 / No return value.
+ * @note 直接导入由单边界检查报告；本检查阻止通过 context barrel 或 facade 洗白依赖。 / Direct imports are reported by the single-edge check; this check prevents laundering through context barrels or facades.
+ */
+function checkProductionTestingReachability(files, dependenciesByFile, rootDir, violations) {
+  /** @brief 按绝对路径索引源码 / Sources indexed by absolute path. */
+  const fileByPath = new Map(files.map((file) => [file.absolutePath, file]))
+  /** @brief 生产源码绝对路径集合 / Absolute paths of production sources. */
+  const productionPaths = new Set(
+    files.filter((file) => isProductionSource(file.relativePath)).map((file) => file.absolutePath)
+  )
+  /** @brief 已报告泄漏边的稳定签名 / Stable signatures of reported leaking edges. */
+  const reportedEdges = new Set()
+  /** @brief 必须保持真实数据依赖的生产组合根 / Production composition roots that must retain real-data dependencies. */
+  const roots = files
+    .filter((file) => isTestingFacadeRestrictedProduction(file.relativePath))
+    .sort((left, right) => left.relativePath.localeCompare(right.relativePath))
+
+  for (const root of roots) {
+    /** @brief 当前组合根已访问的生产源码 / Production sources visited from the current composition root. */
+    const visited = new Set()
+
+    /**
+     * @brief 深度优先检查一条生产依赖路径 / Inspect one production dependency path depth-first.
+     * @param {string} sourcePath 当前源码绝对路径 / Current absolute source path.
+     * @param {string[]} pathFromRoot 从组合根到当前源码的路径 / Path from the composition root to the current source.
+     * @return {void} 无返回值 / No return value.
+     */
+    function visit(sourcePath, pathFromRoot) {
+      if (visited.has(sourcePath)) return
+      visited.add(sourcePath)
+
+      /** @brief 当前依赖来源文件 / Current dependency source file. */
+      const sourceFile = fileByPath.get(sourcePath)
+      if (sourceFile === undefined) return
+
+      for (const dependency of dependenciesByFile.get(sourcePath) ?? []) {
+        /** @brief 当前目标的仓库相对路径 / Repository-relative path of the current target. */
+        const targetRelativePath =
+          dependency.target === undefined
+            ? undefined
+            : toPosixPath(path.relative(rootDir, dependency.target))
+        /** @brief 当前边是否进入非生产数据实现 / Whether this edge enters non-production data code. */
+        const reachesNonProductionData = isNonProductionDataDependency(
+          dependency.specifier,
+          targetRelativePath
+        )
+
+        if (reachesNonProductionData) {
+          if (!isTestingFacadeRestrictedProduction(sourceFile.relativePath)) {
+            /** @brief 依赖泄漏边的去重签名 / Deduplication signature for the leaking edge. */
+            const signature = [
+              sourceFile.absolutePath,
+              dependency.line,
+              dependency.column,
+              dependency.specifier
+            ].join('\u0000')
+            if (!reportedEdges.has(signature)) {
+              reportedEdges.add(signature)
+              /** @brief 依赖链的可读终点 / Human-readable endpoint of the dependency chain. */
+              const endpoint = targetRelativePath ?? dependency.specifier
+              violations.push({
+                column: dependency.column,
+                file: sourceFile.relativePath,
+                line: dependency.line,
+                message: `Production composition transitively reaches testing, demo, or in-memory data through ${[
+                  ...pathFromRoot,
+                  endpoint
+                ].join(' -> ')}; keep non-production adapters behind the testing facade only.`,
+                rule: 'production-testing-composition'
+              })
+            }
+          }
+          continue
+        }
+
+        if (
+          dependency.target !== undefined &&
+          productionPaths.has(dependency.target) &&
+          fileByPath.has(dependency.target)
+        ) {
+          visit(dependency.target, [...pathFromRoot, targetRelativePath])
+        }
+      }
+    }
+
+    visit(root.absolutePath, [root.relativePath])
+  }
+}
+
+/**
  * @brief 在完整生产依赖图中发现环 / Find cycles in the complete production dependency graph.
  * @param {SourceFile[]} files 全部源码 / All source files.
  * @param {Map<string, Dependency[]>} dependenciesByFile 按文件索引的依赖 / Dependencies indexed by source file.
@@ -1301,7 +1522,9 @@ export async function checkArchitecture(options = {}) {
     }
   }
 
+  checkProductionUiCopy(files, violations)
   checkBrowserAmbientGlobals(files, violations)
+  checkProductionTestingReachability(files, dependenciesByFile, rootDir, violations)
   checkProductionDependencyCycles(files, dependenciesByFile, rootDir, violations)
   violations.sort(
     (left, right) =>

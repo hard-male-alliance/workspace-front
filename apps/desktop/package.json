@@ -8,7 +8,7 @@
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "build": "electron-vite build && node ../../scripts/check-production-artifacts.mjs --desktop",
     "preview": "electron-vite preview",
     "package": "pnpm build && electron-builder --dir --config electron-builder.yml",
     "dist": "pnpm build && electron-builder --config electron-builder.yml"

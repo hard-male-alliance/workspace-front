@@ -7,7 +7,13 @@ export const desktopSmokeFramePath = '/api/v1/render-artifacts/artifact_smoke/co
 
 /** @brief 本地探针返回的最小合法 KnowledgeSource / Minimal valid KnowledgeSource returned by the local probe. */
 const smokeKnowledgeSource = Object.freeze({
-  config: { filename: 'artifact-smoke.pdf', source_type: 'file' },
+  config: {
+    content_type: 'application/pdf',
+    file_id: 'file_smoke',
+    filename: 'artifact-smoke.pdf',
+    sha256: '0'.repeat(64),
+    source_type: 'file'
+  },
   created_at: '2026-01-01T00:00:00Z',
   enabled: true,
   id: 'ks_smoke_git',

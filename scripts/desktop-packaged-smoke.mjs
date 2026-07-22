@@ -11,9 +11,14 @@ import {
 } from './desktop-packaged-layout.mjs'
 import { requiredDesktopFuseStates } from './desktop-fuses.mjs'
 import { runDesktopRuntimeSmoke } from './desktop-packaged-runtime.mjs'
+import {
+  assertProductionArtifactDataBoundary,
+  inspectProductionArtifactEntries,
+  isProductionArtifactTextPath
+} from './check-production-artifacts.mjs'
 
 /** @brief CommonJS `@electron/asar` 导出的归档读取 API / Archive-reading API exported by CommonJS `@electron/asar`. */
-const { listPackage } = electronAsar
+const { extractFile, listPackage } = electronAsar
 /** @brief Fuse wire 中 ASCII `0` 表示禁用 / ASCII `0` denotes disabled in the fuse wire. */
 const disabledFuseState = '0'.charCodeAt(0)
 /** @brief Fuse wire 中 ASCII `1` 表示启用 / ASCII `1` denotes enabled in the fuse wire. */
@@ -60,6 +65,15 @@ function verifyPackagedAsarEntries(asarPath) {
   if (entries.some((entry) => entry === '/node_modules' || entry.startsWith('/node_modules/'))) {
     throw new Error('Packaged ASAR must not duplicate bundled node_modules.')
   }
+
+  /** @brief ASAR 中所有可执行前端文本 / All executable frontend texts inside the ASAR. */
+  const productionEntries = entries.filter(isProductionArtifactTextPath).map((entry) => ({
+    content: extractFile(asarPath, entry.replace(/^\//u, '')),
+    path: `app.asar${entry}`
+  }))
+  /** @brief ASAR 业务数据边界扫描结果 / Business-data boundary result for the ASAR. */
+  const dataBoundaryResult = inspectProductionArtifactEntries(productionEntries)
+  assertProductionArtifactDataBoundary(dataBoundaryResult, 'packaged Electron app.asar')
 
   return entries.length
 }
