@@ -14,7 +14,7 @@ npmRebuild: false
 
 # electron-builder 26 的内建映射尚未覆盖 Electron 43 的全部 Fuse。
 # 使用官方 @electron/fuses 的严格 afterPack hook，新增 Fuse 未显式决策时让构建失败。
-afterPack: ../../scripts/desktop-fuses.mjs
+afterPack: scripts/desktop-fuses.mjs
 
 artifactName: AI-Job-Workspace-${version}-${os}-${arch}.${ext}
 

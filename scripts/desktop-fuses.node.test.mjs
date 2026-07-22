@@ -7,7 +7,7 @@ import {
   createDesktopFuseConfig,
   requiredDesktopFuseStates,
   resolveElectronFuseTarget
-} from './desktop-fuses.mjs'
+} from '../apps/desktop/scripts/desktop-fuses.mjs'
 
 describe('desktop fuse build hook', () => {
   it('为当前 schema 的每个 V1 Fuse 提供严格且唯一的决策', () => {

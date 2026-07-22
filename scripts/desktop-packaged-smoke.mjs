@@ -9,7 +9,7 @@ import {
   resolvePackagedDesktopLayout,
   verifyPackagedAsar
 } from './desktop-packaged-layout.mjs'
-import { requiredDesktopFuseStates } from './desktop-fuses.mjs'
+import { requiredDesktopFuseStates } from '../apps/desktop/scripts/desktop-fuses.mjs'
 import { runDesktopRuntimeSmoke } from './desktop-packaged-runtime.mjs'
 import {
   assertProductionArtifactDataBoundary,
