@@ -4,7 +4,6 @@ import { app, dialog } from 'electron'
 import type { BrowserWindow } from 'electron'
 
 import { resolveDesktopApiBaseUrl } from './api-config'
-import { registerArtifactSaveHandler } from './artifact-save-ipc'
 import {
   createProductionContentSecurityPolicy,
   resolveDesktopDiagnosticsConfiguration
@@ -88,7 +87,6 @@ async function initializeDesktopApplication(): Promise<void> {
   registerRendererProtocol(contentSecurityPolicy)
   registerDevelopmentRendererContentSecurityPolicy(rendererUrl, contentSecurityPolicy)
   registerRuntimeInfoHandler(runtimeInfo, resolveTrustedRendererIdentity)
-  registerArtifactSaveHandler(apiBaseUrl, resolveTrustedRendererIdentity)
 
   await openMainWindow()
 
