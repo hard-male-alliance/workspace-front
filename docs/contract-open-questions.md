@@ -30,6 +30,12 @@
 | 身份与桌面端 | 契约要求除公开模板预览外使用 Bearer token，但授权端点、client ID、scope、回调 URI、刷新与注销生命周期尚未约定。     | Web/Desktop 不发送伪造 Bearer；当前受保护资源不能宣称生产可用，Desktop 也不以 Cookie 代替正式身份。                                                                                                                                                                                                                                      |
 | 评估量表     | `InterviewReport` 只携带 `rubric_ref` 与分数；历史 `rubric_ref` 对应 rubric 的独立查询端点仍未冻结。                | 总结页仅用同一 session 所引用 scenario 内嵌的 rubric 解释报告，并严格校验 rubric id/version，以及每个已返回维度的身份唯一、存在于该 rubric 且分数不越界；任一不一致即拒绝展示。Schema 未要求报告覆盖全部 rubric 维度，前端不额外收紧。历史记录同样只在当前 scenario rubric 可验证时显示分数，不把 opaque ID 映射为名称，也不生成百分制。 |
 
+## 已冻结但尚未实现的桌面能力
+
+正式契约要求 Electron 持久保存 Resume operation batch，并在恢复网络后顺序重放。当前桌面端只支持在线写入，不宣称离线编辑；进程内写通道不排队，也不会把旧 revision 的意图自动重放。由于当前还没有可由 main 信任并跨进程关联的 authenticated subject、令牌生命周期与登出清理，不能先把含个人信息的 batch 写入共享本地队列。
+
+身份方案冻结后，持久队列必须由 main 所有并加密存储，按 API origin、用户与 workspace 隔离，原样保留 operation ID、base revision 与命令身份；401 暂停，409/412 停止队列并读取权威版本，不能静默覆盖。
+
 ## 新增契约能力的准入条件
 
 1. 服务端对相应端点发布且冻结 Schema/OpenAPI entrypoint 与示例；
@@ -37,4 +43,4 @@
 3. 涉及权限、并发或实时传输时，补充失败、重连与审计行为测试；
 4. 保持页面依赖 gateway port，避免把 transport 逻辑回流到 React 组件。
 
-身份能力还必须额外满足：Web 采用已冻结的 Authorization Code + PKCE 配置；Electron 通过系统浏览器认证、在系统安全存储中保管 token，并由最小权限的主进程能力使用或签发短期 renderer 凭据。没有这些输入和端到端证据前，origin 配置、CORS、HTTP smoke 与不携带 Cookie 的 `session.fetch(credentials: 'omit')` 都不能被解释为 Bearer 认证。
+身份能力还必须额外满足：Web 采用已冻结的 Authorization Code + PKCE 配置；Electron 通过系统浏览器认证、在系统安全存储中保管 token，并由最小权限的主进程能力使用或签发短期 renderer 凭据。Electron 的离线 operation queue 还必须有稳定用户主体、登出清理、加密存储和跨进程结果确认测试。没有这些输入和端到端证据前，origin 配置、CORS、HTTP smoke 与不携带 Cookie 的 `session.fetch(credentials: 'omit')` 都不能被解释为 Bearer 认证，桌面端也不能宣称支持离线编辑。

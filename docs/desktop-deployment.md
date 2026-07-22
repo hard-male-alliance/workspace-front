@@ -22,6 +22,8 @@ AI_JOB_WORKSPACE_API_PORT=443
 
 目标 API 仍须显式允许 `ai-job-workspace://renderer` 的跨源资源共享（Cross-Origin Resource Sharing, CORS）请求；renderer 不发送可信代理断言，也不持有服务端密钥。共享 HTTP 边界已发送经校验的 `Accept-Language` 与每请求唯一 `X-Request-Id`，但当前配置只建立公开 transport origin，不建立身份：正式契约要求除公开模板预览外使用 Bearer token，而授权端点、client ID、scope、系统浏览器回调、刷新和注销生命周期尚未冻结。因此当前受保护的 Resume、Knowledge 与 PDF content 不能宣称生产认证可用；实现条件见[契约待确认项](contract-open-questions.md)。
 
+冻结契约同时要求 Electron 在离线时持久保存 Resume operation batch，并在恢复网络后顺序重放。当前桌面端没有持久 operation outbox，只提供在线写入与同一 Resume 的进程内互斥，因此不能宣称支持离线编辑。不能在缺少 native 用户主体与登出生命周期时先把含个人信息的 batch 写入共享本地队列；正式实现必须由 main 进程拥有加密存储，按 API origin、用户与 workspace 隔离，并在 409/412 时停止重放、读取权威版本。操作系统安全存储不可用时必须 fail closed；Electron 官方说明 Linux 的 `basic_text` backend 不提供可信加密，不能用作队列密钥保护：[safeStorage](https://www.electronjs.org/docs/latest/api/safe-storage)。该能力与 native OIDC 一同属于桌面发布阻塞项。
+
 ## 构建、打包与制品
 
 ```bash
