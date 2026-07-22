@@ -156,6 +156,8 @@ export function createWorkspaceSession(
   let currentSubject: UiCurrentUser['subject'] | undefined
   /** @brief 当前显式选择或有效默认偏好得到的 Workspace ID / Workspace ID from explicit selection or a valid default preference. */
   let selectedWorkspaceId: UiWorkspaceId | undefined
+  /** @brief 当前权威世代已经成功消费的追加页 cursor / Append-page cursors successfully consumed in the current authority generation. */
+  let consumedWorkspaceCursors = new Set<UiWorkspaceCursor>()
   /** @brief Workspace 选择变化的单调修订号 / Monotonic Workspace-selection revision. */
   let selectionRevision = 0
   /** @brief 权威世代，用于拒绝跨 refresh 的迟到页面 / Authority generation used to reject pages arriving across refresh. */
@@ -217,6 +219,7 @@ export function createWorkspaceSession(
 
     currentAuthority = authority
     currentSubject = authority.currentUser.subject
+    consumedWorkspaceCursors = new Set()
     if (!isInitialAuthority && (principalChanged || previousWorkspaceId !== selectedWorkspaceId)) {
       notifySelectionChanged()
     }
@@ -330,8 +333,11 @@ export function createWorkspaceSession(
         if (generation !== authorityGeneration || currentAuthority !== authority) {
           throw new DOMException('A newer Workspace authority superseded this page.', 'AbortError')
         }
-        if (page.hasMore && page.nextCursor === cursor) {
-          throw new Error('Workspace pagination cursor did not advance.')
+        /** @brief 若接受本页后全部已消费 cursor / All consumed cursors if this page is accepted. */
+        const nextConsumedCursors = new Set(consumedWorkspaceCursors)
+        nextConsumedCursors.add(cursor)
+        if (page.hasMore && nextConsumedCursors.has(page.nextCursor)) {
+          throw new Error('Workspace pagination cursor entered a cycle.')
         }
         /** @brief 追加后的权威 / Authority after appending the page. */
         const appended: WorkspaceAuthority = {
@@ -341,6 +347,7 @@ export function createWorkspaceSession(
           nextWorkspaceCursor: page.nextCursor
         }
         currentAuthority = appended
+        consumedWorkspaceCursors = nextConsumedCursors
         /** @brief 追加页后的快照 / Snapshot after appending the page. */
         const snapshot = projectAccess(appended)
         currentAccessRequest = Promise.resolve(snapshot)

@@ -36,7 +36,14 @@ export const zhSGTranslation = {
     desktop: '桌面版',
     loading: '正在加载账户…',
     unavailable: '账户信息暂时不可用',
-    noWorkspace: '暂无可用工作区'
+    noWorkspace: '暂无已加载工作区',
+    currentWorkspace: '当前工作区',
+    selectWorkspace: '请选择工作区',
+    workspaceSelectionFailed: '无法切换工作区，请刷新访问权限后重试。',
+    loadMoreWorkspaces: '加载更多工作区',
+    loadingMoreWorkspaces: '正在加载更多工作区…',
+    retryMoreWorkspaces: '重试加载工作区',
+    loadMoreWorkspacesError: '无法加载更多工作区，请重试。'
   },
   topbar: {
     feedback: '反馈',
@@ -112,6 +119,34 @@ export const zhSGTranslation = {
     reference: '支持编号：{{referenceId}}'
   },
   workspace: {
+    access: {
+      title: '工作区访问权限',
+      role: '角色',
+      plan: '套餐',
+      dataRegion: '数据区域',
+      roles: {
+        owner: '所有者',
+        admin: '管理员',
+        editor: '编辑者',
+        viewer: '查看者'
+      },
+      plans: {
+        personal: '个人版',
+        team: '团队版',
+        enterprise: '企业版'
+      },
+      dataRegions: {
+        cn: '中国大陆',
+        global: '全球',
+        private_deployment: '私有部署'
+      }
+    },
+    selection: {
+      noneTitle: '没有可用工作区',
+      title: '选择工作区',
+      noneDescription: '当前账户没有可访问的工作区，无法加载简历和其他工作区内容。',
+      description: '请先选择已加载的工作区；如未看到目标工作区，请继续加载访问列表。'
+    },
     home: {
       context: '个人求职准备 · 今日安排',
       title: '今日工作台',
@@ -125,26 +160,15 @@ export const zhSGTranslation = {
       progressTitle: '本周进展',
       progressDescription: '仅汇总当前工作区已有数据。',
       resumeCount: '简历',
-      interviewCount: '已完成面试',
-      knowledgeCount: '已就绪知识源',
       resumeActionMeta: '继续编辑内容与生成 PDF 预览',
       continueTitle: '继续处理',
       continueDescription: '从上次停下的位置继续，不需要重新寻找入口。',
-      practiceTitle: '开始一次面试练习',
-      practiceSummary: '继续准备或查看最近的面试记录',
-      knowledgeTitle: '个人知识库',
-      knowledgeMeta: '{{count}} 个知识源已就绪',
       updatesTitle: '最近更新',
       updatesDescription: '根据当前工作区资源的更新时间汇总。',
       emptyUpdates: '当前工作区还没有可显示的资源更新。',
       dataNotice: '数据来自当前工作区，操作结果以服务端确认为准。',
-      unnamedResource: '未命名资源',
       resumeUpdateTitle: '更新了 {{subject}}',
-      resumeUpdateDescription: '简历内容已同步至当前工作区。',
-      knowledgeUpdateTitle: '索引了 {{subject}}',
-      knowledgeUpdateDescription: '知识来源已完成索引。',
-      interviewUpdateTitle: '完成了一次面试练习',
-      interviewUpdateDescription: '面试会话已完成。'
+      resumeUpdateDescription: '简历内容已同步至当前工作区。'
     }
   },
   resume: {
@@ -567,7 +591,14 @@ export const enUSTranslation = {
     desktop: 'Desktop app',
     loading: 'Loading account…',
     unavailable: 'Account information is temporarily unavailable',
-    noWorkspace: 'No workspace available'
+    noWorkspace: 'No loaded workspace',
+    currentWorkspace: 'Current workspace',
+    selectWorkspace: 'Select a workspace',
+    workspaceSelectionFailed: 'Unable to switch workspace. Refresh access and try again.',
+    loadMoreWorkspaces: 'Load more workspaces',
+    loadingMoreWorkspaces: 'Loading more workspaces…',
+    retryMoreWorkspaces: 'Retry loading workspaces',
+    loadMoreWorkspacesError: 'Unable to load more workspaces. Try again.'
   },
   topbar: {
     feedback: 'Feedback',
@@ -648,6 +679,36 @@ export const enUSTranslation = {
     reference: 'Support reference: {{referenceId}}'
   },
   workspace: {
+    access: {
+      title: 'Workspace access authority',
+      role: 'Role',
+      plan: 'Plan',
+      dataRegion: 'Data region',
+      roles: {
+        owner: 'Owner',
+        admin: 'Administrator',
+        editor: 'Editor',
+        viewer: 'Viewer'
+      },
+      plans: {
+        personal: 'Personal',
+        team: 'Team',
+        enterprise: 'Enterprise'
+      },
+      dataRegions: {
+        cn: 'Mainland China',
+        global: 'Global',
+        private_deployment: 'Private deployment'
+      }
+    },
+    selection: {
+      noneTitle: 'No workspace available',
+      title: 'Select a workspace',
+      noneDescription:
+        'This account cannot access a workspace, so resume and workspace content cannot be loaded.',
+      description:
+        'Select a loaded workspace first. If the workspace is not shown, continue loading the access list.'
+    },
     home: {
       context: 'Personal career preparation · Today',
       title: "Today's workspace",
@@ -663,27 +724,16 @@ export const enUSTranslation = {
       progressTitle: 'This week',
       progressDescription: 'Only existing workspace data is included.',
       resumeCount: 'Resumes',
-      interviewCount: 'Completed interviews',
-      knowledgeCount: 'Ready knowledge sources',
       resumeActionMeta: 'Continue editing content and generating a PDF preview',
       continueTitle: 'Continue working',
       continueDescription: 'Resume where you stopped without searching for the right entry point.',
-      practiceTitle: 'Start an interview practice session',
-      practiceSummary: 'Continue preparing or review your latest interview records',
-      knowledgeTitle: 'Personal knowledge',
-      knowledgeMeta: '{{count}} knowledge sources ready',
       updatesTitle: 'Recent updates',
       updatesDescription: 'Summarized from resource update times in the current workspace.',
       emptyUpdates: 'There are no resource updates to show in this workspace yet.',
       dataNotice:
         'Data comes from the current workspace; operation results are confirmed by the server.',
-      unnamedResource: 'Unnamed resource',
       resumeUpdateTitle: 'Updated {{subject}}',
-      resumeUpdateDescription: 'Resume content was synchronized to this workspace.',
-      knowledgeUpdateTitle: 'Indexed {{subject}}',
-      knowledgeUpdateDescription: 'The knowledge source finished indexing.',
-      interviewUpdateTitle: 'Completed an interview practice session',
-      interviewUpdateDescription: 'The interview session was completed.'
+      resumeUpdateDescription: 'Resume content was synchronized to this workspace.'
     }
   },
   resume: {

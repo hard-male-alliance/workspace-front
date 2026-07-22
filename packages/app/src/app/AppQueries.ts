@@ -3,48 +3,47 @@
 import type { AppGateways } from '../application'
 import type {
   UiInterviewReport,
-  UiInterviewHistoryItem,
   UiInterviewSessionDetails,
   UiInterviewSessionId,
   UiInterviewSetupModel,
   UiKnowledgeSource,
-  UiResumeCard,
+  UiResumeSummary,
   UiWorkspaceId
 } from '../published-language'
 import type { WorkspaceSession } from './session/workspace-session'
 
-/** @brief 当前 Workspace 会话返回的已选 Workspace / Selected Workspace returned by the current session. */
-type CurrentWorkspace = NonNullable<Awaited<ReturnType<WorkspaceSession['getCurrentWorkspace']>>>
+/** @brief 当前 Workspace 会话返回的已选访问权威 / Selected access authority returned by the current session. */
+type CurrentWorkspaceAccess = NonNullable<
+  Awaited<ReturnType<WorkspaceSession['getAccess']>>['currentWorkspaceAccess']
+>
 
-/** @brief 首页资源更新类别 / Workspace-home resource-update kind. */
-export type WorkspaceRecentUpdateKind = 'resume' | 'interview' | 'knowledge'
+/** @brief 首页一次读取采用 API v2 集合上限 / A home-page read uses the API v2 collection maximum. */
+const HOME_RESUME_PAGE_LIMIT = 200 as Parameters<
+  AppGateways['resume']['listResumeSummariesPage']
+>[0]['limit']
 
 /**
- * @brief 首页近期资源更新投影 / Recent resource-update projection for the home page.
- * @note 这是应用层从各上下文正式资源时间戳派生的读模型，不是服务端事件或审计记录。 / This is an application read model derived from formal resource timestamps across contexts, not a server event or audit record.
+ * @brief 首页近期 Resume 更新投影 / Recent Resume-update projection for the home page.
+ * @note 这是从正式 ResumeSummary 时间戳派生的读模型，不是服务端事件或审计记录。 / This read model is derived from formal ResumeSummary timestamps, not a server event or audit record.
  */
 export interface WorkspaceRecentUpdate {
   /** @brief 更新的稳定 UI 标识符 / Stable UI update identifier. */
   readonly id: string
-  /** @brief 资源更新类别 / Resource-update kind. */
-  readonly kind: WorkspaceRecentUpdateKind
-  /** @brief 可选资源名称 / Optional resource name. */
-  readonly subject: string | null
+  /** @brief Resume 标题 / Resume title. */
+  readonly title: string
   /** @brief 资源更新时间 / Resource update time. */
   readonly updatedAt: string
 }
 
 /** @brief 跨上下文聚合的 Workspace 首页读模型 / Cross-context Workspace-home read model. */
 export interface WorkspaceHomeModel {
-  /** @brief 当前 Workspace / Current Workspace. */
-  readonly workspace: CurrentWorkspace
-  /** @brief Resume 数量 / Resume count. */
-  readonly resumeCount: number
-  /** @brief 就绪 KnowledgeSource 数量 / Ready KnowledgeSource count. */
-  readonly readyKnowledgeSourceCount: number
-  /** @brief 已完成 Interview 数量 / Completed Interview count. */
-  readonly completedInterviewCount: number
-  /** @brief 近期资源更新 / Recent resource updates. */
+  /** @brief 当前 WorkspaceAccess 权威 / Current WorkspaceAccess authority. */
+  readonly workspaceAccess: CurrentWorkspaceAccess
+  /** @brief 首页可证明的 Resume 数量 / Resume count provable from the first page. */
+  readonly resumeCount:
+    | { readonly certainty: 'exact'; readonly value: number }
+    | { readonly certainty: 'lower-bound'; readonly value: number }
+  /** @brief 近期 Resume 更新 / Recent Resume updates. */
   readonly recentUpdates: readonly WorkspaceRecentUpdate[]
 }
 
@@ -52,10 +51,8 @@ export interface WorkspaceHomeModel {
 export interface WorkspaceHomeQueryResult {
   /** @brief 应用层跨上下文首页读模型 / Application-level cross-context home read model. */
   readonly home: WorkspaceHomeModel
-  /** @brief 最近完成的 Interview / Most recently completed Interview. */
-  readonly recentInterview: UiInterviewHistoryItem | null
-  /** @brief 最近更新的 Resume 卡片 / Most recently updated Resume card. */
-  readonly resumeCard: UiResumeCard | null
+  /** @brief 当前已加载页中最近更新的 Resume 摘要 / Most recently updated Resume summary in the loaded page. */
+  readonly resumeSummary: UiResumeSummary | null
 }
 
 /** @brief Interview 配置页所需的跨上下文只读投影 / Cross-context read projection required by Interview setup. */
@@ -80,8 +77,12 @@ export interface InterviewSummaryQueryResult {
 
 /** @brief Workspace 首页应用查询 / Workspace-home application query. */
 export interface WorkspaceHomeQuery {
-  /** @brief 加载聚合后的首页投影 / Load the aggregated home projection. */
-  readonly load: () => Promise<WorkspaceHomeQueryResult>
+  /**
+   * @brief 加载聚合后的首页投影 / Load the aggregated home projection.
+   * @param signal 页面资源身份拥有的取消信号 / Cancellation signal owned by the page-resource identity.
+   * @return 聚合后的首页投影 / Aggregated home projection.
+   */
+  readonly load: (signal: AbortSignal) => Promise<WorkspaceHomeQueryResult>
 }
 
 /** @brief Interview 配置应用查询 / Interview-setup application query. */
@@ -110,61 +111,35 @@ export interface AppQueries {
   readonly interviewSummary: InterviewSummaryQuery
 }
 
-/** @brief Interview 历史端口的已解析列表类型 / Resolved list type of the Interview-history port. */
-type InterviewHistory = Awaited<ReturnType<AppGateways['interview']['listCompletedInterviews']>>
-
 /**
- * @brief 构造 Workspace 首页跨上下文读模型 / Build the cross-context Workspace-home read model.
- * @param workspace 当前 Workspace / Current Workspace.
- * @param resumeCards Resume 卡片 / Resume cards.
- * @param interviewHistory 已完成 Interview / Completed Interviews.
- * @param knowledgeSources KnowledgeSource 列表 / KnowledgeSource list.
+ * @brief 构造仅依赖已接通 v2 能力的 Workspace 首页读模型 / Build the Workspace-home read model from connected v2 capabilities only.
+ * @param workspaceAccess 当前 WorkspaceAccess 权威 / Current WorkspaceAccess authority.
+ * @param resumeSummaries 首页加载的 ResumeSummary / Resume summaries loaded for the home page.
+ * @param hasMoreResumes 是否还有未加载 Resume / Whether more Resume resources remain unloaded.
  * @return 聚合后的首页模型 / Aggregated home model.
  */
 function createWorkspaceHomeModel(
-  workspace: CurrentWorkspace,
-  resumeCards: readonly UiResumeCard[],
-  interviewHistory: InterviewHistory,
-  knowledgeSources: readonly UiKnowledgeSource[]
+  workspaceAccess: CurrentWorkspaceAccess,
+  resumeSummaries: readonly UiResumeSummary[],
+  hasMoreResumes: boolean
 ): WorkspaceHomeModel {
-  /** @brief 已就绪 KnowledgeSource / Ready KnowledgeSources. */
-  const readyKnowledgeSources = knowledgeSources.filter(
-    (source) => source.ingestionStatus === 'ready'
-  )
   /** @brief Resume 更新投影 / Resume update projections. */
-  const resumeUpdates: readonly WorkspaceRecentUpdate[] = resumeCards.map((resume) => ({
+  const resumeUpdates: readonly WorkspaceRecentUpdate[] = resumeSummaries.map((resume) => ({
     id: `resume:${resume.id}:${resume.updatedAt}`,
-    kind: 'resume',
-    subject: resume.title,
+    title: resume.title,
     updatedAt: resume.updatedAt
   }))
-  /** @brief KnowledgeSource 更新投影 / KnowledgeSource update projections. */
-  const knowledgeUpdates: readonly WorkspaceRecentUpdate[] = readyKnowledgeSources.map(
-    (source) => ({
-      id: `knowledge:${source.id}:${source.lastSuccessAt ?? source.updatedAt}`,
-      kind: 'knowledge',
-      subject: source.name,
-      updatedAt: source.lastSuccessAt ?? source.updatedAt
-    })
-  )
-  /** @brief Interview 更新投影 / Interview update projections. */
-  const interviewUpdates: readonly WorkspaceRecentUpdate[] = interviewHistory.map((interview) => ({
-    id: `interview:${interview.sessionId}:${interview.completedAt}`,
-    kind: 'interview',
-    subject: null,
-    updatedAt: interview.completedAt
-  }))
   /** @brief 按时间倒序的近期更新 / Recent updates sorted newest first. */
-  const recentUpdates = [...resumeUpdates, ...knowledgeUpdates, ...interviewUpdates]
+  const recentUpdates = [...resumeUpdates]
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
     .slice(0, 8)
 
   return {
-    completedInterviewCount: interviewHistory.length,
-    readyKnowledgeSourceCount: readyKnowledgeSources.length,
     recentUpdates,
-    resumeCount: resumeCards.length,
-    workspace
+    resumeCount: hasMoreResumes
+      ? { certainty: 'lower-bound', value: resumeSummaries.length }
+      : { certainty: 'exact', value: resumeSummaries.length },
+    workspaceAccess
   }
 }
 
@@ -180,52 +155,57 @@ export function createAppQueries(
 ): AppQueries {
   /** @brief Workspace 首页聚合查询 / Workspace-home aggregate query. */
   const workspaceHome: WorkspaceHomeQuery = {
-    async load(): Promise<WorkspaceHomeQueryResult> {
-      /** @brief 当前工作区 / Current workspace. */
-      const currentWorkspace = await workspaceSession.getCurrentWorkspace()
-      if (currentWorkspace === undefined) {
+    async load(signal): Promise<WorkspaceHomeQueryResult> {
+      /** @brief 当前会话访问权威 / Current session-access authority. */
+      const sessionAccess = await workspaceSession.getAccess()
+      signal.throwIfAborted()
+      /** @brief 当前显式选择的 WorkspaceAccess / Explicitly selected current WorkspaceAccess. */
+      const currentWorkspaceAccess = sessionAccess.currentWorkspaceAccess
+      if (currentWorkspaceAccess === undefined) {
         throw new Error('No workspace is available for the current user.')
       }
 
-      const [interviewHistory, resumeCards, knowledgeSources] = await Promise.all([
-        gateways.interview.listCompletedInterviews(currentWorkspace.id),
-        gateways.resume.listResumeCards(currentWorkspace.id),
-        gateways.knowledge.listKnowledgeSources(currentWorkspace.id)
-      ])
-      /** @brief 跨上下文聚合的首页模型 / Cross-context aggregated home model. */
+      /** @brief 当前授权路径中的 Workspace ID / Workspace ID in the current authorization path. */
+      const workspaceId = currentWorkspaceAccess.workspace.id
+      /** @brief 当前已接通 v2 能力返回的 ResumeSummary 首页 / First ResumeSummary page from the connected v2 capability. */
+      const resumePage = await gateways.resume.listResumeSummariesPage({
+        cursor: null,
+        limit: HOME_RESUME_PAGE_LIMIT,
+        signal,
+        workspaceId
+      })
+      signal.throwIfAborted()
+      /** @brief 仅由可用 v2 能力构造的首页模型 / Home model built only from available v2 capabilities. */
       const home = createWorkspaceHomeModel(
-        currentWorkspace,
-        resumeCards,
-        interviewHistory,
-        knowledgeSources
+        currentWorkspaceAccess,
+        resumePage.items,
+        resumePage.hasMore
       )
-      /** @brief 最近更新的 Resume 卡片 / Most recently updated Resume card. */
-      const resumeCard =
-        [...resumeCards].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ??
-        null
-      /** @brief 最近完成的 Interview / Most recently completed Interview. */
-      const recentInterview = [...interviewHistory].sort((left, right) =>
-        right.completedAt.localeCompare(left.completedAt)
-      )[0]
-
-      return { home, recentInterview: recentInterview ?? null, resumeCard }
+      /** @brief 当前页最近更新的 Resume 摘要 / Most recently updated Resume summary in the current page. */
+      const resumeSummary =
+        [...resumePage.items].sort((left, right) =>
+          right.updatedAt.localeCompare(left.updatedAt)
+        )[0] ?? null
+      return { home, resumeSummary }
     }
   }
 
   /** @brief Interview 配置聚合查询 / Interview-setup aggregate query. */
   const interviewSetup: InterviewSetupQuery = {
     async load(): Promise<InterviewSetupQueryResult> {
-      /** @brief 当前工作区 / Current workspace. */
-      const currentWorkspace = await workspaceSession.getCurrentWorkspace()
-      if (currentWorkspace === undefined) {
+      /** @brief 当前显式选择的 WorkspaceAccess / Explicitly selected current WorkspaceAccess. */
+      const currentWorkspaceAccess = (await workspaceSession.getAccess()).currentWorkspaceAccess
+      if (currentWorkspaceAccess === undefined) {
         throw new Error('No workspace is available for interview setup.')
       }
 
+      /** @brief 当前授权路径中的 Workspace ID / Workspace ID in the current authorization path. */
+      const workspaceId = currentWorkspaceAccess.workspace.id
       const [setup, knowledgeSources] = await Promise.all([
-        gateways.interview.getInterviewSetup(currentWorkspace.id),
-        gateways.knowledge.listKnowledgeSources(currentWorkspace.id)
+        gateways.interview.getInterviewSetup(workspaceId),
+        gateways.knowledge.listKnowledgeSources(workspaceId)
       ])
-      return { knowledgeSources, setup, workspaceId: currentWorkspace.id }
+      return { knowledgeSources, setup, workspaceId }
     }
   }
 

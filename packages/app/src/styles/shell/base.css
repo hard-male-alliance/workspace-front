@@ -127,7 +127,7 @@ select:focus-visible {
 
 .aw-account {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 9px;
   padding: 10px 8px 4px;
   border-top: 1px solid var(--color-line);
@@ -148,15 +148,66 @@ select:focus-visible {
   white-space: nowrap;
 }
 
-.aw-workspace-picker select {
-  width: 100%;
+.aw-workspace-controls {
+  position: relative;
+  display: flex;
   min-width: 0;
-  padding: 2px 20px 2px 0;
-  border: 0;
-  background: transparent;
-  color: var(--color-muted);
+  align-items: center;
+  gap: 6px;
+}
+
+.aw-topbar-workspace-picker select {
+  width: min(220px, 24vw);
+  min-height: 36px;
+  padding: 0 30px 0 10px;
+  border: 1px solid var(--ui-color-border);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-color-surface);
+  color: var(--ui-color-ink-muted);
   font-size: 12px;
   text-overflow: ellipsis;
+}
+
+.aw-workspace-access-brief {
+  margin-top: 3px;
+  color: var(--ui-color-ink-subtle);
+  font-size: 10px;
+}
+
+.aw-workspace-load-more {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  border: 1px solid var(--ui-color-border);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-color-surface-muted);
+  color: var(--ui-color-accent-subtle-foreground);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.aw-workspace-load-more:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.aw-workspace-controls .aw-workspace-page-error {
+  position: absolute;
+  top: calc(100% + 5px);
+  right: 0;
+  z-index: 20;
+  width: max-content;
+  max-width: min(320px, 80vw);
+  padding: 6px 8px;
+  border: 1px solid var(--ui-color-danger);
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-color-danger-subtle);
+  color: var(--ui-color-danger);
+  font-size: 10px;
+  line-height: 1.35;
+  white-space: normal;
 }
 
 .aw-avatar {

@@ -245,7 +245,7 @@ describe('createWorkspaceSession', (): void => {
     })
   })
 
-  it('拒绝未推进的后续 cursor 以免产品界面进入分页死循环', async (): Promise<void> => {
+  it('拒绝未推进或跨页循环的 cursor 以免产品界面进入分页死循环', async (): Promise<void> => {
     /** @brief 第一页 / First page. */
     const firstPage = workspacePage([workspaceAccess('ws_one')], 'cursor_same')
     /** @brief 错误地返回同一 cursor 的第二页 / Second page incorrectly returning the same cursor. */
@@ -261,11 +261,38 @@ describe('createWorkspaceSession', (): void => {
     const gateways = controllableGateways(authority)
     const session = createWorkspaceSession(gateways.identity, gateways.workspace)
 
-    await expect(session.loadMoreWorkspaceAccesses()).rejects.toThrow('did not advance')
+    await expect(session.loadMoreWorkspaceAccesses()).rejects.toThrow('entered a cycle')
     await expect(session.getAccess()).resolves.toMatchObject({
       accesses: [{ workspace: { id: 'ws_one' } }],
       hasMoreWorkspaces: true,
       nextWorkspaceCursor: 'cursor_same'
+    })
+
+    /** @brief 第一页指向 cursor A 的跨页循环权威 / Cross-page cyclic authority whose first page points to cursor A. */
+    const cyclicFirstPage = workspacePage([workspaceAccess('ws_one')], 'cursor_a')
+    /** @brief cursor A 指向 cursor B / Cursor A pointing to cursor B. */
+    const cyclicSecondPage = workspacePage([workspaceAccess('ws_two')], 'cursor_b')
+    /** @brief cursor B 错误地返回 cursor A / Cursor B incorrectly returning cursor A. */
+    const cyclicThirdPage = workspacePage([workspaceAccess('ws_three')], 'cursor_a')
+    /** @brief 三页循环权威 / Three-page cyclic authority. */
+    const cyclicAuthority: TestAuthority = {
+      ...testAuthority({ defaultWorkspaceId: 'ws_one', firstPage: cyclicFirstPage }),
+      pages: new Map([
+        [null, cyclicFirstPage],
+        ['cursor_a', cyclicSecondPage],
+        ['cursor_b', cyclicThirdPage]
+      ])
+    }
+    const cyclicGateways = controllableGateways(cyclicAuthority)
+    const cyclicSession = createWorkspaceSession(cyclicGateways.identity, cyclicGateways.workspace)
+
+    await expect(cyclicSession.loadMoreWorkspaceAccesses()).resolves.toMatchObject({
+      nextWorkspaceCursor: 'cursor_b'
+    })
+    await expect(cyclicSession.loadMoreWorkspaceAccesses()).rejects.toThrow('entered a cycle')
+    await expect(cyclicSession.getAccess()).resolves.toMatchObject({
+      accesses: [{ workspace: { id: 'ws_one' } }, { workspace: { id: 'ws_two' } }],
+      nextWorkspaceCursor: 'cursor_b'
     })
   })
 

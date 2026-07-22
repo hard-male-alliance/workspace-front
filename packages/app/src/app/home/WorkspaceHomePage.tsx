@@ -1,14 +1,13 @@
-import { ArrowRight, BookOpenText, BriefcaseBusiness, FileText, GraduationCap } from 'lucide-react'
+import { ArrowRight, FileText, GraduationCap } from 'lucide-react'
 import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 
-import { useAsyncResource, useWorkspaceHomeQuery } from '../../../app/AppData'
-import type { WorkspaceHomeModel, WorkspaceRecentUpdate } from '../../../app/AppQueries'
-import { ResourceErrorState } from '../../../app/ResourceErrorState'
-import { LoadingState } from '../../../ui'
-import type { UiInterviewHistoryItem } from '../../interview'
-import type { UiResumeCard } from '../../resume'
+import { useAsyncResource, useWorkspaceHomeQuery } from '../AppData'
+import type { WorkspaceHomeModel, WorkspaceRecentUpdate } from '../AppQueries'
+import { ResourceErrorState } from '../ResourceErrorState'
+import { LoadingState } from '../../ui'
+import type { UiResumeSummary } from '../../published-language'
 
 /**
  * @brief 格式化活动时间 / Format an activity timestamp.
@@ -23,15 +22,6 @@ function formatUpdateTime(timestamp: string, locale: string): string {
     hour: '2-digit',
     minute: '2-digit'
   }).format(new Date(timestamp))
-}
-
-/**
- * @brief 为资源更新选择状态样式 / Select a status style for a resource update.
- * @param update 资源更新投影 / Resource-update projection.
- * @return 更新状态样式名称 / Update status-style name.
- */
-function getUpdateTone(update: WorkspaceRecentUpdate): string {
-  return update.kind === 'knowledge' ? 'aw-status--ready' : 'aw-status--active'
 }
 
 /** @brief 本地化的资源更新文案 / Localized resource-update copy. */
@@ -49,40 +39,14 @@ interface RecentUpdateCopy {
  * @return 用户可读的更新文案 / User-readable update copy.
  */
 function getUpdateCopy(update: WorkspaceRecentUpdate, t: TFunction): RecentUpdateCopy {
-  /** @brief 后端资源名称；缺失时使用中性名称 / Backend resource name, or a neutral name when absent. */
-  const subject =
-    update.subject ?? t('workspace.home.unnamedResource', { defaultValue: '未命名资源' })
-
-  switch (update.kind) {
-    case 'resume':
-      return {
-        description: t('workspace.home.resumeUpdateDescription', {
-          defaultValue: '简历内容已同步至当前工作区。'
-        }),
-        title: t('workspace.home.resumeUpdateTitle', {
-          defaultValue: '更新了 {{subject}}',
-          subject
-        })
-      }
-    case 'knowledge':
-      return {
-        description: t('workspace.home.knowledgeUpdateDescription', {
-          defaultValue: '知识来源已完成索引。'
-        }),
-        title: t('workspace.home.knowledgeUpdateTitle', {
-          defaultValue: '索引了 {{subject}}',
-          subject
-        })
-      }
-    case 'interview':
-      return {
-        description: t('workspace.home.interviewUpdateDescription', {
-          defaultValue: '面试会话已完成。'
-        }),
-        title: t('workspace.home.interviewUpdateTitle', {
-          defaultValue: '完成了一次面试练习'
-        })
-      }
+  return {
+    description: t('workspace.home.resumeUpdateDescription', {
+      defaultValue: '简历内容已同步至当前工作区。'
+    }),
+    title: t('workspace.home.resumeUpdateTitle', {
+      defaultValue: '更新了 {{subject}}',
+      subject: update.title
+    })
   }
 }
 
@@ -93,12 +57,10 @@ function getUpdateCopy(update: WorkspaceRecentUpdate, t: TFunction): RecentUpdat
  */
 function WorkspaceHomeContent({
   home,
-  recentInterview,
-  resumeCard
+  resumeSummary
 }: {
   readonly home: WorkspaceHomeModel
-  readonly recentInterview: UiInterviewHistoryItem | null
-  readonly resumeCard: UiResumeCard | null
+  readonly resumeSummary: UiResumeSummary | null
 }): React.JSX.Element {
   /** @brief 翻译函数 / Translation function. */
   const { i18n, t } = useTranslation()
@@ -119,7 +81,35 @@ function WorkspaceHomeContent({
             })}
           </p>
         </div>
-        <span className="aw-status aw-status--ready">{home.workspace.name}</span>
+        <div className="aw-workspace-authority-summary">
+          <span className="aw-status aw-status--ready">{home.workspaceAccess.workspace.name}</span>
+          <dl aria-label={t('workspace.access.title', { defaultValue: '工作区访问权限' })}>
+            <div>
+              <dt>{t('workspace.access.role', { defaultValue: '角色' })}</dt>
+              <dd>
+                {t(`workspace.access.roles.${home.workspaceAccess.role}`, {
+                  defaultValue: home.workspaceAccess.role
+                })}
+              </dd>
+            </div>
+            <div>
+              <dt>{t('workspace.access.plan', { defaultValue: '套餐' })}</dt>
+              <dd>
+                {t(`workspace.access.plans.${home.workspaceAccess.workspace.plan}`, {
+                  defaultValue: home.workspaceAccess.workspace.plan
+                })}
+              </dd>
+            </div>
+            <div>
+              <dt>{t('workspace.access.dataRegion', { defaultValue: '数据区域' })}</dt>
+              <dd>
+                {t(`workspace.access.dataRegions.${home.workspaceAccess.workspace.dataRegion}`, {
+                  defaultValue: home.workspaceAccess.workspace.dataRegion
+                })}
+              </dd>
+            </div>
+          </dl>
+        </div>
       </header>
 
       <div className="aw-today-grid">
@@ -129,11 +119,11 @@ function WorkspaceHomeContent({
               {t('workspace.home.focusLabel', { defaultValue: '今日最重要的事' })}
             </h2>
             <h3>
-              {resumeCard?.title ??
+              {resumeSummary?.title ??
                 t('workspace.home.emptyResumeTitle', { defaultValue: '还没有可编辑的简历' })}
             </h3>
             <p>
-              {resumeCard === null
+              {resumeSummary === null
                 ? t('workspace.home.emptyResumeDescription', {
                     defaultValue: '当前工作区还没有简历。创建功能开放前，你可以先查看其他内容。'
                   })
@@ -143,13 +133,13 @@ function WorkspaceHomeContent({
             </p>
           </div>
           <div className="aw-focus-meta">
-            {resumeCard === null ? null : (
+            {resumeSummary === null ? null : (
               <>
                 <span>
                   <FileText aria-hidden="true" size={15} />
-                  {resumeCard.templateName} · v{resumeCard.revision}
+                  {resumeSummary.templateId} · {resumeSummary.templateVersion}
                 </span>
-                <Link className="aw-primary-button" to={`/resumes/${resumeCard.id}/edit`}>
+                <Link className="aw-primary-button" to={`/resumes/${resumeSummary.id}/edit`}>
                   {t('workspace.home.continueEditing', { defaultValue: '继续编辑简历' })}
                   <ArrowRight aria-hidden="true" size={15} />
                 </Link>
@@ -174,15 +164,10 @@ function WorkspaceHomeContent({
           <dl className="aw-progress-list">
             <div>
               <dt>{t('workspace.home.resumeCount', { defaultValue: '简历' })}</dt>
-              <dd>{home.resumeCount}</dd>
-            </div>
-            <div>
-              <dt>{t('workspace.home.interviewCount', { defaultValue: '已完成面试' })}</dt>
-              <dd>{home.completedInterviewCount}</dd>
-            </div>
-            <div>
-              <dt>{t('workspace.home.knowledgeCount', { defaultValue: '已就绪知识源' })}</dt>
-              <dd>{home.readyKnowledgeSourceCount}</dd>
+              <dd>
+                {home.resumeCount.value}
+                {home.resumeCount.certainty === 'lower-bound' ? '+' : null}
+              </dd>
             </div>
           </dl>
         </section>
@@ -203,7 +188,7 @@ function WorkspaceHomeContent({
             </div>
           </div>
           <div className="aw-action-list">
-            {resumeCard === null ? (
+            {resumeSummary === null ? (
               <div className="aw-action-row">
                 <span className="aw-action-icon">
                   <FileText aria-hidden="true" size={18} />
@@ -220,12 +205,12 @@ function WorkspaceHomeContent({
                 </span>
               </div>
             ) : (
-              <Link className="aw-action-row" to={`/resumes/${resumeCard.id}/edit`}>
+              <Link className="aw-action-row" to={`/resumes/${resumeSummary.id}/edit`}>
                 <span className="aw-action-icon">
                   <FileText aria-hidden="true" size={18} />
                 </span>
                 <span className="aw-action-copy">
-                  <strong>{resumeCard.title}</strong>
+                  <strong>{resumeSummary.title}</strong>
                   <small>
                     {t('workspace.home.resumeActionMeta', {
                       defaultValue: '继续编辑内容与生成 PDF 预览'
@@ -235,47 +220,6 @@ function WorkspaceHomeContent({
                 <ArrowRight aria-hidden="true" size={16} />
               </Link>
             )}
-            <Link
-              className="aw-action-row"
-              to={
-                recentInterview?.overallScore === null || recentInterview === null
-                  ? '/interviews'
-                  : `/interviews/${recentInterview.sessionId}/summary`
-              }
-            >
-              <span className="aw-action-icon">
-                <BriefcaseBusiness aria-hidden="true" size={18} />
-              </span>
-              <span className="aw-action-copy">
-                <strong>
-                  {recentInterview?.jobTarget.title ??
-                    t('workspace.home.practiceTitle', { defaultValue: '开始一次面试练习' })}
-                </strong>
-                <small>
-                  {t('workspace.home.practiceSummary', {
-                    defaultValue: '继续准备或查看最近的面试记录'
-                  })}
-                </small>
-              </span>
-              <ArrowRight aria-hidden="true" size={16} />
-            </Link>
-            <Link className="aw-action-row" to="/knowledge">
-              <span className="aw-action-icon">
-                <BookOpenText aria-hidden="true" size={18} />
-              </span>
-              <span className="aw-action-copy">
-                <strong>
-                  {t('workspace.home.knowledgeTitle', { defaultValue: '个人知识库' })}
-                </strong>
-                <small>
-                  {t('workspace.home.knowledgeMeta', {
-                    count: home.readyKnowledgeSourceCount,
-                    defaultValue: `${home.readyKnowledgeSourceCount} 个知识源已就绪`
-                  })}
-                </small>
-              </span>
-              <ArrowRight aria-hidden="true" size={16} />
-            </Link>
           </div>
         </section>
 
@@ -310,10 +254,7 @@ function WorkspaceHomeContent({
                       <strong>{copy.title}</strong>
                       <span>{copy.description}</span>
                     </div>
-                    <time
-                      className={`aw-status ${getUpdateTone(update)}`}
-                      dateTime={update.updatedAt}
-                    >
+                    <time className="aw-status aw-status--active" dateTime={update.updatedAt}>
                       {formatUpdateTime(update.updatedAt, i18n.language)}
                     </time>
                   </div>
@@ -366,11 +307,5 @@ export function WorkspaceHomePage(): React.JSX.Element {
     )
   }
 
-  return (
-    <WorkspaceHomeContent
-      home={home.data.home}
-      recentInterview={home.data.recentInterview}
-      resumeCard={home.data.resumeCard}
-    />
-  )
+  return <WorkspaceHomeContent home={home.data.home} resumeSummary={home.data.resumeSummary} />
 }

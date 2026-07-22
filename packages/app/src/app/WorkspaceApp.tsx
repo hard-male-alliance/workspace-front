@@ -14,7 +14,7 @@ import { WorkspaceShell } from './WorkspaceShell'
 import { HostProvider } from './Host'
 import type { Diagnostics } from '../observability'
 import { appI18n, appI18nReady } from '../i18n'
-import { WorkspaceHomePage } from '../contexts/workspace'
+import { WorkspaceHomePage } from './home/WorkspaceHomePage'
 import { LoadingState } from '../ui'
 import '../styles/app.css'
 

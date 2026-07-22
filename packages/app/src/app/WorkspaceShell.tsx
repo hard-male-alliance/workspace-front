@@ -1,6 +1,14 @@
 import type { LucideIcon } from 'lucide-react'
-import { BookOpenText, BriefcaseBusiness, Database, LayoutDashboard, Moon, Sun } from 'lucide-react'
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
+import {
+  BookOpenText,
+  BriefcaseBusiness,
+  Database,
+  LayoutDashboard,
+  Moon,
+  Plus,
+  Sun
+} from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import type { RuntimeInfo } from '@ai-job-workspace/platform'
@@ -9,6 +17,7 @@ import { LoadingState } from '../ui'
 import { useAsyncResource, useWorkspaceSession } from './AppData'
 import { useDiagnostics } from './Diagnostics'
 import { ResourceErrorState } from './ResourceErrorState'
+import type { WorkspaceSessionAccess } from './session/workspace-session'
 
 /** @brief 主导航项 / Primary navigation item. */
 interface NavigationItem {
@@ -62,6 +71,17 @@ interface InitialThemeResult {
   readonly theme: ThemeMode
   /** @brief 浏览器主题存储是否可访问 / Whether browser theme storage was accessible. */
   readonly storageAvailable: boolean
+}
+
+/** @brief WorkspaceAccess 追加页的界面状态 / UI state of the WorkspaceAccess append operation. */
+type WorkspacePageLoadState = 'idle' | 'loading' | 'error'
+
+/** @brief 绑定到选择修订号的本地 WorkspaceAccess 快照 / Local WorkspaceAccess snapshot bound to a selection revision. */
+interface WorkspaceAccessOverride {
+  /** @brief 快照所属的 Workspace 选择修订号 / Workspace-selection revision owning the snapshot. */
+  readonly selectionRevision: number
+  /** @brief 追加页面后的完整会话快照 / Complete session snapshot after appending a page. */
+  readonly value: WorkspaceSessionAccess
 }
 
 /**
@@ -163,7 +183,15 @@ export function WorkspaceShell({ runtimeInfo }: WorkspaceShellProps): React.JSX.
     workspaceSession.getSelectionRevision
   )
   /** @brief 稳定的 Workspace 启动权威读取 / Stable Workspace bootstrap-authority read. */
-  const loadWorkspaceAccess = useCallback(() => workspaceSession.getAccess(), [workspaceSession])
+  const loadWorkspaceAccess = useCallback(
+    async (signal: AbortSignal): Promise<WorkspaceSessionAccess> => {
+      /** @brief 会话中缓存或读取的 WorkspaceAccess 快照 / WorkspaceAccess snapshot cached or read by the session. */
+      const access = await workspaceSession.getAccess()
+      signal.throwIfAborted()
+      return access
+    },
+    [workspaceSession]
+  )
   /** @brief Shell 消费的真实当前用户与工作区状态 / Real current-user and Workspace state consumed by the shell. */
   const workspaceAccess = useAsyncResource(
     'workspace.session',
@@ -176,6 +204,21 @@ export function WorkspaceShell({ runtimeInfo }: WorkspaceShellProps): React.JSX.
   const [theme, setTheme] = useState<ThemeMode>(initialTheme.theme)
   /** @brief Workspace 选择失败的安全用户提示 / Safe user-facing Workspace-selection failure. */
   const [workspaceSelectionFailed, setWorkspaceSelectionFailed] = useState(false)
+  /** @brief 当前 WorkspaceAccess 追加页状态 / Current WorkspaceAccess append-page state. */
+  const [workspacePageLoadState, setWorkspacePageLoadState] =
+    useState<WorkspacePageLoadState>('idle')
+  /** @brief 不触发 Shell 全屏 loading 的追加页快照 / Append-page snapshot that avoids a full-shell loading transition. */
+  const [workspaceAccessOverride, setWorkspaceAccessOverride] = useState<WorkspaceAccessOverride>()
+  /** @brief 当前追加页请求的取消控制器 / Cancellation controller for the current append-page request. */
+  const workspacePageController = useRef<AbortController | null>(null)
+
+  /** @brief 当前 render 可见的 WorkspaceAccess 快照 / WorkspaceAccess snapshot visible in the current render. */
+  const visibleWorkspaceAccess =
+    workspaceAccess.status === 'ready'
+      ? workspaceAccessOverride?.selectionRevision === workspaceSelectionRevision
+        ? workspaceAccessOverride.value
+        : workspaceAccess.data
+      : undefined
 
   useEffect((): void => {
     document.documentElement.dataset.theme = theme
@@ -187,6 +230,57 @@ export function WorkspaceShell({ runtimeInfo }: WorkspaceShellProps): React.JSX.
       diagnostics.emit('preference.theme_storage_unavailable', {})
     }
   }, [diagnostics, initialTheme.storageAvailable])
+
+  useEffect(
+    (): (() => void) => (): void => {
+      workspacePageController.current?.abort(
+        new DOMException('Workspace shell was unmounted.', 'AbortError')
+      )
+    },
+    []
+  )
+
+  /** @brief 使用服务端 cursor 追加下一页 WorkspaceAccess / Append the next WorkspaceAccess page with the server cursor. */
+  const loadMoreWorkspaceAccesses = useCallback((): void => {
+    if (
+      visibleWorkspaceAccess === undefined ||
+      !visibleWorkspaceAccess.hasMoreWorkspaces ||
+      workspacePageLoadState === 'loading' ||
+      workspacePageController.current !== null
+    ) {
+      return
+    }
+
+    /** @brief 本轮追加页请求控制器 / Controller for this append-page request. */
+    const controller = new AbortController()
+    workspacePageController.current = controller
+    setWorkspacePageLoadState('loading')
+
+    void workspaceSession
+      .loadMoreWorkspaceAccesses(controller.signal)
+      .then((value): void => {
+        if (workspacePageController.current !== controller || controller.signal.aborted) return
+        setWorkspaceAccessOverride({ selectionRevision: workspaceSelectionRevision, value })
+        setWorkspacePageLoadState('idle')
+      })
+      .catch((): void => {
+        if (workspacePageController.current !== controller || controller.signal.aborted) return
+        setWorkspacePageLoadState('error')
+      })
+      .finally((): void => {
+        if (workspacePageController.current === controller) {
+          workspacePageController.current = null
+        }
+      })
+  }, [visibleWorkspaceAccess, workspacePageLoadState, workspaceSelectionRevision, workspaceSession])
+
+  /** @brief 当前追加页动作的本地化标签 / Localized label of the current append-page action. */
+  const workspacePageActionLabel =
+    workspacePageLoadState === 'loading'
+      ? t('account.loadingMoreWorkspaces', { defaultValue: '正在加载更多工作区…' })
+      : workspacePageLoadState === 'error'
+        ? t('account.retryMoreWorkspaces', { defaultValue: '重试加载工作区' })
+        : t('account.loadMoreWorkspaces', { defaultValue: '加载更多工作区' })
 
   /** @brief 切换并保存本地主题 / Toggle and persist the local theme. */
   const toggleTheme = (): void => {
@@ -261,42 +355,35 @@ export function WorkspaceShell({ runtimeInfo }: WorkspaceShellProps): React.JSX.
                 <strong title={workspaceAccess.data.currentUser.displayName}>
                   {workspaceAccess.data.currentUser.displayName}
                 </strong>
-                {workspaceAccess.data.workspaces.length === 0 ? (
+                {visibleWorkspaceAccess?.accesses.length === 0 ? (
                   <span>{t('account.noWorkspace', { defaultValue: '暂无可用工作区' })}</span>
+                ) : visibleWorkspaceAccess?.currentWorkspaceAccess === undefined ? (
+                  <span>{t('account.selectWorkspace', { defaultValue: '请选择工作区' })}</span>
                 ) : (
-                  <label className="aw-workspace-picker">
-                    <span className="aw-sr-only">
-                      {t('account.currentWorkspace', { defaultValue: '当前工作区' })}
-                    </span>
-                    <select
-                      aria-label={t('account.currentWorkspace', { defaultValue: '当前工作区' })}
-                      onChange={(event): void => {
-                        const workspaceId = event.currentTarget
-                          .value as (typeof workspaceAccess.data.workspaces)[number]['id']
-                        setWorkspaceSelectionFailed(false)
-                        void workspaceSession.selectWorkspace(workspaceId).catch((): void => {
-                          setWorkspaceSelectionFailed(true)
-                        })
-                      }}
-                      value={workspaceAccess.data.currentWorkspace?.id ?? ''}
-                    >
-                      <option disabled value="">
-                        {t('account.selectWorkspace', { defaultValue: '请选择工作区' })}
-                      </option>
-                      {workspaceAccess.data.workspaces.map((workspace) => (
-                        <option key={workspace.id} value={workspace.id}>
-                          {workspace.name}
-                        </option>
-                      ))}
-                    </select>
-                    {workspaceSelectionFailed ? (
-                      <span className="aw-sr-only" role="alert">
-                        {t('account.workspaceSelectionFailed', {
-                          defaultValue: '无法切换工作区，请刷新访问权限后重试。'
-                        })}
-                      </span>
-                    ) : null}
-                  </label>
+                  <span title={visibleWorkspaceAccess.currentWorkspaceAccess.workspace.name}>
+                    {visibleWorkspaceAccess.currentWorkspaceAccess.workspace.name}
+                  </span>
+                )}
+                {visibleWorkspaceAccess?.currentWorkspaceAccess === undefined ? null : (
+                  <span className="aw-workspace-access-brief">
+                    {t(
+                      `workspace.access.roles.${visibleWorkspaceAccess.currentWorkspaceAccess.role}`,
+                      { defaultValue: visibleWorkspaceAccess.currentWorkspaceAccess.role }
+                    )}{' '}
+                    ·{' '}
+                    {t(
+                      `workspace.access.plans.${visibleWorkspaceAccess.currentWorkspaceAccess.workspace.plan}`,
+                      { defaultValue: visibleWorkspaceAccess.currentWorkspaceAccess.workspace.plan }
+                    )}{' '}
+                    ·{' '}
+                    {t(
+                      `workspace.access.dataRegions.${visibleWorkspaceAccess.currentWorkspaceAccess.workspace.dataRegion}`,
+                      {
+                        defaultValue:
+                          visibleWorkspaceAccess.currentWorkspaceAccess.workspace.dataRegion
+                      }
+                    )}
+                  </span>
                 )}
                 {runtimeInfo.platform === 'electron' ? (
                   <span>{t('account.desktop', { defaultValue: '桌面版' })}</span>
@@ -312,6 +399,66 @@ export function WorkspaceShell({ runtimeInfo }: WorkspaceShellProps): React.JSX.
             {t(getBreadcrumbKey(location.pathname), { defaultValue: 'Workspace' })}
           </span>
           <div className="aw-topbar-actions">
+            {workspaceAccess.status === 'ready' && visibleWorkspaceAccess !== undefined ? (
+              <div className="aw-workspace-controls">
+                {visibleWorkspaceAccess.accesses.length === 0 ? null : (
+                  <label className="aw-topbar-workspace-picker">
+                    <span className="aw-sr-only">
+                      {t('account.currentWorkspace', { defaultValue: '当前工作区' })}
+                    </span>
+                    <select
+                      aria-label={t('account.currentWorkspace', { defaultValue: '当前工作区' })}
+                      onChange={(event): void => {
+                        /** @brief 用户显式选择的 Workspace ID / Workspace ID explicitly selected by the user. */
+                        const workspaceId = event.currentTarget
+                          .value as (typeof workspaceAccess.data.accesses)[number]['workspace']['id']
+                        setWorkspaceSelectionFailed(false)
+                        void workspaceSession.selectWorkspace(workspaceId).catch((): void => {
+                          setWorkspaceSelectionFailed(true)
+                        })
+                      }}
+                      value={visibleWorkspaceAccess.currentWorkspaceAccess?.workspace.id ?? ''}
+                    >
+                      <option disabled value="">
+                        {t('account.selectWorkspace', { defaultValue: '请选择工作区' })}
+                      </option>
+                      {visibleWorkspaceAccess.accesses.map((access) => (
+                        <option key={access.workspace.id} value={access.workspace.id}>
+                          {access.workspace.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                {visibleWorkspaceAccess.hasMoreWorkspaces ? (
+                  <button
+                    aria-busy={workspacePageLoadState === 'loading'}
+                    aria-label={workspacePageActionLabel}
+                    className="aw-workspace-load-more"
+                    disabled={workspacePageLoadState === 'loading'}
+                    onClick={loadMoreWorkspaceAccesses}
+                    type="button"
+                  >
+                    <Plus aria-hidden="true" size={14} />
+                    <span>{workspacePageActionLabel}</span>
+                  </button>
+                ) : null}
+                {workspaceSelectionFailed ? (
+                  <span className="aw-sr-only" role="alert">
+                    {t('account.workspaceSelectionFailed', {
+                      defaultValue: '无法切换工作区，请刷新访问权限后重试。'
+                    })}
+                  </span>
+                ) : null}
+                {workspacePageLoadState === 'error' ? (
+                  <span className="aw-workspace-page-error" role="alert">
+                    {t('account.loadMoreWorkspacesError', {
+                      defaultValue: '无法加载更多工作区，请重试。'
+                    })}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
             <button
               aria-describedby="workspace-feedback-unavailable"
               aria-disabled="true"
@@ -370,20 +517,23 @@ export function WorkspaceShell({ runtimeInfo }: WorkspaceShellProps): React.JSX.
               title={t('status.errorWorkspace', { defaultValue: '无法加载工作区' })}
             />
           </div>
-        ) : workspaceAccess.data.currentWorkspace === undefined ? (
+        ) : visibleWorkspaceAccess?.currentWorkspaceAccess === undefined ? (
           <div className="aw-page aw-empty-page">
             <h1 className="aw-page-title">
-              {workspaceAccess.data.workspaces.length === 0
+              {visibleWorkspaceAccess?.accesses.length === 0 &&
+              !visibleWorkspaceAccess.hasMoreWorkspaces
                 ? t('workspace.selection.noneTitle', { defaultValue: '没有可用工作区' })
                 : t('workspace.selection.title', { defaultValue: '选择工作区' })}
             </h1>
             <p className="aw-page-description">
-              {workspaceAccess.data.workspaces.length === 0
+              {visibleWorkspaceAccess?.accesses.length === 0 &&
+              !visibleWorkspaceAccess.hasMoreWorkspaces
                 ? t('workspace.selection.noneDescription', {
                     defaultValue: '当前账户没有可访问的工作区，无法加载简历和其他工作区内容。'
                   })
                 : t('workspace.selection.description', {
-                    defaultValue: '请先在账户区域明确选择一个工作区，再继续加载其中的内容。'
+                    defaultValue:
+                      '请先在账户区域选择已加载的工作区；如未看到目标工作区，请继续加载访问列表。'
                   })}
             </p>
           </div>

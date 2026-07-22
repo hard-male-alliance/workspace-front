@@ -7,9 +7,6 @@ import { useDiagnostics } from './Diagnostics'
 import { createAppQueries, type AppQueries } from './AppQueries'
 import { createWorkspaceSession, type WorkspaceSession } from './session/workspace-session'
 
-/** @brief Workspace gateway 依赖注入上下文 / Workspace-gateway dependency-injection context. */
-const WorkspaceGatewayContext = createContext<AppGateways['workspace'] | null>(null)
-
 /** @brief Resume gateway 依赖注入上下文 / Resume-gateway dependency-injection context. */
 const ResumeGatewayContext = createContext<AppGateways['resume'] | null>(null)
 
@@ -52,17 +49,15 @@ export function AppDataProvider({ children, gateways }: AppDataProviderProps): R
 
   return (
     <AppQueriesContext.Provider value={appQueries}>
-      <WorkspaceGatewayContext.Provider value={gateways.workspace}>
-        <ResumeGatewayContext.Provider value={gateways.resume}>
-          <InterviewGatewayContext.Provider value={gateways.interview}>
-            <KnowledgeGatewayContext.Provider value={gateways.knowledge}>
-              <WorkspaceSessionContext.Provider value={workspaceSession}>
-                {children}
-              </WorkspaceSessionContext.Provider>
-            </KnowledgeGatewayContext.Provider>
-          </InterviewGatewayContext.Provider>
-        </ResumeGatewayContext.Provider>
-      </WorkspaceGatewayContext.Provider>
+      <ResumeGatewayContext.Provider value={gateways.resume}>
+        <InterviewGatewayContext.Provider value={gateways.interview}>
+          <KnowledgeGatewayContext.Provider value={gateways.knowledge}>
+            <WorkspaceSessionContext.Provider value={workspaceSession}>
+              {children}
+            </WorkspaceSessionContext.Provider>
+          </KnowledgeGatewayContext.Provider>
+        </InterviewGatewayContext.Provider>
+      </ResumeGatewayContext.Provider>
     </AppQueriesContext.Provider>
   )
 }
@@ -98,19 +93,6 @@ export function useInterviewSummaryQuery(): AppQueries['interviewSummary'] {
   const queries = useContext(AppQueriesContext)
   if (queries === null) throw new Error('Interview pages require AppDataProvider.')
   return queries.interviewSummary
-}
-
-/**
- * @brief 读取 Workspace 上下文端口 / Read the Workspace context port.
- * @return 已注入的 Workspace gateway / Injected Workspace gateway.
- * @throws 未被 AppDataProvider 包裹时抛出错误 / Throws when not wrapped by AppDataProvider.
- */
-export function useWorkspaceGateway(): AppGateways['workspace'] {
-  /** @brief 当前 Workspace gateway / Current Workspace gateway. */
-  const gateway = useContext(WorkspaceGatewayContext)
-
-  if (gateway === null) throw new Error('Workspace pages require AppDataProvider.')
-  return gateway
 }
 
 /**
