@@ -1,8 +1,14 @@
 /** @file API v2 Artifact 受保护内容下载与 Range 响应验证 / API v2 protected Artifact download and Range-response validation. */
 
 import { boundedInteger, opaqueId, strongEntityTag } from '../http/contract'
+import type {
+  ApiV2AuthenticatedContentClient,
+  ApiV2AuthenticatedContentOptions
+} from '../http/client'
 import { ApiV2ContractError } from '../http/errors'
+import { cancelResponseBodyBestEffort } from '../http/response-body'
 import { artifactMediaType, parseArtifact, type Artifact } from './artifact'
+import { IncrementalSha256 } from './incremental-sha256'
 
 /** @brief HTTP token 的 RFC 9110 tchar 格式 / RFC 9110 tchar format for HTTP tokens. */
 const HTTP_TOKEN_PATTERN = /^[!#$%&'*+.^_`|~A-Za-z0-9-]+$/u
@@ -19,31 +25,13 @@ export interface ArtifactByteRange {
 }
 
 /** @brief 受保护 Artifact content GET 的 transport 选项 / Transport options for a protected Artifact content GET. */
-export interface AuthenticatedArtifactContentOptions {
-  /** @brief 已验证的 Range header；整体下载时为 null / Validated Range header, or null for a complete download. */
-  readonly range: string | null
-  /** @brief 仅与 Range 一起发送的强 If-Range / Strong If-Range sent only with a Range request. */
-  readonly ifRange: string | null
-  /** @brief 调用方取消信号 / Caller cancellation signal. */
-  readonly signal?: AbortSignal
-}
+export type AuthenticatedArtifactContentOptions = ApiV2AuthenticatedContentOptions
 
 /**
  * @brief 受保护 Artifact content 的最小 transport 端口 / Minimal transport port for protected Artifact content.
  * @note 实现必须只在 canonical API v2 origin 附加内存 Bearer token，使用 `credentials: omit` 并以 `redirect: error` 失败关闭 / Implementations must attach the in-memory Bearer token only at the canonical API v2 origin, use `credentials: omit`, and fail closed with `redirect: error`.
  */
-export interface AuthenticatedArtifactContentClient {
-  /**
-   * @brief 从不含 origin 或 query 的 v2 产品路径读取二进制响应 / Read a binary response from a v2 product path without an origin or query.
-   * @param path 相对 `/api/v2` 的受保护路径 / Protected path relative to `/api/v2`.
-   * @param options 仅包含已验证 Range、If-Range 与取消信号 / Options containing only validated Range, If-Range, and cancellation values.
-   * @return 未消费的 fetch Response / Unconsumed fetch Response.
-   */
-  readonly getAuthenticatedContent: (
-    path: string,
-    options: AuthenticatedArtifactContentOptions
-  ) => Promise<Response>
-}
+export type AuthenticatedArtifactContentClient = ApiV2AuthenticatedContentClient
 
 /** @brief Artifact content 读取输入 / Input for reading Artifact content. */
 export interface ArtifactContentReadRequest {
@@ -94,8 +82,8 @@ export interface CompleteArtifactContent extends ArtifactContentFields {
   readonly kind: 'complete'
   /** @brief 完整响应状态 / Complete-response status. */
   readonly status: 200
-  /** @brief 完整内容 SHA-256 / Complete-content SHA-256. */
-  readonly completeSha256: string
+  /** @brief 将在 body EOF 强制核对的预期 SHA-256 / Expected SHA-256 enforced when the body reaches EOF. */
+  readonly expectedSha256: string
 }
 
 /** @brief 部分 Artifact content 响应 / Partial Artifact content response. */
@@ -296,6 +284,17 @@ function contentDisposition(value: string | null): ArtifactContentDisposition {
 }
 
 /**
+ * @brief 校验 Artifact 响应没有改变受 hash 和 Range 约束的字节序列 / Verify the Artifact response does not content-code the byte sequence constrained by hash and Range.
+ * @param value 原始 Content-Encoding / Raw Content-Encoding.
+ * @return 缺失或 identity 时无返回值 / No value when absent or identity.
+ */
+function validateIdentityContentEncoding(value: string | null): void {
+  if (value !== null && value.trim().toLowerCase() !== 'identity') {
+    throw new ApiV2ContractError('API v2 Artifact content must use the identity content encoding.')
+  }
+}
+
+/**
  * @brief 校验可选 Content-Length 与预期 body 大小一致 / Validate an optional Content-Length against the expected body size.
  * @param value 响应 Content-Length / Response Content-Length.
  * @param expected 预期字节数 / Expected byte count.
@@ -363,7 +362,7 @@ function matchingContentRange(
   completeSizeBytes: number
 ): ArtifactContentRange {
   /** @brief bytes Content-Range 的十进制分组 / Decimal captures of a bytes Content-Range. */
-  const match = value === null ? null : /^bytes ([0-9]+)-([0-9]+)\/([0-9]+)$/u.exec(value)
+  const match = value === null ? null : /^bytes ([0-9]+)-([0-9]+)\/([0-9]+)$/iu.exec(value)
   if (match === null) {
     throw new ApiV2ContractError('API v2 partial Artifact content requires Content-Range.')
   }
@@ -396,16 +395,26 @@ function matchingContentRange(
  */
 function responseBody(
   response: Response,
-  expectedByteLength: number
+  expectedByteLength: number,
+  expectedSha256: string | null
 ): ReadableStream<Uint8Array> | null {
   /** @brief fetch 响应 body stream / Fetch response body stream. */
   const body = response.body
   if (response.bodyUsed || body?.locked === true || (body === null && expectedByteLength > 0)) {
     throw new ApiV2ContractError('API v2 Artifact content body is missing, consumed, or locked.')
   }
-  if (body === null) return null
+  if (body === null) {
+    if (expectedSha256 !== null && new IncrementalSha256().digestHex() !== expectedSha256) {
+      throw new ApiV2ContractError(
+        'API v2 Artifact content SHA-256 differs from its authoritative metadata.'
+      )
+    }
+    return null
+  }
   /** @brief 流式观察到的字节数 / Byte count observed while streaming. */
   let receivedByteLength = 0
+  /** @brief 完整响应的常量内存 SHA-256；部分响应不创建 / Constant-memory SHA-256 for a complete response, omitted for a partial response. */
+  const digest = expectedSha256 === null ? null : new IncrementalSha256()
   return body.pipeThrough(
     new TransformStream<Uint8Array, Uint8Array>({
       /**
@@ -424,6 +433,7 @@ function responseBody(
           )
           return
         }
+        digest?.update(chunk)
         controller.enqueue(chunk)
       },
       /**
@@ -436,6 +446,14 @@ function responseBody(
           controller.error(
             new ApiV2ContractError(
               'API v2 Artifact content body is shorter than the selected representation size.'
+            )
+          )
+          return
+        }
+        if (digest !== null && digest.digestHex() !== expectedSha256) {
+          controller.error(
+            new ApiV2ContractError(
+              'API v2 Artifact content SHA-256 differs from its authoritative metadata.'
             )
           )
         }
@@ -481,88 +499,98 @@ export async function getWorkspaceArtifactContent(
   /** @brief 受保护 transport 返回的原始响应 / Raw response returned by the protected transport. */
   const response = await client.getAuthenticatedContent(path, {
     ifRange,
+    maxResponseBytes: artifact.size_bytes,
     range: range?.header ?? null,
     ...(signal === undefined ? {} : { signal })
   })
-  if (response.redirected) {
-    throw new ApiV2ContractError('API v2 Artifact content must not follow a redirect.')
-  }
-  if (
-    (range === null && response.status !== 200) ||
-    (range !== null && response.status !== 200 && response.status !== 206)
-  ) {
-    throw new ApiV2ContractError(
-      'API v2 Artifact content returned a status inconsistent with the requested representation.',
-      response.status
-    )
-  }
-  /** @brief 与 metadata 一致的响应 media type / Response media type matching the metadata. */
-  const mediaType = matchingMediaType(response.headers.get('Content-Type'), artifact.media_type)
-  /** @brief 响应 content 强 ETag / Strong content ETag. */
-  const entityTag = strongEntityTag(response.headers.get('ETag'), 'response.headers.ETag')
-  if (response.status === 206 && ifRange !== null && entityTag !== ifRange) {
-    throw new ApiV2ContractError(
-      'API v2 partial Artifact content ETag differs from the requested If-Range validator.'
-    )
-  }
-  /** @brief 响应 request ID / Response request ID. */
-  const requestId = opaqueId(response.headers.get('X-Request-Id'), 'response.headers.X-Request-Id')
-  /** @brief 安全收敛的内容展示策略 / Safely normalized content presentation policy. */
-  const disposition = contentDisposition(response.headers.get('Content-Disposition'))
-  /** @brief 服务端是否声明 byte-range 能力 / Whether the server advertises byte-range support. */
-  const acceptsByteRanges =
-    response.headers
-      .get('Accept-Ranges')
-      ?.split(',')
-      .some((unit): boolean => unit.trim().toLowerCase() === 'bytes') ?? false
-
-  if (response.status === 200) {
-    if (response.headers.has('Content-Range')) {
+  try {
+    if (response.redirected) {
+      throw new ApiV2ContractError('API v2 Artifact content must not follow a redirect.')
+    }
+    if (
+      (range === null && response.status !== 200) ||
+      (range !== null && response.status !== 200 && response.status !== 206)
+    ) {
       throw new ApiV2ContractError(
-        'A complete API v2 Artifact response must not carry Content-Range.'
+        'API v2 Artifact content returned a status inconsistent with the requested representation.',
+        response.status
       )
     }
-    validateContentLength(response.headers.get('Content-Length'), artifact.size_bytes)
+    validateIdentityContentEncoding(response.headers.get('Content-Encoding'))
+    /** @brief 与 metadata 一致的响应 media type / Response media type matching the metadata. */
+    const mediaType = matchingMediaType(response.headers.get('Content-Type'), artifact.media_type)
+    /** @brief 响应 content 强 ETag / Strong content ETag. */
+    const entityTag = strongEntityTag(response.headers.get('ETag'), 'response.headers.ETag')
+    if (response.status === 206 && ifRange !== null && entityTag !== ifRange) {
+      throw new ApiV2ContractError(
+        'API v2 partial Artifact content ETag differs from the requested If-Range validator.'
+      )
+    }
+    /** @brief 响应 request ID / Response request ID. */
+    const requestId = opaqueId(
+      response.headers.get('X-Request-Id'),
+      'response.headers.X-Request-Id'
+    )
+    /** @brief 安全收敛的内容展示策略 / Safely normalized content presentation policy. */
+    const disposition = contentDisposition(response.headers.get('Content-Disposition'))
+    /** @brief 服务端是否声明 byte-range 能力 / Whether the server advertises byte-range support. */
+    const acceptsByteRanges =
+      response.headers
+        .get('Accept-Ranges')
+        ?.split(',')
+        .some((unit): boolean => unit.trim().toLowerCase() === 'bytes') ?? false
+
+    if (response.status === 200) {
+      if (response.headers.has('Content-Range')) {
+        throw new ApiV2ContractError(
+          'A complete API v2 Artifact response must not carry Content-Range.'
+        )
+      }
+      validateContentLength(response.headers.get('Content-Length'), artifact.size_bytes)
+      return {
+        acceptsByteRanges,
+        body: responseBody(response, artifact.size_bytes, artifact.sha256),
+        disposition,
+        entityTag,
+        expectedByteLength: artifact.size_bytes,
+        expectedSha256: artifact.sha256,
+        kind: 'complete',
+        mediaType,
+        requestId,
+        status: 200
+      }
+    }
+
+    if (range === null) {
+      throw new ApiV2ContractError(
+        'API v2 partial Artifact content requires an originating Range request.',
+        response.status
+      )
+    }
+
+    /** @brief 与请求区间及 metadata 完全匹配的响应区间 / Response interval exactly matching the request and metadata. */
+    const contentRange = matchingContentRange(
+      response.headers.get('Content-Range'),
+      range,
+      artifact.size_bytes
+    )
+    /** @brief 本次部分 body 的字节数 / Byte count of this partial body. */
+    const expectedByteLength = contentRange.endByteInclusive - contentRange.startByte + 1
+    validateContentLength(response.headers.get('Content-Length'), expectedByteLength)
     return {
       acceptsByteRanges,
-      body: responseBody(response, artifact.size_bytes),
-      completeSha256: artifact.sha256,
+      body: responseBody(response, expectedByteLength, null),
+      contentRange,
       disposition,
       entityTag,
-      expectedByteLength: artifact.size_bytes,
-      kind: 'complete',
+      expectedByteLength,
+      kind: 'partial',
       mediaType,
       requestId,
-      status: 200
+      status: 206
     }
-  }
-
-  if (range === null) {
-    throw new ApiV2ContractError(
-      'API v2 partial Artifact content requires an originating Range request.',
-      response.status
-    )
-  }
-
-  /** @brief 与请求区间及 metadata 完全匹配的响应区间 / Response interval exactly matching the request and metadata. */
-  const contentRange = matchingContentRange(
-    response.headers.get('Content-Range'),
-    range,
-    artifact.size_bytes
-  )
-  /** @brief 本次部分 body 的字节数 / Byte count of this partial body. */
-  const expectedByteLength = contentRange.endByteInclusive - contentRange.startByte + 1
-  validateContentLength(response.headers.get('Content-Length'), expectedByteLength)
-  return {
-    acceptsByteRanges,
-    body: responseBody(response, expectedByteLength),
-    contentRange,
-    disposition,
-    entityTag,
-    expectedByteLength,
-    kind: 'partial',
-    mediaType,
-    requestId,
-    status: 206
+  } catch (error: unknown) {
+    cancelResponseBodyBestEffort(response)
+    throw error
   }
 }

@@ -11,6 +11,7 @@ import {
 } from './errors'
 import { parseProblemDetails } from './problem'
 import { ApiV2ProblemError } from './problem-error'
+import { cancelResponseBodyBestEffort } from './response-body'
 import { API_V2_CONTROLLED_TEST_ORIGIN, API_V2_PRODUCTION_ORIGIN } from '../origin'
 
 /** @brief OAuth Bearer b64token 语法 / OAuth Bearer b64token syntax. */
@@ -28,6 +29,9 @@ const DEFAULT_MAX_RESPONSE_BYTES = 1024 * 1024
 
 /** @brief 单个 JSON 响应允许配置的绝对上限 / Absolute configurable ceiling for one JSON response. */
 const ABSOLUTE_MAX_RESPONSE_BYTES = 16 * 1024 * 1024
+
+/** @brief Artifact 二进制响应的契约绝对上限 / Contract ceiling for an Artifact binary response. */
+const ABSOLUTE_MAX_BINARY_RESPONSE_BYTES = 1024 * 1024 * 1024
 
 /** @brief 默认 JSON 请求硬上限 / Default hard limit for JSON request bodies. */
 const DEFAULT_MAX_REQUEST_BYTES = 1024 * 1024
@@ -60,6 +64,18 @@ export interface ApiV2GetOptions {
   readonly signal?: AbortSignal
   /** @brief 当前端点解码前的响应字节上限 / Response byte limit before decoding for this endpoint. */
   readonly maxResponseBytes?: number
+}
+
+/** @brief API v2 受保护 Artifact content GET 选项 / Options for a protected API v2 Artifact content GET. */
+export interface ApiV2AuthenticatedContentOptions {
+  /** @brief 已验证响应允许的最大字节数，可为零 / Maximum permitted success-body bytes, including zero. */
+  readonly maxResponseBytes: number
+  /** @brief 单一 bytes Range header，完整读取时为 null / Single bytes Range header, or null for a complete read. */
+  readonly range: string | null
+  /** @brief 仅与 Range 配对的强 If-Range，未使用时为 null / Strong If-Range paired with Range, or null when unused. */
+  readonly ifRange: string | null
+  /** @brief 调用方取消信号 / Caller cancellation signal. */
+  readonly signal?: AbortSignal
 }
 
 /** @brief POST 成功的封闭产品语义 / Closed product semantics for a successful POST. */
@@ -280,6 +296,20 @@ export interface ApiV2Client {
   readonly getJson: (path: string, options?: ApiV2GetOptions) => Promise<ApiV2JsonResponse>
 }
 
+/** @brief API v2 受保护 Artifact 二进制读取端口 / Protected API v2 Artifact binary-read port. */
+export interface ApiV2AuthenticatedContentClient {
+  /**
+   * @brief 读取受保护 Artifact content 且不把成功体解释为 JSON / Read protected Artifact content without interpreting its success body as JSON.
+   * @param path 相对 `/api/v2` 的 query-free 产品路径 / Query-free product path relative to `/api/v2`.
+   * @param options Range、If-Range、字节上限与取消策略 / Range, If-Range, byte-limit, and cancellation policy.
+   * @return 状态与公共头已验证、body 仍为二进制流的响应 / Response with validated status and common headers whose body remains a binary stream.
+   */
+  readonly getAuthenticatedContent: (
+    path: string,
+    options: ApiV2AuthenticatedContentOptions
+  ) => Promise<Response>
+}
+
 /** @brief API v2 最小写入端口 / Minimal API v2 write port. */
 export interface ApiV2WriteClient {
   /**
@@ -339,7 +369,7 @@ export interface ApiV2WriteClient {
 }
 
 /** @brief 由运行时组装的完整 API v2 HTTP client / Complete API v2 HTTP client composed by the runtime. */
-export type ApiV2HttpClient = ApiV2Client & ApiV2WriteClient
+export type ApiV2HttpClient = ApiV2AuthenticatedContentClient & ApiV2Client & ApiV2WriteClient
 
 /** @brief API v2 读写客户端共享的 transport 配置 / Transport options shared by API v2 read and write clients. */
 export interface ApiV2TransportOptions {
@@ -546,6 +576,68 @@ function resolveRequestUrl(path: string, apiBaseUrl: URL): URL {
 function validateByteLimit(value: number, ceiling: number, kind: 'request' | 'response'): number {
   if (!Number.isSafeInteger(value) || value <= 0 || value > ceiling) {
     throw new ApiV2ContractError(`API v2 ${kind} byte limit must be between 1 and ${ceiling}.`)
+  }
+  return value
+}
+
+/**
+ * @brief 校验允许零字节的 Artifact 二进制响应上限 / Validate an Artifact binary-response limit that permits zero bytes.
+ * @param value 调用方声明的成功体上限 / Caller-declared success-body ceiling.
+ * @return 介于零和契约 Artifact 上限之间的安全整数 / Safe integer between zero and the contract Artifact ceiling.
+ */
+function validateBinaryResponseByteLimit(value: unknown): number {
+  if (
+    typeof value !== 'number' ||
+    !Number.isSafeInteger(value) ||
+    value < 0 ||
+    value > ABSOLUTE_MAX_BINARY_RESPONSE_BYTES
+  ) {
+    throw new ApiV2ContractError(
+      `API v2 binary response byte limit must be between 0 and ${ABSOLUTE_MAX_BINARY_RESPONSE_BYTES}.`
+    )
+  }
+  return value
+}
+
+/**
+ * @brief 严格校验单一 bytes Range header / Strictly validate a single bytes Range header.
+ * @param value 未知 Range 候选 / Unknown Range candidate.
+ * @param maximumResponseBytes 成功体硬上限 / Hard success-body ceiling.
+ * @return 可安全发送的规范 Range / Canonical Range safe to send.
+ */
+function binaryRangeHeader(value: unknown, maximumResponseBytes: number): string {
+  if (typeof value !== 'string') {
+    throw new ApiV2ContractError('API v2 binary Range must be a single bytes range.')
+  }
+  /** @brief 起止十进制偏移捕获 / Captured decimal start and optional end offsets. */
+  const match = /^bytes=([0-9]+)-([0-9]*)$/u.exec(value)
+  if (match === null) {
+    throw new ApiV2ContractError('API v2 binary Range must be a single bytes range.')
+  }
+  /** @brief 包含式起始偏移 / Inclusive starting offset. */
+  const startByte = Number(match[1])
+  /** @brief 可选包含式结束偏移文本 / Optional inclusive ending-offset text. */
+  const endText = match[2] ?? ''
+  if (!Number.isSafeInteger(startByte)) {
+    throw new ApiV2ContractError('API v2 binary Range start must be a safe integer.')
+  }
+  if (endText !== '') {
+    /** @brief 包含式结束偏移 / Inclusive ending offset. */
+    const endByteInclusive = Number(endText)
+    /** @brief 闭区间请求的字节数 / Byte count requested by the closed interval. */
+    const requestedBytes = endByteInclusive - startByte + 1
+    if (
+      !Number.isSafeInteger(endByteInclusive) ||
+      endByteInclusive < startByte ||
+      !Number.isSafeInteger(requestedBytes) ||
+      requestedBytes > maximumResponseBytes
+    ) {
+      throw new ApiV2ContractError(
+        'API v2 binary Range is reversed, unsafe, or exceeds its response byte limit.'
+      )
+    }
+  } else if (maximumResponseBytes === 0) {
+    throw new ApiV2ContractError('API v2 binary Range cannot target a zero-byte response.')
   }
   return value
 }
@@ -1040,6 +1132,139 @@ async function parseNoContentResponse(
   return headers.requestId
 }
 
+/**
+ * @brief Artifact 二进制成功响应只允许 identity 内容编码 / Allow only identity content coding on a successful Artifact binary response.
+ * @param value 原始 Content-Encoding / Raw Content-Encoding.
+ * @param status 响应状态 / Response status.
+ * @return 缺失或 identity 时无返回值 / No value when absent or identity.
+ */
+function assertIdentityContentEncoding(value: string | null, status: number): void {
+  if (value !== null && value.trim().toLowerCase() !== 'identity') {
+    throw new ApiV2ContractError(
+      'API v2 Artifact content must use the identity content encoding.',
+      status
+    )
+  }
+}
+
+/**
+ * @brief 校验 Content-Length 不超过二进制成功体上限 / Validate that Content-Length does not exceed the binary success-body ceiling.
+ * @param value 原始 Content-Length / Raw Content-Length.
+ * @param maximumBytes 成功体硬上限 / Hard success-body ceiling.
+ * @param status 响应状态 / Response status.
+ * @return 缺失或在上限内时无返回值 / No value when absent or within the ceiling.
+ */
+function assertBinaryContentLength(
+  value: string | null,
+  maximumBytes: number,
+  status: number
+): void {
+  if (value === null) return
+  if (!/^[0-9]+$/u.test(value)) {
+    throw new ApiV2ContractError('API v2 binary response has an invalid Content-Length.', status)
+  }
+  /** @brief 服务端声明的二进制字节数 / Binary byte count declared by the server. */
+  const contentLength = Number(value)
+  if (!Number.isSafeInteger(contentLength) || contentLength > maximumBytes) {
+    throw new ApiV2ContractError('API v2 binary response exceeds its declared byte limit.', status)
+  }
+}
+
+/**
+ * @brief 用计数流约束未声明或伪报长度的二进制 body / Bound an undeclared or misreported binary body with a counting stream.
+ * @param body 原始 fetch 二进制流 / Original fetch binary stream.
+ * @param maximumBytes 允许透传的最大字节数 / Maximum bytes permitted through the stream.
+ * @param signal 调用方取消信号 / Caller cancellation signal.
+ * @return 保持二进制形态的有界流 / Bounded stream preserving binary chunks.
+ */
+function boundedBinaryBody(
+  body: ReadableStream<Uint8Array>,
+  maximumBytes: number,
+  signal: AbortSignal | undefined
+): ReadableStream<Uint8Array> {
+  /** @brief 当前已观察的成功体字节数 / Success-body bytes observed so far. */
+  let receivedBytes = 0
+  /** @brief 对每个 chunk 计数但不解码的透传器 / Pass-through transformer that counts but never decodes chunks. */
+  const limiter = new TransformStream<Uint8Array, Uint8Array>({
+    /**
+     * @brief 在下游可见前执行二进制上限检查 / Enforce the binary ceiling before exposing a chunk downstream.
+     * @param chunk fetch 返回的字节块 / Byte chunk returned by fetch.
+     * @param controller 有界流控制器 / Bounded-stream controller.
+     * @return 无返回值 / No value.
+     */
+    transform(chunk, controller): void {
+      if (!(chunk instanceof Uint8Array)) {
+        controller.error(new ApiV2ContractError('API v2 binary response yielded a non-byte chunk.'))
+        return
+      }
+      receivedBytes += chunk.byteLength
+      if (!Number.isSafeInteger(receivedBytes) || receivedBytes > maximumBytes) {
+        controller.error(
+          new ApiV2ContractError('API v2 binary response exceeded its streaming byte limit.')
+        )
+        return
+      }
+      controller.enqueue(chunk)
+    }
+  })
+  return body.pipeThrough(limiter, signal === undefined ? {} : { signal })
+}
+
+/**
+ * @brief 解析 Artifact 二进制 success 或共享 RFC 9457 Problem / Parse an Artifact binary success or shared RFC 9457 Problem.
+ * @param response 原始 fetch 响应 / Raw fetch response.
+ * @param maximumBytes 成功体硬上限 / Hard success-body ceiling.
+ * @param now 当前 epoch 毫秒 / Current epoch milliseconds.
+ * @param callerSignal 调用方取消信号 / Caller cancellation signal.
+ * @return 不消费、不解码成功二进制体的安全响应 / Safe response whose successful binary body remains unconsumed and undecoded.
+ */
+async function parseAuthenticatedContentResponse(
+  response: Response,
+  maximumBytes: number,
+  now: number,
+  callerSignal: AbortSignal | undefined
+): Promise<Response> {
+  try {
+    /** @brief 已验证公共响应头 / Validated common response headers. */
+    const headers = validateResponseHeaders(response)
+    if (!response.ok) {
+      return await throwProblemResponse(response, headers, DEFAULT_MAX_RESPONSE_BYTES, now)
+    }
+    if (response.redirected) {
+      throw new ApiV2ContractError(
+        'API v2 Artifact content must not follow a redirect.',
+        response.status
+      )
+    }
+    if (response.status !== 200 && response.status !== 206) {
+      throw new ApiV2ContractError(
+        'API v2 Artifact content success status must be 200 or 206.',
+        response.status
+      )
+    }
+    assertIdentityContentEncoding(response.headers.get('Content-Encoding'), response.status)
+    assertBinaryContentLength(response.headers.get('Content-Length'), maximumBytes, response.status)
+    if (response.bodyUsed || response.body?.locked === true) {
+      throw new ApiV2ContractError(
+        'API v2 Artifact content body is already consumed or locked.',
+        response.status
+      )
+    }
+    /** @brief 保持 headers/status 且隐藏 transport URL 的有界响应 / Bounded response preserving headers/status while hiding the transport URL. */
+    return new Response(
+      response.body === null ? null : boundedBinaryBody(response.body, maximumBytes, callerSignal),
+      {
+        headers: response.headers,
+        status: response.status,
+        statusText: response.statusText
+      }
+    )
+  } catch (error: unknown) {
+    cancelResponseBodyBestEffort(response)
+    throw error
+  }
+}
+
 /** @brief 单次 Product API HTTP 尝试的输入 / Input for one Product API HTTP attempt. */
 interface ProductRequestAttempt<TResponse> {
   /** @brief 当前请求 URL / Current request URL. */
@@ -1058,6 +1283,10 @@ interface ProductRequestAttempt<TResponse> {
   readonly idempotencyKey?: string
   /** @brief 可选强并发前置条件 / Optional strong concurrency precondition. */
   readonly ifMatch?: string
+  /** @brief 可选单一 bytes Range / Optional single bytes Range. */
+  readonly range?: string
+  /** @brief 与 Range 配对的可选强 If-Range / Optional strong If-Range paired with Range. */
+  readonly ifRange?: string
   /** @brief 网络实现 / Network implementation. */
   readonly fetchImpl: typeof fetch
   /** @brief 请求 ID 工厂 / Request-ID factory. */
@@ -1094,6 +1323,8 @@ async function performProductRequest<TResponse>(
   if (attempt.contentType !== undefined) headers['Content-Type'] = attempt.contentType
   if (attempt.idempotencyKey !== undefined) headers['Idempotency-Key'] = attempt.idempotencyKey
   if (attempt.ifMatch !== undefined) headers['If-Match'] = attempt.ifMatch
+  if (attempt.range !== undefined) headers.Range = attempt.range
+  if (attempt.ifRange !== undefined) headers['If-Range'] = attempt.ifRange
   attempt.markDispatched()
   /** @brief 原始 fetch 操作 / Raw fetch operation. */
   const fetchOperation = attempt.fetchImpl(attempt.requestUrl.toString(), {
@@ -1438,6 +1669,10 @@ interface PreparedProductRequest<TResponse> {
   readonly idempotencyKey?: string
   /** @brief 可选强并发前置条件 / Optional strong concurrency precondition. */
   readonly ifMatch?: string
+  /** @brief 可选单一 bytes Range / Optional single bytes Range. */
+  readonly range?: string
+  /** @brief 与 Range 配对的可选强 If-Range / Optional strong If-Range paired with Range. */
+  readonly ifRange?: string
   /** @brief 当前端点严格响应解析器 / Strict response parser for the current endpoint. */
   readonly parse: (response: Response) => Promise<TResponse>
 }
@@ -1619,6 +1854,8 @@ export function createApiV2Client(options: ApiV2ClientOptions): ApiV2HttpClient 
             ? {}
             : { idempotencyKey: prepared.idempotencyKey }),
           ...(prepared.ifMatch === undefined ? {} : { ifMatch: prepared.ifMatch }),
+          ...(prepared.range === undefined ? {} : { range: prepared.range }),
+          ...(prepared.ifRange === undefined ? {} : { ifRange: prepared.ifRange }),
           markDispatched(): void {
             wasDispatched = true
           },
@@ -1711,6 +1948,45 @@ export function createApiV2Client(options: ApiV2ClientOptions): ApiV2HttpClient 
   }
 
   return {
+    async getAuthenticatedContent(path, requestOptions): Promise<Response> {
+      /** @brief 从调用方对象仅读取一次的成功体上限 / Success-body ceiling read exactly once from the caller object. */
+      const maximumResponseBytes = validateBinaryResponseByteLimit(requestOptions?.maxResponseBytes)
+      /** @brief 从调用方对象仅读取一次的 Range / Range read exactly once from the caller object. */
+      const rangeCandidate = requestOptions?.range
+      /** @brief 从调用方对象仅读取一次的 If-Range / If-Range read exactly once from the caller object. */
+      const ifRangeCandidate = requestOptions?.ifRange
+      /** @brief 从调用方对象仅读取一次的取消信号 / Signal read exactly once from the caller object. */
+      const callerSignal = requestOptions?.signal
+      /** @brief 可选且已严格验证的 Range / Optional strictly validated Range. */
+      const range =
+        rangeCandidate === null
+          ? undefined
+          : binaryRangeHeader(rangeCandidate, maximumResponseBytes)
+      if (range === undefined && ifRangeCandidate !== null) {
+        throw new ApiV2ContractError('API v2 If-Range is only valid together with Range.')
+      }
+      /** @brief 与 Range 配对的可选强 If-Range / Optional strong If-Range paired with Range. */
+      const ifRange =
+        ifRangeCandidate === null
+          ? undefined
+          : strongEntityTag(ifRangeCandidate, 'request.headers.If-Range')
+      /** @brief 已限制在 Product API v2 下的 content URL / Content URL confined beneath Product API v2. */
+      const requestUrl = resolveRequestUrl(path, apiBaseUrl)
+
+      return await executePrepared(
+        {
+          ...(ifRange === undefined ? {} : { ifRange }),
+          method: 'GET',
+          parse: (response): Promise<Response> =>
+            parseAuthenticatedContentResponse(response, maximumResponseBytes, now(), callerSignal),
+          ...(range === undefined ? {} : { range }),
+          requestUrl
+        },
+        callerSignal,
+        'read'
+      )
+    },
+
     async getJson(path, requestOptions = {}): Promise<ApiV2JsonResponse> {
       /** @brief 已一次性验证的 GET / GET validated exactly once. */
       const prepared = prepareGetRequest(path, requestOptions, transport)
