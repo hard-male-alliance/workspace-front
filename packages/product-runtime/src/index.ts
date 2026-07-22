@@ -1,108 +1,49 @@
-/** @file 产品运行时的共享依赖装配 / Shared dependency composition for product runtimes. */
+/** @file 产品运行时的 API v2 依赖装配 / API v2 dependency composition for product runtimes. */
 
 import type { AppGateways } from '@ai-job-workspace/app/application'
-import type { Diagnostics } from '@ai-job-workspace/app/diagnostics'
+import { createApiV2Client, type ApiV2TransportProfile } from '@ai-job-workspace/product-api-v2'
+
 import {
-  createHttpClient,
-  HttpIdentityGateway,
-  HttpInterviewGateway,
-  type HttpInterviewGatewayOptions,
-  HttpKnowledgeGateway,
-  HttpResumeGateway,
-  HttpWorkspaceGateway
-} from '@ai-job-workspace/app/http'
+  createApiV2IdentityGateway,
+  createApiV2ResumeGateway,
+  createApiV2WorkspaceGateway,
+  createUnavailableInterviewGateway,
+  createUnavailableKnowledgeGateway
+} from './api-v2-gateways'
 
-/** @brief 产品宿主向共享组合根声明的真实能力 / Actual capabilities declared by a product host to the shared composition root. */
+export { ApiV2CapabilityUnavailableError } from './api-v2-gateways'
+
+/** @brief 产品宿主向 v2-only 组合根声明的能力 / Capabilities declared by a product host to the v2-only composition root. */
 export interface ProductGatewayOptions {
-  /** @brief 当前后端实际实现的产品 API major；不允许自动降级 / Product API major actually implemented by the backend; automatic fallback is forbidden. */
-  readonly apiMajor: 'v1'
-  /** @brief 契约使用的 BCP 47 界面语言 / BCP 47 UI locale sent through the contract. */
+  /** @brief 当前界面的 BCP 47 语言 / BCP 47 language of the current UI. */
   readonly locale: string
-  /** @brief 当前正式产品宿主 / Current production product host. */
-  readonly platform: 'web' | 'electron'
+  /** @brief 只读取当前内存会话的 Access Token / Read the access token only from the current in-memory session. */
+  readonly getAccessToken: () => string | null
+  /** @brief 默认固定生产；受控测试直连必须显式选择 / Production is fixed by default; controlled direct testing must be selected explicitly. */
+  readonly transportProfile?: ApiV2TransportProfile
 }
 
 /**
- * @brief 构造当前已实现的 Interview 客户端策略 / Build the currently implemented Interview client policy.
- * @param options 产品宿主声明 / Product-host declaration.
- * @return 与真实前端能力一致的会话创建策略 / Session-creation policy matching actual frontend capabilities.
- * @note 当前客户端尚未实现媒体采集与实时传输，因此不得把浏览器引擎理论上支持的能力报告为产品能力。 / Media capture and realtime transport are not implemented yet, so browser-engine capabilities must not be reported as product capabilities.
+ * @brief 创建正式产品宿主共用的 API v2 Gateway 集合 / Create the API v2 gateway set shared by production product hosts.
+ * @param options 内存凭证、界面语言与显式 transport profile / In-memory credentials, UI language, and explicit transport profile.
+ * @return Web 与 Electron 共用的 v2-only 业务依赖 / v2-only business dependencies shared by Web and Electron.
+ * @note 未接入的 v2 能力显式失败；该组合根没有 v1 或内存数据回退 / Unconnected v2 capabilities fail explicitly; this composition root has no v1 or in-memory-data fallback.
  */
-function createInterviewOptions(options: ProductGatewayOptions): HttpInterviewGatewayOptions {
-  return {
-    clientCapabilities: {
-      platform: options.platform,
-      supportedAudioCodecs: [],
-      supportedVideoCodecs: [],
-      webrtc: false,
-      websocketBinary: false
-    },
-    inference: {
-      allowExternalModelProcessing: false,
-      allowProviderFallback: true,
-      costTier: 'standard',
-      dataRegion: 'cn',
-      latencyBudgetMs: null,
-      qualityTier: 'balanced'
-    },
-    locale: options.locale,
-    media: {
-      avatar: {
-        avatarId: null,
-        includeExpressionCues: false,
-        includeVisemes: false,
-        outputMode: 'audio_only',
-        preferredAudioCodecs: ['opus'],
-        preferredVideoCodecs: [],
-        voiceId: null
-      },
-      fallbackTransport: 'none',
-      maxVideoFps: 30,
-      maxVideoHeight: 720,
-      maxVideoWidth: 1280,
-      screenShare: false,
-      userAudio: false,
-      userVideo: false
-    },
-    recording: {
-      consentVersion: null,
-      recordAudio: false,
-      recordVideo: false,
-      retentionDays: 0,
-      storeTranscript: true,
-      userConsentAt: null
-    }
-  }
-}
-
-/**
- * @brief 创建正式产品宿主共用的 Gateway 集合 / Create the gateway set shared by production product hosts.
- * @param apiBaseUrl 已由宿主验证的产品 API origin / Product API origin already validated by the host.
- * @param diagnostics 统一 HTTP 边界使用的诊断端口 / Diagnostics port used by the unified HTTP boundary.
- * @param options 产品宿主的显式运行时能力 / Explicit runtime capabilities of the product host.
- * @return Web 与 Electron 共用的业务依赖集合 / Business dependencies shared by Web and Electron.
- * @note 所有上下文只使用共享契约支持的正式 HTTP 能力；未冻结能力必须显式失败，禁止退回演示数据。 / Every context uses only formal HTTP capabilities supported by the shared contract; unfrozen capabilities must fail explicitly and never fall back to demo data.
- */
-export function createProductGateways(
-  apiBaseUrl: string,
-  diagnostics: Diagnostics,
-  options: ProductGatewayOptions
-): AppGateways {
-  if (options.apiMajor !== 'v1') {
-    throw new Error('The requested product API major is not implemented by this frontend runtime.')
-  }
-  /** @brief 共享 HTTP 客户端 / Shared HTTP client. */
-  const client = createHttpClient({
+export function createProductGateways(options: ProductGatewayOptions): AppGateways {
+  /** @brief 固定 origin 且逐请求读取 Bearer token 的 API v2 客户端 / API v2 client with a fixed origin and per-request Bearer-token reads. */
+  const client = createApiV2Client({
     acceptLanguage: options.locale,
-    baseUrl: apiBaseUrl,
-    diagnostics
+    getAccessToken: options.getAccessToken,
+    ...(options.transportProfile === undefined
+      ? {}
+      : { transportProfile: options.transportProfile })
   })
 
   return {
-    identity: new HttpIdentityGateway(client),
-    interview: new HttpInterviewGateway(client, createInterviewOptions(options)),
-    knowledge: new HttpKnowledgeGateway(client),
-    resume: new HttpResumeGateway(client),
-    workspace: new HttpWorkspaceGateway(client)
+    identity: createApiV2IdentityGateway(client),
+    interview: createUnavailableInterviewGateway(),
+    knowledge: createUnavailableKnowledgeGateway(),
+    resume: createApiV2ResumeGateway(client),
+    workspace: createApiV2WorkspaceGateway(client)
   }
 }

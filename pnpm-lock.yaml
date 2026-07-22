@@ -178,6 +178,9 @@ importers:
       '@ai-job-workspace/app':
         specifier: workspace:*
         version: link:../app
+      '@ai-job-workspace/product-api-v2':
+        specifier: workspace:*
+        version: link:../product-api-v2
 
 packages:
 

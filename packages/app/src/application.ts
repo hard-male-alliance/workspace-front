@@ -8,6 +8,42 @@ import type { WorkspaceGateway } from './contexts/workspace/application/gateway'
 
 export { createUiCommandId } from './shared-kernel/command'
 export type { UiCommandId } from './shared-kernel/command'
+export { asUiOpaqueId } from './shared-kernel/identity'
+export type { UiOpaqueId, UiWorkspaceId } from './shared-kernel/identity'
+export type { UiContentLocale } from './shared-kernel/locale'
+export {
+  asUiEmailAddress,
+  asUiOAuthScope,
+  asUiPrincipalSubject,
+  asUiUserLocale
+} from './contexts/identity/domain/models'
+export type {
+  UiCurrentUser,
+  UiCurrentUserId,
+  UiEmailAddress,
+  UiOAuthScope,
+  UiPrincipalSubject,
+  UiUserLocale
+} from './contexts/identity/domain/models'
+export {
+  asUiWorkspaceCursor,
+  asUiWorkspaceRevision,
+  asUiWorkspaceSlug,
+  asUiWorkspaceTimestamp
+} from './contexts/workspace/domain/models'
+export type {
+  UiWorkspace,
+  UiWorkspaceAccess,
+  UiWorkspaceAccessPage,
+  UiWorkspaceCursor,
+  UiWorkspaceMemberId
+} from './contexts/workspace/domain/models'
+export { asUiResumeCursor, asUiResumePageLimit } from './contexts/resume/domain/models'
+export type {
+  UiResumeCursor,
+  UiResumeSummary,
+  UiResumeSummaryPage
+} from './contexts/resume/domain/models'
 
 /** @brief 产品应用依赖的上下文端口集合 / Context ports required by the product application. */
 export interface AppGateways {
