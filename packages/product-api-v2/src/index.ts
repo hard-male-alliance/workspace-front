@@ -66,17 +66,28 @@ export { OAuthAuthorizationResponseError, OAuthTokenResponseError } from './oaut
 export {
   RejectingIdTokenSignatureVerifier,
   validateIdTokenClaims,
+  validateRefreshIdTokenClaims,
+  verifyRefreshIdToken,
   verifyIdToken
 } from './oauth/id-token'
 export type {
   IdTokenSignatureVerificationInput,
   IdTokenSignatureVerifier,
+  RefreshIdTokenVerificationContext,
+  VerifyRefreshIdTokenOptions,
   VerifiedIdTokenClaims
 } from './oauth/id-token'
-export { completeWebAuthorization, InMemoryWebTokenSession } from './oauth/session'
-export type { CompleteWebAuthorizationOptions } from './oauth/session'
-export { exchangeAuthorizationCode, parseAuthorizationCodeTokenResponse } from './oauth/token'
-export type { AuthorizationCodeTokenResponse } from './oauth/token'
+export {
+  completeWebAuthorization,
+  InMemoryWebTokenSession,
+  logoutWebTokenSession,
+  refreshWebTokenSession
+} from './oauth/session'
+export type {
+  CompleteWebAuthorizationOptions,
+  LogoutWebTokenSessionOptions,
+  RefreshWebTokenSessionOptions
+} from './oauth/session'
 export { WebCryptoJwksIdTokenVerifier } from './oauth/webcrypto-jwks-verifier'
 export type {
   SupportedIdTokenAlgorithm,

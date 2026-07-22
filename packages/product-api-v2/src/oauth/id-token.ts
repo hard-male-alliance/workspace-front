@@ -51,10 +51,40 @@ export interface VerifiedIdTokenClaims {
   readonly subject: string
   /** @brief 客户端 audience / Client audience. */
   readonly audience: readonly string[]
+  /** @brief 可选授权方；保留 presence 以验证 refresh 身份连续性 / Optional authorized party; presence is retained to validate refresh identity continuity. */
+  readonly authorizedParty: string | null
   /** @brief 到期 epoch 秒 / Expiration epoch seconds. */
   readonly expiresAtEpochSeconds: number
   /** @brief 签发 epoch 秒 / Issued-at epoch seconds. */
   readonly issuedAtEpochSeconds: number
+}
+
+/** @brief 刷新 ID Token 必须复用的首次验证配置 / Initial verification configuration that a refresh ID Token must reuse. */
+export interface RefreshIdTokenVerificationContext {
+  /** @brief 首次授权使用的 public client ID / Public-client ID used by the initial authorization. */
+  readonly clientId: string
+  /** @brief 首次授权钉死的 issuer / Issuer pinned by the initial authorization. */
+  readonly issuer: string
+  /** @brief 首次授权钉死的 JWKS URI / JWKS URI pinned by the initial authorization. */
+  readonly jwksUri: string
+  /** @brief 首次 discovery 与本地共同允许的算法 / Algorithms allowed by both initial discovery and local policy. */
+  readonly allowedAlgorithms: readonly string[]
+}
+
+/** @brief 可选 refresh ID Token 的严格验证输入 / Strict input for an optional refresh ID Token. */
+export interface VerifyRefreshIdTokenOptions {
+  /** @brief Refresh response 中可选的 ID Token / Optional ID Token from the refresh response. */
+  readonly idToken: string | null
+  /** @brief 首次验证后必须保持的身份 / Identity that must remain stable after initial verification. */
+  readonly priorIdentity: VerifiedIdTokenClaims
+  /** @brief 首次授权绑定的验证配置 / Verification configuration bound at initial authorization. */
+  readonly verificationContext: RefreshIdTokenVerificationContext
+  /** @brief 注入的加密签名 verifier / Injected cryptographic signature verifier. */
+  readonly verifier: IdTokenSignatureVerifier
+  /** @brief 可替换当前 epoch 秒 / Replaceable current epoch seconds. */
+  readonly nowEpochSeconds?: (() => number) | undefined
+  /** @brief 可选取消信号 / Optional cancellation signal. */
+  readonly signal?: AbortSignal | undefined
 }
 
 /**
@@ -86,6 +116,100 @@ function numericDate(value: unknown, name: string): number {
 }
 
 /**
+ * @brief 读取规范化且无重复的 audience / Read a normalized, duplicate-free audience.
+ * @param value 未知 aud claim / Unknown aud claim.
+ * @return 非空 audience 数组 / Non-empty audience array.
+ */
+function claimAudience(value: unknown): readonly string[] {
+  /** @brief 规范化 audience / Normalized audience. */
+  let audience: readonly string[]
+  if (typeof value === 'string') audience = [claimString(value, 'aud')]
+  else if (Array.isArray(value) && value.length > 0 && value.length <= 16) {
+    audience = value.map((item) => claimString(item, 'aud'))
+  } else {
+    throw new ApiV2ContractError('ID Token aud must be a string or non-empty string array.')
+  }
+  if (new Set(audience).size !== audience.length) {
+    throw new ApiV2ContractError('ID Token audience must not contain duplicates.')
+  }
+  return audience
+}
+
+/**
+ * @brief 严格读取并校验 authorized party / Strictly read and validate the authorized party.
+ * @param value 未知 azp claim / Unknown azp claim.
+ * @param audience 已验证 audience / Validated audience.
+ * @param clientId 预期 OAuth client ID / Expected OAuth client ID.
+ * @return azp；未提供时为 null / The azp value, or null when absent.
+ */
+function claimAuthorizedParty(
+  value: unknown,
+  audience: readonly string[],
+  clientId: string
+): string | null {
+  if (audience.length > 1 && value === undefined) {
+    throw new ApiV2ContractError('ID Token with multiple audiences must contain azp.')
+  }
+  if (value === undefined) return null
+  /** @brief 已验证 authorized party / Validated authorized party. */
+  const authorizedParty = claimString(value, 'azp')
+  if (authorizedParty !== clientId) {
+    throw new ApiV2ContractError('ID Token authorized party does not match the OAuth client.')
+  }
+  return authorizedParty
+}
+
+/**
+ * @brief 校验 ID Token 时间配置 / Validate ID Token time-validation configuration.
+ * @param nowEpochSeconds 当前 epoch 秒 / Current epoch seconds.
+ * @param clockSkewSeconds 允许时钟偏差 / Allowed clock skew.
+ */
+function assertTimeConfiguration(nowEpochSeconds: number, clockSkewSeconds: number): void {
+  if (
+    !Number.isFinite(nowEpochSeconds) ||
+    !Number.isSafeInteger(clockSkewSeconds) ||
+    clockSkewSeconds < 0 ||
+    clockSkewSeconds > 300
+  ) {
+    throw new ApiV2ContractError('ID Token time validation configuration is invalid.')
+  }
+}
+
+/**
+ * @brief 校验通用 exp/iat/nbf 时间边界 / Validate common exp/iat/nbf time boundaries.
+ * @param claims ID Token claims / ID Token claims.
+ * @param nowEpochSeconds 当前 epoch 秒 / Current epoch seconds.
+ * @param clockSkewSeconds 允许时钟偏差 / Allowed clock skew.
+ * @return exp 与 iat / The exp and iat values.
+ */
+function validateTokenTimes(
+  claims: Readonly<Record<string, unknown>>,
+  nowEpochSeconds: number,
+  clockSkewSeconds: number
+): Readonly<{ expiresAt: number; issuedAt: number }> {
+  /** @brief 到期时间 / Expiration time. */
+  const expiresAt = numericDate(claims.exp, 'exp')
+  /** @brief 签发时间 / Issued-at time. */
+  const issuedAt = numericDate(claims.iat, 'iat')
+  if (expiresAt + clockSkewSeconds <= nowEpochSeconds) {
+    throw new ApiV2ContractError('ID Token has expired.')
+  }
+  if (issuedAt > nowEpochSeconds + clockSkewSeconds) {
+    throw new ApiV2ContractError('ID Token was issued in the future.')
+  }
+  if (expiresAt <= issuedAt) {
+    throw new ApiV2ContractError('ID Token expiration must be later than its issue time.')
+  }
+  if (
+    claims.nbf !== undefined &&
+    numericDate(claims.nbf, 'nbf') > nowEpochSeconds + clockSkewSeconds
+  ) {
+    throw new ApiV2ContractError('ID Token is not active yet.')
+  }
+  return Object.freeze({ expiresAt, issuedAt })
+}
+
+/**
  * @brief 在加密签名验证后强制校验 OIDC nonce/iss/aud/exp / Enforce OIDC nonce/iss/aud/exp after cryptographic signature verification.
  * @param claimsValue 签名已验证但语义未验证的 claims / Signature-verified but semantically untrusted claims.
  * @param transaction 原授权事务 / Original authorization transaction.
@@ -102,14 +226,7 @@ export function validateIdTokenClaims(
   if (typeof claimsValue !== 'object' || claimsValue === null || Array.isArray(claimsValue)) {
     throw new ApiV2ContractError('ID Token claims must be an object.')
   }
-  if (
-    !Number.isFinite(nowEpochSeconds) ||
-    !Number.isSafeInteger(clockSkewSeconds) ||
-    clockSkewSeconds < 0 ||
-    clockSkewSeconds > 300
-  ) {
-    throw new ApiV2ContractError('ID Token time validation configuration is invalid.')
-  }
+  assertTimeConfiguration(nowEpochSeconds, clockSkewSeconds)
   /** @brief Claims 对象 / Claims object. */
   const claims = claimsValue as Record<string, unknown>
   /** @brief issuer / Issuer. */
@@ -118,10 +235,6 @@ export function validateIdTokenClaims(
   const subject = claimString(claims.sub, 'sub')
   /** @brief nonce / Nonce. */
   const nonce = claimString(claims.nonce, 'nonce')
-  /** @brief 到期时间 / Expiration time. */
-  const expiresAt = numericDate(claims.exp, 'exp')
-  /** @brief 签发时间 / Issued-at time. */
-  const issuedAt = numericDate(claims.iat, 'iat')
   if (issuer !== transaction.issuer) {
     throw new ApiV2ContractError('ID Token issuer does not match the authorization transaction.')
   }
@@ -129,50 +242,116 @@ export function validateIdTokenClaims(
     throw new ApiV2ContractError('ID Token nonce does not match the authorization transaction.')
   }
   /** @brief audience 数组 / Audience array. */
-  let audience: readonly string[]
-  if (typeof claims.aud === 'string') audience = [claimString(claims.aud, 'aud')]
-  else if (Array.isArray(claims.aud) && claims.aud.length > 0 && claims.aud.length <= 16) {
-    audience = claims.aud.map((value) => claimString(value, 'aud'))
-  } else {
-    throw new ApiV2ContractError('ID Token aud must be a string or non-empty string array.')
-  }
+  const audience = claimAudience(claims.aud)
   if (!audience.includes(transaction.clientId)) {
     throw new ApiV2ContractError('ID Token audience does not include the OAuth client.')
   }
-  if (new Set(audience).size !== audience.length) {
-    throw new ApiV2ContractError('ID Token audience must not contain duplicates.')
-  }
-  if (
-    (audience.length > 1 || claims.azp !== undefined) &&
-    claimString(claims.azp, 'azp') !== transaction.clientId
-  ) {
-    throw new ApiV2ContractError('ID Token authorized party does not match the OAuth client.')
-  }
-  if (expiresAt + clockSkewSeconds <= nowEpochSeconds) {
-    throw new ApiV2ContractError('ID Token has expired.')
-  }
-  if (issuedAt > nowEpochSeconds + clockSkewSeconds) {
-    throw new ApiV2ContractError('ID Token was issued in the future.')
-  }
+  /** @brief 可选 authorized party / Optional authorized party. */
+  const authorizedParty = claimAuthorizedParty(claims.azp, audience, transaction.clientId)
+  /** @brief 已验证时间 / Validated times. */
+  const { expiresAt, issuedAt } = validateTokenTimes(claims, nowEpochSeconds, clockSkewSeconds)
   if (issuedAt < transaction.createdAtEpochSeconds - clockSkewSeconds) {
     throw new ApiV2ContractError('ID Token predates the authorization transaction.')
   }
-  if (expiresAt <= issuedAt) {
-    throw new ApiV2ContractError('ID Token expiration must be later than its issue time.')
-  }
-  if (
-    claims.nbf !== undefined &&
-    numericDate(claims.nbf, 'nbf') > nowEpochSeconds + clockSkewSeconds
-  ) {
-    throw new ApiV2ContractError('ID Token is not active yet.')
-  }
   return Object.freeze({
     audience: Object.freeze([...audience]),
+    authorizedParty,
     expiresAtEpochSeconds: expiresAt,
     issuedAtEpochSeconds: issuedAt,
     issuer,
     subject
   })
+}
+
+/**
+ * @brief 校验 refresh ID Token 的身份与首次授权严格连续 / Validate strict identity continuity between refresh and initial ID Tokens.
+ * @param claimsValue 签名已验证但语义未验证的 refresh claims / Signature-verified but semantically untrusted refresh claims.
+ * @param priorIdentity 首次已验证身份 / Initially verified identity.
+ * @param context 首次绑定的 client、issuer、JWKS 与算法 / Initially bound client, issuer, JWKS, and algorithms.
+ * @param nowEpochSeconds 当前 epoch 秒 / Current epoch seconds.
+ * @param clockSkewSeconds 允许时钟偏差 / Allowed clock skew.
+ */
+export function validateRefreshIdTokenClaims(
+  claimsValue: unknown,
+  priorIdentity: VerifiedIdTokenClaims,
+  context: RefreshIdTokenVerificationContext,
+  nowEpochSeconds: number = Date.now() / 1000,
+  clockSkewSeconds = 60
+): void {
+  if (typeof claimsValue !== 'object' || claimsValue === null || Array.isArray(claimsValue)) {
+    throw new ApiV2ContractError('Refresh ID Token claims must be an object.')
+  }
+  assertTimeConfiguration(nowEpochSeconds, clockSkewSeconds)
+  if (context.issuer !== priorIdentity.issuer) {
+    throw new ApiV2ContractError('Refresh ID Token verification context changed issuer.')
+  }
+  /** @brief Refresh claims 对象 / Refresh claims object. */
+  const claims = claimsValue as Record<string, unknown>
+  if (Reflect.has(claims, 'nonce')) {
+    throw new ApiV2ContractError('Refresh ID Token must not contain nonce.')
+  }
+  /** @brief Refresh issuer / Refresh issuer. */
+  const issuer = claimString(claims.iss, 'iss')
+  if (issuer !== context.issuer || issuer !== priorIdentity.issuer) {
+    throw new ApiV2ContractError('Refresh ID Token issuer changed from the prior identity.')
+  }
+  /** @brief Refresh subject / Refresh subject. */
+  const subject = claimString(claims.sub, 'sub')
+  if (subject !== priorIdentity.subject) {
+    throw new ApiV2ContractError('Refresh ID Token subject changed from the prior identity.')
+  }
+  /** @brief Refresh audience / Refresh audience. */
+  const audience = claimAudience(claims.aud)
+  if (
+    !audience.includes(context.clientId) ||
+    audience.length !== priorIdentity.audience.length ||
+    audience.some((value, index) => value !== priorIdentity.audience[index])
+  ) {
+    throw new ApiV2ContractError('Refresh ID Token audience changed from the prior identity.')
+  }
+  /** @brief Refresh authorized party / Refresh authorized party. */
+  const authorizedParty = claimAuthorizedParty(claims.azp, audience, context.clientId)
+  if (authorizedParty !== priorIdentity.authorizedParty) {
+    throw new ApiV2ContractError(
+      'Refresh ID Token authorized party changed from the prior identity.'
+    )
+  }
+  /** @brief Refresh token 时间 / Refresh-token times. */
+  const { issuedAt } = validateTokenTimes(claims, nowEpochSeconds, clockSkewSeconds)
+  if (
+    issuedAt < priorIdentity.issuedAtEpochSeconds ||
+    issuedAt < nowEpochSeconds - clockSkewSeconds
+  ) {
+    throw new ApiV2ContractError('Refresh ID Token was not freshly issued for this rotation.')
+  }
+}
+
+/**
+ * @brief 验证 refresh response 的可选 ID Token 且不替换首次身份 / Verify an optional refresh-response ID Token without replacing the initial identity.
+ * @param options Refresh ID Token、首次身份与固定验证依赖 / Refresh ID Token, prior identity, and pinned verification dependencies.
+ * @return 验证完成；ID Token 缺失时安全跳过 / Resolves after validation; safely skips an absent ID Token.
+ * @note 非空 ID Token 始终复用首次 client、issuer、JWKS 与算法；成功也不返回新身份，调用方必须保留 priorIdentity。 / A present ID Token always reuses the initial client, issuer, JWKS, and algorithms; success returns no new identity, so callers must retain priorIdentity.
+ */
+export async function verifyRefreshIdToken(options: VerifyRefreshIdTokenOptions): Promise<void> {
+  if (options.idToken === null) return
+  /** @brief 加密 verifier 输入 / Cryptographic-verifier input. */
+  const verificationInput: IdTokenSignatureVerificationInput = {
+    allowedAlgorithms: options.verificationContext.allowedAlgorithms,
+    idToken: options.idToken,
+    jwksUri: options.verificationContext.jwksUri,
+    ...(options.signal === undefined ? {} : { signal: options.signal })
+  }
+  /** @brief 通过加密验证的 refresh claims / Cryptographically verified refresh claims. */
+  const claims = await options.verifier.verifySignature(verificationInput)
+  if (options.signal?.aborted === true) throw new ApiV2NetworkError('aborted')
+  /** @brief 签名验证后的当前时间 / Current time after signature verification. */
+  let now: number
+  try {
+    now = (options.nowEpochSeconds ?? ((): number => Date.now() / 1000))()
+  } catch {
+    throw new ApiV2ContractError('ID Token clock failed.')
+  }
+  validateRefreshIdTokenClaims(claims, options.priorIdentity, options.verificationContext, now)
 }
 
 /**
