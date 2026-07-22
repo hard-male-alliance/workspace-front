@@ -164,6 +164,30 @@ export type {
   ResumeRevisionReadRequest,
   ResumeRevisionSummary
 } from './resume/revision-history'
+export {
+  applyResumeOperations,
+  encodeResumeOperationBatch,
+  parseResumeOperation,
+  parseResumeOperationResult
+} from './resume/operations'
+export type {
+  ApplyResumeOperationsCommand,
+  MoveResumeEntityOperation,
+  RemoveResumeEntityOperation,
+  ResumeConflict,
+  ResumeConflictStrategy,
+  ResumeEntityKind,
+  ResumeOperation,
+  ResumeOperationBatch,
+  ResumeOperationRepresentation,
+  ResumeOperationsHttpClient,
+  ResumeOperationResult,
+  ResumeRenderHint,
+  SetResumeFieldOperation,
+  SetResumeTemplateOperation,
+  UpsertResumeItemOperation,
+  UpsertResumeSectionOperation
+} from './resume/operations'
 export { listWorkspaceAccessPage, parseWorkspaceList } from './workspace/workspace-access'
 export type {
   Workspace,

@@ -572,7 +572,7 @@ function parseStringArray(
  * @param path 诊断字段路径 / Diagnostic field path.
  * @return 已验证 item / Validated item.
  */
-function parseResumeItem(value: unknown, path: string): ResumeItem {
+export function parseResumeItem(value: unknown, path: string): ResumeItem {
   /** @brief 精确 item 对象 / Exact item object. */
   const input = exactRecord(value, path, [
     'id',
@@ -638,7 +638,7 @@ function parseResumeItem(value: unknown, path: string): ResumeItem {
  * @param path 诊断字段路径 / Diagnostic field path.
  * @return 已验证 section / Validated section.
  */
-function parseResumeSection(value: unknown, path: string): ResumeSection {
+export function parseResumeSection(value: unknown, path: string): ResumeSection {
   /** @brief 精确 section 对象 / Exact section object. */
   const input = exactRecord(value, path, ['id', 'kind', 'title', 'visible', 'content', 'items'])
   /** @brief 未映射 items / Unmapped items. */
