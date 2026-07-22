@@ -188,6 +188,31 @@ export type {
   UpsertResumeItemOperation,
   UpsertResumeSectionOperation
 } from './resume/operations'
+export {
+  decideResumeProposal,
+  encodeProposalDecisionRequest,
+  getWorkspaceResumeProposal,
+  listWorkspaceResumeProposalPage,
+  parseResumeProposal,
+  parseResumeProposalList
+} from './resume/proposals'
+export type {
+  AcceptResumeProposalDecision,
+  AcceptSelectedResumeProposalDecision,
+  DecideResumeProposalCommand,
+  PendingResumeProposal,
+  ProposalDecisionRequest,
+  RejectResumeProposalDecision,
+  ResumeProposal,
+  ResumeProposalDecisionHttpClient,
+  ResumeProposalDecisionRepresentation,
+  ResumeProposalListRequest,
+  ResumeProposalReadRequest,
+  ResumeProposalRepresentation,
+  ResumeProposalStatus,
+  TerminalResumeProposal,
+  TerminalResumeProposalStatus
+} from './resume/proposals'
 export { listWorkspaceAccessPage, parseWorkspaceList } from './workspace/workspace-access'
 export type {
   Workspace,
