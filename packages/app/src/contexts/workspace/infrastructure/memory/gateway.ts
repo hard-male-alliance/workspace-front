@@ -1,51 +1,37 @@
 /** @file Workspace 的内存 adapter / In-memory adapter for Workspace. */
 
 import type { WorkspaceGateway } from '../../application/gateway'
-import type { UiWorkspace, UiWorkspaceHomeModel } from '../../domain/models'
-import type { UiWorkspaceId } from '../../../../shared-kernel/identity'
+import type { UiWorkspaceAccess } from '../../domain/models'
 import {
   cloneMemoryValue,
-  type DemoGatewayOptions,
-  prepareMemoryRead,
-  throwMemoryNotFound
+  type InMemoryGatewayOptions,
+  prepareMemoryRead
 } from '../../../../infrastructure/memory'
-import { DEMO_WORKSPACE_HOME, DEMO_WORKSPACE_ID, DEMO_WORKSPACES } from './data'
+import { DEMO_WORKSPACE_ACCESS } from './data'
 
 /**
- * @brief 工作区的本地演示适配器 / Local-demo adapter for Workspace.
- * @note 数据仅存在于当前 renderer 进程生命周期；它不持久化、不与后端同步，也不建立 realtime transport。 / Data lives only for the current renderer-process lifetime; it is not persisted or synchronized with a backend and establishes no realtime transport.
+ * @brief Workspace 自动化测试内存适配器 / In-memory adapter for automated Workspace tests.
+ * @note 仅从测试入口导出，不允许装配进产品运行时。 / Exported only from the testing entry point and forbidden from production composition.
  */
-export class DemoWorkspaceGateway implements WorkspaceGateway {
+export class InMemoryWorkspaceGateway implements WorkspaceGateway {
   /** @brief 当前 adapter 的确定性行为选项 / Deterministic behavior options for this adapter. */
-  private readonly options: DemoGatewayOptions
+  private readonly options: InMemoryGatewayOptions
   /**
-   * @brief 构造工作区演示网关 / Construct the Workspace demo gateway.
-   * @param options 演示行为选项 / Demo behavior options.
+   * @brief 构造 Workspace 内存测试网关 / Construct the Workspace in-memory test gateway.
+   * @param options 确定性测试行为选项 / Deterministic test behavior options.
    */
-  constructor(options: DemoGatewayOptions = {}) {
+  constructor(options: InMemoryGatewayOptions = {}) {
     this.options = options
   }
 
   /**
-   * @brief 列出演示工作区 / List demo workspaces.
-   * @return 演示工作区列表 / Demo workspace list.
+   * @brief 读取 Workspace 测试 fixture / Read the Workspace test fixture.
+   * @return 测试访问权威投影 / Test access-authority projection.
    */
-  async listWorkspaces(): Promise<readonly UiWorkspace[]> {
+  async loadAccess(): Promise<UiWorkspaceAccess> {
     const mode = await prepareMemoryRead(this.options)
-    return mode === 'empty' ? [] : cloneMemoryValue(DEMO_WORKSPACES)
-  }
-
-  /**
-   * @brief 获取演示工作区首页 / Get the demo workspace home.
-   * @param workspaceId 工作区 ID / Workspace ID.
-   * @return 演示首页数据 / Demo home data.
-   */
-  async getWorkspaceHome(workspaceId: UiWorkspaceId): Promise<UiWorkspaceHomeModel> {
-    const mode = await prepareMemoryRead(this.options)
-    if (mode === 'empty' || workspaceId !== DEMO_WORKSPACE_ID) {
-      return throwMemoryNotFound('workspace')
-    }
-
-    return cloneMemoryValue(DEMO_WORKSPACE_HOME)
+    /** @brief 防御性复制后的 Workspace 访问权威 / Defensively copied Workspace-access authority. */
+    const access = cloneMemoryValue(DEMO_WORKSPACE_ACCESS)
+    return mode === 'empty' ? { ...access, workspaces: [] } : access
   }
 }

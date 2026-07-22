@@ -2,12 +2,11 @@
 
 export type { UiWorkspaceId } from '../../shared-kernel/identity'
 export type {
+  UiCurrentUser,
+  UiCurrentUserId,
+  UiWorkspaceAccess,
   UiWorkspacePlan,
-  UiWorkspaceRole,
-  UiWorkspace,
-  UiWorkspaceActivityKind,
-  UiWorkspaceActivity,
-  UiWorkspaceHomeModel
+  UiWorkspace
 } from './domain/models'
 export type { WorkspaceGateway } from './application/gateway'
 export { WorkspaceHomePage } from './presentation/WorkspaceHomePage'

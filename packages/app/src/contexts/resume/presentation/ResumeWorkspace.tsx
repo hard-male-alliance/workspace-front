@@ -2,12 +2,9 @@ import {
   ArrowDown,
   ArrowUp,
   Bot,
-  Bold,
   ChevronDown,
   ChevronUp,
   GripVertical,
-  List,
-  Quote,
   Send,
   Settings2,
   Sparkles,
@@ -15,11 +12,12 @@ import {
   X
 } from 'lucide-react'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import type { FormEvent, KeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
+import type { KeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { runDiagnosticCommand, useDiagnostics } from '../../../app/Diagnostics'
 import { useArtifactSave } from '../../../app/Host'
+import { ResourceErrorState } from '../../../app/ResourceErrorState'
 import { sanitizePdfFileName } from '@ai-job-workspace/platform'
 import { asUiOpaqueId } from '../../../shared-kernel/identity'
 import { getResumeConflictStatus, type ResumeConflictStatus } from '../application/errors'
@@ -27,7 +25,6 @@ import type { ResumeGateway } from '../application/gateway'
 import type {
   UiResumeEditorModel,
   UiResumePdfArtifact,
-  UiResumeProposal,
   UiResumeRenderJob,
   UiResumeSection,
   UiResumeSectionId,
@@ -39,6 +36,22 @@ type ResumePane = 'assistant' | 'editor' | 'preview'
 
 /** @brief 紧凑布局当前窗口 / Current pane in compact layouts. */
 type MobileResumePane = 'edit' | 'preview'
+
+/** @brief 尚未由服务端确认的板块草稿 / Section draft not yet confirmed by the server. */
+interface ResumeSectionDraft {
+  /** @brief 草稿正文 / Draft body. */
+  readonly content: string
+  /** @brief 草稿标题 / Draft title. */
+  readonly title: string
+}
+
+/** @brief 板块保存失败及其恢复目标 / Section-save failure and its recovery target. */
+interface ResumeSectionSaveFailure {
+  /** @brief 未向用户直接展示的技术错误 / Technical error not displayed directly to the user. */
+  readonly error: unknown
+  /** @brief 需要重新保存的板块 / Section that needs to be saved again. */
+  readonly sectionId: UiResumeSectionId
+}
 
 /** @brief 窗口顺序 / Stable pane order. */
 const RESUME_PANES: readonly ResumePane[] = ['assistant', 'editor', 'preview']
@@ -53,15 +66,6 @@ const INITIAL_PANE_SIZES: Readonly<Record<ResumePane, number>> = {
 /** @brief 获取板块可编辑纯文本 / Get editable plain text for a section. */
 function getSectionContent(section: UiResumeSection): string {
   return section.contentPreview ?? section.items.flatMap((item) => item.highlights).join('\n')
-}
-
-/** @brief 应用本地富文本命令 / Apply a local rich-text command. */
-function applyLocalRichTextCommand(command: 'bold' | 'formatBlock' | 'insertUnorderedList'): void {
-  if (command === 'formatBlock') {
-    document.execCommand(command, false, 'blockquote')
-    return
-  }
-  document.execCommand(command)
 }
 
 /** @brief 纸张中的语义板块 / Semantic section rendered on the paper preview. */
@@ -203,95 +207,11 @@ function ResumePaneSeparator({
 
 /** @brief AI 对话窗口 / Resume-assistant pane. */
 function ResumeAssistantPanel({
-  editor,
-  gateway,
-  isWriteLocked,
-  onCloseMobile,
-  onEditorChange,
-  onMutationError,
-  onProposalsChange,
-  proposals
+  onCloseMobile
 }: {
-  readonly editor: UiResumeEditorModel
-  readonly gateway: ResumeGateway
-  readonly isWriteLocked: boolean
   readonly onCloseMobile: () => void
-  readonly onEditorChange: (editor: UiResumeEditorModel) => void
-  readonly onMutationError: (error: unknown) => boolean
-  readonly onProposalsChange: (proposals: readonly UiResumeProposal[]) => void
-  readonly proposals: readonly UiResumeProposal[]
 }): React.JSX.Element {
   const { t } = useTranslation()
-  const diagnostics = useDiagnostics()
-  const [draft, setDraft] = useState('')
-  const [isSending, setSending] = useState(false)
-  const [decidingProposalId, setDecidingProposalId] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  const submitMessage = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
-    event.preventDefault()
-    const message = draft.trim()
-    if (message.length === 0 || isSending || isWriteLocked) {
-      return
-    }
-    setSending(true)
-    setError(null)
-    try {
-      const proposal = await runDiagnosticCommand(
-        diagnostics,
-        { operation: 'resume.proposal_create', scope: 'resume' },
-        () =>
-          gateway.createResumeProposal({
-            resumeId: editor.resume.id,
-            message
-          })
-      )
-      onProposalsChange([...proposals, proposal])
-      setDraft('')
-    } catch (reason: unknown) {
-      if (onMutationError(reason)) return
-      setError(
-        t('resume.workspace.assistantError', {
-          defaultValue: '暂时无法生成修改建议，请重试。'
-        })
-      )
-    } finally {
-      setSending(false)
-    }
-  }
-
-  const decideProposal = async (
-    proposal: UiResumeProposal,
-    decision: 'accept' | 'reject'
-  ): Promise<void> => {
-    if (decidingProposalId !== null || isWriteLocked) return
-    setDecidingProposalId(proposal.id)
-    setError(null)
-    try {
-      const nextEditor = await runDiagnosticCommand(
-        diagnostics,
-        { operation: 'resume.proposal_decide', scope: 'resume' },
-        async (): Promise<UiResumeEditorModel | null> => {
-          await gateway.decideResumeProposal({
-            decision,
-            proposalId: proposal.id
-          })
-          return decision === 'accept' ? gateway.getResumeEditor(editor.resume.id) : null
-        }
-      )
-      if (nextEditor !== null) onEditorChange(nextEditor)
-      onProposalsChange(proposals.filter((item) => item.id !== proposal.id))
-    } catch (reason: unknown) {
-      if (onMutationError(reason)) return
-      setError(
-        t('resume.workspace.proposalDecisionError', {
-          defaultValue: '建议状态已经变化，请刷新后重试。'
-        })
-      )
-    } finally {
-      setDecidingProposalId(null)
-    }
-  }
 
   return (
     <aside aria-label={t('resume.workspace.assistant', { defaultValue: 'AI 对话' })}>
@@ -310,81 +230,28 @@ function ResumeAssistantPanel({
       <div className="aw-chat-messages" aria-live="polite">
         <p className="aw-workspace-context">
           <Sparkles aria-hidden="true" size={14} />
-          {t('resume.workspace.proposalContext', {
-            defaultValue: '建议在你明确接受前不会写入简历。'
+          {t('resume.workspace.assistantUnavailable', {
+            defaultValue: 'Agent 消息与建议将在正式会话契约接通后开放。'
           })}
         </p>
-        {editor.assistantMessages.map((message) => (
-          <div className={`aw-message aw-message--${message.role}`} key={message.id}>
-            <p>{message.text}</p>
-          </div>
-        ))}
-        {proposals.map((proposal) => (
-          <article className="aw-proposal" key={proposal.id}>
-            <h3 className="aw-proposal-title">{proposal.title}</h3>
-            <p className="aw-proposal-reason">
-              {proposal.summary ??
-                t('resume.workspace.proposalSummary', {
-                  defaultValue: '后端返回了结构化变更，请确认是否应用。'
-                })}
-            </p>
-            <p>
-              {t('resume.workspace.proposalRevision', {
-                defaultValue: '基于简历版本 {{revision}}',
-                revision: proposal.baseRevision
-              })}
-            </p>
-            <div className="aw-inline-actions">
-              <button
-                className="aw-primary-button"
-                disabled={decidingProposalId !== null || isWriteLocked}
-                onClick={(): void => {
-                  void decideProposal(proposal, 'accept')
-                }}
-                type="button"
-              >
-                {t('resume.workspace.acceptProposal', { defaultValue: '接受建议' })}
-              </button>
-              <button
-                className="aw-quiet-button"
-                disabled={decidingProposalId !== null || isWriteLocked}
-                onClick={(): void => {
-                  void decideProposal(proposal, 'reject')
-                }}
-                type="button"
-              >
-                {t('resume.workspace.rejectProposal', { defaultValue: '拒绝建议' })}
-              </button>
-            </div>
-          </article>
-        ))}
-        {error !== null ? (
-          <div className="aw-inline-error" role="alert">
-            {error}
-          </div>
-        ) : null}
       </div>
       <form
         aria-label={t('resume.assistantMessageForm', { defaultValue: '简历助手消息' })}
         className="aw-chat-composer"
-        onSubmit={(event): void => {
-          void submitMessage(event)
-        }}
       >
         <textarea
           aria-label={t('resume.workspace.askAssistantLabel', { defaultValue: '询问简历助手' })}
           className="aw-textarea"
-          disabled={isSending || isWriteLocked}
-          onChange={(event): void => setDraft(event.target.value)}
+          disabled
           placeholder={t('resume.askAssistant', {
-            defaultValue: '描述你想生成或修改的简历内容…'
+            defaultValue: '简历助手将在 Agent 会话契约接通后开放。'
           })}
-          value={draft}
+          value=""
         />
         <button
           aria-label={t('resume.sendMessage', { defaultValue: '发送消息' })}
           className="aw-icon-button aw-send-button"
-          disabled={draft.trim().length === 0 || isSending || isWriteLocked}
+          disabled
           type="submit"
         >
           <Send aria-hidden="true" size={16} />
@@ -400,15 +267,13 @@ function ResumeSectionsEditor({
   gateway,
   isWriteLocked,
   onEditorChange,
-  onMutationError,
-  onUserMutation
+  onMutationError
 }: {
   readonly editor: UiResumeEditorModel
   readonly gateway: ResumeGateway
   readonly isWriteLocked: boolean
   readonly onEditorChange: (editor: UiResumeEditorModel) => void
   readonly onMutationError: (error: unknown) => boolean
-  readonly onUserMutation: () => void
 }): React.JSX.Element {
   const { t } = useTranslation()
   const diagnostics = useDiagnostics()
@@ -417,27 +282,47 @@ function ResumeSectionsEditor({
   )
   const [deleteCandidate, setDeleteCandidate] = useState<UiResumeSectionId | null>(null)
   const [draggedSectionId, setDraggedSectionId] = useState<UiResumeSectionId | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  /** @brief 仅存在于浏览器内、尚未被后端确认的板块草稿 / Browser-local section drafts not yet confirmed by the backend. */
+  const [drafts, setDrafts] = useState<Readonly<Record<string, ResumeSectionDraft>>>({})
+  /** @brief 当前正在保存的板块 / Section currently being persisted. */
+  const [savingSectionId, setSavingSectionId] = useState<UiResumeSectionId | null>(null)
+  /** @brief 最近一次板块保存失败 / Latest section-save failure. */
+  const [saveFailure, setSaveFailure] = useState<ResumeSectionSaveFailure | null>(null)
+  /** @brief 结构操作的安全用户错误 / Safe user-facing structural-operation error. */
+  const [structureError, setStructureError] = useState<string | null>(null)
 
   const updateLocalSection = (
     sectionId: UiResumeSectionId,
     field: 'title' | 'content',
     value: string
-  ) => {
+  ): void => {
     if (isWriteLocked) return
-    const sections = editor.resume.sections.map((section) =>
-      section.id === sectionId
-        ? {
-            ...section,
-            ...(field === 'title' ? { title: value } : { contentPreview: value })
-          }
-        : section
-    )
-    onEditorChange({ ...editor, resume: { ...editor.resume, sections } })
-    onUserMutation()
+    /** @brief 当前权威板块 / Current authoritative section. */
+    const section = editor.resume.sections.find((item) => item.id === sectionId)
+    if (section === undefined) return
+    setSaveFailure(null)
+    setDrafts((current) => {
+      /** @brief 已有草稿或从权威投影初始化的草稿 / Existing draft or a draft initialized from the authoritative projection. */
+      const draft = current[sectionId] ?? {
+        content: getSectionContent(section),
+        title: section.title
+      }
+      return {
+        ...current,
+        [sectionId]: {
+          ...draft,
+          [field]: value
+        }
+      }
+    })
   }
 
   const persistSection = async (section: UiResumeSection): Promise<void> => {
+    /** @brief 本次需要提交的草稿快照 / Draft snapshot to submit in this attempt. */
+    const draft = drafts[section.id]
+    if (draft === undefined || savingSectionId !== null || isWriteLocked) return
+    setSavingSectionId(section.id)
+    setSaveFailure(null)
     try {
       const next = await runDiagnosticCommand(
         diagnostics,
@@ -446,16 +331,22 @@ function ResumeSectionsEditor({
           gateway.updateResumeSection({
             resumeId: editor.resume.id,
             sectionId: section.id,
-            title: section.title,
-            content: getSectionContent(section)
+            title: draft.title,
+            content: draft.content
           })
       )
       onEditorChange(next)
+      setDrafts((current) => {
+        /** @brief 已确认保存后保留的其它板块草稿 / Other section drafts retained after this save is confirmed. */
+        const { [section.id]: _confirmed, ...remaining } = current
+        void _confirmed
+        return remaining
+      })
     } catch (reason: unknown) {
       if (onMutationError(reason)) return
-      setError(
-        t('resume.workspace.sectionError', { defaultValue: '板块修改未能保存到 Mock 状态。' })
-      )
+      setSaveFailure({ error: reason, sectionId: section.id })
+    } finally {
+      setSavingSectionId(null)
     }
   }
 
@@ -471,10 +362,9 @@ function ResumeSectionsEditor({
           })
       )
       onEditorChange(next)
-      onUserMutation()
     } catch (reason: unknown) {
       if (onMutationError(reason)) return
-      setError(t('resume.workspace.reorderError', { defaultValue: '无法调整板块顺序。' }))
+      setStructureError(t('resume.workspace.reorderError', { defaultValue: '无法调整板块顺序。' }))
     }
   }
 
@@ -507,12 +397,11 @@ function ResumeSectionsEditor({
         () => gateway.deleteResumeSection({ resumeId: editor.resume.id, sectionId })
       )
       onEditorChange(next)
-      onUserMutation()
       setFocusedSectionId(next.resume.sections.at(0)?.id ?? null)
       setDeleteCandidate(null)
     } catch (reason: unknown) {
       if (onMutationError(reason)) return
-      setError(t('resume.workspace.deleteError', { defaultValue: '无法删除这个板块。' }))
+      setStructureError(t('resume.workspace.deleteError', { defaultValue: '无法删除这个板块。' }))
     }
   }
 
@@ -546,15 +435,35 @@ function ResumeSectionsEditor({
           {t('resume.workspace.editorHint', { defaultValue: '浏览全部板块，点击后聚焦编辑。' })}
         </p>
       </div>
-      {error !== null ? (
+      {structureError !== null ? (
         <div className="aw-inline-error" role="alert">
-          {error}
+          {structureError}
         </div>
+      ) : null}
+      {saveFailure !== null ? (
+        <ResourceErrorState
+          error={saveFailure.error}
+          onRetry={(): void => {
+            /** @brief 仍存在于权威投影中的失败板块 / Failed section still present in the authoritative projection. */
+            const section = editor.resume.sections.find((item) => item.id === saveFailure.sectionId)
+            if (section !== undefined) void persistSection(section)
+          }}
+          title={t('resume.workspace.sectionError', {
+            defaultValue: '板块修改尚未保存；你的输入仍保留在本页。'
+          })}
+        />
       ) : null}
       <div className="aw-resume-sections">
         {editor.resume.sections.map((section, index) => {
           const isFocused = section.id === focusedSectionId
-          const sectionContent = getSectionContent(section)
+          /** @brief 当前板块的未保存草稿 / Unsaved draft for the current section. */
+          const draft = drafts[section.id]
+          /** @brief 输入框展示的标题 / Title displayed in the input. */
+          const sectionTitle = draft?.title ?? section.title
+          /** @brief 输入框展示的正文 / Body displayed in the input. */
+          const sectionContent = draft?.content ?? getSectionContent(section)
+          /** @brief 当前板块是否正在保存 / Whether the current section is being saved. */
+          const isSaving = savingSectionId === section.id
           return (
             <article
               className={`aw-resume-section-editor ${isFocused ? 'is-focused' : ''}`}
@@ -570,17 +479,17 @@ function ResumeSectionsEditor({
                   <GripVertical size={15} />
                 </span>
                 <div>
-                  <h3>{section.title || section.kind}</h3>
+                  <h3>{sectionTitle || section.kind}</h3>
                   <span>{section.kind}</span>
                 </div>
                 <div className="aw-section-actions">
                   <button
                     aria-label={t('resume.workspace.moveUp', {
                       defaultValue: '上移{{name}}',
-                      name: section.title
+                      name: sectionTitle
                     })}
                     className="aw-icon-button"
-                    disabled={index === 0 || isWriteLocked}
+                    disabled={index === 0 || isWriteLocked || savingSectionId !== null}
                     onClick={(event): void => {
                       event.stopPropagation()
                       moveSection(section.id, -1)
@@ -592,10 +501,14 @@ function ResumeSectionsEditor({
                   <button
                     aria-label={t('resume.workspace.moveDown', {
                       defaultValue: '下移{{name}}',
-                      name: section.title
+                      name: sectionTitle
                     })}
                     className="aw-icon-button"
-                    disabled={index === editor.resume.sections.length - 1 || isWriteLocked}
+                    disabled={
+                      index === editor.resume.sections.length - 1 ||
+                      isWriteLocked ||
+                      savingSectionId !== null
+                    }
                     onClick={(event): void => {
                       event.stopPropagation()
                       moveSection(section.id, 1)
@@ -607,10 +520,10 @@ function ResumeSectionsEditor({
                   <button
                     aria-label={t('resume.workspace.deleteSection', {
                       defaultValue: '删除{{name}}',
-                      name: section.title
+                      name: sectionTitle
                     })}
                     className={`aw-icon-button ${deleteCandidate === section.id ? 'aw-danger-button' : ''}`}
-                    disabled={isWriteLocked}
+                    disabled={isWriteLocked || savingSectionId !== null}
                     onClick={(event): void => {
                       event.stopPropagation()
                       void deleteSection(section.id)
@@ -627,7 +540,7 @@ function ResumeSectionsEditor({
                     <span>{t('resume.editor.sectionTitle', { defaultValue: '区段标题' })}</span>
                     <input
                       className="aw-text-input"
-                      disabled={isWriteLocked}
+                      disabled={isWriteLocked || isSaving}
                       onBlur={(): void => {
                         const current = editor.resume.sections.find(
                           (item) => item.id === section.id
@@ -637,50 +550,18 @@ function ResumeSectionsEditor({
                       onChange={(event): void =>
                         updateLocalSection(section.id, 'title', event.target.value)
                       }
-                      value={section.title}
+                      value={sectionTitle}
                     />
                   </label>
                   <label>
                     <span>{t('resume.editor.semanticContent', { defaultValue: '语义内容' })}</span>
                     <div className="aw-rich-text-shell">
-                      <div
-                        aria-label={t('resume.editor.formatting', {
-                          defaultValue: '富文本格式工具'
-                        })}
-                        className="aw-rich-text-toolbar"
-                        role="toolbar"
-                      >
-                        <button
-                          className="aw-icon-button"
-                          disabled={isWriteLocked}
-                          onClick={(): void => applyLocalRichTextCommand('bold')}
-                          type="button"
-                        >
-                          <Bold aria-hidden="true" size={14} />
-                        </button>
-                        <button
-                          className="aw-icon-button"
-                          disabled={isWriteLocked}
-                          onClick={(): void => applyLocalRichTextCommand('formatBlock')}
-                          type="button"
-                        >
-                          <Quote aria-hidden="true" size={14} />
-                        </button>
-                        <button
-                          className="aw-icon-button"
-                          disabled={isWriteLocked}
-                          onClick={(): void => applyLocalRichTextCommand('insertUnorderedList')}
-                          type="button"
-                        >
-                          <List aria-hidden="true" size={14} />
-                        </button>
-                      </div>
                       <textarea
                         aria-label={t('resume.editor.semanticContent', {
                           defaultValue: '语义内容'
                         })}
                         className="aw-section-textarea"
-                        disabled={isWriteLocked}
+                        disabled={isWriteLocked || isSaving}
                         onBlur={(): void => {
                           const current = editor.resume.sections.find(
                             (item) => item.id === section.id
@@ -797,12 +678,9 @@ function ResumePreviewPanel({
         }
       )
     } catch (reason: unknown) {
+      void reason
       if (!controller.signal.aborted) {
-        setError(
-          reason instanceof Error
-            ? reason.message
-            : t('resume.workspace.renderError', { defaultValue: 'PDF 预览生成失败。' })
-        )
+        setError(t('resume.workspace.renderError', { defaultValue: 'PDF 预览生成失败，请重试。' }))
       }
     } finally {
       if (!controller.signal.aborted) setRendering(false)
@@ -925,14 +803,10 @@ function ResumePreviewPanel({
 /** @brief 已加载的三窗口简历工作台 / Loaded three-window resume workspace. */
 export function ResumeWorkspace({
   initialEditor,
-  initialPdfArtifact,
-  initialProposals,
   gateway,
   templates
 }: {
   readonly initialEditor: UiResumeEditorModel
-  readonly initialPdfArtifact: UiResumePdfArtifact | null
-  readonly initialProposals: readonly UiResumeProposal[]
   readonly gateway: ResumeGateway
   readonly templates: readonly UiTemplateManifest[]
 }): React.JSX.Element {
@@ -945,10 +819,8 @@ export function ResumeWorkspace({
     preview: true
   })
   const [paneSizes, setPaneSizes] = useState(INITIAL_PANE_SIZES)
-  const [proposals, setProposals] = useState<readonly UiResumeProposal[]>(initialProposals)
   const [availableTemplates, setAvailableTemplates] =
     useState<readonly UiTemplateManifest[]>(templates)
-  const [pdfArtifact, setPdfArtifact] = useState<UiResumePdfArtifact | null>(initialPdfArtifact)
   const [conflictStatus, setConflictStatus] = useState<ResumeConflictStatus | null>(null)
   const [isReloadingAuthority, setReloadingAuthority] = useState(false)
   const [authorityReloadError, setAuthorityReloadError] = useState(false)
@@ -976,26 +848,17 @@ export function ResumeWorkspace({
     setReloadingAuthority(true)
     setAuthorityReloadError(false)
     try {
-      const { artifacts, nextEditor, nextProposals, nextTemplates } = await runDiagnosticCommand(
+      const { nextEditor, nextTemplates } = await runDiagnosticCommand(
         diagnostics,
         { operation: 'resume.authority_reload', scope: 'resume' },
         async () => {
-          const [nextEditor, nextProposals, artifacts] = await Promise.all([
-            gateway.getResumeEditor(editor.resume.id),
-            gateway.listResumeProposals(editor.resume.id),
-            gateway.listResumePdfArtifacts(editor.resume.id)
-          ])
+          const nextEditor = await gateway.getResumeEditor(editor.resume.id)
           const nextTemplates = await gateway.listTemplateManifests(nextEditor.resume.locale)
-          return { artifacts, nextEditor, nextProposals, nextTemplates }
+          return { nextEditor, nextTemplates }
         }
       )
-      const nextArtifact =
-        [...artifacts].sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0] ??
-        null
       setEditor(nextEditor)
-      setProposals(nextProposals)
       setAvailableTemplates(nextTemplates)
-      setPdfArtifact(nextArtifact)
       setAuthorityReloadRevision((current) => current + 1)
       setConflictStatus(null)
     } catch {
@@ -1037,33 +900,22 @@ export function ResumeWorkspace({
   }
 
   const panelByKey: Record<ResumePane, React.ReactNode> = {
-    assistant: (
-      <ResumeAssistantPanel
-        editor={editor}
-        gateway={gateway}
-        isWriteLocked={conflictStatus !== null}
-        onCloseMobile={(): void => setMobileAssistantOpen(false)}
-        onEditorChange={setEditor}
-        onMutationError={handleMutationError}
-        onProposalsChange={setProposals}
-        proposals={proposals}
-      />
-    ),
+    assistant: <ResumeAssistantPanel onCloseMobile={(): void => setMobileAssistantOpen(false)} />,
     editor: (
       <ResumeSectionsEditor
         editor={editor}
         gateway={gateway}
         isWriteLocked={conflictStatus !== null}
+        key={authorityReloadRevision}
         onEditorChange={setEditor}
         onMutationError={handleMutationError}
-        onUserMutation={(): void => undefined}
       />
     ),
     preview: (
       <ResumePreviewPanel
         editor={editor}
         gateway={gateway}
-        initialArtifact={pdfArtifact}
+        initialArtifact={null}
         key={authorityReloadRevision}
       />
     )

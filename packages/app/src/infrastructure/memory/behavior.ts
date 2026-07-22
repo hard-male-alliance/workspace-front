@@ -1,12 +1,18 @@
-/** @file 内存 adapter 的确定性行为原语 / Deterministic behavior primitives for in-memory adapters. */
+/** @file 自动化测试内存 adapter 的确定性原语 / Deterministic primitives for automated-test in-memory adapters. */
 
-import type { DemoGatewayMode, DemoGatewayOptions } from './options'
+/** @brief 内存测试网关行为模式 / In-memory test-gateway behavior mode. */
+export type InMemoryGatewayMode = 'ready' | 'empty' | 'error'
 
-/** @brief 测试网关行为模式别名 / Test-gateway behavior mode alias. */
-export type MockGatewayMode = DemoGatewayMode
-
-/** @brief 测试网关构造选项别名 / Test-gateway construction options alias. */
-export type MockGatewayOptions = DemoGatewayOptions
+/**
+ * @brief 内存测试网关构造选项 / In-memory test-gateway construction options.
+ * @note 仅用于自动化测试；不提供产品持久化、后端同步或实时传输。 / Used only by automated tests; it provides no product persistence, backend synchronization, or realtime transport.
+ */
+export interface InMemoryGatewayOptions {
+  /** @brief 返回 fixture、空数据或错误 / Return fixtures, empty data, or an error. */
+  readonly mode?: InMemoryGatewayMode
+  /** @brief 模拟异步延迟（毫秒）/ Simulated asynchronous delay in milliseconds. */
+  readonly delayMs?: number
+}
 
 /** @brief 内存 adapter 错误码 / In-memory adapter error code. */
 export type InMemoryGatewayErrorCode = 'memory.unavailable' | 'memory.not_found' | 'memory.conflict'
@@ -44,7 +50,9 @@ export function cloneMemoryValue<TValue>(value: TValue): TValue {
  * @return 当前模式 / Current mode.
  * @throws {InMemoryGatewayError} 当模式为 error 时抛出。
  */
-export async function prepareMemoryRead(options: DemoGatewayOptions): Promise<DemoGatewayMode> {
+export async function prepareMemoryRead(
+  options: InMemoryGatewayOptions
+): Promise<InMemoryGatewayMode> {
   const delayMs = options.delayMs ?? 0
   if (delayMs > 0) {
     await new Promise<void>((resolve) => {

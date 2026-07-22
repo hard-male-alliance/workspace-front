@@ -135,6 +135,18 @@ select:focus-visible {
   font-size: 12px;
 }
 
+.aw-account-copy {
+  min-width: 0;
+}
+
+.aw-account-copy strong,
+.aw-account-copy span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .aw-avatar {
   display: grid;
   width: 28px;

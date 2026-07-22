@@ -43,7 +43,6 @@ describe('mapTemplateManifestDto', (): void => {
     expect(result).toMatchObject({
       id: 'tpl_default_v1',
       name: 'AIWS Classic',
-      previewAssetUrl: null,
       supportedLocales: ['zh-CN', 'en-US'],
       version: '1.0'
     })

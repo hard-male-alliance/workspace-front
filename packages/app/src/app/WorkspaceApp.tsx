@@ -27,9 +27,6 @@ const InterviewRoutes = lazy(() => import('./routes/InterviewRoutes'))
 /** @brief 知识限界上下文的异步路由组件 / Async route component for the Knowledge bounded context. */
 const KnowledgeRoutes = lazy(() => import('./routes/KnowledgeRoutes'))
 
-/** @brief 内部状态样例的异步页面组件 / Async page component for the internal state gallery. */
-const StateGalleryPage = lazy(() => import('../app-support/presentation/StateGalleryPage'))
-
 /** @brief i18n 初始化边界属性 / i18n bootstrap-boundary properties. */
 interface I18nBootstrapProps {
   /** @brief 等待 i18n 后渲染的子树 / Child tree rendered after i18n is ready. */
@@ -166,14 +163,6 @@ export function WorkspaceApp({
                       </RouteLoadingBoundary>
                     }
                     path="/knowledge/*"
-                  />
-                  <Route
-                    element={
-                      <RouteLoadingBoundary>
-                        <StateGalleryPage />
-                      </RouteLoadingBoundary>
-                    }
-                    path="/states"
                   />
                 </Route>
                 <Route element={<Navigate replace to="/" />} path="*" />

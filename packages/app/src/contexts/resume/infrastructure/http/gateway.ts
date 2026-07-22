@@ -2,15 +2,9 @@
 
 import type { ResumeGateway } from '../../application/gateway'
 import type {
-  UiResumeAssistantMessageInput,
-  UiResumeAssistantTurnResult,
-  UiResumeAssistantUndoInput,
-  UiResumeAssistantUndoResult,
   UiResumeCard,
   UiResumeEditorModel,
   UiResumeId,
-  UiResumeProposal,
-  UiResumeProposalDecisionInput,
   UiResumePdfArtifact,
   UiResumeRenderJob,
   UiStartResumePdfRenderInput,
@@ -18,6 +12,7 @@ import type {
   UiResumeSectionsReorderInput,
   UiResumeSectionUpdateInput,
   UiResumeTemplateSelectionInput,
+  UiResumeTemplateSettingsUpdateInput,
   UiTemplateManifest,
   UiTemplateSettingsModel
 } from '../../domain/models'
@@ -25,32 +20,15 @@ import { asUiOpaqueId, type UiWorkspaceId } from '../../../../shared-kernel/iden
 import type { UiContentLocale } from '../../../../shared-kernel/locale'
 import type { HttpClient } from '../../../../infrastructure/http/http-client'
 import { HttpContractError } from '../../../../infrastructure/http/http-client'
-import { mapResumeDocumentDto, mapTemplateManifestDto } from './mappers'
+import { mapResumeDocumentDto, mapResumeStyleIntentToDto, mapTemplateManifestDto } from './mappers'
 import {
   parseResumeDocumentDto,
   parseResumeListDto,
   parseResumeOperationBatchResultDto,
-  parseResumeProposalDto,
-  parseResumeProposalListDto,
-  parseRenderArtifactListDto,
   parseResumeRenderJobDto,
   parseTemplateManifestListDto
 } from './validators'
-import type {
-  RenderArtifactDto,
-  ResumeDocumentDto,
-  ResumeProposalDto,
-  ResumeRenderJobDto
-} from './transport-types'
-
-/** @brief 第一阶段尚未接入的写能力错误 / Write capability not connected in phase one. */
-export class HttpReadOnlyCapabilityError extends Error {
-  override readonly name = 'HttpReadOnlyCapabilityError'
-
-  constructor() {
-    super('This Resume action is not connected to the backend in the current integration stage.')
-  }
-}
+import type { RenderArtifactDto, ResumeDocumentDto, ResumeRenderJobDto } from './transport-types'
 
 /** @brief Resume 与模板 HTTP Gateway / Resume and template HTTP Gateway. */
 export class HttpResumeGateway implements ResumeGateway {
@@ -84,8 +62,9 @@ export class HttpResumeGateway implements ResumeGateway {
   }
 
   async listResumeCards(workspaceId: UiWorkspaceId): Promise<readonly UiResumeCard[]> {
-    void workspaceId
-    const documents = await this.#listResumeDocuments()
+    const documents = (await this.#listResumeDocuments()).filter(
+      (document) => document.workspace_id === workspaceId
+    )
     const locales = [...new Set(documents.map((document) => document.locale))]
     const manifests = (
       await Promise.all(locales.map((locale) => this.listTemplateManifests(locale)))
@@ -112,8 +91,6 @@ export class HttpResumeGateway implements ResumeGateway {
     const etag = response.headers.get('ETag')
     if (etag !== null) this.#etagByResumeId.set(dto.id, etag)
     return {
-      assistantMessages: [],
-      preview: { diagnostic: null, pageCount: 0, renderedAt: null, state: 'ready' },
       resume: mapResumeDocumentDto(dto)
     }
   }
@@ -137,67 +114,6 @@ export class HttpResumeGateway implements ResumeGateway {
     }
   }
 
-  async listResumeProposals(
-    resumeId: UiResumeId,
-    signal?: AbortSignal
-  ): Promise<readonly UiResumeProposal[]> {
-    const results: UiResumeProposal[] = []
-    const seenCursors = new Set<string>()
-    let cursor: string | null = null
-    do {
-      const response = await this.#client.getJson(
-        `/resumes/${encodeURIComponent(resumeId)}/proposals`,
-        {
-          query: { cursor, limit: 20, status: 'pending' },
-          ...(signal === undefined ? {} : { signal })
-        }
-      )
-      const page = parseResumeProposalListDto(response.data)
-      results.push(...page.items.map((proposal) => this.#mapProposal(proposal)))
-      cursor = page.page.next_cursor
-      if (cursor !== null && seenCursors.has(cursor)) {
-        throw new Error('Backend repeated a Proposal pagination cursor.')
-      }
-      if (cursor !== null) seenCursors.add(cursor)
-    } while (cursor !== null)
-    return results
-  }
-
-  async createResumeProposal(input: UiResumeAssistantMessageInput): Promise<UiResumeProposal> {
-    const instruction = input.message.trim()
-    if (instruction.length === 0) throw new Error('Resume Proposal instructions cannot be empty.')
-    const idempotencyKey = this.#id('proposal')
-    const response = await this.#client.postJson(
-      `/resumes/${encodeURIComponent(input.resumeId)}/proposals`,
-      {
-        draft_text: null,
-        field_path: ['summary'],
-        instruction,
-        render_hint: 'preview',
-        source_ids: [],
-        target: { entity_type: 'profile' },
-        title: null
-      },
-      { idempotencyKey, ...(input.signal === undefined ? {} : { signal: input.signal }) }
-    )
-    return this.#mapProposal(parseResumeProposalDto(response.data))
-  }
-
-  async decideResumeProposal(input: UiResumeProposalDecisionInput): Promise<UiResumeProposal> {
-    const idempotencyKey = this.#id('proposal-decision')
-    const response = await this.#client.postJson(
-      `/resume-proposals/${encodeURIComponent(input.proposalId)}/decisions`,
-      {
-        comment: null,
-        conflict_strategy: 'reject',
-        decision: input.decision === 'accept' ? 'accept_all' : 'reject',
-        operation_ids: []
-      },
-      { idempotencyKey, ...(input.signal === undefined ? {} : { signal: input.signal }) }
-    )
-    return this.#mapProposal(parseResumeProposalDto(response.data))
-  }
-
   async startResumePdfRender(input: UiStartResumePdfRenderInput): Promise<UiResumeRenderJob> {
     const idempotencyKey = this.#id('render')
     const response = await this.#client.postJson(
@@ -211,9 +127,19 @@ export class HttpResumeGateway implements ResumeGateway {
         page_range: null,
         resume_revision: input.resumeRevision
       },
-      { idempotencyKey, ...(input.signal === undefined ? {} : { signal: input.signal }) }
+      {
+        expectedStatus: 202,
+        idempotencyKey,
+        ...(input.signal === undefined ? {} : { signal: input.signal })
+      }
     )
-    return this.#mapRenderJob(parseResumeRenderJobDto(response.data))
+    /** @brief 后端已接受的权威 Render Job / Authoritative Render Job accepted by the backend. */
+    const job = parseResumeRenderJobDto(response.data)
+    this.#client.assertResourceLocation(
+      response,
+      `/resume-render-jobs/${encodeURIComponent(job.id)}`
+    )
+    return this.#mapRenderJob(job)
   }
 
   async getResumeRenderJob(
@@ -228,43 +154,6 @@ export class HttpResumeGateway implements ResumeGateway {
       }
     )
     return this.#mapRenderJob(parseResumeRenderJobDto(response.data))
-  }
-
-  async listResumePdfArtifacts(
-    resumeId: UiResumeId,
-    signal?: AbortSignal
-  ): Promise<readonly UiResumePdfArtifact[]> {
-    const results: UiResumePdfArtifact[] = []
-    const seenCursors = new Set<string>()
-    let cursor: string | null = null
-    do {
-      const response = await this.#client.getJson(
-        `/resumes/${encodeURIComponent(resumeId)}/render-artifacts`,
-        { query: { cursor, limit: 20 }, ...(signal === undefined ? {} : { signal }) }
-      )
-      const page = parseRenderArtifactListDto(response.data)
-      results.push(
-        ...page.items
-          .filter((artifact) => artifact.format === 'pdf')
-          .map((artifact) => this.#mapArtifact(artifact))
-      )
-      cursor = page.page.next_cursor
-      if (cursor !== null && seenCursors.has(cursor)) {
-        throw new Error('Backend repeated a Render artifact pagination cursor.')
-      }
-      if (cursor !== null) seenCursors.add(cursor)
-    } while (cursor !== null)
-    return results
-  }
-
-  sendAssistantMessage(input: UiResumeAssistantMessageInput): Promise<UiResumeAssistantTurnResult> {
-    void input
-    return Promise.reject(new HttpReadOnlyCapabilityError())
-  }
-
-  undoAssistantChange(input: UiResumeAssistantUndoInput): Promise<UiResumeAssistantUndoResult> {
-    void input
-    return Promise.reject(new HttpReadOnlyCapabilityError())
   }
 
   async updateResumeSection(input: UiResumeSectionUpdateInput): Promise<UiResumeEditorModel> {
@@ -364,6 +253,56 @@ export class HttpResumeGateway implements ResumeGateway {
     )
   }
 
+  async updateTemplateSettings(
+    input: UiResumeTemplateSettingsUpdateInput
+  ): Promise<UiTemplateSettingsModel> {
+    const snapshot = await this.#ensureWritableSnapshot(input.resumeId, input.signal)
+    const templates = await this.listTemplateManifests(snapshot.locale)
+    const template = templates.find((item) => item.id === input.templateId)
+    if (template === undefined) {
+      throw new Error('The selected Resume template is not available.')
+    }
+    if (!template.supportedPageSizes.includes(input.styleIntent.page.size)) {
+      throw new Error('The selected Resume template does not support the requested page size.')
+    }
+    if (!template.fontFamilyTokens.includes(input.styleIntent.typography.fontFamilyToken)) {
+      throw new Error('The selected Resume template does not support the requested font token.')
+    }
+
+    const editor = await this.#applyOperations(
+      input.resumeId,
+      [
+        {
+          op: 'set_template',
+          operation_id: this.#id('op'),
+          style_intent: mapResumeStyleIntentToDto(input.styleIntent),
+          template: {
+            template_id: template.id,
+            template_version: template.version
+          }
+        }
+      ],
+      input.signal
+    )
+    const selectedTemplate = templates.find(
+      (item) =>
+        item.id === editor.resume.template.templateId &&
+        item.version === editor.resume.template.templateVersion
+    )
+    if (selectedTemplate === undefined) {
+      throw new HttpContractError(
+        'Backend returned a Resume template outside the requested template catalog.',
+        200
+      )
+    }
+    return {
+      availableTemplates: templates,
+      resumeId: input.resumeId,
+      selectedTemplate,
+      styleIntent: editor.resume.styleIntent
+    }
+  }
+
   async #applyOperations(
     resumeId: UiResumeId,
     operations: readonly Readonly<Record<string, unknown>>[],
@@ -428,27 +367,12 @@ export class HttpResumeGateway implements ResumeGateway {
 
   #toEditor(dto: ResumeDocumentDto): UiResumeEditorModel {
     return {
-      assistantMessages: [],
-      preview: { diagnostic: null, pageCount: 0, renderedAt: null, state: 'ready' },
       resume: mapResumeDocumentDto(dto)
     }
   }
 
   #id(prefix: string): string {
     return `${prefix}_${globalThis.crypto.randomUUID()}`
-  }
-
-  #mapProposal(dto: ResumeProposalDto): UiResumeProposal {
-    return {
-      baseRevision: dto.base_revision,
-      changes: dto.operations.map((operation) => operation.op),
-      createdAt: dto.created_at,
-      id: asUiOpaqueId<'resume-proposal'>(dto.id),
-      resumeId: asUiOpaqueId<'resume'>(dto.resume_id),
-      status: dto.status,
-      summary: dto.summary?.plain_text ?? null,
-      title: dto.title
-    }
   }
 
   #mapArtifact(dto: RenderArtifactDto): UiResumePdfArtifact {

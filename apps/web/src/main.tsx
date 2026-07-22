@@ -43,7 +43,10 @@ const application = (
   <WorkspaceApp
     artifactSave={createBrowserArtifactSavePort()}
     diagnostics={diagnostics}
-    gateways={createProductGateways(apiBaseUrl, diagnostics)}
+    gateways={createProductGateways(apiBaseUrl, diagnostics, {
+      locale: navigator.language,
+      platform: 'web'
+    })}
     runtimeInfo={{ appVersion: APPLICATION_VERSION, platform: 'web' }}
   />
 )

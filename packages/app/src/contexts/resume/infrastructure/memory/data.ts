@@ -41,7 +41,6 @@ export const MOCK_DAWN_TEMPLATE: UiTemplateManifest = {
   version: '1.0.0',
   name: 'Dawn',
   description: '温暖、紧凑且适合技术求职的单栏模板。',
-  previewAssetUrl: null,
   supportedLocales: ['zh-SG', 'en-US'],
   supportedPageSizes: ['A4', 'LETTER'],
   supportedSectionKinds: ['summary', 'experience', 'education', 'projects', 'skills', 'custom'],
@@ -126,7 +125,6 @@ export const MOCK_EDITORIAL_TEMPLATE: UiTemplateManifest = {
   version: '1.0.0',
   name: 'Editorial',
   description: '强调项目叙事与阅读节奏的单栏模板。',
-  previewAssetUrl: null,
   supportedLocales: ['zh-SG', 'en-US'],
   supportedPageSizes: ['A4', 'LETTER', 'LEGAL'],
   supportedSectionKinds: [
@@ -387,29 +385,7 @@ export const MOCK_RESUME_CARDS: readonly UiResumeCard[] = [
 
 /** @brief Mock 简历编辑器数据 / Mock resume-editor data. */
 export const MOCK_RESUME_EDITOR: UiResumeEditorModel = {
-  resume: MOCK_RESUME_DOCUMENT,
-  preview: {
-    state: 'ready',
-    pageCount: 1,
-    renderedAt: '2026-07-15T03:56:10.000Z',
-    diagnostic: null
-  },
-  assistantMessages: [
-    {
-      id: 'msg_mock_user',
-      role: 'user',
-      text: '请检查这份简历是否凸显了 AI 平台工程的影响力。',
-      createdAt: '2026-07-15T03:54:00.000Z',
-      isStreaming: false
-    },
-    {
-      id: 'msg_mock_assistant',
-      role: 'assistant',
-      text: '项目和指标已经很清晰。建议将第一段经历的技术选择与业务结果再紧密连接，并在摘要中补充目标岗位关键词。',
-      createdAt: '2026-07-15T03:54:08.000Z',
-      isStreaming: false
-    }
-  ]
+  resume: MOCK_RESUME_DOCUMENT
 }
 
 /** @brief Mock 模板设置数据 / Mock template-settings data. */

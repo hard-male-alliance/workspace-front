@@ -1,12 +1,13 @@
-import { ArrowRight, Clock3, LogOut, Mic, Radio, Sparkles } from 'lucide-react'
+import { ArrowRight, Clock3, LogOut, MessageSquareText, Mic, Radio, Sparkles } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { useAsyncResource, useInterviewGateway } from '../../../app/AppData'
 import { runDiagnosticCommand, useDiagnostics } from '../../../app/Diagnostics'
+import { ResourceErrorState } from '../../../app/ResourceErrorState'
 import { asUiOpaqueId } from '../../../shared-kernel/identity'
-import { ErrorState, LoadingState } from '../../../ui'
+import { LoadingState } from '../../../ui'
 import type { UiInterviewRuntimeModel, UiTranscriptEntry } from '../domain/models'
 
 function formatElapsed(seconds: number): string {
@@ -38,10 +39,13 @@ function InterviewRoom({ initialRuntime }: { readonly initialRuntime: UiIntervie
   const { t } = useTranslation()
   const interview = useInterviewGateway()
   const diagnostics = useDiagnostics()
+  const navigate = useNavigate()
   const [runtime, setRuntime] = useState(initialRuntime)
   const [isSubmitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [isExitOpen, setExitOpen] = useState(false)
+  const [isEnding, setEnding] = useState(false)
+  const [exitError, setExitError] = useState<string | null>(null)
   const isOvertime = runtime.elapsedSeconds > runtime.estimatedDurationMinutes * 60
   const isCompletionReady = runtime.phase === 'completion_ready'
 
@@ -72,14 +76,32 @@ function InterviewRoom({ initialRuntime }: { readonly initialRuntime: UiIntervie
     ? t('interviewRoom.completed', { defaultValue: 'AI 已完成本次面试' })
     : isSubmitting
       ? t('interviewRoom.submitting', { defaultValue: '正在提交回答' })
-      : t('interviewRoom.listening', { defaultValue: '正在聆听' })
+      : runtime.session.media.userAudio
+        ? t('interviewRoom.listening', { defaultValue: '正在聆听' })
+        : t('interviewRoom.active', { defaultValue: '面试进行中' })
+
+  const confirmExit = (): void => {
+    if (isEnding) return
+    setEnding(true)
+    setExitError(null)
+    void interview
+      .endInterview(runtime.session.id)
+      .then(() => navigate('/interviews'))
+      .catch(() => {
+        setExitError(
+          t('interviewRoom.exitError', {
+            defaultValue: '未能结束本次面试，服务器没有确认退出。请保留当前页面并稍后重试。'
+          })
+        )
+        setEnding(false)
+      })
+  }
 
   return (
     <div className="aw-page aw-interview-room-page">
       <header className="aw-interview-room-header">
         <div>
           <div className="aw-inline-actions">
-            <span className="aw-chip">{t('common.mock', { defaultValue: '界面演示 / Mock' })}</span>
             <span
               className={`aw-status ${isCompletionReady ? 'aw-status--ready' : 'aw-status--active'}`}
             >
@@ -124,34 +146,34 @@ function InterviewRoom({ initialRuntime }: { readonly initialRuntime: UiIntervie
       <section className="aw-interview-answer" aria-labelledby="live-transcript-title">
         <div className="aw-interview-answer-status">
           <span className="aw-interview-mic">
-            <Mic aria-hidden="true" size={17} />
+            {runtime.session.media.userAudio ? (
+              <Mic aria-hidden="true" size={17} />
+            ) : (
+              <MessageSquareText aria-hidden="true" size={17} />
+            )}
           </span>
           <div>
             <h2 id="live-transcript-title">
               {isCompletionReady
                 ? t('interviewRoom.interviewComplete', { defaultValue: '面试已经结束' })
-                : t('interviewRoom.liveTranscript', { defaultValue: '实时语音转写' })}
+                : runtime.session.media.userAudio
+                  ? t('interviewRoom.liveTranscript', { defaultValue: '实时语音转写' })
+                  : t('interviewRoom.liveResponse', { defaultValue: '实时回答' })}
             </h2>
             <p>
               {isCompletionReady
                 ? t('interviewRoom.reviewReady', {
-                    defaultValue: '对话已锁定，可以生成并查看本次分析。'
+                    defaultValue: '对话已锁定，可以查看本次分析。'
                   })
-                : t('interviewRoom.readOnly', {
-                    defaultValue: '持续监听中；转写只读，无法编辑或撤回。'
-                  })}
+                : runtime.session.media.userAudio
+                  ? t('interviewRoom.readOnly', {
+                      defaultValue: '持续监听中；转写只读，无法编辑或撤回。'
+                    })
+                  : t('interviewRoom.responseReadOnly', {
+                      defaultValue: '实时回答内容只读，无法编辑或撤回。'
+                    })}
             </p>
           </div>
-          {!isCompletionReady ? (
-            <span
-              aria-label={t('interviewRoom.inputLevel', { defaultValue: '麦克风输入音量' })}
-              className="aw-interview-wave"
-            >
-              {[0, 1, 2, 3, 4].map((value) => (
-                <i key={value} />
-              ))}
-            </span>
-          ) : null}
         </div>
         <output className="aw-interview-live-transcript" aria-live="polite">
           {runtime.currentTranscript ||
@@ -165,12 +187,18 @@ function InterviewRoom({ initialRuntime }: { readonly initialRuntime: UiIntervie
         <div className="aw-interview-answer-actions">
           <span className="aw-interview-privacy">
             <Radio aria-hidden="true" size={13} />
-            {t('interviewRoom.mockAudio', { defaultValue: 'Mock 不采集真实音频' })}
+            {runtime.session.media.userAudio
+              ? t('interviewRoom.audioPolicy', {
+                  defaultValue: '麦克风音频仅用于本次实时面试；保存范围由会话策略决定。'
+                })
+              : t('interviewRoom.audioDisabled', {
+                  defaultValue: '本次会话未启用麦克风采集。'
+                })}
           </span>
           {isCompletionReady ? (
             <Link className="aw-primary-button" to={`/interviews/${runtime.session.id}/summary`}>
               <Sparkles aria-hidden="true" size={16} />
-              {t('interviewRoom.viewSummary', { defaultValue: '结束面试并查看分析' })}
+              {t('interviewRoom.viewSummary', { defaultValue: '查看面试分析' })}
               <ArrowRight aria-hidden="true" size={15} />
             </Link>
           ) : (
@@ -180,10 +208,16 @@ function InterviewRoom({ initialRuntime }: { readonly initialRuntime: UiIntervie
               onClick={submitAnswer}
               type="button"
             >
-              <Mic aria-hidden="true" size={16} />
+              {runtime.session.media.userAudio ? (
+                <Mic aria-hidden="true" size={16} />
+              ) : (
+                <MessageSquareText aria-hidden="true" size={16} />
+              )}
               {isSubmitting
                 ? t('interviewRoom.submitting', { defaultValue: '正在提交回答' })
-                : t('interviewRoom.submit', { defaultValue: '结束录音并提交' })}
+                : runtime.session.media.userAudio
+                  ? t('interviewRoom.submit', { defaultValue: '结束录音并提交' })
+                  : t('interviewRoom.submitResponse', { defaultValue: '提交回答' })}
             </button>
           )}
         </div>
@@ -202,16 +236,33 @@ function InterviewRoom({ initialRuntime }: { readonly initialRuntime: UiIntervie
             </h2>
             <p>
               {t('interviewRoom.exitDescription', {
-                defaultValue: '退出后不会生成总结，也不会出现在历史记录中。'
+                defaultValue: '确认后将请求服务器结束本次会话；收到确认后才会退出。'
               })}
             </p>
+            {exitError !== null ? (
+              <p className="aw-inline-error" role="alert">
+                {exitError}
+              </p>
+            ) : null}
             <div className="aw-inline-actions">
-              <button className="aw-quiet-button" onClick={() => setExitOpen(false)} type="button">
+              <button
+                className="aw-quiet-button"
+                disabled={isEnding}
+                onClick={() => setExitOpen(false)}
+                type="button"
+              >
                 {t('common.continue', { defaultValue: '继续面试' })}
               </button>
-              <Link className="aw-danger-button" to="/interviews">
-                {t('interviewRoom.confirmExit', { defaultValue: '确认退出' })}
-              </Link>
+              <button
+                className="aw-danger-button"
+                disabled={isEnding}
+                onClick={confirmExit}
+                type="button"
+              >
+                {isEnding
+                  ? t('interviewRoom.exiting', { defaultValue: '正在结束…' })
+                  : t('interviewRoom.confirmExit', { defaultValue: '确认退出' })}
+              </button>
             </div>
           </div>
         </div>
@@ -239,10 +290,9 @@ export function InterviewRoomPage(): React.JSX.Element {
   if (runtime.status === 'error')
     return (
       <div className="aw-page">
-        <ErrorState
-          description={t('interviewRoom.errorDescription', {
-            defaultValue: '面试状态暂时不可用，请返回面试记录后重试。'
-          })}
+        <ResourceErrorState
+          error={runtime.error}
+          onRetry={runtime.retry}
           title={t('interviewRoom.error', { defaultValue: '无法加载模拟面试' })}
         />
       </div>

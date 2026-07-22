@@ -1,12 +1,14 @@
 import { ArrowRight, BookOpenText, BriefcaseBusiness, FileText, GraduationCap } from 'lucide-react'
+import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 
 import { useAsyncResource, useWorkspaceHomeQuery } from '../../../app/AppData'
-import { ErrorState, LoadingState } from '../../../ui'
-import type { UiInterviewSessionId } from '../../interview'
+import type { WorkspaceHomeModel, WorkspaceRecentUpdate } from '../../../app/AppQueries'
+import { ResourceErrorState } from '../../../app/ResourceErrorState'
+import { LoadingState } from '../../../ui'
+import type { UiInterviewHistoryItem } from '../../interview'
 import type { UiResumeCard } from '../../resume'
-import type { UiWorkspaceActivity, UiWorkspaceHomeModel } from '../domain/models'
 
 /**
  * @brief 格式化活动时间 / Format an activity timestamp.
@@ -14,7 +16,7 @@ import type { UiWorkspaceActivity, UiWorkspaceHomeModel } from '../domain/models
  * @param locale 界面语言 / UI locale.
  * @return 已本地化的短日期时间 / Localized short date-time text.
  */
-function formatActivityTime(timestamp: string, locale: string): string {
+function formatUpdateTime(timestamp: string, locale: string): string {
   return new Intl.DateTimeFormat(locale, {
     month: 'short',
     day: 'numeric',
@@ -24,12 +26,64 @@ function formatActivityTime(timestamp: string, locale: string): string {
 }
 
 /**
- * @brief 为活动选择状态样式 / Select a status style for an activity.
- * @param activity 活动展示模型 / Activity display model.
- * @return 活动状态样式名称 / Activity status-style name.
+ * @brief 为资源更新选择状态样式 / Select a status style for a resource update.
+ * @param update 资源更新投影 / Resource-update projection.
+ * @return 更新状态样式名称 / Update status-style name.
  */
-function getActivityTone(activity: UiWorkspaceActivity): string {
-  return activity.kind === 'knowledge_indexed' ? 'aw-status--ready' : 'aw-status--active'
+function getUpdateTone(update: WorkspaceRecentUpdate): string {
+  return update.kind === 'knowledge' ? 'aw-status--ready' : 'aw-status--active'
+}
+
+/** @brief 本地化的资源更新文案 / Localized resource-update copy. */
+interface RecentUpdateCopy {
+  /** @brief 更新标题 / Update title. */
+  readonly title: string
+  /** @brief 更新说明 / Update description. */
+  readonly description: string
+}
+
+/**
+ * @brief 本地化资源更新投影 / Localize a resource-update projection.
+ * @param update 资源更新投影 / Resource-update projection.
+ * @param t 翻译函数 / Translation function.
+ * @return 用户可读的更新文案 / User-readable update copy.
+ */
+function getUpdateCopy(update: WorkspaceRecentUpdate, t: TFunction): RecentUpdateCopy {
+  /** @brief 后端资源名称；缺失时使用中性名称 / Backend resource name, or a neutral name when absent. */
+  const subject =
+    update.subject ?? t('workspace.home.unnamedResource', { defaultValue: '未命名资源' })
+
+  switch (update.kind) {
+    case 'resume':
+      return {
+        description: t('workspace.home.resumeUpdateDescription', {
+          defaultValue: '简历内容已同步至当前工作区。'
+        }),
+        title: t('workspace.home.resumeUpdateTitle', {
+          defaultValue: '更新了 {{subject}}',
+          subject
+        })
+      }
+    case 'knowledge':
+      return {
+        description: t('workspace.home.knowledgeUpdateDescription', {
+          defaultValue: '知识来源已完成索引。'
+        }),
+        title: t('workspace.home.knowledgeUpdateTitle', {
+          defaultValue: '索引了 {{subject}}',
+          subject
+        })
+      }
+    case 'interview':
+      return {
+        description: t('workspace.home.interviewUpdateDescription', {
+          defaultValue: '面试会话已完成。'
+        }),
+        title: t('workspace.home.interviewUpdateTitle', {
+          defaultValue: '完成了一次面试练习'
+        })
+      }
+  }
 }
 
 /**
@@ -39,11 +93,11 @@ function getActivityTone(activity: UiWorkspaceActivity): string {
  */
 function WorkspaceHomeContent({
   home,
-  interviewSessionId,
+  recentInterview,
   resumeCard
 }: {
-  readonly home: UiWorkspaceHomeModel
-  readonly interviewSessionId: UiInterviewSessionId | null
+  readonly home: WorkspaceHomeModel
+  readonly recentInterview: UiInterviewHistoryItem | null
   readonly resumeCard: UiResumeCard | null
 }): React.JSX.Element {
   /** @brief 翻译函数 / Translation function. */
@@ -60,14 +114,12 @@ function WorkspaceHomeContent({
             {t('workspace.home.title', { defaultValue: '今日工作台' })}
           </h1>
           <p className="aw-page-description">
-            {t('workspace.home.greeting', {
-              defaultValue: '早上好，Klee。先完成最重要的一步，再处理其他任务。'
+            {t('workspace.home.intro', {
+              defaultValue: '先完成最重要的一步，再处理其他任务。'
             })}
           </p>
         </div>
-        <span className="aw-status aw-status--ready">
-          {t('workspace.home.localWorkspace', { defaultValue: '本地演示工作区' })}
-        </span>
+        <span className="aw-status aw-status--ready">{home.workspace.name}</span>
       </header>
 
       <div className="aw-today-grid">
@@ -86,7 +138,7 @@ function WorkspaceHomeContent({
                     defaultValue: '后端当前没有返回简历，创建协议冻结后可从这里开始。'
                   })
                 : t('workspace.home.focusDescription', {
-                    defaultValue: '从项目经历开始，把成果写得更具体，再进入模拟面试。'
+                    defaultValue: '从项目经历开始，把成果写得更具体，再进入面试练习。'
                   })}
             </p>
           </div>
@@ -162,7 +214,7 @@ function WorkspaceHomeContent({
                   </strong>
                   <small>
                     {t('workspace.home.emptyResumeAction', {
-                      defaultValue: '等待正式创建协议接入'
+                      defaultValue: '当前工作区暂无可继续编辑的简历'
                     })}
                   </small>
                 </span>
@@ -176,7 +228,7 @@ function WorkspaceHomeContent({
                   <strong>{resumeCard.title}</strong>
                   <small>
                     {t('workspace.home.resumeActionMeta', {
-                      defaultValue: '继续编辑内容与查看 Mock 预览'
+                      defaultValue: '继续编辑内容与生成 PDF 预览'
                     })}
                   </small>
                 </span>
@@ -185,18 +237,23 @@ function WorkspaceHomeContent({
             )}
             <Link
               className="aw-action-row"
-              to={interviewSessionId === null ? '/interviews' : `/interviews/${interviewSessionId}`}
+              to={
+                recentInterview?.overallScore === null || recentInterview === null
+                  ? '/interviews'
+                  : `/interviews/${recentInterview.sessionId}/summary`
+              }
             >
               <span className="aw-action-icon">
                 <BriefcaseBusiness aria-hidden="true" size={18} />
               </span>
               <span className="aw-action-copy">
                 <strong>
-                  {t('workspace.home.practiceTitle', { defaultValue: '系统设计模拟面试' })}
+                  {recentInterview?.jobTarget.title ??
+                    t('workspace.home.practiceTitle', { defaultValue: '开始一次面试练习' })}
                 </strong>
                 <small>
-                  {t('workspace.home.practiceMeta', {
-                    defaultValue: '保留当前音视频外观的文字 Mock 流程'
+                  {t('workspace.home.practiceSummary', {
+                    defaultValue: '继续准备或查看最近的面试记录'
                   })}
                 </small>
               </span>
@@ -226,40 +283,51 @@ function WorkspaceHomeContent({
           <div className="aw-section-heading">
             <div>
               <h2 id="workspace-activity-title">
-                {t('workspace.home.activityTitle', { defaultValue: '最近活动' })}
+                {t('workspace.home.updatesTitle', { defaultValue: '最近更新' })}
               </h2>
               <p>
-                {t('workspace.home.activityDescription', {
-                  defaultValue: '当前 Mock 工作区中已记录的操作。'
+                {t('workspace.home.updatesDescription', {
+                  defaultValue: '根据当前工作区资源的更新时间汇总。'
                 })}
               </p>
             </div>
           </div>
           <div className="aw-timeline">
-            {home.recentActivities.map((activity) => (
-              <div className="aw-timeline-item" key={activity.id}>
-                <span aria-hidden="true" className="aw-timeline-dot" />
-                <div className="aw-activity-copy">
-                  <strong>{activity.title}</strong>
-                  <span>{activity.description}</span>
-                </div>
-                <time
-                  className={`aw-status ${getActivityTone(activity)}`}
-                  dateTime={activity.occurredAt}
-                >
-                  {formatActivityTime(activity.occurredAt, i18n.language)}
-                </time>
-              </div>
-            ))}
+            {home.recentUpdates.length === 0 ? (
+              <p className="aw-page-description">
+                {t('workspace.home.emptyUpdates', {
+                  defaultValue: '当前工作区还没有可显示的资源更新。'
+                })}
+              </p>
+            ) : (
+              home.recentUpdates.map((update) => {
+                /** @brief 当前更新的本地化文案 / Localized copy for the current update. */
+                const copy = getUpdateCopy(update, t)
+                return (
+                  <div className="aw-timeline-item" key={update.id}>
+                    <span aria-hidden="true" className="aw-timeline-dot" />
+                    <div className="aw-activity-copy">
+                      <strong>{copy.title}</strong>
+                      <span>{copy.description}</span>
+                    </div>
+                    <time
+                      className={`aw-status ${getUpdateTone(update)}`}
+                      dateTime={update.updatedAt}
+                    >
+                      {formatUpdateTime(update.updatedAt, i18n.language)}
+                    </time>
+                  </div>
+                )
+              })
+            )}
           </div>
         </section>
       </div>
 
       <p className="aw-workbench-notice">
         <GraduationCap aria-hidden="true" size={15} />
-        {t('workspace.home.mockNotice', {
-          defaultValue:
-            '工作区与面试使用本地 Demo（模拟面试不采集真实麦克风）；简历与知识库会连接当前配置的项目后端。'
+        {t('workspace.home.dataNotice', {
+          defaultValue: '数据来自当前工作区，操作结果以服务端确认为准。'
         })}
       </p>
     </div>
@@ -289,10 +357,9 @@ export function WorkspaceHomePage(): React.JSX.Element {
   if (home.status === 'error') {
     return (
       <div className="aw-page">
-        <ErrorState
-          description={t('status.errorDescription', {
-            defaultValue: '演示数据暂时不可用。请重试，或返回工作台。'
-          })}
+        <ResourceErrorState
+          error={home.error}
+          onRetry={home.retry}
           title={t('status.errorWorkspace', { defaultValue: '无法加载工作区' })}
         />
       </div>
@@ -302,7 +369,7 @@ export function WorkspaceHomePage(): React.JSX.Element {
   return (
     <WorkspaceHomeContent
       home={home.data.home}
-      interviewSessionId={home.data.interviewSessionId}
+      recentInterview={home.data.recentInterview}
       resumeCard={home.data.resumeCard}
     />
   )

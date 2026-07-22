@@ -177,26 +177,6 @@ export interface ResumeOperationBatchResultDto {
   readonly normalized_document: ResumeDocumentDto | null
 }
 
-/** @brief Resume Proposal DTO / Resume Proposal DTO. */
-export interface ResumeProposalDto {
-  readonly id: string
-  readonly created_at: string
-  readonly updated_at: string
-  readonly revision: number
-  readonly resume_id: string
-  readonly base_revision: number
-  readonly source_run_id: string
-  readonly title: string
-  readonly summary: RichTextDto | null
-  readonly operations: readonly {
-    readonly operation_id: string
-    readonly op: string
-  }[]
-  readonly status:
-    'pending' | 'accepted' | 'partially_accepted' | 'rejected' | 'expired' | 'conflicted'
-  readonly expires_at: string | null
-}
-
 /** @brief Render artifact DTO / Render artifact DTO. */
 export interface RenderArtifactDto {
   readonly id: string

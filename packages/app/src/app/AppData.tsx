@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { AppGateways } from '../application'
 import { classifyDiagnosticError } from '../observability'
@@ -166,10 +166,16 @@ export function useWorkspaceSession(): WorkspaceSession {
 }
 
 /** @brief 异步资源状态 / Async resource state. */
-export type AsyncResource<TValue> =
+type AsyncResourceState<TValue> =
   | { readonly status: 'loading' }
   | { readonly status: 'ready'; readonly data: TValue }
   | { readonly status: 'error'; readonly error: Error }
+
+/** @brief 带稳定重试动作的异步资源 / Asynchronous resource with a stable retry action. */
+export type AsyncResource<TValue> = AsyncResourceState<TValue> & {
+  /** @brief 原地重新执行资源加载 / Retry resource loading in place. */
+  readonly retry: () => void
+}
 
 /**
  * @brief 读取单调时钟的毫秒值 / Read a monotonic clock value in milliseconds.
@@ -191,9 +197,16 @@ export function useAsyncResource<TValue>(
   load: () => Promise<TValue>
 ): AsyncResource<TValue> {
   /** @brief 资源当前状态 / Current resource state. */
-  const [resource, setResource] = useState<AsyncResource<TValue>>({ status: 'loading' })
+  const [resource, setResource] = useState<AsyncResourceState<TValue>>({ status: 'loading' })
+  /** @brief 用户触发的加载尝试序号 / User-triggered load-attempt sequence. */
+  const [attempt, setAttempt] = useState(0)
   /** @brief 应用诊断端口 / Application diagnostics port. */
   const diagnostics = useDiagnostics()
+  /** @brief 以新 loading 状态开始下一次尝试 / Start the next attempt from a fresh loading state. */
+  const retry = useCallback((): void => {
+    setResource({ status: 'loading' })
+    setAttempt((currentAttempt) => currentAttempt + 1)
+  }, [])
 
   useEffect((): (() => void) => {
     /** @brief effect 是否仍然存活 / Whether the effect is still active. */
@@ -228,7 +241,7 @@ export function useAsyncResource<TValue>(
     return (): void => {
       active = false
     }
-  }, [diagnostics, load, resourceName])
+  }, [attempt, diagnostics, load, resourceName])
 
-  return resource
+  return useMemo(() => ({ ...resource, retry }), [resource, retry])
 }

@@ -363,7 +363,7 @@ export interface UiTemplateCapabilities {
 
 /**
  * @brief 模板展示模型 / Template display model.
- * @note 内容来源遵循 TemplateManifest 语义；previewAssetUrl 为可选展示资源，不是渲染器绑定。
+ * @note 内容来源遵循 TemplateManifest 语义，仅包含当前界面实际使用的字段。 / Content follows TemplateManifest semantics and contains only fields used by the current UI.
  */
 export interface UiTemplateManifest {
   /** @brief 模板 ID / Template ID. */
@@ -374,8 +374,6 @@ export interface UiTemplateManifest {
   readonly name: string
   /** @brief 模板说明 / Template description. */
   readonly description: string | null
-  /** @brief 可选预览资源 URL / Optional preview asset URL. */
-  readonly previewAssetUrl: string | null
   /** @brief 支持的资源内容语言 / Supported resource-content locales. */
   readonly supportedLocales: readonly UiContentLocale[]
   /** @brief 支持页面规格 / Supported page sizes. */
@@ -394,44 +392,6 @@ export interface UiTemplateManifest {
   readonly settings: readonly UiTemplateSettingDefinition[]
   /** @brief 模板能力 / Template capabilities. */
   readonly capabilities: UiTemplateCapabilities
-}
-
-/** @brief 简历助手消息角色 / Resume-assistant message role. */
-export type UiResumeAssistantRole = 'user' | 'assistant'
-
-/**
- * @brief 简历助手消息展示模型 / Resume-assistant message display model.
- * @note 这是 ChatMessage content-part 的扁平展示投影；引用和 proposal 不通过 Markdown 猜测。
- */
-export interface UiResumeAssistantMessage {
-  /** @brief 消息 ID / Message ID. */
-  readonly id: string
-  /** @brief 角色 / Role. */
-  readonly role: UiResumeAssistantRole
-  /** @brief 展示文本 / Display text. */
-  readonly text: string
-  /** @brief 发送时刻 / Creation time. */
-  readonly createdAt: string
-  /** @brief 是否为流式生成中的临时消息 / Whether the message is streaming. */
-  readonly isStreaming: boolean
-}
-
-/** @brief 简历预览状态 / Resume-preview state. */
-export type UiResumePreviewState = 'ready' | 'rendering' | 'failed'
-
-/**
- * @brief 简历预览展示模型 / Resume-preview display model.
- * @note v0.1.0 使用语义占位预览；真实 PDF artifact/source map 的连接仍待后端确认。
- */
-export interface UiResumePreviewModel {
-  /** @brief 预览状态 / Preview state. */
-  readonly state: UiResumePreviewState
-  /** @brief 预览页数 / Preview page count. */
-  readonly pageCount: number
-  /** @brief 最近成功渲染时间 / Last successful render time. */
-  readonly renderedAt: string | null
-  /** @brief 可选的用户可见诊断 / Optional user-visible diagnostic. */
-  readonly diagnostic: string | null
 }
 
 /** @brief PDF Render artifact 展示模型 / PDF Render artifact display model. */
@@ -470,79 +430,6 @@ export interface UiStartResumePdfRenderInput {
 export interface UiResumeEditorModel {
   /** @brief 简历文档 / Resume document. */
   readonly resume: UiResumeDocument
-  /** @brief 预览投影 / Preview projection. */
-  readonly preview: UiResumePreviewModel
-  /** @brief 助手对话 / Assistant conversation. */
-  readonly assistantMessages: readonly UiResumeAssistantMessage[]
-}
-
-/** @brief 简历助手变更标识 / Resume-assistant change identifier. */
-export type UiResumeAssistantChangeId = UiOpaqueId<'resume-assistant-change'>
-
-/** @brief Resume Proposal 标识 / Resume Proposal identifier. */
-export type UiResumeProposalId = UiOpaqueId<'resume-proposal'>
-
-/** @brief Resume Proposal 状态 / Resume Proposal status. */
-export type UiResumeProposalStatus =
-  'pending' | 'accepted' | 'partially_accepted' | 'rejected' | 'expired' | 'conflicted'
-
-/** @brief 待用户审批的结构化简历建议 / Structured Resume suggestion awaiting user approval. */
-export interface UiResumeProposal {
-  readonly id: UiResumeProposalId
-  readonly resumeId: UiResumeId
-  readonly baseRevision: number
-  readonly title: string
-  readonly summary: string | null
-  readonly changes: readonly string[]
-  readonly status: UiResumeProposalStatus
-  readonly createdAt: string
-}
-
-/** @brief Proposal 接受或拒绝输入 / Proposal accept-or-reject input. */
-export interface UiResumeProposalDecisionInput {
-  readonly proposalId: UiResumeProposalId
-  readonly decision: 'accept' | 'reject'
-  readonly signal?: AbortSignal
-}
-
-/** @brief 向简历助手发送自然语言的领域输入 / Domain input for a resume-assistant message. */
-export interface UiResumeAssistantMessageInput {
-  /** @brief 目标简历 / Target resume. */
-  readonly resumeId: UiResumeId
-  /** @brief 用户自然语言 / User-authored natural language. */
-  readonly message: string
-  /** @brief 可选取消信号 / Optional cancellation signal. */
-  readonly signal?: AbortSignal
-}
-
-/** @brief 简历助手一次响应的领域结果 / Domain result of one resume-assistant turn. */
-export interface UiResumeAssistantTurnResult {
-  /** @brief 最新编辑器投影 / Latest editor projection. */
-  readonly editor: UiResumeEditorModel
-  /** @brief 本次助手消息 / Assistant message for this turn. */
-  readonly assistantMessage: UiResumeAssistantMessage
-  /** @brief 可撤销变更标识；未修改简历时为空 / Undoable change ID, or null without a change. */
-  readonly changeId: UiResumeAssistantChangeId | null
-  /** @brief 当前结果是否可撤销 / Whether this result can currently be undone. */
-  readonly canUndo: boolean
-}
-
-/** @brief 撤销简历助手变更的领域输入 / Domain input for undoing an assistant change. */
-export interface UiResumeAssistantUndoInput {
-  /** @brief 目标简历 / Target resume. */
-  readonly resumeId: UiResumeId
-  /** @brief 待撤销变更 / Change to undo. */
-  readonly changeId: UiResumeAssistantChangeId
-  /** @brief 可选取消信号 / Optional cancellation signal. */
-  readonly signal?: AbortSignal
-}
-
-/** @brief 撤销简历助手变更的领域结果 / Domain result of undoing an assistant change. */
-export interface UiResumeAssistantUndoResult {
-  /** @brief 撤销后的编辑器投影 / Editor projection after undo. */
-  readonly editor: UiResumeEditorModel
-  /** @brief 撤销后是否仍可继续单步撤销 / Whether another single-step undo remains. */
-  readonly canUndo: boolean
 }
 
 /** @brief 用户编辑简历板块的领域输入 / Domain input for a user-authored section edit. */
@@ -585,6 +472,18 @@ export interface UiResumeTemplateSelectionInput {
   readonly resumeId: UiResumeId
   /** @brief 目标模板 / Target template. */
   readonly templateId: UiTemplateId
+  /** @brief 可选取消信号 / Optional cancellation signal. */
+  readonly signal?: AbortSignal
+}
+
+/** @brief 保存模板与语义样式设置的领域输入 / Domain input for saving template and semantic-style settings. */
+export interface UiResumeTemplateSettingsUpdateInput {
+  /** @brief 目标简历 / Target resume. */
+  readonly resumeId: UiResumeId
+  /** @brief 目标模板 / Target template. */
+  readonly templateId: UiTemplateId
+  /** @brief 完整且受模板约束的样式意图 / Complete template-constrained style intent. */
+  readonly styleIntent: UiResumeStyleIntent
   /** @brief 可选取消信号 / Optional cancellation signal. */
   readonly signal?: AbortSignal
 }

@@ -11,8 +11,10 @@ import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router-dom'
 import { useAsyncResource, useResumeGateway } from '../../../app/AppData'
+import { ResourceErrorState } from '../../../app/ResourceErrorState'
+import { classifyResourceFailure } from '../../../app/resource-errors'
 import { asUiOpaqueId } from '../../../shared-kernel/identity'
-import { ErrorState, LoadingState } from '../../../ui'
+import { LoadingState } from '../../../ui'
 import type {
   UiTemplateManifest,
   UiResumePageSize,
@@ -20,6 +22,7 @@ import type {
   UiTemplateSettingValue,
   UiTemplateSettingsModel
 } from '../domain/models'
+import type { ResumeGateway } from '../application/gateway'
 
 /**
  * @brief 选择模板缩略图的样式 / Select a template-thumbnail style.
@@ -171,15 +174,21 @@ function TemplateSettingControl({
  * @return 模板选择与语义意图设置页面 / Template selection and semantic-intent settings page.
  */
 function TemplateSettingsContent({
-  model
+  gateway,
+  model,
+  onReload
 }: {
+  readonly gateway: ResumeGateway
   readonly model: UiTemplateSettingsModel
+  readonly onReload: () => void
 }): React.JSX.Element {
   /** @brief 翻译函数 / Translation function. */
   const { t } = useTranslation()
   /** @brief 选择中的模板 ID / Selected template ID. */
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null)
-  /** @brief 页面内的 Mock 设置值 / In-page Mock setting values. */
+  const [authoritativeModel, setAuthoritativeModel] = useState(model)
+  /** @brief 选择中的模板 ID / Selected template ID. */
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>(model.selectedTemplate.id)
+  /** @brief 页面内尚待保存的设置值 / In-page setting values pending persistence. */
   const [settings, setSettings] = useState<Readonly<Record<string, UiTemplateSettingValue>>>(
     model.styleIntent.templateSettings
   )
@@ -191,18 +200,48 @@ function TemplateSettingsContent({
   )
   /** @brief 内容密度的本地语义意图 / Local semantic intent for content density. */
   const [density, setDensity] = useState(model.styleIntent.density)
+  /** @brief 日期格式令牌的本地语义意图 / Local semantic intent for the date-format token. */
+  const [dateFormatToken, setDateFormatToken] = useState(model.styleIntent.dateFormatToken)
+  /** @brief 项目符号令牌的本地语义意图 / Local semantic intent for the bullet-style token. */
+  const [bulletStyleToken, setBulletStyleToken] = useState(model.styleIntent.bulletStyleToken)
+  /** @brief 保存状态 / Persistence state. */
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  /** @brief 最近一次安全呈现的保存错误 / Latest save error to present safely. */
+  const [saveError, setSaveError] = useState<unknown>(null)
   /** @brief 当前展示的模板 / Currently displayed template. */
   const selectedTemplate =
-    model.availableTemplates.find((template) => template.id === selectedTemplateId) ??
-    model.selectedTemplate
+    authoritativeModel.availableTemplates.find((template) => template.id === selectedTemplateId) ??
+    authoritativeModel.selectedTemplate
+  /** @brief 准备提交的完整语义样式意图 / Complete semantic-style intent prepared for submission. */
+  const draftStyleIntent = useMemo(
+    () => ({
+      ...authoritativeModel.styleIntent,
+      bulletStyleToken,
+      dateFormatToken,
+      density,
+      page: { ...authoritativeModel.styleIntent.page, size: pageSize },
+      templateSettings: settings,
+      typography: { ...authoritativeModel.styleIntent.typography, fontFamilyToken }
+    }),
+    [
+      authoritativeModel.styleIntent,
+      bulletStyleToken,
+      dateFormatToken,
+      density,
+      fontFamilyToken,
+      pageSize,
+      settings
+    ]
+  )
 
   /**
-   * @brief 更新单个 Mock 模板设置 / Update one Mock template setting.
+   * @brief 更新单个待保存模板设置 / Update one pending template setting.
    * @param key 模板设置 key / Template setting key.
    * @param value 新的受约束值 / New constrained value.
    * @return 无返回值 / No return value.
    */
   const updateSetting = (key: string, value: UiTemplateSettingValue): void => {
+    setSaveStatus('idle')
     setSettings((currentSettings) => ({ ...currentSettings, [key]: value }))
   }
 
@@ -210,9 +249,10 @@ function TemplateSettingsContent({
    * @brief 选择模板并保持仍被该模板支持的语义值 / Select a template while retaining still-supported semantic values.
    * @param template 用户选择的模板清单 / Template manifest selected by the user.
    * @return 无返回值 / No return value.
-   * @note 此处不执行迁移或丢弃未知设置；真实迁移必须由服务端 Job 明确确认。
+   * @note 控件只保留目标模板声明的 setting key；最终兼容性仍由后端 operation 验证。
    */
   const selectTemplate = (template: UiTemplateManifest): void => {
+    setSaveStatus('idle')
     setSelectedTemplateId(template.id)
     setPageSize((currentPageSize) =>
       template.supportedPageSizes.includes(currentPageSize)
@@ -224,6 +264,66 @@ function TemplateSettingsContent({
         ? currentFontFamilyToken
         : (template.fontFamilyTokens.at(0) ?? currentFontFamilyToken)
     )
+    setDateFormatToken((currentToken) =>
+      template.dateFormatTokens.includes(currentToken)
+        ? currentToken
+        : (template.dateFormatTokens.at(0) ?? currentToken)
+    )
+    setBulletStyleToken((currentToken) =>
+      template.bulletStyleTokens.includes(currentToken)
+        ? currentToken
+        : (template.bulletStyleTokens.at(0) ?? currentToken)
+    )
+    setSettings((currentSettings) =>
+      Object.fromEntries(
+        template.settings.map((definition) => [
+          definition.key,
+          currentSettings[definition.key] ?? definition.defaultValue
+        ])
+      )
+    )
+  }
+
+  /**
+   * @brief 通过正式 Resume operation 保存模板与样式 / Save template and style through a formal Resume operation.
+   * @return 保存完成的 Promise / Promise completed after persistence.
+   */
+  const saveSettings = async (): Promise<void> => {
+    setSaveStatus('saving')
+    setSaveError(null)
+    try {
+      /** @brief 后端返回的权威模板设置投影 / Authoritative template-settings projection returned by the backend. */
+      const saved = await gateway.updateTemplateSettings({
+        resumeId: authoritativeModel.resumeId,
+        styleIntent: draftStyleIntent,
+        templateId: selectedTemplate.id
+      })
+      setAuthoritativeModel(saved)
+      setSelectedTemplateId(saved.selectedTemplate.id)
+      setSettings(saved.styleIntent.templateSettings)
+      setPageSize(saved.styleIntent.page.size)
+      setFontFamilyToken(saved.styleIntent.typography.fontFamilyToken)
+      setDateFormatToken(saved.styleIntent.dateFormatToken)
+      setBulletStyleToken(saved.styleIntent.bulletStyleToken)
+      setDensity(saved.styleIntent.density)
+      setSaveStatus('saved')
+    } catch (error: unknown) {
+      setSaveError(error)
+      setSaveStatus('error')
+    }
+  }
+
+  /**
+   * @brief 根据失败类别选择安全恢复动作 / Choose a safe recovery action for the failure category.
+   * @return 无返回值 / No return value.
+   * @note 并发冲突必须重新读取权威版本，不能盲目重放陈旧 mutation。 / Concurrency conflicts must reload authority instead of blindly replaying a stale mutation.
+   */
+  const recoverFromSaveFailure = (): void => {
+    if (classifyResourceFailure(saveError).kind === 'conflict') {
+      onReload()
+      return
+    }
+    void saveSettings()
   }
 
   return (
@@ -263,17 +363,17 @@ function TemplateSettingsContent({
               </p>
             </div>
             <span className="aw-status aw-status--active">
-              {t('common.mockData', { defaultValue: 'Demo data' })}
+              {t('template.backendCatalog', { defaultValue: '后端模板目录' })}
             </span>
           </div>
           <div className="aw-template-list">
-            {model.availableTemplates.length === 0 ? (
+            {authoritativeModel.availableTemplates.length === 0 ? (
               <div className="aw-template-empty">
                 <LayoutTemplate aria-hidden="true" size={20} />
                 <p>{t('template.empty', { defaultValue: '当前没有其他可用模板。' })}</p>
               </div>
             ) : null}
-            {model.availableTemplates.map((template) => {
+            {authoritativeModel.availableTemplates.map((template) => {
               /** @brief 当前模板是否被选择 / Whether this template is selected. */
               const isSelected = template.id === selectedTemplate.id
               return (
@@ -401,13 +501,16 @@ function TemplateSettingsContent({
               {t('template.pageSize', { defaultValue: '页面规格' })}
             </p>
             <p className="aw-setting-help">
-              {pageSize} · {model.styleIntent.page.orientation}
+              {pageSize} · {authoritativeModel.styleIntent.page.orientation}
             </p>
           </div>
           <select
             aria-label={t('template.pageSize', { defaultValue: '页面规格' })}
             className="aw-select"
-            onChange={(event): void => setPageSize(event.target.value as UiResumePageSize)}
+            onChange={(event): void => {
+              setSaveStatus('idle')
+              setPageSize(event.target.value as UiResumePageSize)
+            }}
             style={{ width: 130 }}
             value={pageSize}
           >
@@ -428,7 +531,10 @@ function TemplateSettingsContent({
           <select
             aria-label={t('template.fontToken', { defaultValue: '字体令牌' })}
             className="aw-select"
-            onChange={(event): void => setFontFamilyToken(event.target.value)}
+            onChange={(event): void => {
+              setSaveStatus('idle')
+              setFontFamilyToken(event.target.value)
+            }}
             style={{ width: 150 }}
             value={fontFamilyToken}
           >
@@ -475,14 +581,17 @@ function TemplateSettingsContent({
             min="0"
             step="0.05"
             type="range"
-            onChange={(event): void => setDensity(Number(event.target.value))}
+            onChange={(event): void => {
+              setSaveStatus('idle')
+              setDensity(Number(event.target.value))
+            }}
             value={density}
           />
         </div>
       </section>
 
       <section className="aw-card aw-card-pad" style={{ marginTop: 18 }}>
-        <div className="aw-inline-actions">
+        <div className="aw-inline-actions" style={{ justifyContent: 'space-between' }}>
           <Palette aria-hidden="true" className="aw-accent-icon" size={18} />
           <div>
             <h2 className="aw-card-title">
@@ -490,31 +599,60 @@ function TemplateSettingsContent({
             </h2>
             <p className="aw-card-description">
               {t('template.intentPayloadDescription', {
-                defaultValue: 'v0.1 只展示与 ResumeStyleIntent 对齐的语义字段，不发送网络请求。'
+                defaultValue: '保存时仅提交与 ResumeStyleIntent 对齐的语义字段。'
               })}
             </p>
           </div>
+          <button
+            className="aw-primary-button"
+            disabled={saveStatus === 'saving'}
+            onClick={(): void => void saveSettings()}
+            type="button"
+          >
+            {saveStatus === 'saving'
+              ? t('template.saving', { defaultValue: '正在保存…' })
+              : t('template.save', { defaultValue: '保存设置' })}
+          </button>
         </div>
         <pre
           aria-label={t('template.intentPayloadAria', {
-            defaultValue: 'ResumeStyleIntent Mock 预览'
+            defaultValue: 'ResumeStyleIntent 语义预览'
           })}
           className="aw-intent-preview"
         >
           {JSON.stringify(
             {
-              style_contract_version: model.styleIntent.styleContractVersion,
+              style_contract_version: draftStyleIntent.styleContractVersion,
               template_id: selectedTemplate.id,
               template_version: selectedTemplate.version,
-              page_size: pageSize,
-              font_family_token: fontFamilyToken,
-              density,
-              template_settings: settings
+              page_size: draftStyleIntent.page.size,
+              font_family_token: draftStyleIntent.typography.fontFamilyToken,
+              density: draftStyleIntent.density,
+              template_settings: draftStyleIntent.templateSettings
             },
             null,
             2
           )}
         </pre>
+        {saveStatus === 'saved' ? (
+          <p aria-live="polite" className="aw-setting-help" role="status">
+            {t('template.saved', { defaultValue: '模板与样式设置已保存。' })}
+          </p>
+        ) : null}
+        {saveStatus === 'error' ? (
+          <ResourceErrorState
+            {...(classifyResourceFailure(saveError).kind === 'conflict'
+              ? {
+                  actionLabel: t('resume.workspace.reloadAuthority', {
+                    defaultValue: '重新加载服务端版本'
+                  })
+                }
+              : {})}
+            error={saveError}
+            onRetry={recoverFromSaveFailure}
+            title={t('template.saveFailed', { defaultValue: '无法保存模板设置' })}
+          />
+        ) : null}
       </section>
     </div>
   )
@@ -557,16 +695,20 @@ export function TemplateSettingsPage(): React.JSX.Element {
   if (templateSettings.status === 'error') {
     return (
       <div className="aw-page">
-        <ErrorState
-          description={t('status.errorDescription', {
-            defaultValue:
-              'Demo data is temporarily unavailable. Try again or return to the workspace.'
-          })}
+        <ResourceErrorState
+          error={templateSettings.error}
+          onRetry={templateSettings.retry}
           title={t('status.errorTemplateSettings', { defaultValue: '无法加载模板设置' })}
         />
       </div>
     )
   }
 
-  return <TemplateSettingsContent model={templateSettings.data} />
+  return (
+    <TemplateSettingsContent
+      gateway={resume}
+      model={templateSettings.data}
+      onReload={templateSettings.retry}
+    />
+  )
 }

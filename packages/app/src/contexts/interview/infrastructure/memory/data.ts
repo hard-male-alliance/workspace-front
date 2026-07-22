@@ -6,7 +6,7 @@ import type {
   UiInterviewRuntimeModel,
   UiInterviewScenario,
   UiInterviewSession,
-  UiLiveInterviewModel
+  UiTranscriptEntry
 } from '../../domain/models'
 import { asUiOpaqueId } from '../../../../shared-kernel/identity'
 
@@ -116,39 +116,33 @@ export const DEMO_INTERVIEW_SESSION: UiInterviewSession = {
   reportId: DEMO_INTERVIEW_REPORT_ID
 }
 
-/** @brief Demo 实时面试数据 / Demo live-interview data. */
-export const DEMO_LIVE_INTERVIEW: UiLiveInterviewModel = {
-  session: DEMO_INTERVIEW_SESSION,
-  scenario: DEMO_SYSTEM_DESIGN_SCENARIO,
-  connectionState: 'connected',
-  interviewerText: '请从需求澄清开始，设计一个支持多团队协作的 Agent 评估平台。',
-  transcript: [
-    {
-      id: 'seg_mock_interviewer_1',
-      speaker: 'interviewer',
-      text: '请从需求澄清开始，设计一个支持多团队协作的 Agent 评估平台。',
-      isFinal: true,
-      startMs: 0,
-      endMs: 6200
-    },
-    {
-      id: 'seg_mock_candidate_1',
-      speaker: 'candidate',
-      text: '我会先确认评估对象、并发规模、数据保留与可审计要求，然后从控制面和数据面拆分。',
-      isFinal: true,
-      startMs: 7200,
-      endMs: 14600
-    },
-    {
-      id: 'seg_mock_candidate_partial',
-      speaker: 'candidate',
-      text: '对于执行数据，我倾向于使用异步任务……',
-      isFinal: false,
-      startMs: 15000,
-      endMs: 18200
-    }
-  ]
-}
+/** @brief Demo adapter 专用的转录 fixture / Transcript fixture used only by the Demo adapter. */
+const DEMO_INTERVIEW_TRANSCRIPT: readonly UiTranscriptEntry[] = [
+  {
+    id: 'seg_mock_interviewer_1',
+    speaker: 'interviewer',
+    text: '请从需求澄清开始，设计一个支持多团队协作的 Agent 评估平台。',
+    isFinal: true,
+    startMs: 0,
+    endMs: 6200
+  },
+  {
+    id: 'seg_mock_candidate_1',
+    speaker: 'candidate',
+    text: '我会先确认评估对象、并发规模、数据保留与可审计要求，然后从控制面和数据面拆分。',
+    isFinal: true,
+    startMs: 7200,
+    endMs: 14600
+  },
+  {
+    id: 'seg_mock_candidate_partial',
+    speaker: 'candidate',
+    text: '对于执行数据，我倾向于使用异步任务……',
+    isFinal: false,
+    startMs: 15000,
+    endMs: 18200
+  }
+]
 
 /** @brief Demo 已完成面试历史 / Demo completed-interview history. */
 export const DEMO_INTERVIEW_HISTORY: readonly UiInterviewHistoryItem[] = [
@@ -168,11 +162,10 @@ export const DEMO_INTERVIEW_RUNTIME: UiInterviewRuntimeModel = {
   session: DEMO_INTERVIEW_SESSION,
   scenario: DEMO_SYSTEM_DESIGN_SCENARIO,
   phase: 'listening',
-  transcript: DEMO_LIVE_INTERVIEW.transcript.filter((entry) => entry.isFinal),
-  currentTranscript: DEMO_LIVE_INTERVIEW.transcript.find((entry) => !entry.isFinal)?.text ?? '',
+  transcript: DEMO_INTERVIEW_TRANSCRIPT.filter((entry) => entry.isFinal),
+  currentTranscript: DEMO_INTERVIEW_TRANSCRIPT.find((entry) => !entry.isFinal)?.text ?? '',
   elapsedSeconds: 18 * 60 + 42,
-  estimatedDurationMinutes: 45,
-  isMock: true
+  estimatedDurationMinutes: 45
 }
 
 /** @brief Demo 面试总结 / Demo interview report. */

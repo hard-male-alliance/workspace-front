@@ -3,11 +3,11 @@
 import { describe, expect, it } from 'vitest'
 
 import { DEMO_INTERVIEW_SESSION_ID, DEMO_INTERVIEW_WORKSPACE_ID } from './data'
-import { DemoInterviewGateway } from './gateway'
+import { InMemoryInterviewGateway } from './gateway'
 
-describe('DemoInterviewGateway', () => {
+describe('InMemoryInterviewGateway', () => {
   it('lists only completed interviews with report summaries', async () => {
-    const interviewGateway = new DemoInterviewGateway()
+    const interviewGateway = new InMemoryInterviewGateway()
 
     const history = await interviewGateway.listCompletedInterviews(DEMO_INTERVIEW_WORKSPACE_ID)
 
@@ -17,7 +17,7 @@ describe('DemoInterviewGateway', () => {
   })
 
   it('creates an interview when no knowledge source is selected', async () => {
-    const interviewGateway = new DemoInterviewGateway()
+    const interviewGateway = new InMemoryInterviewGateway()
     const setup = await interviewGateway.getInterviewSetup(DEMO_INTERVIEW_WORKSPACE_ID)
     const scenario = setup.scenarios[0]
 
@@ -34,18 +34,15 @@ describe('DemoInterviewGateway', () => {
         seniority: null,
         skills: []
       },
-      interviewType: scenario.interviewType,
-      difficulty: scenario.difficulty,
-      durationMinutes: 30,
       knowledgeSourceIds: [],
-      focusPrompt: null
+      scenarioId: scenario.id
     })
 
     expect(result.sessionId).toBe(DEMO_INTERVIEW_SESSION_ID)
   })
 
   it('moves a submitted demo answer to the AI-controlled completion state', async () => {
-    const interviewGateway = new DemoInterviewGateway()
+    const interviewGateway = new InMemoryInterviewGateway()
 
     const before = await interviewGateway.getInterviewRuntime(DEMO_INTERVIEW_SESSION_ID)
     expect(before.phase).toBe('listening')

@@ -2,7 +2,6 @@
 
 export type { UiKnowledgeSourceId } from '../../shared-kernel/identity'
 export type {
-  UiKnowledgeIngestionJobId,
   UiKnowledgeSourceType,
   UiKnowledgeIngestionStatus,
   UiVisibilityEffect,
@@ -11,18 +10,8 @@ export type {
   UiAgentScopeGrant,
   UiKnowledgeVisibilityPolicy,
   UiKnowledgeSource,
-  UiKnowledgeJobStatus,
-  UiKnowledgeIngestionJob,
-  UiKnowledgeUploadResult,
-  UiKnowledgeSearchResult,
   UiKnowledgeVisibilityModel
 } from './domain/models'
-export type {
-  KnowledgeUploadFile,
-  UiKnowledgeSearchInput,
-  UiKnowledgeUploadInput,
-  UiKnowledgeVersionUploadInput
-} from './application/commands'
 export type { KnowledgeGateway } from './application/gateway'
 export { KnowledgePage } from './presentation/KnowledgePage'
 export { KnowledgeVisibilityPage } from './presentation/KnowledgeVisibilityPage'

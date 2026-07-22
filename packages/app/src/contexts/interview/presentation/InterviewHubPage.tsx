@@ -4,7 +4,8 @@ import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 
 import { useAsyncResource, useInterviewGateway, useWorkspaceSession } from '../../../app/AppData'
-import { EmptyState, ErrorState, LoadingState } from '../../../ui'
+import { ResourceErrorState } from '../../../app/ResourceErrorState'
+import { EmptyState, LoadingState } from '../../../ui'
 import type { UiInterviewHistoryItem } from '../domain/models'
 
 function formatCompletedAt(value: string, locale: string): string {
@@ -118,7 +119,7 @@ export function InterviewHubPage(): React.JSX.Element {
             </h2>
             <p>
               {t('interviewHub.historyDescription', {
-                defaultValue: '只展示已完成并生成总结的面试。'
+                defaultValue: '只展示已完成的面试；报告未就绪时评分显示为空。'
               })}
             </p>
           </div>
@@ -134,10 +135,9 @@ export function InterviewHubPage(): React.JSX.Element {
         {history.status === 'loading' ? (
           <LoadingState label={t('interviewHub.loading', { defaultValue: '正在加载面试记录…' })} />
         ) : history.status === 'error' ? (
-          <ErrorState
-            description={t('interviewHub.errorDescription', {
-              defaultValue: '面试记录暂时不可用，请稍后重试。'
-            })}
+          <ResourceErrorState
+            error={history.error}
+            onRetry={history.retry}
             title={t('interviewHub.error', { defaultValue: '无法加载面试记录' })}
           />
         ) : (

@@ -8,14 +8,14 @@ import type {
   UiInterviewReport,
   UiInterviewRuntimeModel,
   UiInterviewScenario,
+  UiInterviewSessionDetails,
   UiInterviewSetupModel,
-  UiInterviewSessionId,
-  UiLiveInterviewModel
+  UiInterviewSessionId
 } from '../../domain/models'
 import type { UiWorkspaceId } from '../../../../shared-kernel/identity'
 import {
   cloneMemoryValue,
-  type DemoGatewayOptions,
+  type InMemoryGatewayOptions,
   prepareMemoryRead,
   throwMemoryNotFound
 } from '../../../../infrastructure/memory'
@@ -24,18 +24,19 @@ import {
   DEMO_INTERVIEW_REPORT,
   DEMO_INTERVIEW_RUNTIME,
   DEMO_INTERVIEW_SCENARIOS,
+  DEMO_INTERVIEW_SESSION,
   DEMO_INTERVIEW_SESSION_ID,
   DEMO_INTERVIEW_WORKSPACE_ID,
-  DEMO_LIVE_INTERVIEW
+  DEMO_SYSTEM_DESIGN_SCENARIO
 } from './data'
 
 /**
- * @brief 模拟面试的本地演示适配器 / Local-demo adapter for interview practice.
- * @note 数据仅存在于当前 renderer 进程生命周期；它不持久化、不与后端同步，也不建立 RealtimeConnectionDescriptor、WebRTC、SSE 或 WebSocket realtime transport。 / Data lives only for the current renderer-process lifetime; it is not persisted or synchronized with a backend and establishes no realtime transport such as RealtimeConnectionDescriptor, WebRTC, SSE, or WebSocket.
+ * @brief Interview 自动化测试内存适配器 / In-memory adapter for automated Interview tests.
+ * @note 仅从测试入口导出，不模拟产品 realtime transport。 / Exported only from the testing entry point and does not emulate product realtime transport.
  */
-export class DemoInterviewGateway implements InterviewGateway {
+export class InMemoryInterviewGateway implements InterviewGateway {
   /** @brief 当前 adapter 的确定性行为选项 / Deterministic behavior options for this adapter. */
-  private readonly options: DemoGatewayOptions
+  private readonly options: InMemoryGatewayOptions
   /** @inheritdoc */
   async listCompletedInterviews(
     workspaceId: UiWorkspaceId
@@ -52,12 +53,13 @@ export class DemoInterviewGateway implements InterviewGateway {
   async getInterviewSetup(workspaceId: UiWorkspaceId): Promise<UiInterviewSetupModel> {
     const mode = await prepareMemoryRead(this.options)
     if (mode === 'empty' || workspaceId !== DEMO_INTERVIEW_WORKSPACE_ID) {
-      return { scenarios: [], jobTargets: [] }
+      return { scenarios: [], jobTargets: [], realtimeAvailable: true }
     }
 
     return cloneMemoryValue({
       scenarios: DEMO_INTERVIEW_SCENARIOS,
-      jobTargets: [DEMO_INTERVIEW_RUNTIME.session.jobTarget]
+      jobTargets: [DEMO_INTERVIEW_RUNTIME.session.jobTarget],
+      realtimeAvailable: true
     })
   }
 
@@ -67,6 +69,7 @@ export class DemoInterviewGateway implements InterviewGateway {
     await prepareMemoryRead(this.options)
     if (
       input.workspaceId !== DEMO_INTERVIEW_WORKSPACE_ID ||
+      !DEMO_INTERVIEW_SCENARIOS.some((scenario) => scenario.id === input.scenarioId) ||
       input.jobTarget.title.trim().length === 0
     ) {
       return throwMemoryNotFound('interview setup')
@@ -76,10 +79,10 @@ export class DemoInterviewGateway implements InterviewGateway {
   }
 
   /**
-   * @brief 构造面试演示网关 / Construct the interview demo gateway.
-   * @param options 演示行为选项 / Demo behavior options.
+   * @brief 构造 Interview 内存测试网关 / Construct the Interview in-memory test gateway.
+   * @param options 确定性测试行为选项 / Deterministic test behavior options.
    */
-  constructor(options: DemoGatewayOptions = {}) {
+  constructor(options: InMemoryGatewayOptions = {}) {
     this.options = options
   }
 
@@ -99,18 +102,23 @@ export class DemoInterviewGateway implements InterviewGateway {
     return cloneMemoryValue(DEMO_INTERVIEW_SCENARIOS)
   }
 
-  /**
-   * @brief 获取演示实时面试页数据 / Get demo live-interview page data.
-   * @param sessionId 面试会话 ID / Interview session ID.
-   * @return 演示实时面试数据 / Demo live-interview data.
-   */
-  async getLiveInterview(sessionId: UiInterviewSessionId): Promise<UiLiveInterviewModel> {
+  /** @inheritdoc */
+  async getInterviewSessionDetails(
+    sessionId: UiInterviewSessionId
+  ): Promise<UiInterviewSessionDetails> {
     const mode = await prepareMemoryRead(this.options)
     if (mode === 'empty' || sessionId !== DEMO_INTERVIEW_SESSION_ID) {
-      return throwMemoryNotFound('interview session')
+      return throwMemoryNotFound('interview session details')
     }
-
-    return cloneMemoryValue(DEMO_LIVE_INTERVIEW)
+    return cloneMemoryValue({
+      durationMinutes: 38,
+      scenario: DEMO_SYSTEM_DESIGN_SCENARIO,
+      session: {
+        ...DEMO_INTERVIEW_SESSION,
+        endedAt: '2026-07-15T03:58:00.000Z',
+        status: 'completed' as const
+      }
+    })
   }
 
   /** @inheritdoc */
@@ -149,6 +157,11 @@ export class DemoInterviewGateway implements InterviewGateway {
       currentTranscript: '',
       transcript: [...runtime.transcript, submittedEntry, closingEntry]
     })
+  }
+
+  /** @inheritdoc */
+  async endInterview(sessionId: UiInterviewSessionId): Promise<void> {
+    await this.getInterviewRuntime(sessionId)
   }
 
   /**

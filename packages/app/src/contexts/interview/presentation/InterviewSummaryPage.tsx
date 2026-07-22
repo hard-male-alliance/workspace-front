@@ -13,8 +13,9 @@ import { Link, useParams } from 'react-router-dom'
 
 import { useAsyncResource, useInterviewSummaryQuery } from '../../../app/AppData'
 import type { InterviewSummaryQueryResult } from '../../../app/AppQueries'
+import { ResourceErrorState } from '../../../app/ResourceErrorState'
 import { asUiOpaqueId } from '../../../shared-kernel/identity'
-import { ErrorState, LoadingState } from '../../../ui'
+import { LoadingState } from '../../../ui'
 
 function getDimensionLabel(
   dimensionId: string,
@@ -40,18 +41,17 @@ function InterviewSummary({
   readonly data: InterviewSummaryQueryResult
 }): React.JSX.Element {
   const { t } = useTranslation()
-  const { report, runtime } = data
+  const { details, report } = data
 
   return (
     <div className="aw-page aw-interview-summary-page">
       <header className="aw-summary-header">
         <div>
-          <span className="aw-chip">{t('common.mock', { defaultValue: '界面演示 / Mock' })}</span>
           <h1 className="aw-page-title">
             {t('interviewSummary.analysisTitle', { defaultValue: '面试分析' })}
           </h1>
           <p className="aw-page-description">
-            {runtime.session.jobTarget.title} · {runtime.scenario.name}
+            {details.session.jobTarget.title} · {details.scenario.name}
           </p>
         </div>
         <div
@@ -66,13 +66,15 @@ function InterviewSummary({
       <section className="aw-summary-overview">
         <div>
           <span>{t('interviewSummary.duration', { defaultValue: '实际时长' })}</span>
-          <strong>38 {t('common.minutes', { defaultValue: '分钟' })}</strong>
+          <strong>
+            {details.durationMinutes} {t('common.minutes', { defaultValue: '分钟' })}
+          </strong>
         </div>
         <div>
           <span>{t('interviewSummary.difficulty', { defaultValue: '难度' })}</span>
           <strong>
-            {t(`interviewDifficulties.${runtime.scenario.difficulty}`, {
-              defaultValue: runtime.scenario.difficulty
+            {t(`interviewDifficulties.${details.scenario.difficulty}`, {
+              defaultValue: details.scenario.difficulty
             })}
           </strong>
         </div>
@@ -213,10 +215,11 @@ function InterviewSummary({
       <section className="aw-summary-section aw-summary-knowledge">
         <BookOpenCheck aria-hidden="true" size={19} />
         <div>
-          <h2>{t('interviewSummary.materials', { defaultValue: '本次资料' })}</h2>
+          <h2>{t('interviewSummary.materials', { defaultValue: '当前工作区资料' })}</h2>
           <p>
             {t('interviewSummary.materialsNotice', {
-              defaultValue: '以下为 Mock 配置中提供的资料，不表示 AI 已实际引用。'
+              defaultValue:
+                '以下为当前工作区的资料；当前报告契约不提供本次会话的资料范围或引用关系。'
             })}
           </p>
           <div className="aw-inline-actions">
@@ -260,8 +263,8 @@ export function InterviewSummaryPage(): React.JSX.Element {
     return (
       <div className="aw-page">
         <LoadingState
-          label={t('interviewSummary.generating', {
-            defaultValue: '正在整理对话、评分和练习建议…'
+          label={t('interviewSummary.loading', {
+            defaultValue: '正在加载面试分析…'
           })}
         />
       </div>
@@ -269,11 +272,10 @@ export function InterviewSummaryPage(): React.JSX.Element {
   if (summary.status === 'error')
     return (
       <div className="aw-page">
-        <ErrorState
-          description={t('interviewSummary.errorDescription', {
-            defaultValue: '总结暂时不可用，面试对话仍已保留。'
-          })}
-          title={t('interviewSummary.error', { defaultValue: '无法生成面试总结' })}
+        <ResourceErrorState
+          error={summary.error}
+          onRetry={summary.retry}
+          title={t('interviewSummary.error', { defaultValue: '无法加载面试分析' })}
         />
       </div>
     )

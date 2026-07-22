@@ -1,14 +1,7 @@
 /** @file Knowledge 领域投影 / Knowledge domain projections. */
 
 import type { UiAgentScope } from '../../../shared-kernel/agent-scope'
-import type {
-  UiKnowledgeSourceId,
-  UiOpaqueId,
-  UiWorkspaceId
-} from '../../../shared-kernel/identity'
-
-/** @brief 知识摄取任务标识符 / Knowledge ingestion Job identifier. */
-export type UiKnowledgeIngestionJobId = UiOpaqueId<'knowledge-ingestion-job'>
+import type { UiKnowledgeSourceId, UiWorkspaceId } from '../../../shared-kernel/identity'
 
 /** @brief 知识来源类型 / Knowledge-source type. */
 export type UiKnowledgeSourceType =
@@ -102,36 +95,6 @@ export interface UiKnowledgeSource {
   readonly lastSuccessAt: string | null
   /** @brief 最近更新时间 / Last update time. */
   readonly updatedAt: string
-}
-
-/** @brief 知识摄取任务状态 / Knowledge ingestion Job status. */
-export type UiKnowledgeJobStatus =
-  'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'expired'
-
-/** @brief 知识摄取任务展示模型 / Knowledge ingestion Job display model. */
-export interface UiKnowledgeIngestionJob {
-  readonly id: UiKnowledgeIngestionJobId
-  readonly sourceId: UiKnowledgeSourceId
-  readonly status: UiKnowledgeJobStatus
-  readonly progressPercent: number | null
-  readonly errorCode: string | null
-  readonly errorDetail: string | null
-}
-
-/** @brief 文件上传被接受后的领域结果 / Domain result after a file upload is accepted. */
-export interface UiKnowledgeUploadResult {
-  readonly source: UiKnowledgeSource
-  readonly ingestionJob: UiKnowledgeIngestionJob
-}
-
-/** @brief 知识搜索结果展示模型 / Knowledge search result display model. */
-export interface UiKnowledgeSearchResult {
-  readonly id: string
-  readonly sourceId: UiKnowledgeSourceId
-  readonly title: string
-  readonly locatorLabel: string
-  readonly quote: string | null
-  readonly score: number
 }
 
 /** @brief 知识可见性页面模型 / Knowledge-visibility page model. */

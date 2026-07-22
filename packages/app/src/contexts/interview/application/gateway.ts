@@ -8,12 +8,12 @@ import type {
   UiInterviewReport,
   UiInterviewRuntimeModel,
   UiInterviewScenario,
+  UiInterviewSessionDetails,
   UiInterviewSessionId,
-  UiInterviewSetupModel,
-  UiLiveInterviewModel
+  UiInterviewSetupModel
 } from '../domain/models'
 
-/** @brief 模拟面试页面数据端口 / Mock-interview page-data port. */
+/** @brief 面试练习应用端口 / Interview-practice application port. */
 export interface InterviewGateway {
   /** @brief 列出已完成且报告可用的面试 / List completed interviews with available reports. */
   listCompletedInterviews(workspaceId: UiWorkspaceId): Promise<readonly UiInterviewHistoryItem[]>
@@ -32,17 +32,24 @@ export interface InterviewGateway {
   listInterviewScenarios(workspaceId: UiWorkspaceId): Promise<readonly UiInterviewScenario[]>
 
   /**
-   * @brief 获取实时面试展示数据 / Get live-interview display data.
+   * @brief 获取 REST 可还原的会话详情 / Get session details reconstructable through REST.
    * @param sessionId 面试会话 ID / Interview session ID.
-   * @return 实时面试页面模型 / Live-interview page model.
+   * @return 会话、场景和权威时长 / Session, scenario, and authoritative duration.
    */
-  getLiveInterview(sessionId: UiInterviewSessionId): Promise<UiLiveInterviewModel>
+  getInterviewSessionDetails(sessionId: UiInterviewSessionId): Promise<UiInterviewSessionDetails>
 
   /** @brief 获取正式面试运行状态 / Get the live interview runtime state. */
   getInterviewRuntime(sessionId: UiInterviewSessionId): Promise<UiInterviewRuntimeModel>
 
   /** @brief 结束当前录音并提交回答 / Finish and submit the current spoken answer. */
   submitInterviewAnswer(sessionId: UiInterviewSessionId): Promise<UiInterviewRuntimeModel>
+
+  /**
+   * @brief 请求结束当前面试会话 / Request ending the current Interview session.
+   * @param sessionId 面试会话 ID / Interview session ID.
+   * @return 服务端确认请求后的空结果 / Empty result after server acknowledgement.
+   */
+  endInterview(sessionId: UiInterviewSessionId): Promise<void>
 
   /**
    * @brief 获取面试总结 / Get an interview summary.

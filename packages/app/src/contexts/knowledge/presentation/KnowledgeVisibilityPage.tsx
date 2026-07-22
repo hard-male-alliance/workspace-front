@@ -13,9 +13,11 @@ import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router-dom'
 import { useAsyncResource, useKnowledgeGateway } from '../../../app/AppData'
+import { ResourceErrorState } from '../../../app/ResourceErrorState'
 import { asUiOpaqueId } from '../../../shared-kernel/identity'
 import type { UiAgentScope } from '../../../shared-kernel/agent-scope'
-import { ErrorState, LoadingState } from '../../../ui'
+import { LoadingState } from '../../../ui'
+import type { KnowledgeGateway } from '../application/gateway'
 import type {
   UiKnowledgeOperation,
   UiKnowledgeSensitivity,
@@ -186,26 +188,54 @@ function VisibilityMatrixRow({
  * @return 明确 default-deny 语义的可见性配置页 / Visibility configuration page with explicit default-deny semantics.
  */
 function KnowledgeVisibilityContent({
-  model
+  gateway,
+  model: initialModel
 }: {
+  readonly gateway: KnowledgeGateway
   readonly model: UiKnowledgeVisibilityModel
 }): React.JSX.Element {
   /** @brief 翻译函数 / Translation function. */
   const { t } = useTranslation()
+  /** @brief 最近一次由服务端确认的可见性模型 / Most recent visibility model confirmed by the backend. */
+  const [model, setModel] = useState(initialModel)
   /** @brief 是否允许会话级选择的本地草稿 / Local draft for allowing session selection. */
   const [sessionOverrideAllowed, setSessionOverrideAllowed] = useState(
-    model.source.visibility.sessionOverrideAllowed
+    initialModel.source.visibility.sessionOverrideAllowed
   )
   /** @brief 是否允许外部模型的本地草稿 / Local draft for allowing external models. */
   const [externalModelAllowed, setExternalModelAllowed] = useState(
-    model.source.visibility.allowExternalModelProcessing
+    initialModel.source.visibility.allowExternalModelProcessing
   )
-  /** @brief 是否显示保存后的 Mock 状态 / Whether to show post-save Mock status. */
-  const [isMockSaved, setMockSaved] = useState(false)
+  /** @brief 可见性保存状态 / Visibility-save state. */
+  const [saveState, setSaveState] = useState<
+    | { readonly status: 'idle' | 'saving' | 'saved' }
+    | { readonly status: 'error'; readonly error: unknown }
+  >({ status: 'idle' })
   /** @brief 显式允许的 Agent 授权数量 / Count of explicitly allowed agent grants. */
   const allowedGrantCount = model.source.visibility.agentGrants.filter(
     (grant) => grant.effect === 'allow'
   ).length
+  /** @brief 保存当前草稿并以服务端响应回填页面 / Save the current draft and replace the page with the backend response. */
+  const saveVisibility = useCallback(async (): Promise<void> => {
+    setSaveState({ status: 'saving' })
+    try {
+      /** @brief 服务端确认的更新后模型 / Updated model confirmed by the backend. */
+      const updatedModel = await gateway.updateKnowledgeVisibility({
+        sourceId: model.source.id,
+        visibility: {
+          ...model.source.visibility,
+          allowExternalModelProcessing: externalModelAllowed,
+          sessionOverrideAllowed
+        }
+      })
+      setModel(updatedModel)
+      setExternalModelAllowed(updatedModel.source.visibility.allowExternalModelProcessing)
+      setSessionOverrideAllowed(updatedModel.source.visibility.sessionOverrideAllowed)
+      setSaveState({ status: 'saved' })
+    } catch (error: unknown) {
+      setSaveState({ error, status: 'error' })
+    }
+  }, [externalModelAllowed, gateway, model.source, sessionOverrideAllowed])
 
   return (
     <div className="aw-page">
@@ -229,16 +259,21 @@ function KnowledgeVisibilityContent({
           </Link>
           <button
             className="aw-primary-button"
-            onClick={(): void => setMockSaved(true)}
+            disabled={saveState.status === 'saving'}
+            onClick={(): void => {
+              void saveVisibility()
+            }}
             type="button"
           >
             <Save aria-hidden="true" size={15} />
-            {t('common.save', { defaultValue: '保存草稿' })}
+            {saveState.status === 'saving'
+              ? t('visibility.saving', { defaultValue: '正在保存…' })
+              : t('common.save', { defaultValue: '保存' })}
           </button>
         </div>
       </div>
 
-      {isMockSaved ? (
+      {saveState.status === 'saved' ? (
         <div aria-live="polite" className="aw-proposal" style={{ marginBottom: 18 }}>
           <p className="aw-proposal-title">
             <Check
@@ -246,13 +281,25 @@ function KnowledgeVisibilityContent({
               size={14}
               style={{ marginRight: 5, verticalAlign: 'text-bottom' }}
             />
-            {t('visibility.mockSaved', { defaultValue: '已保存到本地演示状态' })}
+            {t('visibility.saved', { defaultValue: '可见性策略已保存' })}
           </p>
           <p className="aw-muted" style={{ margin: 0 }}>
-            {t('visibility.mockSavedDescription', {
-              defaultValue: '没有发出 PATCH，也没有改变后端权威策略。'
+            {t('visibility.savedDescription', {
+              defaultValue: '服务端已确认新的策略版本。'
             })}
           </p>
+        </div>
+      ) : null}
+
+      {saveState.status === 'error' ? (
+        <div style={{ marginBottom: 18 }}>
+          <ResourceErrorState
+            error={saveState.error}
+            onRetry={(): void => {
+              void saveVisibility()
+            }}
+            title={t('visibility.saveFailed', { defaultValue: '无法保存可见性策略' })}
+          />
         </div>
       ) : null}
 
@@ -335,8 +382,8 @@ function KnowledgeVisibilityContent({
               size={13}
               style={{ marginRight: 5, verticalAlign: 'text-bottom' }}
             />
-            {t('visibility.pendingNotice', {
-              defaultValue: '当前页面为只读 Mock；最终授权仍由后端按 EffectiveAccess 判定。'
+            {t('visibility.policyNotice', {
+              defaultValue: '此处保存来源策略；最终授权仍由后端按 EffectiveAccess 判定。'
             })}
           </p>
         </section>
@@ -349,7 +396,7 @@ function KnowledgeVisibilityContent({
                 {t('visibility.sessionControls', { defaultValue: '会话与模型控制' })}
               </h2>
               <p className="aw-card-description">
-                {t('visibility.draftOnly', { defaultValue: '以下调整仅在此 Mock 页面生效。' })}
+                {t('visibility.serverOwned', { defaultValue: '调整会保存为服务端权威策略。' })}
               </p>
             </div>
           </div>
@@ -495,16 +542,14 @@ export function KnowledgeVisibilityPage(): React.JSX.Element {
   if (visibility.status === 'error') {
     return (
       <div className="aw-page">
-        <ErrorState
-          description={t('status.errorDescription', {
-            defaultValue:
-              'Demo data is temporarily unavailable. Try again or return to the workspace.'
-          })}
+        <ResourceErrorState
+          error={visibility.error}
+          onRetry={visibility.retry}
           title={t('status.errorVisibility', { defaultValue: '无法加载知识可见性' })}
         />
       </div>
     )
   }
 
-  return <KnowledgeVisibilityContent model={visibility.data} />
+  return <KnowledgeVisibilityContent gateway={knowledge} model={visibility.data} />
 }

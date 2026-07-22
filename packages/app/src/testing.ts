@@ -1,4 +1,4 @@
-/** @file 测试与明确开发演示使用的 fake adapter 入口 / Fake-adapter entry for tests and explicit development demos. */
+/** @file 仅供自动化测试使用的内存 adapter 入口 / In-memory adapter entry used only by automated tests. */
 
 export * from './contexts/interview/infrastructure/memory/data'
 export * from './contexts/interview/infrastructure/memory/gateway'

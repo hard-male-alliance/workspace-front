@@ -119,8 +119,7 @@
     color: var(--color-accent-strong);
   }
 
-  .aw-stat-grid,
-  .aw-state-grid {
+  .aw-stat-grid {
     grid-template-columns: 1fr;
   }
 

@@ -3,21 +3,15 @@
 import type { UiWorkspaceId } from '../../../shared-kernel/identity'
 import type { UiContentLocale } from '../../../shared-kernel/locale'
 import type {
-  UiResumeAssistantMessageInput,
-  UiResumeAssistantTurnResult,
-  UiResumeAssistantUndoInput,
-  UiResumeAssistantUndoResult,
   UiResumeCard,
   UiResumeEditorModel,
   UiResumeId,
-  UiResumePdfArtifact,
-  UiResumeProposal,
-  UiResumeProposalDecisionInput,
   UiResumeRenderJob,
   UiResumeSectionDeleteInput,
   UiResumeSectionsReorderInput,
   UiResumeSectionUpdateInput,
   UiResumeTemplateSelectionInput,
+  UiResumeTemplateSettingsUpdateInput,
   UiStartResumePdfRenderInput,
   UiTemplateManifest,
   UiTemplateSettingsModel
@@ -39,18 +33,6 @@ export interface ResumeGateway {
    */
   getResumeEditor(resumeId: UiResumeId): Promise<UiResumeEditorModel>
 
-  /** @brief 恢复当前简历待审批 Proposal / Recover pending Proposals for a Resume. */
-  listResumeProposals(
-    resumeId: UiResumeId,
-    signal?: AbortSignal
-  ): Promise<readonly UiResumeProposal[]>
-
-  /** @brief 根据自然语言创建待审批 Proposal / Create an approval-gated Proposal from natural language. */
-  createResumeProposal(input: UiResumeAssistantMessageInput): Promise<UiResumeProposal>
-
-  /** @brief 接受或拒绝 Proposal / Accept or reject a Proposal. */
-  decideResumeProposal(input: UiResumeProposalDecisionInput): Promise<UiResumeProposal>
-
   /** @brief 启动 PDF preview Render Job / Start a PDF preview Render Job. */
   startResumePdfRender(input: UiStartResumePdfRenderInput): Promise<UiResumeRenderJob>
 
@@ -59,26 +41,6 @@ export interface ResumeGateway {
     jobId: UiResumeRenderJob['id'],
     signal?: AbortSignal
   ): Promise<UiResumeRenderJob>
-
-  /** @brief 恢复 Resume 的 PDF artifacts / Recover PDF artifacts for a Resume. */
-  listResumePdfArtifacts(
-    resumeId: UiResumeId,
-    signal?: AbortSignal
-  ): Promise<readonly UiResumePdfArtifact[]>
-
-  /**
-   * @brief 向简历助手发送自然语言 / Send natural language to the resume assistant.
-   * @param input 助手消息领域输入 / Assistant-message domain input.
-   * @return 助手消息与最新简历投影 / Assistant message and latest resume projection.
-   */
-  sendAssistantMessage(input: UiResumeAssistantMessageInput): Promise<UiResumeAssistantTurnResult>
-
-  /**
-   * @brief 撤销最近一次仍有效的 AI 变更 / Undo the latest still-valid AI change.
-   * @param input 撤销领域输入 / Undo domain input.
-   * @return 撤销后的编辑器投影 / Editor projection after undo.
-   */
-  undoAssistantChange(input: UiResumeAssistantUndoInput): Promise<UiResumeAssistantUndoResult>
 
   /**
    * @brief 提交用户对单个板块的编辑 / Submit a user-authored section edit.
@@ -95,6 +57,11 @@ export interface ResumeGateway {
 
   /** @brief 快速切换简历模板 / Quickly select a resume template. */
   selectResumeTemplate(input: UiResumeTemplateSelectionInput): Promise<UiResumeEditorModel>
+
+  /** @brief 原子保存模板选择与完整语义样式意图 / Atomically save template selection and complete semantic-style intent. */
+  updateTemplateSettings(
+    input: UiResumeTemplateSettingsUpdateInput
+  ): Promise<UiTemplateSettingsModel>
 
   /**
    * @brief 按界面语言列出模板 / List templates by UI locale.

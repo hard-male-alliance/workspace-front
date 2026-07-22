@@ -9,14 +9,6 @@ function fetchBody(fetchImpl: ReturnType<typeof vi.fn<typeof fetch>>, callIndex:
   return body
 }
 
-function fetchUrl(fetchImpl: ReturnType<typeof vi.fn<typeof fetch>>, callIndex: number): string {
-  const input = fetchImpl.mock.calls[callIndex]?.[0]
-  if (typeof input === 'string') return input
-  if (input instanceof URL) return input.toString()
-  if (input instanceof Request) return input.url
-  throw new Error('Expected a fetch request URL.')
-}
-
 function resumeDocument(revision = 4): Record<string, unknown> {
   const measurement = { unit: 'mm', value: 18 }
   const color = (value: string): Record<string, unknown> => ({ space: 'srgb_hex', value })
@@ -116,32 +108,6 @@ function resumeResponse(revision = 4): Response {
     headers: { 'Content-Type': 'application/json', ETag: `"resume-${revision}"` },
     status: 200
   })
-}
-
-function resumeProposal(status = 'pending'): Record<string, unknown> {
-  return {
-    base_revision: 4,
-    created_at: '2026-07-19T00:00:00Z',
-    expires_at: null,
-    extensions: {},
-    id: 'proposal_example',
-    operations: [
-      {
-        field_path: ['summary'],
-        op: 'set_field',
-        operation_id: 'op_proposal_12345678',
-        target: { entity_type: 'profile' },
-        value: '突出工程结果'
-      }
-    ],
-    resume_id: 'res_example',
-    revision: 1,
-    source_run_id: 'run_example_12345678',
-    status,
-    summary: null,
-    title: '强化职业摘要',
-    updated_at: '2026-07-19T00:00:00Z'
-  }
 }
 
 function renderArtifact(): Record<string, unknown> {
@@ -380,87 +346,63 @@ describe('HttpResumeGateway', (): void => {
     ])
   })
 
-  it('recovers pending Resume proposals from the formal list endpoint', async (): Promise<void> => {
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
-      Response.json({
-        items: [resumeProposal()],
-        page: { has_more: false, next_cursor: null, total_estimate: 1 }
-      })
-    )
-    const gateway = new HttpResumeGateway(
-      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
-    )
-
-    const proposals = await gateway.listResumeProposals('res_example' as never)
-
-    expect(proposals).toEqual([
-      expect.objectContaining({
-        id: 'proposal_example',
-        status: 'pending',
-        title: '强化职业摘要'
-      })
-    ])
-    const requestUrl = new URL(fetchUrl(fetchImpl, 0))
-    expect(requestUrl.pathname).toBe('/api/v1/resumes/res_example/proposals')
-    expect(requestUrl.searchParams.get('status')).toBe('pending')
-  })
-
-  it('creates a temporary backend proposal without applying it to the Resume', async (): Promise<void> => {
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(Response.json(resumeProposal()))
-    const gateway = new HttpResumeGateway(
-      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
-    )
-
-    const proposal = await gateway.createResumeProposal({
-      message: '请强化职业摘要',
-      resumeId: 'res_example' as never
-    })
-
-    const init = fetchImpl.mock.calls[0]?.[1]
-    const body = JSON.parse(fetchBody(fetchImpl, 0)) as Record<string, unknown>
-    expect(body).toMatchObject({
-      field_path: ['summary'],
-      instruction: '请强化职业摘要',
-      render_hint: 'preview',
-      source_ids: [],
-      target: { entity_type: 'profile' }
-    })
-    expect((init?.headers as Record<string, string>)['Idempotency-Key']).toMatch(/^proposal_/u)
-    expect(proposal.status).toBe('pending')
-  })
-
-  it.each([
-    ['accept', 'accept_all'],
-    ['reject', 'reject']
-  ] as const)(
-    'maps the %s action to a formal Proposal decision',
-    async (decision, wireDecision) => {
-      const fetchImpl = vi
-        .fn<typeof fetch>()
-        .mockResolvedValue(
-          Response.json(resumeProposal(decision === 'accept' ? 'accepted' : 'rejected'))
-        )
-      const gateway = new HttpResumeGateway(
-        createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
-      )
-
-      const proposal = await gateway.decideResumeProposal({
-        decision,
-        proposalId: 'proposal_example' as never
-      })
-
-      expect(JSON.parse(fetchBody(fetchImpl, 0))).toEqual({
-        comment: null,
-        conflict_strategy: 'reject',
-        decision: wireDecision,
-        operation_ids: []
-      })
-      expect(proposal.status).toBe(decision === 'accept' ? 'accepted' : 'rejected')
+  it('atomically persists template settings as a formal semantic style intent', async (): Promise<void> => {
+    /** @brief 后端归一化后的简历 / Resume normalized by the backend. */
+    const changedDocument = {
+      ...resumeDocument(5),
+      style_intent: {
+        ...(resumeDocument(5).style_intent as Record<string, unknown>),
+        density: 0.75
+      }
     }
-  )
+    /** @brief 依次返回简历、模板目录与 operation 结果的网络替身 / Network double returning Resume, template catalog, and operation result. */
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(resumeResponse())
+      .mockResolvedValueOnce(
+        Response.json({
+          items: [templateManifest('tpl_default_v1')],
+          page: { has_more: false, next_cursor: null, total_estimate: 1 }
+        })
+      )
+      .mockResolvedValueOnce(Response.json(operationResult(changedDocument)))
+    /** @brief 被测 Resume Gateway / Resume Gateway under test. */
+    const gateway = new HttpResumeGateway(
+      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
+    )
+    /** @brief 作为编辑基线的权威简历 / Authoritative Resume used as the edit baseline. */
+    const editor = await gateway.getResumeEditor('res_example' as never)
+
+    const saved = await gateway.updateTemplateSettings({
+      resumeId: 'res_example' as never,
+      styleIntent: { ...editor.resume.styleIntent, density: 0.75 },
+      templateId: 'tpl_default_v1' as never
+    })
+
+    /** @brief 发往 operation endpoint 的 JSON body / JSON body sent to the operation endpoint. */
+    const body = JSON.parse(fetchBody(fetchImpl, 2)) as {
+      readonly operations: readonly Record<string, unknown>[]
+    }
+    expect(body.operations).toHaveLength(1)
+    expect(body.operations[0]).toMatchObject({
+      op: 'set_template',
+      template: { template_id: 'tpl_default_v1', template_version: '1.0' }
+    })
+    expect(body.operations[0]?.style_intent).toMatchObject({
+      density: 0.75,
+      page: { size: 'A4' },
+      typography: { font_family_token: 'body.default' }
+    })
+    expect(saved.styleIntent.density).toBe(0.75)
+  })
 
   it('starts a formal PDF preview Render Job', async (): Promise<void> => {
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(Response.json(renderJob()))
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json(renderJob(), {
+        headers: { Location: '/api/v1/resume-render-jobs/job_render_example' },
+        status: 202
+      })
+    )
     const gateway = new HttpResumeGateway(
       createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
     )
@@ -482,6 +424,48 @@ describe('HttpResumeGateway', (): void => {
     expect(job).toMatchObject({ id: 'job_render_example', status: 'queued' })
   })
 
+  it.each([
+    [
+      200,
+      '/api/v1/resume-render-jobs/job_render_example',
+      'Backend returned an unexpected success status; expected 202.'
+    ],
+    [202, null, 'Backend creation response is missing Location.'],
+    [
+      202,
+      '/api/v1/resume-render-jobs/job_other',
+      'Backend creation response Location does not identify the created resource.'
+    ]
+  ] as const)(
+    'rejects Render Job creation status %s and Location %s when the creation contract is violated',
+    async (status, location, expectedMessage): Promise<void> => {
+      /** @brief 当前非法创建响应的响应头 / Headers for the current invalid creation response. */
+      const headers = location === null ? undefined : { Location: location }
+      /** @brief 返回当前非法创建响应的网络替身 / Network double returning this invalid creation response. */
+      const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+        Response.json(renderJob(), {
+          ...(headers === undefined ? {} : { headers }),
+          status
+        })
+      )
+      /** @brief 被测 Resume Gateway / Resume Gateway under test. */
+      const gateway = new HttpResumeGateway(
+        createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
+      )
+
+      await expect(
+        gateway.startResumePdfRender({
+          resumeId: 'res_example' as never,
+          resumeRevision: 4
+        })
+      ).rejects.toMatchObject({
+        message: expectedMessage,
+        name: 'HttpContractError',
+        status
+      })
+    }
+  )
+
   it('maps a completed Render Job and its trusted PDF artifact', async (): Promise<void> => {
     const fetchImpl = vi
       .fn<typeof fetch>()
@@ -497,23 +481,5 @@ describe('HttpResumeGateway', (): void => {
       contentUrl: 'http://127.0.0.1:8000/api/v1/render-artifacts/artifact_example/content',
       pageCount: 2
     })
-  })
-
-  it('recovers the latest PDF artifact for a Resume', async (): Promise<void> => {
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
-      Response.json({
-        items: [renderArtifact()],
-        page: { has_more: false, next_cursor: null, total_estimate: 1 }
-      })
-    )
-    const gateway = new HttpResumeGateway(
-      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
-    )
-
-    const artifacts = await gateway.listResumePdfArtifacts('res_example' as never)
-
-    expect(artifacts).toEqual([
-      expect.objectContaining({ id: 'artifact_example', resumeRevision: 4 })
-    ])
   })
 })

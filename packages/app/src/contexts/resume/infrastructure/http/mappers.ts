@@ -11,6 +11,7 @@ import type {
   UiResumePageOrientation,
   UiResumePageSize,
   UiResumeSectionKind,
+  UiResumeStyleIntent,
   UiTemplateManifest,
   UiTemplateSettingControl,
   UiTemplateSettingValue,
@@ -24,6 +25,52 @@ import type {
   ResumeItemDto,
   TemplateManifestDto
 } from './transport-types'
+
+/**
+ * @brief 将领域样式意图映射为正式 transport DTO / Map domain style intent to the formal transport DTO.
+ * @param intent 完整领域样式意图 / Complete domain style intent.
+ * @return 仅包含契约语义字段的 ResumeStyleIntent / ResumeStyleIntent containing only contract semantic fields.
+ */
+export function mapResumeStyleIntentToDto(
+  intent: UiResumeStyleIntent
+): ResumeDocumentDto['style_intent'] {
+  return {
+    bullet_style_token: intent.bulletStyleToken,
+    date_format_token: intent.dateFormatToken,
+    density: intent.density,
+    page: {
+      margins: intent.page.margins,
+      max_pages: intent.page.maxPages,
+      orientation: intent.page.orientation,
+      show_page_numbers: intent.page.showPageNumbers,
+      size: intent.page.size
+    },
+    palette: {
+      background: intent.palette.background,
+      muted_text: intent.palette.mutedText,
+      primary: intent.palette.primary,
+      secondary: intent.palette.secondary,
+      text: intent.palette.text
+    },
+    section_layout: intent.sectionLayout.map((layout) => ({
+      compactness: layout.compactness,
+      heading_style_token: layout.headingStyleToken,
+      keep_together: layout.keepTogether,
+      page_break_before: layout.pageBreakBefore,
+      section_id: layout.sectionId,
+      zone: layout.zone
+    })),
+    style_contract_version: intent.styleContractVersion,
+    template_settings: intent.templateSettings,
+    typography: {
+      base_size_pt: intent.typography.baseSizePt,
+      font_family_token: intent.typography.fontFamilyToken,
+      heading_scale: intent.typography.headingScale,
+      letter_spacing_em: intent.typography.letterSpacingEm,
+      line_height: intent.typography.lineHeight
+    }
+  }
+}
 
 const sectionKinds: readonly UiResumeSectionKind[] = [
   'summary',
@@ -203,7 +250,6 @@ export function mapTemplateManifestDto(dto: TemplateManifestDto): UiTemplateMani
     fontFamilyTokens: dto.font_family_tokens,
     id: asUiOpaqueId<'template'>(dto.id),
     name: dto.name,
-    previewAssetUrl: null,
     settings: dto.settings.map((setting, index) => ({
       choices: setting.choices.map((choice, choiceIndex) => ({
         descriptionKey: choice.description_key,

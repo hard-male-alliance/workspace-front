@@ -161,23 +161,6 @@ export interface UiTranscriptEntry {
   readonly endMs: number
 }
 
-/**
- * @brief 模拟面试页面模型 / Mock-interview page model.
- * @note connectionState 仅为媒体 UI 状态，真实 RealtimeConnectionDescriptor 尚未接入。
- */
-export interface UiLiveInterviewModel {
-  /** @brief 会话 / Session. */
-  readonly session: UiInterviewSession
-  /** @brief 场景 / Scenario. */
-  readonly scenario: UiInterviewScenario
-  /** @brief 媒体连接状态 / Media connection state. */
-  readonly connectionState: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed'
-  /** @brief 当前面试官文本 / Current interviewer text. */
-  readonly interviewerText: string
-  /** @brief 实时字幕 / Realtime transcript. */
-  readonly transcript: readonly UiTranscriptEntry[]
-}
-
 /** @brief 已完成面试的历史列表投影 / Completed-interview history projection. */
 export interface UiInterviewHistoryItem {
   /** @brief 面试会话 / Interview session. */
@@ -202,17 +185,31 @@ export interface UiInterviewSetupModel {
   readonly scenarios: readonly UiInterviewScenario[]
   /** @brief 已保存岗位目标 / Saved job targets. */
   readonly jobTargets: readonly UiJobTarget[]
+  /** @brief 当前宿主是否已实现可用 realtime 传输 / Whether this host implements a usable realtime transport. */
+  readonly realtimeAvailable: boolean
+}
+
+/** @brief 可由正式 REST 资源还原的面试会话详情 / Interview-session details reconstructable from formal REST resources. */
+export interface UiInterviewSessionDetails {
+  /** @brief 权威会话资源 / Authoritative session resource. */
+  readonly session: UiInterviewSession
+  /** @brief 权威场景资源 / Authoritative scenario resource. */
+  readonly scenario: UiInterviewScenario
+  /** @brief 由会话起止时间计算的实际分钟数 / Actual minutes derived from session timestamps. */
+  readonly durationMinutes: number
 }
 
 /** @brief 创建面试的领域输入 / Domain input for creating an interview. */
 export interface UiCreateInterviewInput {
+  /** @brief 所属工作区 ID / Owning workspace ID. */
   readonly workspaceId: UiWorkspaceId
+  /** @brief 用户从真实场景目录选择的场景 ID / Scenario ID selected from the real scenario catalog. */
+  readonly scenarioId: UiInterviewScenarioId
+  /** @brief 本次目标岗位 / Job target for this session. */
   readonly jobTarget: UiJobTarget
-  readonly interviewType: UiInterviewType
-  readonly difficulty: UiInterviewDifficulty
-  readonly durationMinutes: number
+  /** @brief 明确选入本会话的知识来源 / Knowledge sources explicitly selected for this session. */
   readonly knowledgeSourceIds: readonly UiKnowledgeSourceId[]
-  readonly focusPrompt: string | null
+  /** @brief 请求取消信号 / Request cancellation signal. */
   readonly signal?: AbortSignal
 }
 
@@ -239,7 +236,6 @@ export interface UiInterviewRuntimeModel {
   readonly currentTranscript: string
   readonly elapsedSeconds: number
   readonly estimatedDurationMinutes: number
-  readonly isMock: boolean
 }
 
 /** @brief 面试证据引用 / Interview evidence reference. */

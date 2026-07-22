@@ -21,7 +21,6 @@ import type {
   ResumeDocumentDto,
   ResumeItemDto,
   ResumeOperationBatchResultDto,
-  ResumeProposalDto,
   RenderArtifactDto,
   ResumeRenderJobDto,
   ResumeSectionDto,
@@ -363,57 +362,6 @@ export function parseResumeOperationBatchResultDto(value: unknown): ResumeOperat
   }
 }
 
-/** @brief 校验 Resume Proposal / Validate a Resume Proposal. */
-export function parseResumeProposalDto(value: unknown): ResumeProposalDto {
-  const input = record(value, 'proposal')
-  const summary = nullableRecord(input.summary, 'proposal.summary')
-  const status = string(input.status, 'proposal.status')
-  const statuses: readonly ResumeProposalDto['status'][] = [
-    'pending',
-    'accepted',
-    'partially_accepted',
-    'rejected',
-    'expired',
-    'conflicted'
-  ]
-  if (!statuses.includes(status as ResumeProposalDto['status'])) {
-    throw new HttpContractError('Backend returned an unsupported Proposal status.', 200)
-  }
-  const operations = array(input.operations, 'proposal.operations').map((item, index) => {
-    const operation = record(item, `proposal.operations[${index}]`)
-    return {
-      op: string(operation.op, `proposal.operations[${index}].op`),
-      operation_id: string(operation.operation_id, `proposal.operations[${index}].operation_id`)
-    }
-  })
-  if (operations.length === 0) {
-    throw new HttpContractError('Backend Proposal must contain at least one operation.', 200)
-  }
-  return {
-    base_revision: number(input.base_revision, 'proposal.base_revision'),
-    created_at: string(input.created_at, 'proposal.created_at'),
-    expires_at: nullableString(input.expires_at, 'proposal.expires_at'),
-    id: string(input.id, 'proposal.id'),
-    operations,
-    resume_id: string(input.resume_id, 'proposal.resume_id'),
-    revision: number(input.revision, 'proposal.revision'),
-    source_run_id: string(input.source_run_id, 'proposal.source_run_id'),
-    status: status as ResumeProposalDto['status'],
-    summary: summary === null ? null : parseRichText(summary, 'proposal.summary'),
-    title: string(input.title, 'proposal.title'),
-    updated_at: string(input.updated_at, 'proposal.updated_at')
-  }
-}
-
-/** @brief 校验 Resume Proposal 分页 / Validate a Resume Proposal page. */
-export function parseResumeProposalListDto(value: unknown): PaginatedDto<ResumeProposalDto> {
-  const input = record(value, 'response')
-  return {
-    items: array(input.items, 'items').map((item) => parseResumeProposalDto(item)),
-    page: parseCursorPage(input.page)
-  }
-}
-
 /** @brief 校验 Render artifact / Validate a Render artifact. */
 export function parseRenderArtifactDto(value: unknown): RenderArtifactDto {
   const input = record(value, 'artifact')
@@ -469,14 +417,5 @@ export function parseResumeRenderJobDto(value: unknown): ResumeRenderJobDto {
     resume_id: string(input.resume_id, 'renderJob.resume_id'),
     resume_revision: number(input.resume_revision, 'renderJob.resume_revision'),
     status: status as ResumeRenderJobDto['status']
-  }
-}
-
-/** @brief 校验 Render artifact 分页 / Validate a Render artifact page. */
-export function parseRenderArtifactListDto(value: unknown): PaginatedDto<RenderArtifactDto> {
-  const input = record(value, 'response')
-  return {
-    items: array(input.items, 'items').map(parseRenderArtifactDto),
-    page: parseCursorPage(input.page)
   }
 }

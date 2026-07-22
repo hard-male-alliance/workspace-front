@@ -79,7 +79,10 @@ async function bootstrapDesktopRenderer(): Promise<void> {
       <WorkspaceApp
         artifactSave={bridge}
         diagnostics={diagnostics}
-        gateways={createProductGateways(runtimeInfo.apiBaseUrl, diagnostics)}
+        gateways={createProductGateways(runtimeInfo.apiBaseUrl, diagnostics, {
+          locale: navigator.language,
+          platform: 'electron'
+        })}
         runtimeInfo={runtimeInfo}
       />
     </StrictMode>

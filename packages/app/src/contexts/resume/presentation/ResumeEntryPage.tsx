@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { Link, Navigate } from 'react-router-dom'
 
 import { useAsyncResource, useResumeGateway, useWorkspaceSession } from '../../../app/AppData'
-import { ErrorState, LoadingState } from '../../../ui'
+import { ResourceErrorState } from '../../../app/ResourceErrorState'
+import { LoadingState } from '../../../ui'
 import type { UiResumeCard } from '../domain/models'
 
 /** @brief 将稳定 Resume 入口解析为最近编辑的真实 Resume / Resolve the stable Resume entry to the latest real Resume. */
@@ -32,10 +33,9 @@ export function ResumeEntryPage(): React.JSX.Element {
   if (latestResume.status === 'error') {
     return (
       <div className="aw-page">
-        <ErrorState
-          description={t('status.errorDescription', {
-            defaultValue: '数据暂时不可用，请稍后重试。'
-          })}
+        <ResourceErrorState
+          error={latestResume.error}
+          onRetry={latestResume.retry}
           title={t('status.errorResume', { defaultValue: '无法加载简历' })}
         />
       </div>

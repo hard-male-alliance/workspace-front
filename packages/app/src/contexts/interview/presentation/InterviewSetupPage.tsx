@@ -7,18 +7,10 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAsyncResource, useInterviewGateway, useInterviewSetupQuery } from '../../../app/AppData'
 import type { InterviewSetupQueryResult } from '../../../app/AppQueries'
 import { runDiagnosticCommand, useDiagnostics } from '../../../app/Diagnostics'
+import { ResourceErrorState } from '../../../app/ResourceErrorState'
+import { classifyResourceFailure } from '../../../app/resource-errors'
 import type { UiKnowledgeSourceId } from '../../knowledge'
-import { ErrorState, LoadingState } from '../../../ui'
-import type { UiInterviewDifficulty, UiInterviewType } from '../domain/models'
-
-const durationOptions = [15, 30, 45, 60] as const
-const typeOptions: readonly UiInterviewType[] = [
-  'mixed',
-  'behavioral',
-  'technical',
-  'system_design'
-]
-const difficultyOptions: readonly UiInterviewDifficulty[] = ['introductory', 'standard', 'advanced']
+import { LoadingState } from '../../../ui'
 const customJobValue = '__custom__'
 
 function InterviewSetupForm({
@@ -33,10 +25,7 @@ function InterviewSetupForm({
   const initialJob = data.setup.jobTargets.at(0)
   const [jobTitle, setJobTitle] = useState(initialJob?.title ?? '')
   const [selectedJobValue, setSelectedJobValue] = useState(initialJob?.title ?? customJobValue)
-  const [interviewType, setInterviewType] = useState<UiInterviewType>('mixed')
-  const [difficulty, setDifficulty] = useState<UiInterviewDifficulty>('standard')
-  const [durationMinutes, setDurationMinutes] = useState(30)
-  const [focusPrompt, setFocusPrompt] = useState('')
+  const [selectedScenarioId, setSelectedScenarioId] = useState(data.setup.scenarios.at(0)?.id ?? '')
   const [selectedKnowledge, setSelectedKnowledge] = useState<ReadonlySet<UiKnowledgeSourceId>>(
     () => new Set(data.knowledgeSources.map((source) => source.id))
   )
@@ -47,6 +36,10 @@ function InterviewSetupForm({
   const selectedJob = useMemo(
     () => data.setup.jobTargets.find((job) => job.title === jobTitle) ?? null,
     [data.setup.jobTargets, jobTitle]
+  )
+  const selectedScenario = useMemo(
+    () => data.setup.scenarios.find((scenario) => scenario.id === selectedScenarioId) ?? null,
+    [data.setup.scenarios, selectedScenarioId]
   )
 
   const toggleKnowledge = (sourceId: UiKnowledgeSourceId): void => {
@@ -60,7 +53,7 @@ function InterviewSetupForm({
 
   const submit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault()
-    if (jobTitle.trim().length === 0 || isSubmitting) return
+    if (jobTitle.trim().length === 0 || selectedScenario === null || isSubmitting) return
     setSubmitting(true)
     setSubmitError(null)
     void runDiagnosticCommand(
@@ -76,17 +69,21 @@ function InterviewSetupForm({
             seniority: null,
             skills: []
           },
-          interviewType,
-          difficulty,
-          durationMinutes,
-          knowledgeSourceIds: [...selectedKnowledge],
-          focusPrompt: focusPrompt.trim() || null
+          scenarioId: selectedScenario.id,
+          knowledgeSourceIds: [...selectedKnowledge]
         })
     )
       .then(({ sessionId }) => navigate(`/interviews/${sessionId}`))
-      .catch(() => {
+      .catch((error: unknown) => {
+        const failure = classifyResourceFailure(error)
         setSubmitError(
-          t('interviewSetup.submitError', { defaultValue: '无法创建面试，请保留当前设置并重试。' })
+          failure.kind === 'capability-unavailable'
+            ? t('interviewSetup.realtimeUnavailable', {
+                defaultValue: '实时面试连接尚未就绪，本次没有创建无法使用的会话。'
+              })
+            : t('interviewSetup.submitError', {
+                defaultValue: '无法创建面试，请保留当前设置并重试。'
+              })
         )
         setSubmitting(false)
       })
@@ -104,7 +101,6 @@ function InterviewSetupForm({
               })}
             </p>
           </div>
-          <span className="aw-status aw-status--active">Mock</span>
         </div>
         <div className="aw-interview-form-grid">
           <label className="aw-editor-field">
@@ -150,51 +146,74 @@ function InterviewSetupForm({
           ) : null}
           <label className="aw-editor-field">
             <span className="aw-editor-label">
-              {t('interviewSetup.type', { defaultValue: '面试类型' })}
+              {t('interviewSetup.scenario', { defaultValue: '练习场景' })}
             </span>
             <select
               className="aw-select"
-              onChange={(event) => setInterviewType(event.target.value as UiInterviewType)}
-              value={interviewType}
+              disabled={data.setup.scenarios.length === 0}
+              onChange={(event) => setSelectedScenarioId(event.target.value)}
+              value={selectedScenarioId}
             >
-              {typeOptions.map((value) => (
-                <option key={value} value={value}>
-                  {t(`interviewTypes.${value}`, { defaultValue: value })}
+              {data.setup.scenarios.length === 0 ? (
+                <option value="">
+                  {t('interviewSetup.noScenarios', { defaultValue: '没有可用场景' })}
+                </option>
+              ) : null}
+              {data.setup.scenarios.map((scenario) => (
+                <option key={scenario.id} value={scenario.id}>
+                  {scenario.name}
                 </option>
               ))}
             </select>
+          </label>
+          <label className="aw-editor-field">
+            <span className="aw-editor-label">
+              {t('interviewSetup.type', { defaultValue: '面试类型' })}
+            </span>
+            <input
+              className="aw-text-input"
+              readOnly
+              value={
+                selectedScenario === null
+                  ? '—'
+                  : t(`interviewTypes.${selectedScenario.interviewType}`, {
+                      defaultValue: selectedScenario.interviewType
+                    })
+              }
+            />
           </label>
           <label className="aw-editor-field">
             <span className="aw-editor-label">
               {t('interviewSetup.difficulty', { defaultValue: '难度' })}
             </span>
-            <select
-              className="aw-select"
-              onChange={(event) => setDifficulty(event.target.value as UiInterviewDifficulty)}
-              value={difficulty}
-            >
-              {difficultyOptions.map((value) => (
-                <option key={value} value={value}>
-                  {t(`interviewDifficulties.${value}`, { defaultValue: value })}
-                </option>
-              ))}
-            </select>
+            <input
+              className="aw-text-input"
+              readOnly
+              value={
+                selectedScenario === null
+                  ? '—'
+                  : t(`interviewDifficulties.${selectedScenario.difficulty}`, {
+                      defaultValue: selectedScenario.difficulty
+                    })
+              }
+            />
           </label>
           <label className="aw-editor-field">
             <span className="aw-editor-label">
               {t('interviewSetup.duration', { defaultValue: '预计时长' })}
             </span>
-            <select
-              className="aw-select"
-              onChange={(event) => setDurationMinutes(Number(event.target.value))}
-              value={durationMinutes}
-            >
-              {durationOptions.map((value) => (
-                <option key={value} value={value}>
-                  {t('common.minutesValue', { count: value, defaultValue: `${value} 分钟` })}
-                </option>
-              ))}
-            </select>
+            <input
+              className="aw-text-input"
+              readOnly
+              value={
+                selectedScenario === null
+                  ? '—'
+                  : t('common.minutesValue', {
+                      count: selectedScenario.durationMinutes,
+                      defaultValue: `${selectedScenario.durationMinutes} 分钟`
+                    })
+              }
+            />
           </label>
         </div>
         <label className="aw-editor-field">
@@ -203,12 +222,10 @@ function InterviewSetupForm({
           </span>
           <input
             className="aw-text-input"
-            maxLength={160}
-            onChange={(event) => setFocusPrompt(event.target.value)}
-            placeholder={t('interviewSetup.focusPlaceholder', {
-              defaultValue: '例如：重点考察项目经历'
+            disabled
+            placeholder={t('interviewSetup.focusUnavailable', {
+              defaultValue: '当前 API 契约尚未支持补充要求'
             })}
-            value={focusPrompt}
           />
         </label>
       </section>
@@ -276,9 +293,13 @@ function InterviewSetupForm({
       <div className="aw-interview-setup-note">
         <ShieldCheck aria-hidden="true" size={16} />
         <span>
-          {t('interviewSetup.mockNotice', {
-            defaultValue: '当前为界面演示，不会采集或发送真实麦克风音频。'
-          })}
+          {data.setup.realtimeAvailable
+            ? t('interviewSetup.capabilityNotice', {
+                defaultValue: '实时传输可用时才会创建会话；未就绪时不会创建无法使用的会话。'
+              })
+            : t('interviewSetup.realtimeUnavailableNotice', {
+                defaultValue: '实时面试连接尚未就绪；当前不会创建无法使用的会话。'
+              })}
         </span>
       </div>
       {submitError !== null ? (
@@ -293,7 +314,12 @@ function InterviewSetupForm({
         </Link>
         <button
           className="aw-primary-button"
-          disabled={jobTitle.trim().length === 0 || isSubmitting}
+          disabled={
+            jobTitle.trim().length === 0 ||
+            selectedScenario === null ||
+            !data.setup.realtimeAvailable ||
+            isSubmitting
+          }
           type="submit"
         >
           <Mic aria-hidden="true" size={16} />
@@ -321,10 +347,9 @@ export function InterviewSetupPage(): React.JSX.Element {
   if (setup.status === 'error')
     return (
       <div className="aw-page">
-        <ErrorState
-          description={t('interviewSetup.errorDescription', {
-            defaultValue: '配置数据暂时不可用，请返回后重试。'
-          })}
+        <ResourceErrorState
+          error={setup.error}
+          onRetry={setup.retry}
           title={t('interviewSetup.error', { defaultValue: '无法加载面试设置' })}
         />
       </div>
