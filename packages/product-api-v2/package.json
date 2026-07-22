@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./native-oauth": "./src/native-oauth.ts",
     "./origin": "./src/origin.ts"
   }
 }
