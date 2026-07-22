@@ -38,7 +38,10 @@ const expectedImportPaths = [
 ] as const
 
 /** @brief 由独立组件按需加载、但仍属于受管理级联的样式分片 / Style fragments loaded on demand by isolated components but still owned by the managed cascade. */
-const expectedComponentFragmentPaths = ['./shared-ui/host-startup-failure.css'] as const
+const expectedComponentFragmentPaths = [
+  './shared-ui/host-startup-failure.css',
+  './shared-ui/hosted-authentication.css'
+] as const
 
 /**
  * @brief 递归收集目录中的 CSS 文件 / Recursively collect CSS files in a directory.
