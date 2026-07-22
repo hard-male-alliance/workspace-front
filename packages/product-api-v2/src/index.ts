@@ -111,6 +111,8 @@ export type {
   CreateWorkspaceResumeCommand,
   ResumeCreationHttpClient
 } from './resume/create-resume'
+export { getWorkspaceResume } from './resume/get-resume'
+export type { ResumeDocumentReadRequest, ResumeRepresentation } from './resume/get-resume'
 export { listWorkspaceAccessPage, parseWorkspaceList } from './workspace/workspace-access'
 export type {
   Workspace,
