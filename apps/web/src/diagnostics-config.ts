@@ -2,7 +2,10 @@
 
 import { resolveDiagnosticsEndpointConfiguration } from '@ai-job-workspace/platform'
 import type { DiagnosticsEndpointConfiguration } from '@ai-job-workspace/platform'
-import { API_V2_PRODUCTION_ORIGIN } from '@ai-job-workspace/product-api-v2/origin'
+import {
+  API_V2_CONTROLLED_TEST_ORIGIN,
+  API_V2_PRODUCTION_ORIGIN
+} from '@ai-job-workspace/product-api-v2/origin'
 
 /** @brief 固定的前端诊断批量上传路径 / Fixed frontend-diagnostics batch upload path. */
 export { FRONTEND_DIAGNOSTICS_BATCH_PATH } from '@ai-job-workspace/platform'
@@ -54,20 +57,24 @@ export function resolveDiagnosticsUploadConfiguration(
  * @note 运行时不能放宽 CSP；构建时仅加入已验证的 API/diagnostics origin。
  */
 export function createWebContentSecurityPolicy(options: WebContentSecurityPolicyOptions): string {
-  /** @brief 已校验的产品 API 源，用于网络请求与公开模板预览 / Validated product API origin for requests and public Template previews. */
+  /** @brief 已校验的生产产品 API 源 / Validated production Product API origin. */
   const apiOrigin = API_V2_PRODUCTION_ORIGIN
   /** @brief 去重后的 connect-src allowlist / Deduplicated connect-src allowlist. */
   const connectSources = new Set<string>(["'self'", apiOrigin])
+  /** @brief TemplateManifest NetworkUrl 所需的图片源 / Image sources required by TemplateManifest NetworkUrl. */
+  const imageSources = new Set<string>(["'self'", 'https:', 'data:', 'blob:'])
   /** @brief 诊断上传的三态解析结果 / Three-state diagnostics-upload resolution. */
   const diagnostics = resolveDiagnosticsUploadConfiguration(options.environment)
 
   if (diagnostics.kind === 'enabled') connectSources.add(diagnostics.origin)
   if (options.includeDevelopmentSources) {
+    connectSources.add(API_V2_CONTROLLED_TEST_ORIGIN)
     connectSources.add('http://localhost:5173')
     connectSources.add('http://127.0.0.1:5173')
     connectSources.add('ws://localhost:5173')
     connectSources.add('ws://127.0.0.1:5173')
+    imageSources.add(API_V2_CONTROLLED_TEST_ORIGIN)
   }
 
-  return `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' ${apiOrigin} data: blob:; font-src 'self' data:; connect-src ${[...connectSources].join(' ')}; frame-src 'self' blob:; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'`
+  return `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src ${[...imageSources].join(' ')}; font-src 'self' data:; connect-src ${[...connectSources].join(' ')}; frame-src 'self' blob:; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'`
 }
