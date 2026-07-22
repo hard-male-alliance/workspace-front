@@ -50,6 +50,8 @@ pnpm dist:desktop
 
 ## 契约纪律
 
-`workspace-shared-docs/contracts/v1/` 是唯一正式 API 语义来源。Workspace、Resume、Interview 与 Knowledge 在 Web/Electron 生产组合根中全部使用 HTTP adapter；未冻结的上传、知识搜索、Agent 消息和实时媒体能力不会猜测临时路由，也不会回退到进程内演示数据。当前尚未冻结 OIDC/OAuth2 客户端配置与 token 生命周期，因此 HTTP transport/DTO 已接线不等于受保护资源已具备生产认证；仓库不会以 Cookie、构建变量中的 token 或前端 secret 冒充契约要求的 Bearer 身份。详情见 [契约待确认项](docs/contract-open-questions.md)。上游变更合并后，可运行 `./update-shared.sh` 审阅新 revision。
+`workspace-shared-docs/contracts/v1/` 是唯一正式 API 语义来源。Workspace、Resume、Interview 与 Knowledge 在 Web/Electron 生产组合根中全部使用 HTTP adapter；未冻结的上传、知识搜索、Agent 消息和实时媒体能力不会猜测临时路由，也不会回退到进程内演示数据。当前尚未冻结 OIDC/OAuth2 客户端配置与 token 生命周期，因此 HTTP transport/DTO 已接线不等于受保护资源已具备生产认证；正式 Gateway、Web 下载与 Electron 原生保存不会以 Cookie、构建变量中的 token 或前端 secret 冒充契约要求的 Bearer 身份。详情见 [契约待确认项](docs/contract-open-questions.md)。上游变更合并后，可运行 `./update-shared.sh` 审阅新 revision。
+
+生产数据来源、协议校验、错误重试与跨源产物的约束记录在 [ADR 0002：保护生产 API 真相与失败语义](docs/adr/0002-protect-production-api-truth.md)。架构门禁会检查生产组合的传递依赖图，拒绝它经由 facade 或 barrel 抵达 testing/memory adapter；同时用已知高风险文案规则拦截生产 UI 重新出现 demo、Mock、演示或占位数据提示。“Mock interview / 模拟面试”仍是合法产品术语，文案规则只是回归护栏，不替代代码审阅。
 
 Web 使用客户端路由；生产静态宿主需要为产品路径配置入口回退，详见 [Web 单页应用部署](docs/web-deployment.md)。

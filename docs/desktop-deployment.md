@@ -51,7 +51,8 @@ Renderer 生产输出启用 esbuild minification，并按 Resume、Interview、K
 - 生产只加载 `ai-job-workspace://renderer`，开发服务器 URL 在 packaged 应用中无效。
 - 所有 Chromium 权限默认拒绝；新增摄像头或麦克风能力必须绑定可信 origin 和明确用户操作。
 - IPC 同时校验主窗口 `webContents`、main frame 和精确 renderer URL；不得暴露通用 `send`、`invoke` 或 Electron 对象。
-- PDF 保存 IPC 仅接受安全文件名和与已验证产品 API 完全同 origin、精确匹配 `/api/v1/render-artifacts/{opaque-id}/content` 的无歧义 URL；每个重定向重新验证。下载使用发送方 `session.fetch(credentials: 'include')`，这只会保留该 Electron session 已有的 Cookie，不等于正式契约要求的 Bearer 身份；身份链路冻结前，受保护 content 的原生保存仍是明确的发布阻塞项。响应只接受 `200 application/pdf`，同时限制 `Content-Length` 与实际流为 25 MiB，并以统一总时限中止慢响应。
+- PDF 保存 IPC 仅接受符合冻结 OpaqueId 的 artifact ID 与安全文件名，不接受 renderer 提供的 URL、大小或摘要。用户完成保存对话框后，main 使用发送方 `session.fetch(credentials: 'omit')` 重新读取 `/api/v1/render-artifacts/{artifact_id}` 的完整权威 metadata，核对身份、PDF 格式、媒体类型与有效期后才立即下载。content URL 和每个重定向都必须与已验证产品 API 完全同 origin、精确匹配同一 artifact 的 `/api/v1/render-artifacts/{opaque-id}/content`。请求不携带 Cookie，也不伪造正式契约要求的 Bearer 身份；身份链路冻结前，受保护 metadata/content 的原生保存应明确失败，仍是发布阻塞项。响应只接受 `200 application/pdf`，并显式限定为 Fetch 可解码的 `gzip`/`br`/`deflate`/`zstd` 或缺省/`identity` 内容编码；`Content-Length` 只在缺省/`identity` 编码下用作提前拒绝，实际解码流始终受 25 MiB、`size_bytes` 和 SHA-256 的最终核对，并以统一总时限中止慢响应。
 - 契约允许短期签名 `download_url`，但尚未冻结对象存储/CDN origin 与重定向信任清单；因此当前安全边界只接受上述同源 content 路径。跨 origin 产物必须在上游确定 allowlist 与 CSP/CORS 后显式启用，不能退化成允许主进程抓取任意 HTTPS URL。
-- 原生保存使用用户选择目标同目录下的 `0600` 独占临时文件，刷新后尽量以原子 `rename` 完成；取消、超限和写入失败均清理临时文件。renderer 只获得 `saved/cancelled` 判别结果，绝不获得本地文件路径。
+- 原生保存使用用户选择目标同目录下的 `0600` 独占临时文件，`fsync` 后尽量以原子 `rename` 完成；取消、超限和写入失败均清理临时文件。renderer 只获得 `saved/cancelled` 判别结果，绝不获得本地文件路径。
+- PDF 预览仍由 sandboxed iframe 承载以保持既有界面，但 iframe 导航不等于 main 中可审计的无 Cookie Fetch，也不提供 Bearer token 生命周期。正式身份方案必须单独冻结预览的数据通道；当前 CSP/frame smoke 只证明 origin 约束，不证明认证。
 - 新窗口、WebView 和越界导航默认拒绝。安全策略与 Electron 官方清单保持对齐：[Electron Security](https://www.electronjs.org/docs/latest/tutorial/security)。

@@ -35,4 +35,4 @@
 3. 涉及权限、并发或实时传输时，补充失败、重连与审计行为测试；
 4. 保持页面依赖 gateway port，避免把 transport 逻辑回流到 React 组件。
 
-身份能力还必须额外满足：Web 采用已冻结的 Authorization Code + PKCE 配置；Electron 通过系统浏览器认证、在系统安全存储中保管 token，并由最小权限的主进程能力使用或签发短期 renderer 凭据。没有这些输入和端到端证据前，origin 配置、CORS、HTTP smoke 与 `session.fetch(credentials: 'include')` 都不能被解释为 Bearer 认证。
+身份能力还必须额外满足：Web 采用已冻结的 Authorization Code + PKCE 配置；Electron 通过系统浏览器认证、在系统安全存储中保管 token，并由最小权限的主进程能力使用或签发短期 renderer 凭据。没有这些输入和端到端证据前，origin 配置、CORS、HTTP smoke 与不携带 Cookie 的 `session.fetch(credentials: 'omit')` 都不能被解释为 Bearer 认证。
