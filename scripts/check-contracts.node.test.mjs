@@ -61,18 +61,14 @@ async function withContractFixture(assertion) {
     initializeRepository(submoduleRoot)
 
     /** @brief fixture 契约目录 / Fixture contract directory. */
-    const contractsDirectory = path.join(submoduleRoot, 'contracts', 'v1')
+    const contractsDirectory = path.join(submoduleRoot, 'contracts', 'v2')
     await mkdir(contractsDirectory, { recursive: true })
-    await writeFile(
-      path.join(contractsDirectory, 'ai-job-workspace-api-contract.md'),
-      '# Fixture contract\n',
-      'utf8'
-    )
-    await writeFile(
-      path.join(contractsDirectory, 'ai-job-workspace.contract.schema.json'),
-      '{}\n',
-      'utf8'
-    )
+    await Promise.all([
+      writeFile(path.join(contractsDirectory, 'contract.md'), '# Fixture contract\n', 'utf8'),
+      writeFile(path.join(contractsDirectory, 'schema.jsonc'), '{}\n', 'utf8'),
+      writeFile(path.join(contractsDirectory, 'examples.jsonc'), '{}\n', 'utf8'),
+      writeFile(path.join(contractsDirectory, 'diff.md'), '# Fixture migration\n', 'utf8')
+    ])
     git(submoduleRoot, ['add', 'contracts'])
     git(submoduleRoot, ['commit', '--quiet', '-m', 'fixture contract'])
 
@@ -121,7 +117,7 @@ describe('checkContracts', () => {
       /** @brief 合法 fixture 的检查结果 / Check result for the valid fixture. */
       const result = await checkContracts({ rootDir: parentRoot })
       expect(result.head).toBe(pinnedRevision)
-      expect(result.requiredEntries).toHaveLength(2)
+      expect(result.requiredEntries).toHaveLength(4)
     })
   })
 
@@ -139,13 +135,13 @@ describe('checkContracts', () => {
 
   it('拒绝缺失当前契约入口的工作树', async () => {
     await withContractFixture(async ({ parentRoot, submoduleRoot }) => {
-      await rm(path.join(submoduleRoot, 'contracts', 'v1', 'ai-job-workspace.contract.schema.json'))
+      await rm(path.join(submoduleRoot, 'contracts', 'v2', 'schema.jsonc'))
       /** @brief 缺失契约入口错误 / Missing-contract-entry error. */
       const error = await expectContractError(
         checkContracts({ rootDir: parentRoot }),
         'contract-entry-missing'
       )
-      expect(error.message).toContain('ai-job-workspace.contract.schema.json')
+      expect(error.message).toContain('schema.jsonc')
     })
   })
 
