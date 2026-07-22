@@ -285,6 +285,8 @@ export interface UiResumeDocument {
   readonly styleIntent: UiResumeStyleIntent
   /** @brief 自动关联的知识来源 ID / Automatically associated knowledge-source ID. */
   readonly knowledgeSourceId: UiKnowledgeSourceId | null
+  /** @brief 创建时刻 / Creation timestamp. */
+  readonly createdAt: string
   /** @brief 最近更新时间 / Last update time. */
   readonly updatedAt: string
 }
@@ -485,6 +487,8 @@ export interface UiTemplateManifest {
   readonly name: string
   /** @brief 模板说明 / Template description. */
   readonly description: string | null
+  /** @brief 服务端发布的不可变模板预览 URL / Server-published preview URL for the immutable template. */
+  readonly previewUrl: string | null
   /** @brief 支持的资源内容语言 / Supported resource-content locales. */
   readonly supportedLocales: readonly UiContentLocale[]
   /** @brief 支持页面规格 / Supported page sizes. */
@@ -505,6 +509,8 @@ export interface UiTemplateManifest {
   readonly settings: readonly UiTemplateSettingDefinition[]
   /** @brief 模板能力 / Template capabilities. */
   readonly capabilities: UiTemplateCapabilities
+  /** @brief 模板版本发布时间 / Template-version publication timestamp. */
+  readonly publishedAt: string
 }
 
 /** @brief PDF Render artifact 展示模型 / PDF Render artifact display model. */

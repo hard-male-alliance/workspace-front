@@ -8,6 +8,8 @@ import type { WorkspaceGateway } from './contexts/workspace/application/gateway'
 
 export { createUiCommandId } from './shared-kernel/command'
 export type { UiCommandId } from './shared-kernel/command'
+export { asUiConcurrencyToken } from './shared-kernel/concurrency'
+export type { UiConcurrencyToken } from './shared-kernel/concurrency'
 export { asUiOpaqueId } from './shared-kernel/identity'
 export type { UiOpaqueId, UiWorkspaceId } from './shared-kernel/identity'
 export type { UiContentLocale } from './shared-kernel/locale'
@@ -41,9 +43,41 @@ export type {
 export { asUiResumeCursor, asUiResumePageLimit } from './contexts/resume/domain/models'
 export type {
   UiResumeCursor,
+  UiResumeDocument,
+  UiResumeId,
   UiResumeSummary,
-  UiResumeSummaryPage
+  UiResumeSummaryPage,
+  UiTemplateManifest,
+  UiTemplateReference
 } from './contexts/resume/domain/models'
+export {
+  asUiResumeTemplateCursor,
+  asUiResumeTemplatePageLimit,
+  UI_RESUME_TEMPLATE_PAGE_LIMIT_MAX
+} from './contexts/resume/domain/creation'
+export type {
+  UiCreateResumeFromTemplateCommand,
+  UiCreatedResume,
+  UiResumeCreationSource,
+  UiResumeCreationTemplateOption,
+  UiResumeCreationTemplatePage,
+  UiResumeCreationTemplatePageRead,
+  UiResumeTemplateCursor,
+  UiResumeTemplatePage,
+  UiResumeTemplatePageLimit,
+  UiResumeTemplatePageRead
+} from './contexts/resume/domain/creation'
+export {
+  createResumeFromTemplate,
+  loadResumeCreationTemplatePage,
+  ResumeCreationError,
+  supportsResumeLocale
+} from './contexts/resume/application/resume-creation'
+export type {
+  ResumeCreationFailure,
+  ResumeCreationPort,
+  ResumeTemplateCatalogPort
+} from './contexts/resume/application/resume-creation'
 
 /** @brief 产品应用依赖的上下文端口集合 / Context ports required by the product application. */
 export interface AppGateways {

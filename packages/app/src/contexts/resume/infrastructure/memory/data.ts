@@ -41,6 +41,7 @@ export const MOCK_DAWN_TEMPLATE: UiTemplateManifest = {
   version: '1.0.0',
   name: 'Dawn',
   description: '温暖、紧凑且适合技术求职的单栏模板。',
+  previewUrl: 'https://api.hmalliances.org:8022/api/v2/resume-templates/tpl_mock_dawn/preview',
   supportedLocales: ['zh-SG', 'en-US'],
   supportedOutputFormats: ['pdf'],
   supportedPageSizes: ['A4', 'LETTER'],
@@ -120,7 +121,8 @@ export const MOCK_DAWN_TEMPLATE: UiTemplateManifest = {
     supportsCustomSections: true,
     supportsSourceMap: true,
     maxColumns: 2
-  }
+  },
+  publishedAt: '2026-07-01T00:00:00.000Z'
 }
 
 /** @brief Mock 备选模板清单 / Mock alternate template manifest. */
@@ -129,6 +131,7 @@ export const MOCK_EDITORIAL_TEMPLATE: UiTemplateManifest = {
   version: '1.0.0',
   name: 'Editorial',
   description: '强调项目叙事与阅读节奏的单栏模板。',
+  previewUrl: 'https://api.hmalliances.org:8022/api/v2/resume-templates/tpl_mock_editorial/preview',
   supportedLocales: ['zh-SG', 'en-US'],
   supportedOutputFormats: ['pdf'],
   supportedPageSizes: ['A4', 'LETTER', 'LEGAL'],
@@ -179,7 +182,8 @@ export const MOCK_EDITORIAL_TEMPLATE: UiTemplateManifest = {
     supportsCustomSections: false,
     supportsSourceMap: true,
     maxColumns: 1
-  }
+  },
+  publishedAt: '2026-07-02T00:00:00.000Z'
 }
 
 /** @brief 所有 Mock 模板清单 / All Mock template manifests. */
@@ -205,6 +209,7 @@ export const MOCK_TEMPLATE_MANIFEST_VERSIONS: readonly UiTemplateManifest[] = [
 export const MOCK_RESUME_DOCUMENT: UiResumeDocument = {
   id: MOCK_RESUME_ID,
   workspaceId: MOCK_RESUME_WORKSPACE_ID,
+  createdAt: '2026-07-18T00:00:00.000Z',
   revision: 18,
   title: 'AI 平台工程师 · 中文简历',
   locale: 'zh-SG',

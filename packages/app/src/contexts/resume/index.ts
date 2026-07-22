@@ -52,7 +52,35 @@ export type {
   UiTemplateSettingsModel
 } from './domain/models'
 export { asUiResumeCursor, asUiResumePageLimit, UI_RESUME_PAGE_LIMIT_MAX } from './domain/models'
+export {
+  asUiResumeTemplateCursor,
+  asUiResumeTemplatePageLimit,
+  UI_RESUME_TEMPLATE_PAGE_LIMIT_MAX
+} from './domain/creation'
+export type {
+  UiResumeTemplateCursor,
+  UiResumeTemplatePageLimit,
+  UiResumeTemplatePageRead,
+  UiResumeTemplatePage,
+  UiResumeCreationTemplateOption,
+  UiResumeCreationTemplatePage,
+  UiResumeCreationTemplatePageRead,
+  UiResumeCreationSource,
+  UiCreateResumeFromTemplateCommand,
+  UiCreatedResume
+} from './domain/creation'
 export type { ResumeGateway } from './application/gateway'
+export {
+  createResumeFromTemplate,
+  loadResumeCreationTemplatePage,
+  ResumeCreationError,
+  supportsResumeLocale
+} from './application/resume-creation'
+export type {
+  ResumeCreationFailure,
+  ResumeCreationPort,
+  ResumeTemplateCatalogPort
+} from './application/resume-creation'
 export { ResumeEditorPage } from './presentation/ResumeEditorPage'
 export { ResumeListPage } from './presentation/ResumeListPage'
 export { TemplateSettingsPage } from './presentation/TemplateSettingsPage'
