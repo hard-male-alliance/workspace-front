@@ -1,7 +1,19 @@
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { createPackagedLayoutCandidates } from './desktop-packaged-layout.mjs'
+import {
+  createPackagedLayoutCandidates,
+  normalizeAsarEntryPath
+} from './desktop-packaged-layout.mjs'
+
+describe('normalizeAsarEntryPath', () => {
+  it.each([
+    ['\\out\\main\\index.js', '/out/main/index.js'],
+    ['/out/renderer/index.html', '/out/renderer/index.html']
+  ])('将 %s 规范化为 %s', (entry, expected) => {
+    expect(normalizeAsarEntryPath(entry)).toBe(expected)
+  })
+})
 
 describe('createPackagedLayoutCandidates', () => {
   it('构造 Linux unpacked 布局', () => {

@@ -2,6 +2,15 @@ import { access, lstat, readdir, stat } from 'node:fs/promises'
 import path from 'node:path'
 
 /**
+ * @brief 将 ASAR 内部条目规范化为平台无关路径 / Normalize an ASAR entry to a platform-independent path.
+ * @param entry @electron/asar 返回的条目 / Entry returned by @electron/asar.
+ * @return 使用正斜杠的 ASAR 逻辑路径 / Logical ASAR path using forward slashes.
+ */
+export function normalizeAsarEntryPath(entry) {
+  return entry.replaceAll('\\', '/')
+}
+
+/**
  * @brief 返回当前平台可能的 unpacked 应用布局 / Return possible unpacked application layouts for the current platform.
  * @param releaseRoot electron-builder 输出目录 / electron-builder output directory.
  * @param platform Node.js 平台名 / Node.js platform name.

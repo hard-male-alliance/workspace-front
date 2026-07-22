@@ -6,6 +6,7 @@ import { getCurrentFuseWire } from '@electron/fuses'
 
 import {
   measurePathBytes,
+  normalizeAsarEntryPath,
   resolvePackagedDesktopLayout,
   verifyPackagedAsar
 } from './desktop-packaged-layout.mjs'
@@ -38,7 +39,7 @@ const releaseRoot = path.join(desktopRoot, 'release')
  */
 function verifyPackagedAsarEntries(asarPath) {
   /** @brief 实际 ASAR 条目 / Actual ASAR entries. */
-  const entries = listPackage(asarPath)
+  const entries = listPackage(asarPath).map(normalizeAsarEntryPath)
   /** @brief 必须存在的关键输出 / Required key outputs. */
   const requiredEntries = [
     '/out/main/index.js',
