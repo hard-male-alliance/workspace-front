@@ -43,6 +43,44 @@ export { parseProblemDetails } from './http/problem'
 export type { ProblemDetails, ProblemFieldError } from './http/problem'
 export { getCurrentUser, parseCurrentUser } from './identity/current-user'
 export type { CurrentUser, CurrentUserRepresentation } from './identity/current-user'
+export { getWorkspaceJob, jobNeedsPolling, parseJob } from './jobs/job'
+export type {
+  CancelledJob,
+  ExpiredJob,
+  FailedJob,
+  Job,
+  JobFields,
+  JobProgress,
+  JobProgressUnit,
+  JobReadRequest,
+  JobRepresentation,
+  PendingJob,
+  QueuedJob,
+  RunningJob,
+  SucceededJob
+} from './jobs/job'
+export { getWorkspaceArtifact, artifactMediaType, parseArtifact } from './artifacts/artifact'
+export type {
+  Artifact,
+  ArtifactKind,
+  ArtifactReadRequest,
+  ArtifactRepresentation
+} from './artifacts/artifact'
+export { getWorkspaceArtifactContent } from './artifacts/artifact-content'
+export type {
+  ArtifactByteRange,
+  ArtifactContent,
+  ArtifactContentDisposition,
+  ArtifactContentFields,
+  ArtifactContentRange,
+  ArtifactContentReadRequest,
+  AuthenticatedArtifactContentClient,
+  AuthenticatedArtifactContentOptions,
+  CompleteArtifactContent,
+  PartialArtifactContent
+} from './artifacts/artifact-content'
+export { parseResourceReference, resourceType } from './resources/resource-reference'
+export type { ResourceReference } from './resources/resource-reference'
 export { listResumePage, parseResumeList } from './resume/resume-list'
 export type { ResumeListPageRequest, ResumeSummary } from './resume/resume-list'
 export {
