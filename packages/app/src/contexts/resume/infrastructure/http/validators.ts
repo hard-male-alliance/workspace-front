@@ -115,6 +115,26 @@ const RESUME_ITEM_KINDS = [
   'custom'
 ] as const
 
+/** @brief Resume operation 的冻结判别值 / Frozen discriminants for Resume operations. */
+const RESUME_OPERATION_KINDS = [
+  'set_template',
+  'upsert_section',
+  'remove_section',
+  'move_section',
+  'upsert_item',
+  'remove_item',
+  'move_item',
+  'set_field',
+  'set_style_intent',
+  'replace_document'
+] as const
+
+/** @brief set_field 目标实体的冻结枚举 / Frozen target-entity enum for set_field. */
+const RESUME_ENTITY_TYPES = ['resume', 'profile', 'section', 'item'] as const
+
+/** @brief set_field 路径段格式 / set_field path-segment format. */
+const RESUME_FIELD_SEGMENT_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/u
+
 /** @brief Resume 颜色字面值格式 / Resume color-literal format. */
 const RESUME_COLOR_PATTERN = /^(?:#[0-9A-Fa-f]{6}|#[0-9A-Fa-f]{8}|rgba\([^)]+\))$/u
 
@@ -240,13 +260,108 @@ function templateStringArray(
  * @param path 诊断字段路径 / Diagnostic field path.
  * @return 不含 undefined、非有限数或非 JSON 类型的递归值 / Recursive value without undefined, non-finite numbers, or non-JSON types.
  */
-function parseTemplateJsonValue(value: unknown, path: string): UiTemplateSettingValue {
+function parseTemplateJsonValue(
+  value: unknown,
+  path: string,
+  ancestors: WeakSet<object> = new WeakSet<object>()
+): UiTemplateSettingValue {
   if (value === null || typeof value === 'boolean' || typeof value === 'string') return value
   if (typeof value === 'number') return number(value, path)
   if (Array.isArray(value)) {
-    return value.map((item, index) => parseTemplateJsonValue(item, `${path}[${index}]`))
+    if (ancestors.has(value)) {
+      throw new HttpContractError(`Backend field ${path} must be acyclic JSON.`, 200)
+    }
+    /** @brief 数组自身属性必须与 JSON.parse 产物一致 / Array own properties must match a JSON.parse product. */
+    const ownKeys = Reflect.ownKeys(value)
+    if (
+      ownKeys.length !== value.length + 1 ||
+      ownKeys.some(
+        (key) =>
+          key !== 'length' &&
+          (typeof key !== 'string' ||
+            !/^(?:0|[1-9][0-9]*)$/u.test(key) ||
+            Number(key) >= value.length)
+      )
+    ) {
+      throw new HttpContractError(`Backend field ${path} must be a dense JSON array.`, 200)
+    }
+    ancestors.add(value)
+    try {
+      return value.map((item, index) =>
+        parseTemplateJsonValue(item, `${path}[${index}]`, ancestors)
+      )
+    } finally {
+      ancestors.delete(value)
+    }
   }
   /** @brief 逐属性递归验证的 JSON 对象 / JSON object validated recursively property by property. */
+  const input = record(value, path)
+  /** @brief JSON 对象只允许普通或无原型对象 / JSON objects permit only ordinary or null prototypes. */
+  const prototype = Object.getPrototypeOf(input) as object | null
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new HttpContractError(`Backend field ${path} must be a JSON object.`, 200)
+  }
+  if (ancestors.has(input)) {
+    throw new HttpContractError(`Backend field ${path} must be acyclic JSON.`, 200)
+  }
+  /** @brief JSON.parse 产物只含可枚举字符串数据属性 / JSON.parse products contain enumerable string data properties only. */
+  const ownKeys = Reflect.ownKeys(input)
+  /** @brief 对象自身属性描述符 / Object-own property descriptors. */
+  const descriptors = Object.getOwnPropertyDescriptors(input)
+  if (
+    ownKeys.some((key) => {
+      if (typeof key !== 'string') return true
+      /** @brief 当前字符串属性描述符 / Current string-property descriptor. */
+      const descriptor = descriptors[key]
+      return descriptor === undefined || !descriptor.enumerable || !('value' in descriptor)
+    })
+  ) {
+    throw new HttpContractError(`Backend field ${path} must contain JSON properties only.`, 200)
+  }
+  ancestors.add(input)
+  try {
+    return Object.fromEntries(
+      Object.entries(input).map(([key, item]) => [
+        key,
+        parseTemplateJsonValue(item, `${path}.${key}`, ancestors)
+      ])
+    )
+  } finally {
+    ancestors.delete(input)
+  }
+}
+
+/**
+ * @brief 校验并无损投影 Extensions 的任意 JSON 值 / Validate and losslessly project arbitrary JSON values in Extensions.
+ * @param value 未受信任的扩展对象 / Untrusted extension object.
+ * @param path 诊断字段路径 / Diagnostic field path.
+ * @return 键和值均符合冻结契约的扩展对象 / Extension object whose keys and values satisfy the frozen contract.
+ */
+function parseJsonExtensions(
+  value: unknown,
+  path: string
+): Readonly<Record<string, UiTemplateSettingValue>> {
+  /** @brief 已校验命名空间键的扩展对象 / Extension object with validated namespaced keys. */
+  const input = extensions(value, path)
+  return Object.fromEntries(
+    Object.entries(input).map(([key, item]) => [
+      key,
+      parseTemplateJsonValue(item, `${path}.${key}`)
+    ])
+  )
+}
+
+/**
+ * @brief 校验并无损投影开放 JSON 对象 / Validate and losslessly project an open JSON object.
+ * @param value 未受信任对象 / Untrusted object.
+ * @param path 诊断字段路径 / Diagnostic field path.
+ * @return 仅含合法 JSON 值的对象 / Object containing only valid JSON values.
+ */
+function parseOpenJsonObject(
+  value: unknown,
+  path: string
+): Readonly<Record<string, UiTemplateSettingValue>> {
+  /** @brief 由 object Schema 约束的输入 / Input constrained by an object Schema. */
   const input = record(value, path)
   return Object.fromEntries(
     Object.entries(input).map(([key, item]) => [
@@ -705,7 +820,7 @@ function parseResumeItemBase(
       validateResumeLink(link, `${path}.links[${index}]`)
     }
   )
-  if (input.extensions !== undefined) extensions(input.extensions, `${path}.extensions`)
+  if (input.extensions !== undefined) parseJsonExtensions(input.extensions, `${path}.extensions`)
   return {
     item_id: opaqueId(input.item_id, `${path}.item_id`),
     tags: templateStringArray(input.tags === undefined ? [] : input.tags, `${path}.tags`, {
@@ -973,7 +1088,7 @@ function parseResumeItem(value: unknown, path: string): ResumeItemDto {
       'content',
       'data'
     ])
-    if (input.data !== undefined) record(input.data, `${path}.data`)
+    if (input.data !== undefined) parseOpenJsonObject(input.data, `${path}.data`)
     return {
       ...parseResumeItemBase(input, path),
       content: parseRichText(input.content, `${path}.content`),
@@ -1002,7 +1117,7 @@ function parseResumeSection(value: unknown, path: string): ResumeSectionDto {
   const content = nullableRecord(input.content, `${path}.content`)
   /** @brief 受契约上限约束的区段条目 / Section items constrained by the contract maximum. */
   const items = boundedArray(input.items, `${path}.items`, 0, 500)
-  if (input.extensions !== undefined) extensions(input.extensions, `${path}.extensions`)
+  if (input.extensions !== undefined) parseJsonExtensions(input.extensions, `${path}.extensions`)
   return {
     content: content === null ? null : parseRichText(content, `${path}.content`),
     items: items.map((item, index) => parseResumeItem(item, `${path}.items[${index}]`)),
@@ -1010,6 +1125,200 @@ function parseResumeSection(value: unknown, path: string): ResumeSectionDto {
     section_id: opaqueId(input.section_id, `${path}.section_id`),
     title: boundedString(input.title, `${path}.title`, 1, 200),
     visible: boolean(input.visible, `${path}.visible`)
+  }
+}
+
+/**
+ * @brief 校验冻结 TemplateRef / Validate a frozen TemplateRef.
+ * @param value 未受信任模板引用 / Untrusted template reference.
+ * @param path 诊断字段路径 / Diagnostic field path.
+ * @return 已验证模板引用 / Validated template reference.
+ */
+function parseResumeTemplateRef(value: unknown, path: string): ResumeDocumentDto['template'] {
+  /** @brief 不含契约外字段的模板引用 / Template reference without out-of-contract fields. */
+  const input = exactRecord(value, path, ['template_id', 'template_version'])
+  return {
+    template_id: opaqueId(input.template_id, `${path}.template_id`),
+    template_version: boundedString(input.template_version, `${path}.template_version`, 1, 128)
+  }
+}
+
+/**
+ * @brief 校验冻结 ResumeStyleIntent / Validate a frozen ResumeStyleIntent.
+ * @param value 未受信任样式意图 / Untrusted style intent.
+ * @param path 诊断字段路径 / Diagnostic field path.
+ * @return 已验证样式意图 / Validated style intent.
+ */
+function parseResumeStyleIntent(value: unknown, path: string): ResumeDocumentDto['style_intent'] {
+  /** @brief 不含契约外字段的样式意图 / Style intent without out-of-contract fields. */
+  const style = exactRecord(value, path, [
+    'style_contract_version',
+    'page',
+    'typography',
+    'palette',
+    'density',
+    'date_format_token',
+    'bullet_style_token',
+    'section_layout',
+    'template_settings',
+    'extensions'
+  ])
+  /** @brief 精确页面意图 / Exact page intent. */
+  const page = exactRecord(style.page, `${path}.page`, [
+    'size',
+    'custom_width',
+    'custom_height',
+    'orientation',
+    'margins',
+    'max_pages',
+    'show_page_numbers'
+  ])
+  /** @brief 精确页面边距 / Exact page margins. */
+  const margins = exactRecord(page.margins, `${path}.page.margins`, [
+    'top',
+    'right',
+    'bottom',
+    'left'
+  ])
+  /** @brief 精确排版意图 / Exact typography intent. */
+  const typography = exactRecord(style.typography, `${path}.typography`, [
+    'font_family_token',
+    'base_size_pt',
+    'line_height',
+    'heading_scale',
+    'letter_spacing_em'
+  ])
+  /** @brief 精确调色板意图 / Exact palette intent. */
+  const palette = exactRecord(style.palette, `${path}.palette`, [
+    'primary',
+    'secondary',
+    'text',
+    'muted_text',
+    'background'
+  ])
+  /** @brief 由 const 封闭的样式契约版本 / Style-contract version closed by const. */
+  const styleVersion = string(style.style_contract_version, `${path}.style_contract_version`)
+  if (styleVersion !== '1.0') {
+    throw new HttpContractError(`Backend field ${path}.style_contract_version is unsupported.`, 200)
+  }
+
+  return {
+    bullet_style_token: boundedString(
+      style.bullet_style_token,
+      `${path}.bullet_style_token`,
+      1,
+      100
+    ),
+    date_format_token: boundedString(style.date_format_token, `${path}.date_format_token`, 1, 100),
+    density: boundedNumber(style.density, `${path}.density`, 0, 1),
+    extensions:
+      style.extensions === undefined
+        ? {}
+        : parseJsonExtensions(style.extensions, `${path}.extensions`),
+    page: {
+      custom_height: nullableMeasurement(page.custom_height, `${path}.page.custom_height`),
+      custom_width: nullableMeasurement(page.custom_width, `${path}.page.custom_width`),
+      margins: {
+        bottom: parseMeasurement(margins.bottom, `${path}.page.margins.bottom`),
+        left: parseMeasurement(margins.left, `${path}.page.margins.left`),
+        right: parseMeasurement(margins.right, `${path}.page.margins.right`),
+        top: parseMeasurement(margins.top, `${path}.page.margins.top`)
+      },
+      max_pages:
+        page.max_pages === null || page.max_pages === undefined
+          ? null
+          : boundedInteger(page.max_pages, `${path}.page.max_pages`, 1, 20),
+      orientation: templateEnum(page.orientation, `${path}.page.orientation`, [
+        'portrait',
+        'landscape'
+      ] as const),
+      show_page_numbers: boolean(page.show_page_numbers, `${path}.page.show_page_numbers`),
+      size: templateEnum(page.size, `${path}.page.size`, TEMPLATE_PAGE_SIZES)
+    },
+    palette: {
+      background: parseColor(palette.background, `${path}.palette.background`),
+      muted_text: parseColor(palette.muted_text, `${path}.palette.muted_text`),
+      primary: parseColor(palette.primary, `${path}.palette.primary`),
+      secondary: parseColor(palette.secondary, `${path}.palette.secondary`),
+      text: parseColor(palette.text, `${path}.palette.text`)
+    },
+    section_layout: boundedArray(style.section_layout, `${path}.section_layout`, 0, 100).map(
+      (item, index) => {
+        /** @brief 精确区段布局意图 / Exact section-layout intent. */
+        const layout = exactRecord(item, `${path}.section_layout[${index}]`, [
+          'section_id',
+          'zone',
+          'keep_together',
+          'page_break_before',
+          'compactness',
+          'heading_style_token'
+        ])
+        return {
+          compactness: boundedNumber(
+            layout.compactness,
+            `${path}.section_layout[${index}].compactness`,
+            0,
+            1
+          ),
+          heading_style_token: nullableBoundedString(
+            layout.heading_style_token,
+            `${path}.section_layout[${index}].heading_style_token`,
+            0,
+            100
+          ),
+          keep_together: boolean(
+            layout.keep_together,
+            `${path}.section_layout[${index}].keep_together`
+          ),
+          page_break_before: boolean(
+            layout.page_break_before,
+            `${path}.section_layout[${index}].page_break_before`
+          ),
+          section_id: opaqueId(layout.section_id, `${path}.section_layout[${index}].section_id`),
+          zone: patternedString(
+            layout.zone,
+            `${path}.section_layout[${index}].zone`,
+            TEMPLATE_ZONE_ID_PATTERN
+          )
+        }
+      }
+    ),
+    style_contract_version: styleVersion,
+    template_settings: Object.fromEntries(
+      Object.entries(record(style.template_settings, `${path}.template_settings`)).map(
+        ([key, settingValue]) => [
+          key,
+          parseTemplateJsonValue(settingValue, `${path}.template_settings.${key}`)
+        ]
+      )
+    ),
+    typography: {
+      base_size_pt: boundedNumber(
+        typography.base_size_pt,
+        `${path}.typography.base_size_pt`,
+        6,
+        24
+      ),
+      font_family_token: boundedString(
+        typography.font_family_token,
+        `${path}.typography.font_family_token`,
+        1,
+        100
+      ),
+      heading_scale: boundedNumber(
+        typography.heading_scale,
+        `${path}.typography.heading_scale`,
+        0.8,
+        3
+      ),
+      letter_spacing_em: boundedNumber(
+        typography.letter_spacing_em,
+        `${path}.typography.letter_spacing_em`,
+        -0.2,
+        1
+      ),
+      line_height: boundedNumber(typography.line_height, `${path}.typography.line_height`, 0.8, 3)
+    }
   }
 }
 
@@ -1031,10 +1340,6 @@ export function parseResumeDocumentDto(value: unknown): ResumeDocumentDto {
     'knowledge_source_id',
     'extensions'
   ])
-  const template = exactRecord(input.template, 'resume.template', [
-    'template_id',
-    'template_version'
-  ])
   const profile = exactRecord(input.profile, 'resume.profile', [
     'full_name',
     'headline',
@@ -1043,56 +1348,11 @@ export function parseResumeDocumentDto(value: unknown): ResumeDocumentDto {
     'contacts',
     'summary'
   ])
-  const style = exactRecord(input.style_intent, 'resume.style_intent', [
-    'style_contract_version',
-    'page',
-    'typography',
-    'palette',
-    'density',
-    'date_format_token',
-    'bullet_style_token',
-    'section_layout',
-    'template_settings',
-    'extensions'
-  ])
-  const page = exactRecord(style.page, 'resume.style_intent.page', [
-    'size',
-    'custom_width',
-    'custom_height',
-    'orientation',
-    'margins',
-    'max_pages',
-    'show_page_numbers'
-  ])
-  const margins = exactRecord(page.margins, 'resume.style_intent.page.margins', [
-    'top',
-    'right',
-    'bottom',
-    'left'
-  ])
-  const typography = exactRecord(style.typography, 'resume.style_intent.typography', [
-    'font_family_token',
-    'base_size_pt',
-    'line_height',
-    'heading_scale',
-    'letter_spacing_em'
-  ])
-  const palette = exactRecord(style.palette, 'resume.style_intent.palette', [
-    'primary',
-    'secondary',
-    'text',
-    'muted_text',
-    'background'
-  ])
   const schemaVersion = string(input.schema_version, 'resume.schema_version')
-  const styleVersion = string(
-    style.style_contract_version,
-    'resume.style_intent.style_contract_version'
-  )
-  if (schemaVersion !== '1.0' || styleVersion !== '1.0') {
+  if (schemaVersion !== '1.0') {
     throw new HttpContractError('Backend ResumeDocument uses an unsupported schema version.', 200)
   }
-  if (input.extensions !== undefined) extensions(input.extensions, 'resume.extensions')
+  if (input.extensions !== undefined) parseJsonExtensions(input.extensions, 'resume.extensions')
   if (profile.pronouns !== undefined) {
     nullableBoundedString(profile.pronouns, 'resume.profile.pronouns', 0, 100)
   }
@@ -1125,157 +1385,8 @@ export function parseResumeDocumentDto(value: unknown): ResumeDocumentDto {
     revision: positiveInteger(input.revision, 'resume.revision'),
     schema_version: schemaVersion,
     sections: sections.map((item, index) => parseResumeSection(item, `resume.sections[${index}]`)),
-    style_intent: {
-      bullet_style_token: boundedString(
-        style.bullet_style_token,
-        'resume.style_intent.bullet_style_token',
-        1,
-        100
-      ),
-      date_format_token: boundedString(
-        style.date_format_token,
-        'resume.style_intent.date_format_token',
-        1,
-        100
-      ),
-      density: boundedNumber(style.density, 'resume.style_intent.density', 0, 1),
-      extensions:
-        style.extensions === undefined
-          ? {}
-          : extensions(style.extensions, 'resume.style_intent.extensions'),
-      page: {
-        custom_height: nullableMeasurement(
-          page.custom_height,
-          'resume.style_intent.page.custom_height'
-        ),
-        custom_width: nullableMeasurement(
-          page.custom_width,
-          'resume.style_intent.page.custom_width'
-        ),
-        margins: {
-          bottom: parseMeasurement(margins.bottom, 'resume.style_intent.page.margins.bottom'),
-          left: parseMeasurement(margins.left, 'resume.style_intent.page.margins.left'),
-          right: parseMeasurement(margins.right, 'resume.style_intent.page.margins.right'),
-          top: parseMeasurement(margins.top, 'resume.style_intent.page.margins.top')
-        },
-        max_pages:
-          page.max_pages === null || page.max_pages === undefined
-            ? null
-            : boundedInteger(page.max_pages, 'resume.style_intent.page.max_pages', 1, 20),
-        orientation: templateEnum(page.orientation, 'resume.style_intent.page.orientation', [
-          'portrait',
-          'landscape'
-        ] as const),
-        show_page_numbers: boolean(
-          page.show_page_numbers,
-          'resume.style_intent.page.show_page_numbers'
-        ),
-        size: templateEnum(page.size, 'resume.style_intent.page.size', TEMPLATE_PAGE_SIZES)
-      },
-      palette: {
-        background: parseColor(palette.background, 'resume.style_intent.palette.background'),
-        muted_text: parseColor(palette.muted_text, 'resume.style_intent.palette.muted_text'),
-        primary: parseColor(palette.primary, 'resume.style_intent.palette.primary'),
-        secondary: parseColor(palette.secondary, 'resume.style_intent.palette.secondary'),
-        text: parseColor(palette.text, 'resume.style_intent.palette.text')
-      },
-      section_layout: boundedArray(
-        style.section_layout,
-        'resume.style_intent.section_layout',
-        0,
-        100
-      ).map((item, index) => {
-        const layout = exactRecord(item, `resume.style_intent.section_layout[${index}]`, [
-          'section_id',
-          'zone',
-          'keep_together',
-          'page_break_before',
-          'compactness',
-          'heading_style_token'
-        ])
-        return {
-          compactness: boundedNumber(
-            layout.compactness,
-            `resume.style_intent.section_layout[${index}].compactness`,
-            0,
-            1
-          ),
-          heading_style_token: nullableBoundedString(
-            layout.heading_style_token,
-            `resume.style_intent.section_layout[${index}].heading_style_token`,
-            0,
-            100
-          ),
-          keep_together: boolean(
-            layout.keep_together,
-            `resume.style_intent.section_layout[${index}].keep_together`
-          ),
-          page_break_before: boolean(
-            layout.page_break_before,
-            `resume.style_intent.section_layout[${index}].page_break_before`
-          ),
-          section_id: opaqueId(
-            layout.section_id,
-            `resume.style_intent.section_layout[${index}].section_id`
-          ),
-          zone: patternedString(
-            layout.zone,
-            `resume.style_intent.section_layout[${index}].zone`,
-            TEMPLATE_ZONE_ID_PATTERN
-          )
-        }
-      }),
-      style_contract_version: styleVersion,
-      template_settings: Object.fromEntries(
-        Object.entries(
-          record(style.template_settings, 'resume.style_intent.template_settings')
-        ).map(([key, settingValue]) => [
-          key,
-          parseTemplateJsonValue(settingValue, `resume.style_intent.template_settings.${key}`)
-        ])
-      ),
-      typography: {
-        base_size_pt: boundedNumber(
-          typography.base_size_pt,
-          'resume.style_intent.typography.base_size_pt',
-          6,
-          24
-        ),
-        font_family_token: boundedString(
-          typography.font_family_token,
-          'resume.style_intent.typography.font_family_token',
-          1,
-          100
-        ),
-        heading_scale: boundedNumber(
-          typography.heading_scale,
-          'resume.style_intent.typography.heading_scale',
-          0.8,
-          3
-        ),
-        letter_spacing_em: boundedNumber(
-          typography.letter_spacing_em,
-          'resume.style_intent.typography.letter_spacing_em',
-          -0.2,
-          1
-        ),
-        line_height: boundedNumber(
-          typography.line_height,
-          'resume.style_intent.typography.line_height',
-          0.8,
-          3
-        )
-      }
-    },
-    template: {
-      template_id: opaqueId(template.template_id, 'resume.template.template_id'),
-      template_version: boundedString(
-        template.template_version,
-        'resume.template.template_version',
-        1,
-        128
-      )
-    },
+    style_intent: parseResumeStyleIntent(input.style_intent, 'resume.style_intent'),
+    template: parseResumeTemplateRef(input.template, 'resume.template'),
     title: boundedString(input.title, 'resume.title', 1, 300),
     updated_at: timestamp(input.updated_at, 'resume.updated_at'),
     workspace_id: opaqueId(input.workspace_id, 'resume.workspace_id')
@@ -1452,6 +1563,212 @@ function validateLocalizedMessage(value: unknown, path: string): void {
 }
 
 /**
+ * @brief 判断对象是否显式携带字段 / Determine whether an object explicitly carries a field.
+ * @param input 待检查对象 / Object to inspect.
+ * @param key 字段名 / Field name.
+ * @return 字段是否为自身属性 / Whether the field is an own property.
+ */
+function hasOwnField(input: Readonly<Record<string, unknown>>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(input, key)
+}
+
+/**
+ * @brief 校验可省略、显式可空的不透明 ID / Validate an omittable, explicitly nullable opaque ID.
+ * @param input 包含字段的对象 / Object containing the field.
+ * @param key 字段名 / Field name.
+ * @param path 诊断字段路径 / Diagnostic field path.
+ * @return 无返回值 / No return value.
+ */
+function validateOptionalNullableOpaqueId(
+  input: Readonly<Record<string, unknown>>,
+  key: string,
+  path: string
+): void {
+  if (!hasOwnField(input, key) || input[key] === null) return
+  opaqueId(input[key], path)
+}
+
+/**
+ * @brief 校验 ResumeOperation 公共字段 / Validate common ResumeOperation fields.
+ * @param input 已由具体分支限制字段集的 operation / Operation whose keys are constrained by its concrete branch.
+ * @param path 诊断字段路径 / Diagnostic field path.
+ * @return 无返回值 / No return value.
+ */
+function validateResumeOperationBase(input: Readonly<Record<string, unknown>>, path: string): void {
+  opaqueId(input.operation_id, `${path}.operation_id`)
+  if (hasOwnField(input, 'extensions')) {
+    parseJsonExtensions(input.extensions, `${path}.extensions`)
+  }
+}
+
+/**
+ * @brief 按冻结 oneOf 完整校验 ResumeOperation / Fully validate a ResumeOperation against the frozen oneOf.
+ * @param value 未受信任 operation / Untrusted operation.
+ * @param path 诊断字段路径 / Diagnostic field path.
+ * @return 无返回值 / No return value.
+ */
+function validateResumeOperation(value: unknown, path: string): void {
+  /** @brief 仅用于读取封闭判别字段的 operation / Operation used only to read the closed discriminator. */
+  const discriminated = record(value, path)
+  /** @brief 由 oneOf 中 const 集合封闭的 operation 类型 / Operation type closed by the oneOf const set. */
+  const operationKind = templateEnum(discriminated.op, `${path}.op`, RESUME_OPERATION_KINDS)
+
+  if (operationKind === 'set_template') {
+    /** @brief 精确 set_template 分支 / Exact set_template branch. */
+    const input = exactRecord(value, path, [
+      'operation_id',
+      'op',
+      'template',
+      'style_intent',
+      'extensions'
+    ])
+    validateResumeOperationBase(input, path)
+    parseResumeTemplateRef(input.template, `${path}.template`)
+    if (hasOwnField(input, 'style_intent') && input.style_intent !== null) {
+      parseResumeStyleIntent(input.style_intent, `${path}.style_intent`)
+    }
+    return
+  }
+
+  if (operationKind === 'upsert_section') {
+    /** @brief 精确 upsert_section 分支 / Exact upsert_section branch. */
+    const input = exactRecord(value, path, [
+      'operation_id',
+      'op',
+      'section',
+      'after_section_id',
+      'extensions'
+    ])
+    validateResumeOperationBase(input, path)
+    parseResumeSection(input.section, `${path}.section`)
+    validateOptionalNullableOpaqueId(input, 'after_section_id', `${path}.after_section_id`)
+    return
+  }
+
+  if (operationKind === 'remove_section') {
+    /** @brief 精确 remove_section 分支 / Exact remove_section branch. */
+    const input = exactRecord(value, path, ['operation_id', 'op', 'section_id', 'extensions'])
+    validateResumeOperationBase(input, path)
+    opaqueId(input.section_id, `${path}.section_id`)
+    return
+  }
+
+  if (operationKind === 'move_section') {
+    /** @brief 精确 move_section 分支 / Exact move_section branch. */
+    const input = exactRecord(value, path, [
+      'operation_id',
+      'op',
+      'section_id',
+      'after_section_id',
+      'extensions'
+    ])
+    validateResumeOperationBase(input, path)
+    opaqueId(input.section_id, `${path}.section_id`)
+    validateOptionalNullableOpaqueId(input, 'after_section_id', `${path}.after_section_id`)
+    return
+  }
+
+  if (operationKind === 'upsert_item') {
+    /** @brief 精确 upsert_item 分支 / Exact upsert_item branch. */
+    const input = exactRecord(value, path, [
+      'operation_id',
+      'op',
+      'section_id',
+      'item',
+      'after_item_id',
+      'extensions'
+    ])
+    validateResumeOperationBase(input, path)
+    opaqueId(input.section_id, `${path}.section_id`)
+    parseResumeItem(input.item, `${path}.item`)
+    validateOptionalNullableOpaqueId(input, 'after_item_id', `${path}.after_item_id`)
+    return
+  }
+
+  if (operationKind === 'remove_item') {
+    /** @brief 精确 remove_item 分支 / Exact remove_item branch. */
+    const input = exactRecord(value, path, [
+      'operation_id',
+      'op',
+      'section_id',
+      'item_id',
+      'extensions'
+    ])
+    validateResumeOperationBase(input, path)
+    opaqueId(input.section_id, `${path}.section_id`)
+    opaqueId(input.item_id, `${path}.item_id`)
+    return
+  }
+
+  if (operationKind === 'move_item') {
+    /** @brief 精确 move_item 分支 / Exact move_item branch. */
+    const input = exactRecord(value, path, [
+      'operation_id',
+      'op',
+      'from_section_id',
+      'to_section_id',
+      'item_id',
+      'after_item_id',
+      'extensions'
+    ])
+    validateResumeOperationBase(input, path)
+    opaqueId(input.from_section_id, `${path}.from_section_id`)
+    opaqueId(input.to_section_id, `${path}.to_section_id`)
+    opaqueId(input.item_id, `${path}.item_id`)
+    validateOptionalNullableOpaqueId(input, 'after_item_id', `${path}.after_item_id`)
+    return
+  }
+
+  if (operationKind === 'set_field') {
+    /** @brief 精确 set_field 分支 / Exact set_field branch. */
+    const input = exactRecord(value, path, [
+      'operation_id',
+      'op',
+      'target',
+      'field_path',
+      'value',
+      'extensions'
+    ])
+    validateResumeOperationBase(input, path)
+    /** @brief 精确 EntityTarget / Exact EntityTarget. */
+    const target = exactRecord(input.target, `${path}.target`, [
+      'entity_type',
+      'section_id',
+      'item_id'
+    ])
+    templateEnum(target.entity_type, `${path}.target.entity_type`, RESUME_ENTITY_TYPES)
+    validateOptionalNullableOpaqueId(target, 'section_id', `${path}.target.section_id`)
+    validateOptionalNullableOpaqueId(target, 'item_id', `${path}.target.item_id`)
+    boundedArray(input.field_path, `${path}.field_path`, 1, 20).forEach((segment, index) => {
+      patternedString(segment, `${path}.field_path[${index}]`, RESUME_FIELD_SEGMENT_PATTERN)
+    })
+    if (!hasOwnField(input, 'value')) {
+      throw new HttpContractError(`Backend field ${path}.value is required.`, 200)
+    }
+    parseTemplateJsonValue(input.value, `${path}.value`)
+    return
+  }
+
+  if (operationKind === 'set_style_intent') {
+    /** @brief 精确 set_style_intent 分支 / Exact set_style_intent branch. */
+    const input = exactRecord(value, path, ['operation_id', 'op', 'style_intent', 'extensions'])
+    validateResumeOperationBase(input, path)
+    parseResumeStyleIntent(input.style_intent, `${path}.style_intent`)
+    return
+  }
+
+  if (operationKind === 'replace_document') {
+    /** @brief 精确 replace_document 分支 / Exact replace_document branch. */
+    const input = exactRecord(value, path, ['operation_id', 'op', 'document', 'extensions'])
+    validateResumeOperationBase(input, path)
+    parseResumeDocumentDto(input.document)
+    return
+  }
+
+  throw new HttpContractError(`Backend field ${path}.op is unsupported.`, 200)
+}
+
+/**
  * @brief 校验一个 RenderDiagnostic / Validate one RenderDiagnostic.
  * @param value 未知诊断项 / Unknown diagnostic item.
  * @param path 诊断字段路径 / Diagnostic field path.
@@ -1491,12 +1808,15 @@ function validateRenderDiagnostic(value: unknown, path: string): void {
   }
   nullablePositiveInteger(input.page, `${path}.page`)
   if (input.suggested_operations !== undefined) {
-    const operations = array(input.suggested_operations, `${path}.suggested_operations`)
-    if (operations.length > 20) {
-      throw new HttpContractError(`Backend field ${path}.suggested_operations is too long.`, 200)
-    }
+    /** @brief 受冻结上限约束的建议 operations / Suggested operations constrained by the frozen bound. */
+    const operations = boundedArray(
+      input.suggested_operations,
+      `${path}.suggested_operations`,
+      0,
+      20
+    )
     operations.forEach((operation, index) => {
-      record(operation, `${path}.suggested_operations[${index}]`)
+      validateResumeOperation(operation, `${path}.suggested_operations[${index}]`)
     })
   }
 }

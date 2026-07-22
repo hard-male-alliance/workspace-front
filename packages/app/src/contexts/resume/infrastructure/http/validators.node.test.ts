@@ -1107,6 +1107,171 @@ function renderJobFixture(): Record<string, unknown> {
   }
 }
 
+/**
+ * @brief 构造冻结 ResumeOperation oneOf 的全部合法分支 / Build every valid branch of the frozen ResumeOperation oneOf.
+ * @return 十种可嵌入 RenderDiagnostic 的 operations / Ten operations suitable for embedding in a RenderDiagnostic.
+ */
+function resumeOperationFixtures(): readonly Record<string, unknown>[] {
+  /** @brief 包含嵌套条目的合法权威文档 / Valid authoritative document containing a nested item. */
+  const document = resumeDocumentFixture([resumeItemFixtures()[0]])
+  /** @brief 文档中的首个区段 / First section in the document. */
+  const section = (document.sections as readonly Record<string, unknown>[])[0] ?? {}
+  /** @brief 文档中的样式意图 / Style intent from the document. */
+  const styleIntent = document.style_intent
+  /** @brief 用于 upsert_item 的合法条目 / Valid item used by upsert_item. */
+  const item = resumeItemFixtures()[2] ?? {}
+
+  return [
+    {
+      extensions: { 'vendor.trace': { source: 'renderer' } },
+      operation_id: 'op_set_template_01',
+      op: 'set_template',
+      style_intent: null,
+      template: { template_id: 'tpl_default_v1', template_version: '1.0' }
+    },
+    {
+      after_section_id: null,
+      operation_id: 'op_upsert_section_01',
+      op: 'upsert_section',
+      section
+    },
+    {
+      operation_id: 'op_remove_section_01',
+      op: 'remove_section',
+      section_id: 'sec_summary'
+    },
+    {
+      after_section_id: null,
+      operation_id: 'op_move_section_01',
+      op: 'move_section',
+      section_id: 'sec_summary'
+    },
+    {
+      after_item_id: null,
+      item,
+      operation_id: 'op_upsert_item_01',
+      op: 'upsert_item',
+      section_id: 'sec_summary'
+    },
+    {
+      item_id: 'item_project_01',
+      operation_id: 'op_remove_item_01',
+      op: 'remove_item',
+      section_id: 'sec_summary'
+    },
+    {
+      after_item_id: null,
+      from_section_id: 'sec_summary',
+      item_id: 'item_project_01',
+      operation_id: 'op_move_item_0001',
+      op: 'move_item',
+      to_section_id: 'sec_experience'
+    },
+    {
+      field_path: ['presentation', 'headline'],
+      operation_id: 'op_set_field_0001',
+      op: 'set_field',
+      target: { entity_type: 'section', item_id: null, section_id: 'sec_summary' },
+      value: {
+        enabled: true,
+        labels: ['primary', null],
+        nested: { count: 2.5 },
+        title: '平台工程师'
+      }
+    },
+    {
+      operation_id: 'op_set_style_intent_01',
+      op: 'set_style_intent',
+      style_intent: styleIntent
+    },
+    {
+      document,
+      operation_id: 'op_replace_document_01',
+      op: 'replace_document'
+    }
+  ]
+}
+
+/**
+ * @brief 构造携带建议 operations 的 Render Job / Build a Render Job carrying suggested operations.
+ * @param operations 待校验的建议 operations / Suggested operations to validate.
+ * @return 通过公开解析入口消费的 Render Job / Render Job consumed through the public parser.
+ */
+function renderJobWithSuggestedOperations(operations: readonly unknown[]): Record<string, unknown> {
+  return {
+    ...renderJobFixture(),
+    diagnostics: [
+      {
+        code: 'resume.layout_overflow',
+        field_path: ['sections'],
+        message: {
+          fallback_message: '内容超出页面范围。',
+          message_key: 'resume.render.layout_overflow'
+        },
+        node_ref: null,
+        page: 2,
+        severity: 'warning',
+        suggested_operations: operations
+      }
+    ]
+  }
+}
+
+/**
+ * @brief 构造关键非法 ResumeOperation 用例 / Build key invalid ResumeOperation cases.
+ * @return 用例名称与非法 operation / Case names paired with invalid operations.
+ */
+function invalidResumeOperationFixtures(): readonly (readonly [string, Record<string, unknown>])[] {
+  /** @brief 合法 operation 基线 / Valid operation baselines. */
+  const operations = resumeOperationFixtures()
+  /** @brief 各类分支基线 / Baselines for representative branches. */
+  const setTemplate = operations[0] ?? {}
+  const upsertSection = operations[1] ?? {}
+  const removeSection = operations[2] ?? {}
+  const upsertItem = operations[4] ?? {}
+  const setField = operations[7] ?? {}
+  const setStyleIntent = operations[8] ?? {}
+  const replaceDocument = operations[9] ?? {}
+  /** @brief 各分支的嵌套对象 / Nested objects from the representative branches. */
+  const section = upsertSection.section as Record<string, unknown>
+  const item = upsertItem.item as Record<string, unknown>
+  const styleIntent = setStyleIntent.style_intent as Record<string, unknown>
+  const document = replaceDocument.document as Record<string, unknown>
+
+  return [
+    ['unknown oneOf discriminant', { ...removeSection, op: 'future_operation' }],
+    ['operation extra property', { ...removeSection, renderer_private: true }],
+    ['null required TemplateRef', { ...setTemplate, template: null }],
+    [
+      'nested ResumeSection extra property',
+      { ...upsertSection, section: { ...section, renderer_private: true } }
+    ],
+    [
+      'nested ResumeItem variant mismatch',
+      { ...upsertItem, item: { ...item, organization: 'Not valid for project' } }
+    ],
+    [
+      'closed EntityTarget enum extension',
+      { ...setField, target: { entity_type: 'future_entity' } }
+    ],
+    ['empty required field path', { ...setField, field_path: [] }],
+    ['invalid field path segment', { ...setField, field_path: ['valid', 'not-valid'] }],
+    [
+      'field path over maxItems',
+      { ...setField, field_path: Array.from({ length: 21 }, () => 'segment') }
+    ],
+    [
+      'out-of-range style density',
+      { ...setStyleIntent, style_intent: { ...styleIntent, density: 1.01 } }
+    ],
+    [
+      'out-of-range replacement revision',
+      { ...replaceDocument, document: { ...document, revision: 0 } }
+    ],
+    ['explicit null non-nullable extensions', { ...removeSection, extensions: null }]
+  ]
+}
+
 describe('parseResumeRenderJobDto', (): void => {
   it('accepts a complete schema-valid Render Job and Artifact', (): void => {
     /** @brief 携带大小写与参数的合法 PDF 声明 / Valid PDF declaration carrying casing and parameters. */
@@ -1119,6 +1284,90 @@ describe('parseResumeRenderJobDto', (): void => {
       resume_revision: 4,
       status: 'queued'
     })
+  })
+
+  it.each(
+    resumeOperationFixtures().map((operation): readonly [string, Record<string, unknown>] => [
+      String(operation.op),
+      operation
+    ])
+  )('accepts the frozen %s suggested-operation branch', (_operationKind, operation): void => {
+    /** @brief 解析前 operation 的 JSON 内容 / JSON content of the operation before parsing. */
+    const before = JSON.stringify(operation)
+    expect(() =>
+      parseResumeRenderJobDto(renderJobWithSuggestedOperations([operation]))
+    ).not.toThrow()
+    expect(JSON.stringify(operation)).toBe(before)
+  })
+
+  it('distinguishes an explicit null JSON value from a missing required set_field value', (): void => {
+    /** @brief 合法 set_field 基线 / Valid set_field baseline. */
+    const setField = resumeOperationFixtures()[7] ?? {}
+    /** @brief 明确把字段值清空为 null 的合法 operation / Valid operation explicitly clearing the field to null. */
+    const explicitNull = { ...setField, value: null }
+    /** @brief 完全缺失 required value 的非法 operation / Invalid operation entirely missing required value. */
+    const missingValue = { ...setField }
+    delete missingValue.value
+
+    expect(() =>
+      parseResumeRenderJobDto(renderJobWithSuggestedOperations([explicitNull]))
+    ).not.toThrow()
+    expect(() =>
+      parseResumeRenderJobDto(renderJobWithSuggestedOperations([missingValue]))
+    ).toThrowError(HttpContractError)
+  })
+
+  it('accepts both omitted and explicitly null optional style_intent', (): void => {
+    /** @brief 明确 style_intent 为 null 的合法 set_template / Valid set_template with an explicit null style_intent. */
+    const explicitNull = resumeOperationFixtures()[0] ?? {}
+    /** @brief 省略可选 style_intent 的合法 set_template / Valid set_template omitting optional style_intent. */
+    const omitted = { ...explicitNull }
+    delete omitted.style_intent
+
+    expect(() =>
+      parseResumeRenderJobDto(renderJobWithSuggestedOperations([explicitNull, omitted]))
+    ).not.toThrow()
+  })
+
+  it.each(invalidResumeOperationFixtures())(
+    'rejects a suggested operation with %s',
+    (_caseName, operation): void => {
+      expect(() =>
+        parseResumeRenderJobDto(renderJobWithSuggestedOperations([operation]))
+      ).toThrowError(HttpContractError)
+    }
+  )
+
+  it.each([
+    ['undefined', undefined],
+    ['non-finite number', Number.NaN],
+    ['non-JSON object', new Date('2026-07-19T00:00:00Z')],
+    ['sparse array', Array(1)]
+  ] as const)('rejects a set_field %s value', (_caseName, invalidValue): void => {
+    /** @brief 携带非法 JSON 值的 set_field / set_field carrying an invalid JSON value. */
+    const operation = { ...(resumeOperationFixtures()[7] ?? {}), value: invalidValue }
+    expect(() =>
+      parseResumeRenderJobDto(renderJobWithSuggestedOperations([operation]))
+    ).toThrowError(HttpContractError)
+  })
+
+  it('rejects a cyclic set_field JSON value', (): void => {
+    /** @brief 自引用的非法 JSON 对象 / Self-referential invalid JSON object. */
+    const cyclic: Record<string, unknown> = {}
+    cyclic.self = cyclic
+    /** @brief 携带循环值的 set_field / set_field carrying the cyclic value. */
+    const operation = { ...(resumeOperationFixtures()[7] ?? {}), value: cyclic }
+    expect(() =>
+      parseResumeRenderJobDto(renderJobWithSuggestedOperations([operation]))
+    ).toThrowError(HttpContractError)
+  })
+
+  it('rejects more than twenty suggested operations', (): void => {
+    /** @brief 超过冻结 maxItems 的建议 operations / Suggested operations exceeding the frozen maxItems. */
+    const operations = Array.from({ length: 21 }, () => resumeOperationFixtures()[2])
+    expect(() =>
+      parseResumeRenderJobDto(renderJobWithSuggestedOperations(operations))
+    ).toThrowError(HttpContractError)
   })
 
   it('normalizes omitted optional Artifact fields to the existing null transport projection', (): void => {
