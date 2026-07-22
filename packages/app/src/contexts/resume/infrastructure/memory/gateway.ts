@@ -1,6 +1,10 @@
 /** @file Resume 的内存 adapter / In-memory adapter for Resume. */
 
 import type { ResumeGateway } from '../../application/gateway'
+import type {
+  ResumeCreationPort,
+  ResumeTemplateCatalogPort
+} from '../../application/resume-creation'
 import {
   ResumeSnapshotConflictError,
   ResumeTemplateMigrationCapabilityError
@@ -22,6 +26,7 @@ import type {
   UiResumeSummaryPageRead,
   UiResumeTemplateSettingsUpdateInput,
   UiTemplateManifest,
+  UiTemplateReference,
   UiTemplateSettingsModel,
   UiStartResumePdfRenderInput
 } from '../../domain/models'
@@ -29,12 +34,20 @@ import { asUiResumeCursor } from '../../domain/models'
 import { asUiOpaqueId, type UiWorkspaceId } from '../../../../shared-kernel/identity'
 import type { UiContentLocale } from '../../../../shared-kernel/locale'
 import {
+  asUiResumeTemplateCursor,
+  type UiCreateResumeFromTemplateCommand,
+  type UiCreatedResume,
+  type UiResumeTemplatePage,
+  type UiResumeTemplatePageRead
+} from '../../domain/creation'
+import {
   cloneMemoryValue,
   InMemoryGatewayError,
   prepareMemoryRead,
   throwMemoryNotFound,
   type InMemoryGatewayOptions
 } from '../../../../infrastructure/memory'
+import { asUiConcurrencyToken } from '../../../../shared-kernel/concurrency'
 import {
   MOCK_RESUME_EDITOR,
   MOCK_RESUME_ID,
@@ -48,7 +61,9 @@ import {
  * @brief Resume 自动化测试内存适配器 / In-memory adapter for automated Resume tests.
  * @note 仅从测试入口导出，不能代替 ResumeOperationBatch 或 Render Job 契约。 / Exported only from the testing entry point and cannot substitute for ResumeOperationBatch or Render Job contracts.
  */
-export class InMemoryResumeGateway implements ResumeGateway {
+export class InMemoryResumeGateway
+  implements ResumeGateway, ResumeCreationPort, ResumeTemplateCatalogPort
+{
   /** @brief 当前 adapter 的确定性行为选项 / Deterministic behavior options for this adapter. */
   private readonly options: InMemoryGatewayOptions
   /** @brief 当前实例内的简历编辑器投影 / Resume-editor projection owned by this instance. */
@@ -59,6 +74,12 @@ export class InMemoryResumeGateway implements ResumeGateway {
 
   /** @brief 测试用 Render Jobs / Render Jobs used by automated tests. */
   private readonly renderJobs = new Map<string, UiResumeRenderJob>()
+
+  /** @brief 按创建意图保存的幂等测试结果 / Idempotent test results stored by creation intent. */
+  private readonly createdResumes = new Map<string, UiCreatedResume>()
+
+  /** @brief 创建意图到规范输入的测试指纹 / Test fingerprints from creation intents to canonical inputs. */
+  private readonly creationFingerprints = new Map<string, string>()
 
   /**
    * @brief 构造 Resume 内存测试网关 / Construct the Resume in-memory test gateway.
@@ -104,6 +125,126 @@ export class InMemoryResumeGateway implements ResumeGateway {
           nextCursor: asUiResumeCursor(`resume_cursor_${nextOffset}`)
         }
       : { hasMore: false, items, nextCursor: null }
+  }
+
+  /**
+   * @brief 读取一页 Mock 全局 Template / Read one page of the Mock global Template catalog.
+   * @param input cursor、页大小与取消信号 / Cursor, page size, and cancellation signal.
+   * @return 保留 cursor 关系的 Template 页 / Template page preserving the cursor relation.
+   */
+  async listTemplatePage(input: UiResumeTemplatePageRead): Promise<UiResumeTemplatePage> {
+    input.signal.throwIfAborted()
+    const mode = await prepareMemoryRead(this.options)
+    input.signal.throwIfAborted()
+    if (mode === 'empty') return { hasMore: false, items: [], nextCursor: null }
+
+    /** @brief 当前 Template cursor 对应的起始位置 / Start offset represented by the current Template cursor. */
+    const offset =
+      input.cursor === null
+        ? 0
+        : MOCK_TEMPLATE_MANIFESTS.findIndex(
+            (_template, index) =>
+              asUiResumeTemplateCursor(`template_cursor_${index}`) === input.cursor
+          )
+    if (offset < 0) {
+      throw new InMemoryGatewayError('memory.not_found', 'The Mock Template cursor is not valid.')
+    }
+
+    /** @brief 当前页 Template / Templates in the current page. */
+    const items = cloneMemoryValue(MOCK_TEMPLATE_MANIFESTS.slice(offset, offset + input.limit))
+    /** @brief 下一页的起始位置 / Start offset of the next page. */
+    const nextOffset = offset + items.length
+    return nextOffset < MOCK_TEMPLATE_MANIFESTS.length
+      ? {
+          hasMore: true,
+          items,
+          nextCursor: asUiResumeTemplateCursor(`template_cursor_${nextOffset}`)
+        }
+      : { hasMore: false, items, nextCursor: null }
+  }
+
+  /**
+   * @brief 读取精确 Mock Template 版本 / Read an exact Mock Template version.
+   * @param reference 不可变 Template 引用 / Immutable Template reference.
+   * @param signal 调用方取消信号 / Caller cancellation signal.
+   * @return 精确版本 Template / Exact-version Template.
+   */
+  async getTemplate(
+    reference: UiTemplateReference,
+    signal: AbortSignal
+  ): Promise<UiTemplateManifest> {
+    signal.throwIfAborted()
+    const mode = await prepareMemoryRead(this.options)
+    signal.throwIfAborted()
+    if (mode === 'empty') return throwMemoryNotFound('resume template')
+    /** @brief 由不可变身份命中的 Template / Template matched by immutable identity. */
+    const template = MOCK_TEMPLATE_MANIFEST_VERSIONS.find(
+      (candidate) =>
+        candidate.id === reference.templateId && candidate.version === reference.templateVersion
+    )
+    return template === undefined
+      ? throwMemoryNotFound('resume template')
+      : cloneMemoryValue(template)
+  }
+
+  /**
+   * @brief 以幂等测试语义创建 Mock Resume / Create a Mock Resume with idempotent test semantics.
+   * @param command 已由应用用例验证的创建命令 / Creation command validated by the application use case.
+   * @return 与强 ETag 配对的 Mock Resume / Mock Resume paired with a strong ETag.
+   */
+  async createResume(command: UiCreateResumeFromTemplateCommand): Promise<UiCreatedResume> {
+    command.signal.throwIfAborted()
+    await prepareMemoryRead(this.options)
+    command.signal.throwIfAborted()
+    /** @brief 在闭包外完成判别联合收窄的克隆来源 / Clone source narrowed outside callback boundaries. */
+    const cloneResumeId = command.source.kind === 'clone' ? command.source.resumeId : null
+    if (
+      cloneResumeId !== null &&
+      cloneResumeId !== MOCK_RESUME_ID &&
+      ![...this.createdResumes.values()].some((created) => created.resource.id === cloneResumeId)
+    ) {
+      return throwMemoryNotFound('source resume')
+    }
+
+    /** @brief 不含运行时 signal 的规范创建指纹 / Canonical creation fingerprint without the runtime signal. */
+    const fingerprint = JSON.stringify({
+      locale: command.locale,
+      source: command.source,
+      template: command.template,
+      title: command.title,
+      workspaceId: command.workspaceId
+    })
+    /** @brief 相同幂等键的既有指纹 / Existing fingerprint for the same idempotency key. */
+    const priorFingerprint = this.creationFingerprints.get(command.creationAttemptId)
+    if (priorFingerprint !== undefined && priorFingerprint !== fingerprint) {
+      throw new InMemoryGatewayError(
+        'memory.conflict',
+        'The Mock creation key was reused with a different command.'
+      )
+    }
+    /** @brief 相同创建意图已经生成的结果 / Result already created for the same intent. */
+    const priorResult = this.createdResumes.get(command.creationAttemptId)
+    if (priorResult !== undefined) return cloneMemoryValue(priorResult)
+
+    /** @brief 新建结果的单调测试序号 / Monotonic test sequence for the created result. */
+    const sequence = this.createdResumes.size + 1
+    /** @brief 首次创建并缓存的权威测试结果 / Authoritative test result created and cached once. */
+    const result: UiCreatedResume = {
+      concurrencyToken: asUiConcurrencyToken(`"resume-created-${sequence}"`),
+      resource: {
+        createdAt: '2026-07-23T00:00:00.000Z',
+        id: asUiOpaqueId<'resume'>(`res_created_${sequence}`),
+        locale: command.locale,
+        revision: 1,
+        template: command.template,
+        title: command.title,
+        updatedAt: '2026-07-23T00:00:00.000Z',
+        workspaceId: command.workspaceId
+      }
+    }
+    this.creationFingerprints.set(command.creationAttemptId, fingerprint)
+    this.createdResumes.set(command.creationAttemptId, cloneMemoryValue(result))
+    return cloneMemoryValue(result)
   }
 
   /**

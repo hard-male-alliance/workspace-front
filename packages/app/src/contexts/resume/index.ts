@@ -67,7 +67,8 @@ export type {
   UiResumeCreationTemplatePageRead,
   UiResumeCreationSource,
   UiCreateResumeFromTemplateCommand,
-  UiCreatedResume
+  UiCreatedResume,
+  UiCreatedResumeResource
 } from './domain/creation'
 export type { ResumeGateway } from './application/gateway'
 export {
@@ -81,6 +82,7 @@ export type {
   ResumeCreationPort,
   ResumeTemplateCatalogPort
 } from './application/resume-creation'
+export { ResumeCreationPage } from './presentation/ResumeCreationPage'
 export { ResumeEditorPage } from './presentation/ResumeEditorPage'
 export { ResumeListPage } from './presentation/ResumeListPage'
 export { TemplateSettingsPage } from './presentation/TemplateSettingsPage'

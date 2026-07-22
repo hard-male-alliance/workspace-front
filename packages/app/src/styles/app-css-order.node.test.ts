@@ -28,6 +28,7 @@ const expectedImportPaths = [
   './workspace/home.css',
   './shared-ui/status.css',
   './resume/library.css',
+  './resume/creation.css',
   './resume/editor.css',
   './shared-ui/domain-layouts.css',
   './resume/templates.css',

@@ -10,6 +10,12 @@ import { createWorkspaceSession, type WorkspaceSession } from './session/workspa
 /** @brief Resume gateway 依赖注入上下文 / Resume-gateway dependency-injection context. */
 const ResumeGatewayContext = createContext<AppGateways['resume'] | null>(null)
 
+/** @brief Resume 创建端口依赖注入上下文 / Resume-creation port dependency-injection context. */
+const ResumeCreationContext = createContext<AppGateways['resumeCreation'] | null>(null)
+
+/** @brief 全局 Resume Template 目录依赖注入上下文 / Global Resume Template-catalog dependency-injection context. */
+const ResumeTemplateCatalogContext = createContext<AppGateways['resumeTemplates'] | null>(null)
+
 /** @brief Interview gateway 依赖注入上下文 / Interview-gateway dependency-injection context. */
 const InterviewGatewayContext = createContext<AppGateways['interview'] | null>(null)
 
@@ -50,13 +56,17 @@ export function AppDataProvider({ children, gateways }: AppDataProviderProps): R
   return (
     <AppQueriesContext.Provider value={appQueries}>
       <ResumeGatewayContext.Provider value={gateways.resume}>
-        <InterviewGatewayContext.Provider value={gateways.interview}>
-          <KnowledgeGatewayContext.Provider value={gateways.knowledge}>
-            <WorkspaceSessionContext.Provider value={workspaceSession}>
-              {children}
-            </WorkspaceSessionContext.Provider>
-          </KnowledgeGatewayContext.Provider>
-        </InterviewGatewayContext.Provider>
+        <ResumeCreationContext.Provider value={gateways.resumeCreation}>
+          <ResumeTemplateCatalogContext.Provider value={gateways.resumeTemplates}>
+            <InterviewGatewayContext.Provider value={gateways.interview}>
+              <KnowledgeGatewayContext.Provider value={gateways.knowledge}>
+                <WorkspaceSessionContext.Provider value={workspaceSession}>
+                  {children}
+                </WorkspaceSessionContext.Provider>
+              </KnowledgeGatewayContext.Provider>
+            </InterviewGatewayContext.Provider>
+          </ResumeTemplateCatalogContext.Provider>
+        </ResumeCreationContext.Provider>
       </ResumeGatewayContext.Provider>
     </AppQueriesContext.Provider>
   )
@@ -106,6 +116,30 @@ export function useResumeGateway(): AppGateways['resume'] {
 
   if (gateway === null) throw new Error('Resume pages require AppDataProvider.')
   return gateway
+}
+
+/**
+ * @brief 读取 Workspace-scoped Resume 创建端口 / Read the Workspace-scoped Resume-creation port.
+ * @return 已注入的 Resume 创建端口 / Injected Resume-creation port.
+ * @throws 未被 AppDataProvider 包裹时抛出错误 / Throws when not wrapped by AppDataProvider.
+ */
+export function useResumeCreation(): AppGateways['resumeCreation'] {
+  /** @brief 当前 Resume 创建端口 / Current Resume-creation port. */
+  const creation = useContext(ResumeCreationContext)
+  if (creation === null) throw new Error('Resume creation requires AppDataProvider.')
+  return creation
+}
+
+/**
+ * @brief 读取全局不可变 Resume Template 目录 / Read the global immutable Resume Template catalog.
+ * @return 已注入的 Template 目录端口 / Injected Template-catalog port.
+ * @throws 未被 AppDataProvider 包裹时抛出错误 / Throws when not wrapped by AppDataProvider.
+ */
+export function useResumeTemplateCatalog(): AppGateways['resumeTemplates'] {
+  /** @brief 当前 Template 目录端口 / Current Template-catalog port. */
+  const catalog = useContext(ResumeTemplateCatalogContext)
+  if (catalog === null) throw new Error('Resume Templates require AppDataProvider.')
+  return catalog
 }
 
 /**

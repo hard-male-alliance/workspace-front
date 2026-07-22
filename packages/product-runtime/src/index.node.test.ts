@@ -1,17 +1,29 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { asUiOpaqueId, asUiResumePageLimit } from '@ai-job-workspace/app/application'
-import type {
-  ApiV2AuthenticationPort,
-  ApiV2Client,
-  ApiV2GetOptions,
-  ApiV2JsonResponse
+import {
+  asUiOpaqueId,
+  asUiResumePageLimit,
+  asUiResumeTemplatePageLimit,
+  createUiCommandId
+} from '@ai-job-workspace/app/application'
+import {
+  parseResumeDocument,
+  type ApiV2AuthenticationPort,
+  type ApiV2Client,
+  type ApiV2GetOptions,
+  type ApiV2JsonResponse,
+  type ResumeCreationHttpClient
 } from '@ai-job-workspace/product-api-v2'
 
 import {
   ApiV2CapabilityUnavailableError,
+  createApiV2ResumeCreationGateway,
   createApiV2ResumeGateway,
+  createApiV2ResumeTemplateCatalog,
   createApiV2WorkspaceGateway,
   mapResumeSummaryPage,
+  mapResumeTemplatePage,
+  mapCreatedResumeResource,
+  mapTemplateManifest,
   mapWorkspaceAccessPage
 } from './api-v2-gateways'
 import { createProductGateways } from './index'
@@ -77,6 +89,140 @@ const RESUME_SUMMARY = {
   updated_at: '2026-07-23T08:30:00Z',
   workspace_id: 'ws_01K0EXAMPLE00000000000001'
 } as const
+
+/** @brief Resume Template 的 API v2 测试载荷 / API v2 test payload for a Resume Template. */
+const RESUME_TEMPLATE = {
+  bullet_style_tokens: ['disc'],
+  capabilities: {
+    max_columns: 2,
+    supports_custom_sections: true,
+    supports_photo: true,
+    supports_sidebar: false,
+    supports_source_map: true
+  },
+  date_format_tokens: ['iso'],
+  description: 'A production template.',
+  font_family_tokens: ['inter'],
+  id: 'template_01K0EXAMPLE00000001',
+  name: 'Dawn',
+  preview_url: 'https://cdn.example.com/templates/dawn.png',
+  published_at: '2026-07-22T12:00:00Z',
+  settings: [
+    {
+      choices: [],
+      control: 'switch',
+      default: true,
+      description_key: null,
+      group_key: 'profile',
+      key: 'show.photo',
+      label_key: 'template.show_photo',
+      maximum: null,
+      minimum: null,
+      value_type: 'boolean',
+      visible_when: null
+    },
+    {
+      choices: [],
+      control: 'color',
+      default: { space: 'srgb_hex', value: '#336699' },
+      description_key: null,
+      group_key: 'colors',
+      key: 'accent.color',
+      label_key: 'template.accent_color',
+      maximum: null,
+      minimum: null,
+      value_type: 'color',
+      visible_when: { equals: true, key: 'show.photo' }
+    }
+  ],
+  supported_locales: ['en-US', 'zh-CN'],
+  supported_output_formats: ['pdf', 'png'],
+  supported_page_sizes: ['A4', 'LETTER'],
+  supported_section_kinds: ['experience', 'custom'],
+  version: '2.4.0',
+  zones: [
+    {
+      accepted_section_kinds: ['experience', 'custom'],
+      id: 'main',
+      label_key: 'template.zone.main',
+      max_sections: 8
+    }
+  ]
+} as const
+
+/**
+ * @brief 构造 runtime 创建测试使用的 measurement / Build a measurement used by runtime creation tests.
+ * @param value measurement 数值 / Measurement value.
+ * @return API v2 Measurement JSON / API v2 Measurement JSON.
+ */
+function measurement(value: number): Readonly<Record<string, unknown>> {
+  return { unit: 'mm', value }
+}
+
+/**
+ * @brief 构造完整且最小的已创建 ResumeDocument / Build a complete minimal created ResumeDocument.
+ * @return 可由严格 decoder 消费的 API v2 SIR / API v2 SIR consumable by the strict decoder.
+ */
+function createdResumeDocument(): Readonly<Record<string, unknown>> {
+  return {
+    created_at: '2026-07-23T12:00:00Z',
+    id: 'resume_01K0CREATED000000000001',
+    knowledge_source_id: null,
+    locale: 'zh-CN',
+    profile: {
+      contacts: [],
+      full_name: 'Klee',
+      headline: null,
+      summary: null
+    },
+    revision: 1,
+    sections: [],
+    style: {
+      bullet_style_token: 'disc',
+      date_format_token: 'iso',
+      density: 0.5,
+      extensions: {},
+      page: {
+        custom_height: null,
+        custom_width: null,
+        margins: {
+          bottom: measurement(15),
+          left: measurement(15),
+          right: measurement(15),
+          top: measurement(15)
+        },
+        max_pages: null,
+        orientation: 'portrait',
+        show_page_numbers: false,
+        size: 'A4'
+      },
+      palette: {
+        background: { space: 'srgb_hex', value: '#ffffff' },
+        muted_text: { space: 'srgb_hex', value: '#666666' },
+        primary: { space: 'srgb_hex', value: '#336699' },
+        secondary: { space: 'srgb_hex', value: '#99aabb' },
+        text: { space: 'srgb_hex', value: '#111111' }
+      },
+      section_layout: [],
+      style_contract_version: '1.0',
+      template_settings: {},
+      typography: {
+        base_size_pt: 10,
+        font_family_token: 'inter',
+        heading_scale: 1.2,
+        letter_spacing_em: 0,
+        line_height: 1.4
+      }
+    },
+    template: {
+      template_id: RESUME_TEMPLATE.id,
+      version: RESUME_TEMPLATE.version
+    },
+    title: 'Created Resume',
+    updated_at: '2026-07-23T12:00:00Z',
+    workspace_id: RESUME_SUMMARY.workspace_id
+  }
+}
 
 /**
  * @brief 构造协议客户端可消费的 JSON 响应 / Construct a JSON response consumable by protocol clients.
@@ -293,5 +439,251 @@ describe('API v2 Resume ACL', (): void => {
     expect(() =>
       mapResumeSummaryPage({ items: [], page: { has_more: true, next_cursor: null } })
     ).toThrow('must carry a cursor')
+  })
+})
+
+describe('API v2 Resume Template ACL', (): void => {
+  it('maps the immutable manifest without transport naming or shared mutable values', (): void => {
+    /** @brief 映射后的领域 Template / Mapped domain Template. */
+    const template = mapTemplateManifest(RESUME_TEMPLATE)
+
+    expect(template).toMatchObject({
+      capabilities: {
+        maxColumns: 2,
+        supportsCustomSections: true,
+        supportsPhoto: true,
+        supportsSidebar: false,
+        supportsSourceMap: true
+      },
+      id: RESUME_TEMPLATE.id,
+      previewUrl: RESUME_TEMPLATE.preview_url,
+      settings: [
+        { defaultValue: true, key: 'show.photo', visibleWhen: null },
+        {
+          defaultValue: { space: 'srgb_hex', value: '#336699' },
+          key: 'accent.color',
+          visibleWhen: { equals: true, key: 'show.photo' }
+        }
+      ],
+      supportedLocales: ['en-US', 'zh-CN'],
+      version: '2.4.0',
+      zones: [
+        {
+          acceptedSectionKinds: ['experience', 'custom'],
+          id: 'main',
+          labelKey: 'template.zone.main',
+          maxSections: 8
+        }
+      ]
+    })
+    expect(template.settings[1]?.defaultValue).not.toBe(RESUME_TEMPLATE.settings[1]?.default)
+  })
+
+  it('preserves catalog cursor semantics and propagates one public read', async (): Promise<void> => {
+    /** @brief 被协议调用观察到的路径 / Path observed by the protocol call. */
+    let observedPath: string | undefined
+    /** @brief 被协议调用观察到的选项 / Options observed by the protocol call. */
+    let observedOptions: ApiV2GetOptions | undefined
+    /** @brief 测试公开协议客户端 / Test public protocol client. */
+    const client: ApiV2Client = {
+      getJson(path, options): Promise<ApiV2JsonResponse> {
+        observedPath = path
+        observedOptions = options
+        return Promise.resolve(
+          apiJson({
+            items: [RESUME_TEMPLATE],
+            page: { has_more: true, next_cursor: 'template_cursor_page_2' }
+          })
+        )
+      }
+    }
+    /** @brief Template 目录应用适配器 / Template-catalog application adapter. */
+    const gateway = createApiV2ResumeTemplateCatalog(client)
+    /** @brief 调用方取消控制器 / Caller cancellation controller. */
+    const controller = new AbortController()
+
+    await expect(
+      gateway.listTemplatePage({
+        cursor: null,
+        limit: asUiResumeTemplatePageLimit(24),
+        signal: controller.signal
+      })
+    ).resolves.toMatchObject({
+      hasMore: true,
+      items: [{ id: RESUME_TEMPLATE.id, version: RESUME_TEMPLATE.version }],
+      nextCursor: 'template_cursor_page_2'
+    })
+    expect(observedPath).toBe('/resume-templates')
+    expect(observedOptions?.query).toEqual({ cursor: null, limit: 24 })
+    expect(observedOptions?.signal).toBe(controller.signal)
+  })
+
+  it('reads an exact immutable version and rejects an impossible open page', async (): Promise<void> => {
+    /** @brief 测试公开协议客户端 / Test public protocol client. */
+    const client: ApiV2Client = {
+      getJson(path, options): Promise<ApiV2JsonResponse> {
+        expect(path).toBe(`/resume-templates/${RESUME_TEMPLATE.id}`)
+        expect(options?.query).toEqual({ version: RESUME_TEMPLATE.version })
+        return Promise.resolve(apiJson(RESUME_TEMPLATE))
+      }
+    }
+    /** @brief Template 目录应用适配器 / Template-catalog application adapter. */
+    const gateway = createApiV2ResumeTemplateCatalog(client)
+    /** @brief 调用方取消控制器 / Caller cancellation controller. */
+    const controller = new AbortController()
+
+    await expect(
+      gateway.getTemplate(
+        {
+          templateId: asUiOpaqueId<'template'>(RESUME_TEMPLATE.id),
+          templateVersion: RESUME_TEMPLATE.version
+        },
+        controller.signal
+      )
+    ).resolves.toMatchObject({ id: RESUME_TEMPLATE.id, version: RESUME_TEMPLATE.version })
+    expect(() =>
+      mapResumeTemplatePage({ items: [], page: { has_more: true, next_cursor: null } })
+    ).toThrow('must carry a cursor')
+  })
+})
+
+describe('API v2 Resume creation ACL', (): void => {
+  it('maps one stable creation intent to exact v2 wire semantics and a narrow result', async (): Promise<void> => {
+    /** @brief 被创建端点观察到的路径 / Path observed by the creation endpoint. */
+    let observedPath: string | undefined
+    /** @brief 被创建端点观察到的 JSON body / JSON body observed by the creation endpoint. */
+    let observedBody: unknown
+    /** @brief 被创建端点观察到的 201 策略 / 201 policy observed by the creation endpoint. */
+    let observedOptions: Parameters<ResumeCreationHttpClient['postJson']>[2] | undefined
+    /** @brief 最小固定 201 transport / Minimal transport fixed to 201 semantics. */
+    const client: ResumeCreationHttpClient = {
+      postJson(path, body, options) {
+        observedPath = path
+        observedBody = body
+        observedOptions = options
+        return Promise.resolve({
+          data: createdResumeDocument(),
+          metadata: {
+            entityTag: '"resume-created-1"',
+            location: `https://api.hmalliances.org:8022/api/v2/workspaces/${RESUME_SUMMARY.workspace_id}/resumes/resume_01K0CREATED000000000001`,
+            requestId: 'req_runtime_create_12345678'
+          },
+          status: 201
+        })
+      }
+    }
+    /** @brief Resume 创建应用适配器 / Resume-creation application adapter. */
+    const gateway = createApiV2ResumeCreationGateway(client)
+    /** @brief 本次用户创建意图 / Current user creation intent. */
+    const creationAttemptId = createUiCommandId()
+    /** @brief 调用方取消控制器 / Caller cancellation controller. */
+    const controller = new AbortController()
+
+    /** @brief 已确认的新 Resume 资源 / Confirmed new Resume resource. */
+    const result = await gateway.createResume({
+      creationAttemptId,
+      locale: 'zh-CN',
+      signal: controller.signal,
+      source: { kind: 'new' },
+      template: {
+        templateId: asUiOpaqueId<'template'>(RESUME_TEMPLATE.id),
+        templateVersion: RESUME_TEMPLATE.version
+      },
+      title: 'Created Resume',
+      workspaceId: asUiOpaqueId<'workspace'>(RESUME_SUMMARY.workspace_id)
+    })
+
+    expect(observedPath).toBe(`/workspaces/${RESUME_SUMMARY.workspace_id}/resumes`)
+    expect(observedBody).toEqual({
+      locale: 'zh-CN',
+      template: {
+        template_id: RESUME_TEMPLATE.id,
+        version: RESUME_TEMPLATE.version
+      },
+      title: 'Created Resume'
+    })
+    expect(Object.hasOwn(observedBody as object, 'clone_from_resume_id')).toBe(false)
+    expect(observedOptions).toMatchObject({
+      idempotencyKey: creationAttemptId,
+      signal: controller.signal,
+      successKind: 'created-resource'
+    })
+    expect(result).toEqual({
+      concurrencyToken: '"resume-created-1"',
+      resource: {
+        createdAt: '2026-07-23T12:00:00Z',
+        id: 'resume_01K0CREATED000000000001',
+        locale: 'zh-CN',
+        revision: 1,
+        template: {
+          templateId: RESUME_TEMPLATE.id,
+          templateVersion: RESUME_TEMPLATE.version
+        },
+        title: 'Created Resume',
+        updatedAt: '2026-07-23T12:00:00Z',
+        workspaceId: RESUME_SUMMARY.workspace_id
+      }
+    })
+    expect(result.resource).not.toHaveProperty('profile')
+  })
+
+  it('keeps clone source explicit while the new resource identity stays independent', async (): Promise<void> => {
+    /** @brief 被创建端点观察到的 JSON body / JSON body observed by the creation endpoint. */
+    let observedBody: unknown
+    /** @brief 最小固定 201 transport / Minimal transport fixed to 201 semantics. */
+    const client: ResumeCreationHttpClient = {
+      postJson(_path, body) {
+        observedBody = body
+        return Promise.resolve({
+          data: createdResumeDocument(),
+          metadata: {
+            entityTag: '"resume-created-1"',
+            location: `https://api.hmalliances.org:8022/api/v2/workspaces/${RESUME_SUMMARY.workspace_id}/resumes/resume_01K0CREATED000000000001`,
+            requestId: 'req_runtime_create_12345678'
+          },
+          status: 201
+        })
+      }
+    }
+    /** @brief Resume 创建应用适配器 / Resume-creation application adapter. */
+    const gateway = createApiV2ResumeCreationGateway(client)
+
+    await gateway.createResume({
+      creationAttemptId: createUiCommandId(),
+      locale: 'zh-CN',
+      signal: new AbortController().signal,
+      source: {
+        kind: 'clone',
+        resumeId: asUiOpaqueId<'resume'>('resume_01K0SOURCE000000000001')
+      },
+      template: {
+        templateId: asUiOpaqueId<'template'>(RESUME_TEMPLATE.id),
+        templateVersion: RESUME_TEMPLATE.version
+      },
+      title: 'Created Resume',
+      workspaceId: asUiOpaqueId<'workspace'>(RESUME_SUMMARY.workspace_id)
+    })
+
+    expect(observedBody).toMatchObject({
+      clone_from_resume_id: 'resume_01K0SOURCE000000000001'
+    })
+  })
+
+  it('projects only creation facts from a full decoded SIR', (): void => {
+    /** @brief 已严格解码的创建 SIR / Strictly decoded creation SIR. */
+    const source = parseResumeDocument(createdResumeDocument())
+    expect(mapCreatedResumeResource(source)).toEqual({
+      createdAt: '2026-07-23T12:00:00Z',
+      id: 'resume_01K0CREATED000000000001',
+      locale: 'zh-CN',
+      revision: 1,
+      template: {
+        templateId: RESUME_TEMPLATE.id,
+        templateVersion: RESUME_TEMPLATE.version
+      },
+      title: 'Created Resume',
+      updatedAt: '2026-07-23T12:00:00Z',
+      workspaceId: RESUME_SUMMARY.workspace_id
+    })
   })
 })

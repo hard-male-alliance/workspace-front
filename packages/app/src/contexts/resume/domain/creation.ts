@@ -4,12 +4,7 @@ import type { UiCommandId } from '../../../shared-kernel/command'
 import type { UiConcurrencyToken } from '../../../shared-kernel/concurrency'
 import type { UiWorkspaceId } from '../../../shared-kernel/identity'
 import type { UiContentLocale } from '../../../shared-kernel/locale'
-import type {
-  UiResumeDocument,
-  UiResumeId,
-  UiTemplateManifest,
-  UiTemplateReference
-} from './models'
+import type { UiResumeId, UiTemplateManifest, UiTemplateReference } from './models'
 
 /** @brief Template 目录 cursor 的名义类型品牌 / Nominal type brand for Template-catalog cursors. */
 declare const resumeTemplateCursorBrand: unique symbol
@@ -175,10 +170,33 @@ export interface UiCreateResumeFromTemplateCommand {
   readonly signal: AbortSignal
 }
 
-/** @brief 已创建 Resume 的权威表示 / Authoritative representation of a created Resume. */
+/** @brief 创建用例确认的新 Resume 资源事实 / New-Resume resource facts confirmed by the creation use case. */
+export interface UiCreatedResumeResource {
+  /** @brief 新 Resume 身份 / New Resume identity. */
+  readonly id: UiResumeId
+  /** @brief 授权路径所属 Workspace / Workspace owning the authorization path. */
+  readonly workspaceId: UiWorkspaceId
+  /** @brief 创建后的初始领域 revision / Initial domain revision after creation. */
+  readonly revision: number
+  /** @brief 服务端确认的标题 / Server-confirmed title. */
+  readonly title: string
+  /** @brief 服务端确认的内容语言 / Server-confirmed content locale. */
+  readonly locale: UiContentLocale
+  /** @brief 服务端确认的不可变 Template 引用 / Server-confirmed immutable Template reference. */
+  readonly template: UiTemplateReference
+  /** @brief 资源创建时刻 / Resource creation timestamp. */
+  readonly createdAt: string
+  /** @brief 资源最近更新时间 / Resource update timestamp. */
+  readonly updatedAt: string
+}
+
+/**
+ * @brief 已创建 Resume 的用例结果 / Use-case result for a created Resume.
+ * @note 完整 SIR 必须由无损 Resume authority 表达；创建页只依赖这里的窄资源投影 / The complete SIR must use a lossless Resume authority; the creation page depends only on this narrow resource projection.
+ */
 export interface UiCreatedResume {
-  /** @brief 服务端确认的 Resume 文档 / Resume document confirmed by the service. */
-  readonly resume: UiResumeDocument
+  /** @brief 服务端确认的新资源事实 / New-resource facts confirmed by the service. */
+  readonly resource: UiCreatedResumeResource
   /**
    * @brief 与该表示原子配对的强 ETag / Strong ETag atomically paired with this representation.
    * @note 后续修改必须将其映射为 `If-Match`，不能从 revision 猜测 / Later mutations must map it to `If-Match`; it must never be inferred from revision.

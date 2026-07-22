@@ -82,6 +82,49 @@ export function classifyResourceFailure(error: unknown): ResourceFailure {
     /** @brief 技术错误的稳定名称 / Stable technical error name. */
     const name = typeof error.name === 'string' ? error.name : ''
 
+    if (name === 'ApiV2AuthenticationRequiredError') {
+      return { kind: 'authentication-required', referenceId: null, retryable: false }
+    }
+    if (name === 'ApiV2ProblemError' && isRecord(error.problem)) {
+      /** @brief 已验证 API v2 Problem 的安全结构化投影 / Safe structured projection of a validated API v2 Problem. */
+      const problem = error.problem
+      if (typeof problem.status === 'number') {
+        return classifyHttpStatus(
+          problem.status,
+          typeof problem.retryable === 'boolean' ? problem.retryable : false,
+          readReferenceId(problem.request_id)
+        )
+      }
+    }
+    if (name === 'ApiV2ContractError') {
+      if (error.status === null) {
+        return { kind: 'invalid-request', referenceId: null, retryable: false }
+      }
+      if (typeof error.status === 'number' && error.status >= 500) {
+        return { kind: 'service-unavailable', referenceId: null, retryable: true }
+      }
+      return { kind: 'invalid-response', referenceId: null, retryable: false }
+    }
+    if (name === 'ApiV2WriteOutcomeUnknownError') {
+      return {
+        kind: 'outcome-unknown',
+        referenceId: readReferenceId(error.requestId),
+        retryable: false
+      }
+    }
+    if (name === 'ApiV2NetworkError') {
+      return error.kind === 'timeout'
+        ? { kind: 'service-unavailable', referenceId: null, retryable: true }
+        : { kind: 'network', referenceId: null, retryable: true }
+    }
+    if (name === 'ResumeCreationError') {
+      /** @brief 创建用例公开的稳定失败事实 / Stable failure fact published by the creation use case. */
+      const failure = isRecord(error.failure) ? error.failure : null
+      return failure?.kind === 'invalid-template-result' ||
+        failure?.kind === 'invalid-creation-result'
+        ? { kind: 'invalid-response', referenceId: null, retryable: false }
+        : { kind: 'invalid-request', referenceId: null, retryable: false }
+    }
     if (name === 'HttpProblemError' && typeof error.status === 'number') {
       return classifyHttpStatus(
         error.status,

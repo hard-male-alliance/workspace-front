@@ -1,6 +1,6 @@
 /** @file API v2 Workspace Resume 创建 command 消费者 / API v2 Workspace Resume creation-command consumer. */
 
-import type { ApiV2HttpClient } from '../http/client'
+import type { ApiV2CreatedResourceResponse, ApiV2PostJsonOptions } from '../http/client'
 import { opaqueId, strongEntityTag } from '../http/contract'
 import { ApiV2ContractError } from '../http/errors'
 import {
@@ -16,8 +16,21 @@ const CREATE_RESUME_MAX_REQUEST_BYTES = 64 * 1024
 /** @brief 完整 ResumeDocument 创建响应的字节上限 / Response byte ceiling for a complete created ResumeDocument. */
 const CREATE_RESUME_MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 
-/** @brief Resume 创建端点所需的最小 HTTP 能力 / Minimal HTTP capability required by the Resume-creation endpoint. */
-export type ResumeCreationHttpClient = Pick<ApiV2HttpClient, 'postJson'>
+/** @brief Resume 创建端点所需的最小且固定 201 的 HTTP 能力 / Minimal HTTP capability fixed to the Resume endpoint's 201 semantics. */
+export interface ResumeCreationHttpClient {
+  /**
+   * @brief 发送固定为 created-resource 的 JSON command / Send a JSON command fixed to created-resource semantics.
+   * @param path 相对 Product API path / Relative Product API path.
+   * @param body 严格 JSON 请求 / Strict JSON request.
+   * @param options 稳定幂等键、大小、取消与固定 201 策略 / Stable idempotency key, sizes, cancellation, and fixed 201 policy.
+   * @return 带强 ETag 与 Location 的 201 表示 / 201 representation carrying a strong ETag and Location.
+   */
+  readonly postJson: (
+    path: string,
+    body: unknown,
+    options: ApiV2PostJsonOptions<'created-resource'>
+  ) => Promise<ApiV2CreatedResourceResponse>
+}
 
 /** @brief 在显式 Workspace 中创建 Resume 的 command / Command for creating a Resume in an explicit Workspace. */
 export interface CreateWorkspaceResumeCommand {

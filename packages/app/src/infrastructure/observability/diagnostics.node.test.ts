@@ -176,6 +176,13 @@ describe('classifyDiagnosticError', (): void => {
     expect(classifyDiagnosticError({ name: 'HttpCommandOutcomeUnknownError' })).toBe(
       'outcome_unknown'
     )
+    expect(classifyDiagnosticError({ kind: 'timeout', name: 'ApiV2NetworkError' })).toBe('timeout')
+    expect(classifyDiagnosticError({ kind: 'aborted', name: 'ApiV2NetworkError' })).toBe('aborted')
+    expect(classifyDiagnosticError({ name: 'ApiV2WriteOutcomeUnknownError' })).toBe(
+      'outcome_unknown'
+    )
+    expect(classifyDiagnosticError({ name: 'ApiV2ProblemError' })).toBe('backend_problem')
+    expect(classifyDiagnosticError({ name: 'ApiV2ContractError' })).toBe('contract')
   })
 })
 
@@ -266,13 +273,13 @@ describe('createDiagnostics', (): void => {
     diagnostics.emit('resume.command_completed', retiredAttributes)
     diagnostics.emit('resume.command_completed', {
       duration_ms: 13,
-      operation: 'resume.section_update'
+      operation: 'resume.create'
     })
 
     expect(received[0]?.attributes).toEqual({ duration_ms: 12 })
     expect(received[1]?.attributes).toEqual({
       duration_ms: 13,
-      operation: 'resume.section_update'
+      operation: 'resume.create'
     })
   })
 })

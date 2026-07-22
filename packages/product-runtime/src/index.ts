@@ -3,13 +3,16 @@
 import type { AppGateways } from '@ai-job-workspace/app/application'
 import {
   createApiV2Client,
+  createApiV2PublicClient,
   type ApiV2AuthenticationPort,
   type ApiV2TransportProfile
 } from '@ai-job-workspace/product-api-v2'
 
 import {
   createApiV2IdentityGateway,
+  createApiV2ResumeCreationGateway,
   createApiV2ResumeGateway,
+  createApiV2ResumeTemplateCatalog,
   createApiV2WorkspaceGateway,
   createUnavailableInterviewGateway,
   createUnavailableKnowledgeGateway
@@ -42,12 +45,21 @@ export function createProductGateways(options: ProductGatewayOptions): AppGatewa
       ? {}
       : { transportProfile: options.transportProfile })
   })
+  /** @brief 不读取或发送 Bearer 的全局公开 API v2 客户端 / Global public API v2 client that neither reads nor sends a Bearer token. */
+  const publicClient = createApiV2PublicClient({
+    acceptLanguage: options.locale,
+    ...(options.transportProfile === undefined
+      ? {}
+      : { transportProfile: options.transportProfile })
+  })
 
   return {
     identity: createApiV2IdentityGateway(client),
     interview: createUnavailableInterviewGateway(),
     knowledge: createUnavailableKnowledgeGateway(),
     resume: createApiV2ResumeGateway(client),
+    resumeCreation: createApiV2ResumeCreationGateway(client),
+    resumeTemplates: createApiV2ResumeTemplateCatalog(publicClient),
     workspace: createApiV2WorkspaceGateway(client)
   }
 }

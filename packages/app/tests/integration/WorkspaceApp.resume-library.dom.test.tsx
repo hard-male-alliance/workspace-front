@@ -76,11 +76,15 @@ function createGateways(
   resume: ResumeGateway,
   workspace = new InMemoryWorkspaceGateway()
 ): AppGateways {
+  /** @brief 本页面不使用但保持组合契约完整的 Resume 能力适配器 / Resume capability adapter keeping composition complete although unused by this page. */
+  const resumeCapabilities = new InMemoryResumeGateway()
   return {
     identity: new InMemoryIdentityGateway(),
     interview: new InMemoryInterviewGateway(),
     knowledge: new InMemoryKnowledgeGateway(),
     resume,
+    resumeCreation: resumeCapabilities,
+    resumeTemplates: resumeCapabilities,
     workspace
   }
 }

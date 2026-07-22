@@ -18,11 +18,15 @@ import { createWorkspaceSession } from './session/workspace-session'
  * @return 可供应用查询组合的 gateway 集合 / Gateway collection for application-query composition.
  */
 function createGateways(workspace = new InMemoryWorkspaceGateway()): AppGateways {
+  /** @brief 同时承载 Resume 各端口的独享测试适配器 / Isolated test adapter serving each Resume port. */
+  const resume = new InMemoryResumeGateway()
   return {
     identity: new InMemoryIdentityGateway(),
     interview: new InMemoryInterviewGateway(),
     knowledge: new InMemoryKnowledgeGateway(),
-    resume: new InMemoryResumeGateway(),
+    resume,
+    resumeCreation: resume,
+    resumeTemplates: resume,
     workspace
   }
 }

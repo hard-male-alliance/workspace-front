@@ -3,6 +3,8 @@
 import { describe, expect, it } from 'vitest'
 
 import { InMemoryGatewayError } from '../../../../infrastructure/memory'
+import { createUiCommandId } from '../../../../shared-kernel/command'
+import { asUiResumeTemplatePageLimit } from '../../domain/creation'
 import { asUiResumePageLimit } from '../../domain/models'
 import {
   MOCK_EDITORIAL_TEMPLATE,
@@ -78,6 +80,67 @@ describe('InMemoryResumeGateway', () => {
     controller.abort(new DOMException('Workspace changed.', 'AbortError'))
 
     await expect(page).rejects.toMatchObject({ name: 'AbortError' })
+  })
+
+  it('implements the immutable Template catalog and idempotent Resume creation ports', async () => {
+    /** @brief 同一测试共享的 Resume 能力适配器 / Resume capability adapter shared within this test. */
+    const gateway = new InMemoryResumeGateway()
+    /** @brief 目录与创建共用的取消控制器 / Cancellation controller shared by catalog and creation calls. */
+    const controller = new AbortController()
+    /** @brief 只包含一个 Template 的首页 / First Template page containing one item. */
+    const firstPage = await gateway.listTemplatePage({
+      cursor: null,
+      limit: asUiResumeTemplatePageLimit(1),
+      signal: controller.signal
+    })
+    expect(firstPage).toMatchObject({ hasMore: true, items: [{ version: '1.0.0' }] })
+    if (!firstPage.hasMore) throw new Error('Expected the Mock Template catalog to continue.')
+    await expect(
+      gateway.listTemplatePage({
+        cursor: firstPage.nextCursor,
+        limit: asUiResumeTemplatePageLimit(1),
+        signal: controller.signal
+      })
+    ).resolves.toMatchObject({ hasMore: false, nextCursor: null })
+    await expect(
+      gateway.getTemplate(
+        {
+          templateId: MOCK_HISTORICAL_DAWN_TEMPLATE.id,
+          templateVersion: MOCK_HISTORICAL_DAWN_TEMPLATE.version
+        },
+        controller.signal
+      )
+    ).resolves.toEqual(MOCK_HISTORICAL_DAWN_TEMPLATE)
+
+    /** @brief 一次用户创建意图 / One user creation intent. */
+    const creationAttemptId = createUiCommandId()
+    /** @brief 首次创建命令 / Initial creation command. */
+    const command = {
+      creationAttemptId,
+      locale: 'en-US',
+      signal: controller.signal,
+      source: { kind: 'new' } as const,
+      template: {
+        templateId: MOCK_EDITORIAL_TEMPLATE.id,
+        templateVersion: MOCK_EDITORIAL_TEMPLATE.version
+      },
+      title: 'Idempotent creation test',
+      workspaceId: MOCK_RESUME_WORKSPACE_ID
+    }
+    /** @brief 首次创建结果 / First creation result. */
+    const created = await gateway.createResume(command)
+    await expect(gateway.createResume(command)).resolves.toEqual(created)
+    await expect(
+      gateway.createResume({ ...command, title: 'A different payload under the same key' })
+    ).rejects.toBeInstanceOf(InMemoryGatewayError)
+    expect(created).toMatchObject({
+      resource: {
+        locale: command.locale,
+        template: command.template,
+        title: command.title,
+        workspaceId: command.workspaceId
+      }
+    })
   })
 
   it('keeps PDF rendering split into start and status recovery', async () => {

@@ -46,11 +46,15 @@ export type TestGatewayOverrides = Partial<WorkspaceAppProps['gateways']>
 export function createTestGateways(
   overrides: TestGatewayOverrides = {}
 ): WorkspaceAppProps['gateways'] {
+  /** @brief 同时实现 Resume 各用例端口的独享测试适配器 / Isolated test adapter implementing each Resume use-case port. */
+  const resume = new InMemoryResumeGateway()
   return {
     identity: new InMemoryIdentityGateway(),
     interview: new InMemoryInterviewGateway(),
     knowledge: new InMemoryKnowledgeGateway(),
-    resume: new InMemoryResumeGateway(),
+    resume,
+    resumeCreation: resume,
+    resumeTemplates: resume,
     workspace: new InMemoryWorkspaceGateway(),
     ...overrides
   }

@@ -121,6 +121,10 @@ function getBreadcrumbKey(pathname: string): string {
     return 'breadcrumbs.templateSettings'
   }
 
+  if (pathname === '/resumes/new') {
+    return 'breadcrumbs.resumeCreation'
+  }
+
   if (pathname.includes('/resumes/')) {
     return 'breadcrumbs.resumeEditor'
   }

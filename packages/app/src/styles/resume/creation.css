@@ -1,0 +1,373 @@
+/* API v2 Resume creation */
+.aw-resume-create-page {
+  max-width: 1180px;
+}
+
+.aw-resume-create-page-loading {
+  min-height: 260px;
+  justify-content: center;
+}
+
+.aw-resume-create-header {
+  align-items: flex-start;
+}
+
+.aw-resume-create-header > .aw-quiet-button {
+  flex: none;
+  text-decoration: none;
+}
+
+.aw-resume-create-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(230px, 0.34fr);
+  align-items: start;
+  gap: 18px;
+}
+
+.aw-resume-create-form {
+  display: grid;
+  min-width: 0;
+  gap: 0;
+}
+
+.aw-resume-create-section {
+  display: grid;
+  min-width: 0;
+  gap: 17px;
+  margin: 0;
+  padding: 21px;
+  border: 0;
+  border-bottom: 1px solid var(--ui-color-border);
+}
+
+.aw-resume-create-template-fieldset > legend {
+  display: grid;
+  width: 100%;
+  gap: 5px;
+  padding: 0;
+}
+
+.aw-resume-create-field {
+  display: grid;
+  gap: 6px;
+  color: var(--ui-color-ink-muted);
+  font-size: 11px;
+  font-weight: 710;
+}
+
+.aw-resume-create-field input {
+  width: 100%;
+  min-height: 40px;
+  padding: 9px 10px;
+  border: 1px solid var(--ui-color-border);
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-color-surface-raised);
+  color: var(--ui-color-ink);
+  font-size: 13px;
+  font-weight: 450;
+}
+
+.aw-resume-create-field input[aria-invalid='true'] {
+  border-color: var(--ui-color-danger-solid);
+}
+
+.aw-resume-create-field-help {
+  color: var(--ui-color-ink-subtle);
+  font-weight: 450;
+  line-height: 1.45;
+}
+
+.aw-resume-create-field-error {
+  min-height: 16px;
+  color: var(--ui-color-danger);
+  font-size: 11px;
+  font-weight: 580;
+  line-height: 1.45;
+}
+
+.aw-resume-create-template-loading,
+.aw-resume-create-template-guidance {
+  min-height: 120px;
+  justify-content: center;
+  margin: 0;
+  color: var(--ui-color-ink-muted);
+}
+
+.aw-resume-create-template-guidance {
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  border: 1px dashed var(--ui-color-border-strong);
+  border-radius: var(--ui-radius-md);
+  text-align: center;
+}
+
+.aw-resume-create-template-results {
+  display: grid;
+  gap: 15px;
+}
+
+.aw-resume-create-template-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.aw-resume-create-template-card {
+  position: relative;
+  display: grid;
+  height: 100%;
+  min-width: 0;
+  grid-template-columns: auto 102px minmax(0, 1fr);
+  align-items: start;
+  gap: 11px;
+  padding: 12px;
+  border: 1px solid var(--ui-color-border);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-color-surface);
+  cursor: pointer;
+  transition:
+    border-color var(--ui-transition-fast),
+    background var(--ui-transition-fast),
+    transform var(--ui-transition-fast);
+}
+
+.aw-resume-create-template-card:hover {
+  border-color: var(--ui-color-border-strong);
+  background: var(--ui-color-surface-raised);
+  transform: translateY(-1px);
+}
+
+.aw-resume-create-template-card:focus-within,
+.aw-resume-create-template-card--selected {
+  border-color: var(--ui-color-accent);
+  box-shadow: var(--ui-focus-ring);
+}
+
+.aw-resume-create-template-card--unsupported {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.aw-resume-create-template-card--locked {
+  cursor: wait;
+}
+
+.aw-resume-create-template-card--unsupported:hover {
+  border-color: var(--ui-color-border);
+  background: var(--ui-color-surface);
+  transform: none;
+}
+
+.aw-resume-create-template-card > input {
+  width: 16px;
+  height: 16px;
+  margin: 3px 0 0;
+  accent-color: var(--ui-color-accent);
+}
+
+.aw-resume-create-template-preview {
+  display: grid;
+  width: 102px;
+  height: 132px;
+  overflow: hidden;
+  place-items: center;
+  border: 1px solid var(--ui-color-border);
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-color-surface-muted);
+}
+
+.aw-resume-create-template-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.aw-resume-create-template-preview--empty {
+  gap: 7px;
+  padding: 9px;
+  color: var(--ui-color-ink-subtle);
+  font-size: 10px;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.aw-resume-create-template-copy {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+}
+
+.aw-resume-create-template-heading {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.aw-resume-create-template-heading strong {
+  overflow: hidden;
+  color: var(--ui-color-ink);
+  font-size: 14px;
+  font-weight: 720;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aw-resume-create-template-heading > span {
+  flex: none;
+  color: var(--ui-color-ink-subtle);
+  font-size: 10px;
+}
+
+.aw-resume-create-template-description,
+.aw-resume-create-template-locales {
+  color: var(--ui-color-ink-muted);
+  font-size: 11px;
+  font-weight: 450;
+  line-height: 1.5;
+}
+
+.aw-resume-create-template-locales {
+  color: var(--ui-color-ink-subtle);
+}
+
+.aw-resume-create-template-empty,
+.aw-resume-create-no-workspace {
+  min-height: 240px;
+  border: 1px solid var(--ui-color-border);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-color-surface);
+}
+
+.aw-resume-create-inline-error,
+.aw-resume-create-submit-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px 15px;
+  border: 1px solid var(--ui-color-danger);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-color-danger-subtle);
+  color: var(--ui-color-danger);
+}
+
+.aw-resume-create-submit-error {
+  display: grid;
+  margin: 18px 21px 0;
+  gap: 4px;
+}
+
+.aw-resume-create-inline-error strong,
+.aw-resume-create-submit-error strong {
+  font-size: 13px;
+}
+
+.aw-resume-create-inline-error p,
+.aw-resume-create-submit-error p {
+  margin: 3px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.aw-resume-create-load-more {
+  display: flex;
+  justify-content: center;
+}
+
+.aw-resume-create-load-more > .aw-quiet-button {
+  min-width: 164px;
+  border-color: var(--ui-color-border);
+}
+
+.aw-resume-create-catalog-end {
+  margin: 0;
+  color: var(--ui-color-ink-subtle);
+  font-size: 11px;
+  text-align: center;
+}
+
+.aw-resume-create-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+  padding: 18px 21px 21px;
+}
+
+.aw-resume-create-actions > .aw-quiet-button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.aw-resume-create-context {
+  position: sticky;
+  top: 82px;
+  padding: 18px;
+}
+
+.aw-resume-create-context .aw-card-description {
+  margin-bottom: 0;
+}
+
+@media (max-width: 980px) {
+  .aw-resume-create-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .aw-resume-create-context {
+    position: static;
+    grid-row: 1;
+  }
+}
+
+@media (max-width: 760px) {
+  .aw-resume-create-template-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .aw-resume-create-header {
+    align-items: stretch;
+  }
+
+  .aw-resume-create-header > .aw-quiet-button,
+  .aw-resume-create-actions > * {
+    width: 100%;
+  }
+
+  .aw-resume-create-template-card {
+    grid-template-columns: auto 76px minmax(0, 1fr);
+    padding: 10px;
+  }
+
+  .aw-resume-create-template-preview {
+    width: 76px;
+    height: 100px;
+  }
+
+  .aw-resume-create-inline-error,
+  .aw-resume-create-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aw-resume-create-template-card {
+    transition: none;
+  }
+
+  .aw-resume-create-template-card:hover {
+    transform: none;
+  }
+}

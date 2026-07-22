@@ -199,6 +199,7 @@ export async function runDiagnosticCommand<TValue>(
 function getDiagnosticRoute(pathname: string): DiagnosticRoute {
   if (pathname === '/') return 'workspace.home'
   if (pathname === '/resumes') return 'resume.entry'
+  if (pathname === '/resumes/new') return 'resume.creation'
   if (pathname.endsWith('/edit')) return 'resume.editor'
   if (pathname.endsWith('/template')) return 'resume.template_settings'
   if (pathname === '/interviews') return 'interview.history'

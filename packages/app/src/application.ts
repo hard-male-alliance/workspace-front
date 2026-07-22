@@ -4,6 +4,10 @@ import type { InterviewGateway } from './contexts/interview/application/gateway'
 import type { IdentityGateway } from './contexts/identity/application/gateway'
 import type { KnowledgeGateway } from './contexts/knowledge/application/gateway'
 import type { ResumeGateway } from './contexts/resume/application/gateway'
+import type {
+  ResumeCreationPort,
+  ResumeTemplateCatalogPort
+} from './contexts/resume/application/resume-creation'
 import type { WorkspaceGateway } from './contexts/workspace/application/gateway'
 
 export { createUiCommandId } from './shared-kernel/command'
@@ -58,6 +62,7 @@ export {
 export type {
   UiCreateResumeFromTemplateCommand,
   UiCreatedResume,
+  UiCreatedResumeResource,
   UiResumeCreationSource,
   UiResumeCreationTemplateOption,
   UiResumeCreationTemplatePage,
@@ -87,6 +92,10 @@ export interface AppGateways {
   readonly workspace: WorkspaceGateway
   /** @brief Resume Authoring 端口 / Resume Authoring port. */
   readonly resume: ResumeGateway
+  /** @brief Workspace-scoped Resume 创建端口 / Workspace-scoped Resume-creation port. */
+  readonly resumeCreation: ResumeCreationPort
+  /** @brief 全局不可变 Resume Template 目录端口 / Global immutable Resume Template-catalog port. */
+  readonly resumeTemplates: ResumeTemplateCatalogPort
   /** @brief Interview Practice 端口 / Interview Practice port. */
   readonly interview: InterviewGateway
   /** @brief Knowledge 端口 / Knowledge port. */

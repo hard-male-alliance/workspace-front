@@ -242,19 +242,19 @@ function assertCreationResult(
       kind: 'invalid-creation-result'
     })
   }
-  if (command.source.kind === 'clone' && result.resume.id === command.source.resumeId) {
+  if (command.source.kind === 'clone' && result.resource.id === command.source.resumeId) {
     throw new ResumeCreationError({ kind: 'invalid-creation-result', field: 'identity' })
   }
-  if (result.resume.workspaceId !== command.workspaceId) {
+  if (result.resource.workspaceId !== command.workspaceId) {
     throw new ResumeCreationError({ kind: 'invalid-creation-result', field: 'workspace' })
   }
-  if (result.resume.title !== command.title) {
+  if (result.resource.title !== command.title) {
     throw new ResumeCreationError({ kind: 'invalid-creation-result', field: 'title' })
   }
-  if (result.resume.locale.toLowerCase() !== command.locale.toLowerCase()) {
+  if (result.resource.locale.toLowerCase() !== command.locale.toLowerCase()) {
     throw new ResumeCreationError({ kind: 'invalid-creation-result', field: 'locale' })
   }
-  if (!sameTemplateIdentity(result.resume.template, command.template)) {
+  if (!sameTemplateIdentity(result.resource.template, command.template)) {
     throw new ResumeCreationError({ kind: 'invalid-creation-result', field: 'template' })
   }
 }

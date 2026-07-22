@@ -1,4 +1,4 @@
-import { ArrowRight, FileText, Files } from 'lucide-react'
+import { ArrowRight, FilePlus2, FileText, Files } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
@@ -259,6 +259,12 @@ function ResumeSummaryCollection({
   if (summaries.length === 0 && !page.hasMore) {
     return (
       <EmptyState
+        action={
+          <Link className="aw-primary-button" to="/resumes/new">
+            <FilePlus2 aria-hidden="true" size={17} strokeWidth={1.8} />
+            {t('resume.library.create', { defaultValue: '新建简历' })}
+          </Link>
+        }
         className="aw-resume-library-state"
         description={t('resume.library.emptyDescription', {
           defaultValue: '当前工作区还没有简历。新建后会显示在这里。'
@@ -445,6 +451,10 @@ export function ResumeListPage(): React.JSX.Element {
             })}
           </p>
         </div>
+        <Link className="aw-primary-button" to="/resumes/new">
+          <FilePlus2 aria-hidden="true" size={17} strokeWidth={1.8} />
+          {t('resume.library.create', { defaultValue: '新建简历' })}
+        </Link>
       </header>
       <ResumeSummaryCollection
         gateway={resumeGateway}

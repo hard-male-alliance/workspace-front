@@ -80,7 +80,9 @@ const TEST_PROJECT_NAMES = Object.freeze(['node', 'dom', 'browser'])
 const GATEWAY_HOOK_OWNERS = Object.freeze({
   useInterviewGateway: 'interview',
   useKnowledgeGateway: 'knowledge',
+  useResumeCreation: 'resume',
   useResumeGateway: 'resume',
+  useResumeTemplateCatalog: 'resume',
   useWorkspaceGateway: 'workspace'
 })
 

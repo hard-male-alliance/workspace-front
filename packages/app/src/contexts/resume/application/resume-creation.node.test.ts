@@ -156,12 +156,14 @@ function createCommand(
 function createResult(command: UiCreateResumeFromTemplateCommand): UiCreatedResume {
   return {
     concurrencyToken: asUiConcurrencyToken('"resume-created-1"'),
-    resume: {
-      ...RESUME_DOCUMENT,
+    resource: {
+      createdAt: RESUME_DOCUMENT.createdAt,
       id: CREATED_RESUME_ID,
       locale: command.locale,
+      revision: RESUME_DOCUMENT.revision,
       template: command.template,
       title: command.title,
+      updatedAt: RESUME_DOCUMENT.updatedAt,
       workspaceId: command.workspaceId
     }
   }
@@ -407,7 +409,7 @@ describe('createResumeFromTemplate', (): void => {
     ]
   ] as const)(
     'rejects a creation result outside the command %s boundary',
-    async (field, resumeOverrides): Promise<void> => {
+    async (field, resourceOverrides): Promise<void> => {
       /** @brief 用户确认的创建命令 / User-confirmed creation command. */
       const command = createCommand()
       /** @brief 返回边界外表示的创建端口 / Creation port returning an out-of-bound representation. */
@@ -415,7 +417,7 @@ describe('createResumeFromTemplate', (): void => {
         createResume: vi.fn(() =>
           Promise.resolve({
             ...createResult(command),
-            resume: { ...createResult(command).resume, ...resumeOverrides }
+            resource: { ...createResult(command).resource, ...resourceOverrides }
           })
         )
       }
@@ -434,7 +436,7 @@ describe('createResumeFromTemplate', (): void => {
       createResume: vi.fn(() =>
         Promise.resolve({
           ...createResult(command),
-          resume: { ...createResult(command).resume, id: SOURCE_RESUME_ID }
+          resource: { ...createResult(command).resource, id: SOURCE_RESUME_ID }
         })
       )
     }

@@ -151,6 +151,69 @@ describe('classifyResourceFailure', (): void => {
     })
   })
 
+  it('classifies the closed API v2 transport error family without exposing its messages', (): void => {
+    /** @brief 已验证的 API v2 Problem 错误投影 / Validated API v2 Problem error projection. */
+    const problem = Object.assign(new Error('private API v2 title'), {
+      name: 'ApiV2ProblemError',
+      problem: {
+        request_id: 'req_api_v2_1234',
+        retryable: true,
+        status: 429
+      }
+    })
+    /** @brief 已发出但结果未知的 API v2 写入 / API v2 write dispatched with an unknown outcome. */
+    const unknownWrite = Object.assign(new Error('private transport detail'), {
+      name: 'ApiV2WriteOutcomeUnknownError',
+      requestId: 'req_api_v2_5678'
+    })
+
+    expect(classifyResourceFailure(problem)).toEqual({
+      kind: 'rate-limited',
+      referenceId: 'req_api_v2_1234',
+      retryable: true
+    })
+    expect(classifyResourceFailure(unknownWrite)).toEqual({
+      kind: 'outcome-unknown',
+      referenceId: 'req_api_v2_5678',
+      retryable: false
+    })
+    expect(classifyResourceFailure({ kind: 'timeout', name: 'ApiV2NetworkError' })).toEqual({
+      kind: 'service-unavailable',
+      referenceId: null,
+      retryable: true
+    })
+    expect(classifyResourceFailure({ name: 'ApiV2AuthenticationRequiredError' })).toEqual({
+      kind: 'authentication-required',
+      referenceId: null,
+      retryable: false
+    })
+    expect(classifyResourceFailure({ name: 'ApiV2ContractError', status: null })).toEqual({
+      kind: 'invalid-request',
+      referenceId: null,
+      retryable: false
+    })
+    expect(classifyResourceFailure({ name: 'ApiV2ContractError', status: 200 })).toEqual({
+      kind: 'invalid-response',
+      referenceId: null,
+      retryable: false
+    })
+  })
+
+  it('distinguishes local creation input from a creation-port contract violation', (): void => {
+    expect(
+      classifyResourceFailure({
+        failure: { kind: 'unsupported-template-locale' },
+        name: 'ResumeCreationError'
+      })
+    ).toMatchObject({ kind: 'invalid-request' })
+    expect(
+      classifyResourceFailure({
+        failure: { kind: 'invalid-creation-result' },
+        name: 'ResumeCreationError'
+      })
+    ).toMatchObject({ kind: 'invalid-response' })
+  })
+
   it('allows a timed-out read to be retried', (): void => {
     expect(
       classifyResourceFailure(new DOMException('private read deadline', 'TimeoutError'))

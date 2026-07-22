@@ -19,6 +19,7 @@ export const DIAGNOSTIC_ROUTES = [
   'interview.summary',
   'knowledge.sources',
   'knowledge.visibility',
+  'resume.creation',
   'resume.editor',
   'resume.entry',
   'resume.template_settings',
@@ -44,11 +45,13 @@ export type DiagnosticHttpOperation =
   | 'knowledge.source.read'
   | 'knowledge.source.update'
   | 'resume.document.list'
+  | 'resume.document.create'
   | 'resume.document.read'
   | 'resume.operation.apply'
   | 'resume.render_job.create'
   | 'resume.render_job.read'
   | 'resume.template.list'
+  | 'resume.template.read'
   | 'workspace.list'
   | 'workspace.me.read'
   | 'unknown'
@@ -61,6 +64,7 @@ export type DiagnosticResourceName =
   | 'interview.summary'
   | 'knowledge.sources'
   | 'knowledge.visibility'
+  | 'resume.creation'
   | 'resume.editor'
   | 'resume.entry'
   | 'resume.template_settings'
@@ -72,6 +76,7 @@ export type DiagnosticCommandOperation =
   | 'interview.answer_submit'
   | 'interview.create'
   | 'resume.authority_reload'
+  | 'resume.create'
   | 'resume.pdf_render'
   | 'resume.section_delete'
   | 'resume.section_reorder'
@@ -294,12 +299,23 @@ export function classifyDiagnosticError(error: unknown): DiagnosticErrorKind {
 
   if (typeof error === 'object' && error !== null && 'name' in error) {
     const name = error.name
+    if (name === 'ApiV2NetworkError' && 'kind' in error) {
+      if (error.kind === 'aborted') return 'aborted'
+      if (error.kind === 'timeout') return 'timeout'
+      return 'network'
+    }
     if (name === 'TimeoutError') return 'timeout'
-    if (name === 'HttpCommandOutcomeUnknownError') {
+    if (name === 'HttpCommandOutcomeUnknownError' || name === 'ApiV2WriteOutcomeUnknownError') {
       return 'outcome_unknown'
     }
-    if (name === 'HttpProblemError') return 'backend_problem'
-    if (name === 'HttpContractError') return 'contract'
+    if (name === 'HttpProblemError' || name === 'ApiV2ProblemError') return 'backend_problem'
+    if (
+      name === 'HttpContractError' ||
+      name === 'ApiV2ContractError' ||
+      name === 'ResumeTemplateCursorLoopError'
+    ) {
+      return 'contract'
+    }
   }
 
   if (error instanceof TypeError) return 'network'
