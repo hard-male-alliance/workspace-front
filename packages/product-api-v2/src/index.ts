@@ -1,6 +1,7 @@
 /** @file API v2 防腐层公共入口 / Public entrypoint for the API v2 anti-corruption layer. */
 
 export { createApiV2Client } from './http/client'
+export type { ApiV2AccessTokenRefreshRequest, ApiV2AuthenticationPort } from './http/authentication'
 export type {
   ApiV2Client,
   ApiV2ClientOptions,
@@ -80,12 +81,15 @@ export type {
 export {
   completeWebAuthorization,
   InMemoryWebTokenSession,
+  invalidateWebTokenSessionAccessToken,
   logoutWebTokenSession,
-  refreshWebTokenSession
+  refreshWebTokenSession,
+  refreshWebTokenSessionIfCurrent
 } from './oauth/session'
 export type {
   CompleteWebAuthorizationOptions,
   LogoutWebTokenSessionOptions,
+  RefreshWebTokenSessionIfCurrentOptions,
   RefreshWebTokenSessionOptions
 } from './oauth/session'
 export { WebCryptoJwksIdTokenVerifier } from './oauth/webcrypto-jwks-verifier'

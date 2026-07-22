@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { asUiOpaqueId, asUiResumePageLimit } from '@ai-job-workspace/app/application'
 import type {
+  ApiV2AuthenticationPort,
   ApiV2Client,
   ApiV2GetOptions,
   ApiV2JsonResponse
@@ -17,6 +18,19 @@ import { createProductGateways } from './index'
 
 /** @brief 测试专用非真实 Bearer token / Non-real Bearer token used only by tests. */
 const ACCESS_TOKEN = 'access_product_runtime_example_only_7Yw8N2'
+
+/**
+ * @brief 构造 runtime 测试的认证生命周期端口 / Build an authentication lifecycle port for runtime tests.
+ * @param getAccessToken 当前内存 token 读取器 / Current in-memory token reader.
+ * @return 不执行网络刷新的完整端口 / Complete port that performs no network refresh.
+ */
+function authenticationPort(getAccessToken: () => string | null): ApiV2AuthenticationPort {
+  return {
+    getAccessToken,
+    invalidateAccessToken: (): void => undefined,
+    refreshAccessToken: (): Promise<void> => Promise.resolve()
+  }
+}
 
 /** @brief 当前用户的 API v2 测试载荷 / API v2 test payload for the current user. */
 const CURRENT_USER = {
@@ -117,7 +131,7 @@ describe('createProductGateways', (): void => {
     let currentAccessToken: string | null = null
     /** @brief v2-only 产品网关 / v2-only product gateways. */
     const gateways = createProductGateways({
-      getAccessToken: (): string | null => currentAccessToken,
+      authentication: authenticationPort((): string | null => currentAccessToken),
       locale: 'zh-CN'
     })
     /** @brief 调用方取消控制器 / Caller cancellation controller. */
@@ -141,7 +155,7 @@ describe('createProductGateways', (): void => {
   it('对未接入能力显式失败且不创建 v1 fallback', async (): Promise<void> => {
     /** @brief v2-only 产品网关 / v2-only product gateways. */
     const gateways = createProductGateways({
-      getAccessToken: (): string => ACCESS_TOKEN,
+      authentication: authenticationPort((): string => ACCESS_TOKEN),
       locale: 'zh-CN'
     })
 

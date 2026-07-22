@@ -577,6 +577,62 @@ export function refreshWebTokenSession(options: RefreshWebTokenSessionOptions): 
   return operation
 }
 
+/** @brief 按资源服务器观察条件刷新 Web token session 的输入 / Input for conditionally refreshing a Web token session from a resource-server observation. */
+export interface RefreshWebTokenSessionIfCurrentOptions extends RefreshWebTokenSessionOptions {
+  /** @brief 触发恢复的已拒绝 Access Token；本地无有效 token 时为 null / Rejected access token that triggered recovery, or null when no locally valid token exists. */
+  readonly rejectedAccessToken: string | null
+}
+
+/**
+ * @brief 仅当资源服务器观察仍对应私有当前状态时刷新 / Refresh only while the resource-server observation still matches private current state.
+ * @param options 已拒绝 token、会话与网络依赖 / Rejected token, session, and network dependencies.
+ * @return 已替换时直接完成；匹配时完成原子轮换 / Resolves immediately when replaced, or after atomic rotation when matched.
+ * @note null 表示调用方观察不到有效 Access Token：已有有效 token 时 no-op，仅对仍保留 Refresh Token 的过期状态刷新。 / Null means the caller observed no valid access token: no-op when one is now valid, and refresh only an expired state that still carries a refresh token.
+ */
+export function refreshWebTokenSessionIfCurrent(
+  options: RefreshWebTokenSessionIfCurrentOptions
+): Promise<void> {
+  if (options.rejectedAccessToken !== null && typeof options.rejectedAccessToken !== 'string') {
+    return Promise.reject(new ApiV2ContractError('OAuth rejected access token must be a string.'))
+  }
+  /** @brief 私有会话记录 / Private session record. */
+  const record = sessionRecord(options.session)
+  /** @brief 原子决策读取的完整当前状态 / Complete current state read for the atomic decision. */
+  const source = record.state
+
+  if (options.rejectedAccessToken === null) {
+    if (source === null) return Promise.reject(new ApiV2AuthenticationRequiredError())
+    if (source.expiresAtEpochSeconds > readEpochSeconds(record.nowEpochSeconds)) {
+      return Promise.resolve()
+    }
+  } else if (source === null || source.accessToken !== options.rejectedAccessToken) {
+    return Promise.resolve()
+  }
+
+  if (!isRefreshable(source)) {
+    invalidateRefreshState(record, record.generation, source)
+    return Promise.reject(new ApiV2AuthenticationRequiredError())
+  }
+  return refreshWebTokenSession(options)
+}
+
+/**
+ * @brief 仅当私有当前状态仍使用被拒绝 token 时清除会话 / Clear the session only while private current state still uses the rejected token.
+ * @param session 目标内存会话 / Target in-memory session.
+ * @param rejectedAccessToken 被第二个严格 401 拒绝的 token / Token rejected by the second strict 401.
+ */
+export function invalidateWebTokenSessionAccessToken(
+  session: InMemoryWebTokenSession,
+  rejectedAccessToken: string
+): void {
+  /** @brief 私有会话记录 / Private session record. */
+  const record = sessionRecord(session)
+  /** @brief 失效决策时的当前状态 / Current state at invalidation decision time. */
+  const current = record.state
+  if (current === null || current.accessToken !== rejectedAccessToken) return
+  invalidateRefreshState(record, record.generation, current)
+}
+
 /** @brief 本地登出并尽力撤销服务端 token 的输入 / Input for local logout with best-effort server revocation. */
 export interface LogoutWebTokenSessionOptions {
   /** @brief 目标内存会话 / Target in-memory session. */

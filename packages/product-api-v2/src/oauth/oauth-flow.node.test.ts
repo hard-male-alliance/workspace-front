@@ -534,7 +534,7 @@ describe('ID Token and memory-only session', (): void => {
       notifyEntered = resolve
     })
     /** @brief 释放 verifier 的函数 / Function releasing the verifier. */
-    let releaseVerifier: ((claims: unknown) => void) | null = null
+    let releaseVerifier!: (claims: unknown) => void
     /** @brief 被测试控制的 verifier gate / Verifier gate controlled by the test. */
     const gate = new Promise<unknown>((resolve) => {
       releaseVerifier = resolve
@@ -557,7 +557,7 @@ describe('ID Token and memory-only session', (): void => {
     })
     await entered
     session.clear()
-    releaseVerifier?.(validClaims(value))
+    releaseVerifier(validClaims(value))
     await expect(pending).rejects.toMatchObject({ kind: 'aborted' })
     expect(session.getAccessToken()).toBeNull()
   })
@@ -576,7 +576,7 @@ describe('ID Token and memory-only session', (): void => {
       notifyOlderEntered = resolve
     })
     /** @brief 释放旧 verifier 的函数 / Function releasing the old verifier. */
-    let releaseOlder: ((claims: unknown) => void) | null = null
+    let releaseOlder!: (claims: unknown) => void
     /** @brief 旧 verifier gate / Older verifier gate. */
     const olderGate = new Promise<unknown>((resolve) => {
       releaseOlder = resolve
@@ -606,7 +606,7 @@ describe('ID Token and memory-only session', (): void => {
       session,
       transaction: newer
     })
-    releaseOlder?.({ ...validClaims(older), sub: 'oidc-subject-older' })
+    releaseOlder({ ...validClaims(older), sub: 'oidc-subject-older' })
     await expect(olderCompletion).rejects.toMatchObject({ kind: 'aborted' })
     expect(session.getProjection()?.identity.subject).toBe('oidc-subject-newer')
   })

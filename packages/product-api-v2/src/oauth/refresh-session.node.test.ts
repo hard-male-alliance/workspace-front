@@ -13,8 +13,10 @@ import type { IdTokenSignatureVerifier } from './id-token'
 import {
   completeWebAuthorization,
   InMemoryWebTokenSession,
+  invalidateWebTokenSessionAccessToken,
   logoutWebTokenSession,
-  refreshWebTokenSession
+  refreshWebTokenSession,
+  refreshWebTokenSessionIfCurrent
 } from './session'
 import { parseRefreshTokenResponse } from './token'
 
@@ -216,7 +218,7 @@ describe('in-memory refresh rotation', (): void => {
     const session = new InMemoryWebTokenSession({ nowEpochSeconds: (): number => NOW })
     await authorize(session)
     /** @brief 释放第一次 refresh 的函数 / Function releasing the first refresh. */
-    let releaseFirst: ((response: Response) => void) | null = null
+    let releaseFirst!: (response: Response) => void
     /** @brief 第一次 refresh gate / First refresh gate. */
     const firstGate = new Promise<Response>((resolve) => {
       releaseFirst = resolve
@@ -248,7 +250,7 @@ describe('in-memory refresh rotation', (): void => {
     const concurrent = refreshWebTokenSession({ fetchImpl, session })
     expect(concurrent).toBe(first)
     expect(fetchImpl).toHaveBeenCalledTimes(1)
-    releaseFirst?.(endpointResponse(refreshJson(ROTATED_ACCESS_TOKEN, ROTATED_REFRESH_TOKEN)))
+    releaseFirst(endpointResponse(refreshJson(ROTATED_ACCESS_TOKEN, ROTATED_REFRESH_TOKEN)))
     await Promise.all([first, concurrent])
     expect(session.getAccessToken()).toBe(ROTATED_ACCESS_TOKEN)
     expect(JSON.stringify(session.getProjection())).not.toContain(ROTATED_REFRESH_TOKEN)
@@ -290,7 +292,7 @@ describe('in-memory refresh rotation', (): void => {
     const session = new InMemoryWebTokenSession({ nowEpochSeconds: (): number => NOW })
     await authorize(session)
     /** @brief 释放 leader refresh 的函数 / Function releasing the leader refresh. */
-    let releaseRefresh: ((response: Response) => void) | null = null
+    let releaseRefresh!: (response: Response) => void
     /** @brief leader refresh gate / Leader refresh gate. */
     const refreshGate = new Promise<Response>((resolve) => {
       releaseRefresh = resolve
@@ -310,7 +312,7 @@ describe('in-memory refresh rotation', (): void => {
 
     followerController.abort()
     await expect(follower).rejects.toMatchObject({ kind: 'aborted' })
-    releaseRefresh?.(endpointResponse(refreshJson(ROTATED_ACCESS_TOKEN, ROTATED_REFRESH_TOKEN)))
+    releaseRefresh(endpointResponse(refreshJson(ROTATED_ACCESS_TOKEN, ROTATED_REFRESH_TOKEN)))
     await expect(leader).resolves.toBeUndefined()
     expect(session.getAccessToken()).toBe(ROTATED_ACCESS_TOKEN)
   })
@@ -475,6 +477,102 @@ describe('in-memory refresh rotation', (): void => {
     expect(session.getAccessToken()).toBe(ROTATED_ACCESS_TOKEN)
   })
 
+  it('atomically refreshes only the raw state matching the rejected access token', async (): Promise<void> => {
+    /** @brief 已授权会话 / Authorized session. */
+    const session = new InMemoryWebTokenSession({ nowEpochSeconds: (): number => NOW })
+    await authorize(session)
+    /** @brief 捕获条件 refresh 的 Fetch / Fetch capturing conditional refresh. */
+    const fetchImpl = vi.fn<typeof fetch>(() =>
+      Promise.resolve(endpointResponse(refreshJson(ROTATED_ACCESS_TOKEN, ROTATED_REFRESH_TOKEN)))
+    )
+
+    await expect(
+      refreshWebTokenSessionIfCurrent({
+        fetchImpl,
+        rejectedAccessToken: INITIAL_ACCESS_TOKEN,
+        session
+      })
+    ).resolves.toBeUndefined()
+    expect(fetchImpl).toHaveBeenCalledOnce()
+    expect(session.getAccessToken()).toBe(ROTATED_ACCESS_TOKEN)
+
+    await expect(
+      refreshWebTokenSessionIfCurrent({
+        fetchImpl,
+        rejectedAccessToken: INITIAL_ACCESS_TOKEN,
+        session
+      })
+    ).resolves.toBeUndefined()
+    expect(fetchImpl).toHaveBeenCalledOnce()
+    expect(session.getAccessToken()).toBe(ROTATED_ACCESS_TOKEN)
+  })
+
+  it('treats null as no valid projection without confusing an expired newer generation', async (): Promise<void> => {
+    /** @brief 可推进测试时钟 / Mutable test clock. */
+    let now = NOW
+    /** @brief 已授权会话 / Authorized session. */
+    const session = new InMemoryWebTokenSession({ nowEpochSeconds: (): number => now })
+    await authorize(session)
+    /** @brief 有效 token 场景不应调用的 Fetch / Fetch that must not run while a valid token exists. */
+    const validFetch = vi.fn<typeof fetch>()
+    await expect(
+      refreshWebTokenSessionIfCurrent({
+        fetchImpl: validFetch,
+        rejectedAccessToken: null,
+        session
+      })
+    ).resolves.toBeUndefined()
+    expect(validFetch).not.toHaveBeenCalled()
+
+    await refreshWebTokenSession({
+      fetchImpl: (): Promise<Response> =>
+        Promise.resolve(endpointResponse(refreshJson(ROTATED_ACCESS_TOKEN, ROTATED_REFRESH_TOKEN))),
+      session
+    })
+    now = NOW + 601
+    expect(session.getAccessToken()).toBeNull()
+    /** @brief 迟到旧 401 不得消费新世代 Refresh Token / A late old 401 must not consume the newer generation's refresh token. */
+    const lateFetch = vi.fn<typeof fetch>()
+    await expect(
+      refreshWebTokenSessionIfCurrent({
+        fetchImpl: lateFetch,
+        rejectedAccessToken: INITIAL_ACCESS_TOKEN,
+        session
+      })
+    ).resolves.toBeUndefined()
+    expect(lateFetch).not.toHaveBeenCalled()
+    expect(session.getProjection()).toMatchObject({ hasRefreshToken: true })
+
+    /** @brief 当前缺失投影触发的第二次轮换 Fetch / Fetch for the second rotation triggered by an absent projection. */
+    const expiredFetch = vi.fn<typeof fetch>(() =>
+      Promise.resolve(endpointResponse(refreshJson(SECOND_ACCESS_TOKEN, SECOND_REFRESH_TOKEN)))
+    )
+    await refreshWebTokenSessionIfCurrent({
+      fetchImpl: expiredFetch,
+      rejectedAccessToken: null,
+      session
+    })
+    expect(expiredFetch).toHaveBeenCalledOnce()
+    expect(session.getAccessToken()).toBe(SECOND_ACCESS_TOKEN)
+  })
+
+  it('conditionally invalidates raw state without letting a late 401 erase a newer token', async (): Promise<void> => {
+    /** @brief 已授权会话 / Authorized session. */
+    const session = new InMemoryWebTokenSession({ nowEpochSeconds: (): number => NOW })
+    await authorize(session)
+    await refreshWebTokenSession({
+      fetchImpl: (): Promise<Response> =>
+        Promise.resolve(endpointResponse(refreshJson(ROTATED_ACCESS_TOKEN, ROTATED_REFRESH_TOKEN))),
+      session
+    })
+
+    invalidateWebTokenSessionAccessToken(session, INITIAL_ACCESS_TOKEN)
+    expect(session.getAccessToken()).toBe(ROTATED_ACCESS_TOKEN)
+    invalidateWebTokenSessionAccessToken(session, ROTATED_ACCESS_TOKEN)
+    expect(session.getAccessToken()).toBeNull()
+    expect(session.getProjection()).toBeNull()
+  })
+
   it('does not commit after cancellation or a stale session generation', async (): Promise<void> => {
     /** @brief 取消测试会话 / Cancellation test session. */
     const cancelledSession = new InMemoryWebTokenSession({ nowEpochSeconds: (): number => NOW })
@@ -482,7 +580,7 @@ describe('in-memory refresh rotation', (): void => {
     /** @brief 取消控制器 / Cancellation controller. */
     const controller = new AbortController()
     /** @brief 释放取消请求的函数 / Function releasing the cancelled request. */
-    let releaseCancelled: ((response: Response) => void) | null = null
+    let releaseCancelled!: (response: Response) => void
     /** @brief 取消请求 gate / Cancelled request gate. */
     const cancelledGate = new Promise<Response>((resolve) => {
       releaseCancelled = resolve
@@ -494,7 +592,7 @@ describe('in-memory refresh rotation', (): void => {
       signal: controller.signal
     })
     controller.abort()
-    releaseCancelled?.(endpointResponse(refreshJson(ROTATED_ACCESS_TOKEN, ROTATED_REFRESH_TOKEN)))
+    releaseCancelled(endpointResponse(refreshJson(ROTATED_ACCESS_TOKEN, ROTATED_REFRESH_TOKEN)))
     await expect(cancelled).rejects.toMatchObject({ kind: 'aborted' })
     expect(cancelledSession.getProjection()).toBeNull()
 
@@ -502,7 +600,7 @@ describe('in-memory refresh rotation', (): void => {
     const staleSession = new InMemoryWebTokenSession({ nowEpochSeconds: (): number => NOW })
     await authorize(staleSession)
     /** @brief 释放 stale 请求的函数 / Function releasing the stale request. */
-    let releaseStale: ((response: Response) => void) | null = null
+    let releaseStale!: (response: Response) => void
     /** @brief stale 请求 gate / Stale request gate. */
     const staleGate = new Promise<Response>((resolve) => {
       releaseStale = resolve
@@ -513,7 +611,7 @@ describe('in-memory refresh rotation', (): void => {
       session: staleSession
     })
     staleSession.clear()
-    releaseStale?.(endpointResponse(refreshJson(ROTATED_ACCESS_TOKEN, ROTATED_REFRESH_TOKEN)))
+    releaseStale(endpointResponse(refreshJson(ROTATED_ACCESS_TOKEN, ROTATED_REFRESH_TOKEN)))
     await expect(stale).rejects.toMatchObject({ kind: 'aborted' })
     expect(staleSession.getAccessToken()).toBeNull()
   })
@@ -523,7 +621,7 @@ describe('in-memory refresh rotation', (): void => {
     const session = new InMemoryWebTokenSession({ nowEpochSeconds: (): number => NOW })
     await authorize(session)
     /** @brief 释放旧 refresh 的函数 / Function releasing the old refresh. */
-    let releaseRefresh: ((response: Response) => void) | null = null
+    let releaseRefresh!: (response: Response) => void
     /** @brief 旧 refresh 响应 gate / Old refresh response gate. */
     const refreshGate = new Promise<Response>((resolve) => {
       releaseRefresh = resolve
@@ -556,7 +654,7 @@ describe('in-memory refresh rotation', (): void => {
 
     expect(session.getAccessToken()).toBeNull()
     expect(session.getProjection()).toBeNull()
-    releaseRefresh?.(endpointResponse(refreshJson(ROTATED_ACCESS_TOKEN, ROTATED_REFRESH_TOKEN)))
+    releaseRefresh(endpointResponse(refreshJson(ROTATED_ACCESS_TOKEN, ROTATED_REFRESH_TOKEN)))
     await expect(refresh).rejects.toMatchObject({ kind: 'aborted' })
     await expect(nextAuthorization).rejects.toBeInstanceOf(ApiV2NetworkError)
     await expect(refreshWebTokenSession({ session })).rejects.toBeInstanceOf(
@@ -571,7 +669,7 @@ describe('RFC 7009 logout', (): void => {
     const session = new InMemoryWebTokenSession({ nowEpochSeconds: (): number => NOW })
     await authorize(session)
     /** @brief 拒绝撤销请求的函数 / Function rejecting the revocation request. */
-    let rejectRevoke: ((reason: unknown) => void) | null = null
+    let rejectRevoke!: (reason: unknown) => void
     /** @brief 撤销请求 gate / Revocation-request gate. */
     const revokeGate = new Promise<Response>((_resolve, reject) => {
       rejectRevoke = reject
@@ -593,7 +691,7 @@ describe('RFC 7009 logout', (): void => {
     const logout = logoutWebTokenSession({ fetchImpl, session })
     expect(session.getAccessToken()).toBeNull()
     expect(session.getProjection()).toBeNull()
-    rejectRevoke?.(new TypeError('offline'))
+    rejectRevoke(new TypeError('offline'))
     await expect(logout).resolves.toBeUndefined()
     expect(session.getProjection()).toBeNull()
     expect(fetchImpl).toHaveBeenCalledTimes(1)
@@ -604,7 +702,7 @@ describe('RFC 7009 logout', (): void => {
     const session = new InMemoryWebTokenSession({ nowEpochSeconds: (): number => NOW })
     await authorize(session)
     /** @brief 释放轮换响应的函数 / Function releasing the rotation response. */
-    let releaseRefresh: ((response: Response) => void) | null = null
+    let releaseRefresh!: (response: Response) => void
     /** @brief 轮换响应 gate / Rotation-response gate. */
     const refreshGate = new Promise<Response>((resolve) => {
       releaseRefresh = resolve
@@ -628,7 +726,7 @@ describe('RFC 7009 logout', (): void => {
 
     expect(session.getProjection()).toBeNull()
     expect(revokeFetch).not.toHaveBeenCalled()
-    releaseRefresh?.(endpointResponse(refreshJson(ROTATED_ACCESS_TOKEN, ROTATED_REFRESH_TOKEN)))
+    releaseRefresh(endpointResponse(refreshJson(ROTATED_ACCESS_TOKEN, ROTATED_REFRESH_TOKEN)))
     await expect(refresh).rejects.toMatchObject({ kind: 'aborted' })
     await expect(logout).resolves.toBeUndefined()
     expect(revokeFetch).toHaveBeenCalledTimes(1)

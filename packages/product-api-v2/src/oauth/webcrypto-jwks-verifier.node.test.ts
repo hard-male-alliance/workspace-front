@@ -24,6 +24,16 @@ const CLAIMS = {
   sub: 'oidc-subject-01K0EXAMPLE0001'
 }
 
+/** @brief 测试使用的 JOSE public JWK / JOSE public JWK used by tests. */
+interface TestPublicJwk extends JsonWebKey {
+  /** @brief JOSE 算法 / JOSE algorithm. */
+  readonly alg: SupportedIdTokenAlgorithm
+  /** @brief JOSE key ID / JOSE key ID. */
+  readonly kid: string
+  /** @brief 公钥用途 / Public-key use. */
+  readonly use: 'sig'
+}
+
 /** @brief 测试签名 key pair 与 public JWK / Test signing key pair and public JWK. */
 interface SigningKey {
   /** @brief JWS algorithm / JWS algorithm. */
@@ -33,7 +43,7 @@ interface SigningKey {
   /** @brief Private signing key / Private signing key. */
   readonly privateKey: CryptoKey
   /** @brief Public verification JWK / Public verification JWK. */
-  readonly publicJwk: JsonWebKey
+  readonly publicJwk: TestPublicJwk
 }
 
 /**
@@ -308,7 +318,7 @@ describe('WebCryptoJwksIdTokenVerifier', (): void => {
     const verifier = new WebCryptoJwksIdTokenVerifier({ fetchImpl })
     await expect(
       verifier.verifySignature(verifierInput(signed.token, controller.signal))
-    ).rejects.toMatchObject<ApiV2NetworkError>({ kind: 'aborted' })
+    ).rejects.toMatchObject({ kind: 'aborted' } satisfies Partial<ApiV2NetworkError>)
     expect(fetchImpl).not.toHaveBeenCalled()
   })
 })

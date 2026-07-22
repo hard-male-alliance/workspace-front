@@ -1,6 +1,7 @@
 /** @file 带内存 Bearer 凭证的 API v2 只读 HTTP 边界 / API v2 read-only HTTP boundary with in-memory Bearer credentials. */
 
 import { locale, opaqueId } from './contract'
+import type { ApiV2AuthenticationPort } from './authentication'
 import { readBoundedJson } from './bounded-json'
 import { ApiV2AuthenticationRequiredError, ApiV2ContractError, ApiV2NetworkError } from './errors'
 import { parseProblemDetails } from './problem'
@@ -78,8 +79,8 @@ export interface ApiV2ClientOptions {
   readonly transportProfile?: ApiV2TransportProfile
   /** @brief 当前界面 Locale / Current UI locale. */
   readonly acceptLanguage?: string | undefined
-  /** @brief 只从当前内存会话读取 Access Token / Read the access token only from the current in-memory session. */
-  readonly getAccessToken: () => string | null
+  /** @brief 内存 Access Token 的读取、刷新与条件失效端口 / Port for reading, refreshing, and conditionally invalidating in-memory access tokens. */
+  readonly authentication: ApiV2AuthenticationPort
   /** @brief 测试可替换的 fetch / Fetch implementation replaceable in tests. */
   readonly fetchImpl?: typeof fetch
   /** @brief 测试可替换的请求 ID 工厂 / Request-ID factory replaceable in tests. */
@@ -119,22 +120,116 @@ function resolveApiBaseUrl(profile: ApiV2TransportProfile | undefined): URL {
 
 /**
  * @brief 读取并校验当前内存 Access Token / Read and validate the current in-memory access token.
- * @param readToken 内存会话读取器 / In-memory session reader.
- * @return 可安全放入 Authorization header 的 token / Token safe for the Authorization header.
+ * @param authentication 内存认证端口 / In-memory authentication port.
+ * @return 可安全发送的 token；会话缺失时为 null / Token safe to send, or null when the session is absent.
  */
-function readBearerToken(readToken: () => string | null): string {
+function readBearerToken(authentication: ApiV2AuthenticationPort): string | null {
   /** @brief 当前内存 token / Current in-memory token. */
-  let token: string | null
+  let token: unknown
   try {
-    token = readToken()
+    token = authentication.getAccessToken()
   } catch {
     throw new ApiV2ContractError('The in-memory access-token source failed.')
   }
-  if (token === null) throw new ApiV2AuthenticationRequiredError()
-  if (token.length < 20 || token.length > 8192 || !BEARER_TOKEN_PATTERN.test(token)) {
+  if (token === null) return null
+  if (
+    typeof token !== 'string' ||
+    token.length < 20 ||
+    token.length > 8192 ||
+    !BEARER_TOKEN_PATTERN.test(token)
+  ) {
     throw new ApiV2ContractError('The in-memory access token violates the OAuth Bearer syntax.')
   }
   return token
+}
+
+/**
+ * @brief 将 AbortSignal reason 收敛为 Error / Normalize an AbortSignal reason into an Error.
+ * @param signal 已取消的信号 / Aborted signal.
+ * @return 可安全拒绝 Promise 的错误 / Error safe for rejecting a Promise.
+ */
+function abortReason(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new DOMException('The API v2 operation was aborted.', 'AbortError')
+}
+
+/**
+ * @brief 等待异步操作，同时强制执行共享截止信号 / Await an asynchronous operation while enforcing the shared deadline signal.
+ * @param operation 正在执行的异步操作 / Asynchronous operation in progress.
+ * @param signal 共享取消信号 / Shared cancellation signal.
+ * @return 操作结果 / Operation result.
+ */
+function awaitWithAbort<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    return Promise.reject(abortReason(signal))
+  }
+  return new Promise<T>((resolve, reject): void => {
+    /** @brief 移除共享取消监听 / Remove the shared cancellation listener. */
+    const dispose = (): void => signal.removeEventListener('abort', abort)
+    /** @brief 以共享取消原因结束等待 / End the wait with the shared cancellation reason. */
+    const abort = (): void => {
+      dispose()
+      reject(abortReason(signal))
+    }
+    signal.addEventListener('abort', abort, { once: true })
+    void operation.then(
+      (value): void => {
+        dispose()
+        resolve(value)
+      },
+      (error: unknown): void => {
+        dispose()
+        reject(
+          error instanceof Error
+            ? error
+            : new Error('The API v2 asynchronous operation rejected without an Error.')
+        )
+      }
+    )
+  })
+}
+
+/**
+ * @brief 获取首个可发送的 Bearer token / Acquire the first Bearer token that can be sent.
+ * @param authentication Access Token 生命周期端口 / Access-token lifecycle port.
+ * @param signal 共享截止信号 / Shared deadline signal.
+ * @return 当前可发送 token / Current token safe to send.
+ */
+async function acquireInitialBearerToken(
+  authentication: ApiV2AuthenticationPort,
+  signal: AbortSignal
+): Promise<string> {
+  /** @brief 首次读取的 token / Initially observed token. */
+  const currentToken = readBearerToken(authentication)
+  if (currentToken !== null) return currentToken
+  await awaitWithAbort(
+    authentication.refreshAccessToken({ rejectedAccessToken: null, signal }),
+    signal
+  )
+  /** @brief 刷新后重新读取的 token / Token reread after refresh. */
+  const refreshedToken = readBearerToken(authentication)
+  if (refreshedToken === null) throw new ApiV2AuthenticationRequiredError()
+  return refreshedToken
+}
+
+/**
+ * @brief 针对一次被拒绝的 token 获取替代 token / Acquire a replacement for one rejected token.
+ * @param authentication Access Token 生命周期端口 / Access-token lifecycle port.
+ * @param rejectedAccessToken 被首个 401 拒绝的 token / Token rejected by the first 401.
+ * @param signal 共享截止信号 / Shared deadline signal.
+ * @return 重试实际使用的 token / Token actually used by the retry.
+ */
+async function acquireReplacementBearerToken(
+  authentication: ApiV2AuthenticationPort,
+  rejectedAccessToken: string,
+  signal: AbortSignal
+): Promise<string> {
+  await awaitWithAbort(authentication.refreshAccessToken({ rejectedAccessToken, signal }), signal)
+  /** @brief 刷新后重新读取的 token / Token reread after refresh. */
+  const refreshedToken = readBearerToken(authentication)
+  if (refreshedToken === null) throw new ApiV2AuthenticationRequiredError()
+  return refreshedToken
 }
 
 /**
@@ -412,6 +507,126 @@ async function parseResponse(
   return { data, headers: response.headers, status: response.status }
 }
 
+/** @brief 单次认证 GET 尝试的输入 / Input for one authenticated GET attempt. */
+interface AuthenticatedGetAttempt {
+  /** @brief 当前请求 URL / Current request URL. */
+  readonly requestUrl: URL
+  /** @brief 当前实际使用的 Bearer token / Bearer token actually used by this attempt. */
+  readonly accessToken: string
+  /** @brief 当前端点冻结的成功状态 / Success status frozen for the endpoint. */
+  readonly expectedStatus: number
+  /** @brief 当前端点响应字节上限 / Response byte limit for the endpoint. */
+  readonly maximumResponseBytes: number
+  /** @brief 当前界面语言 / Current UI language. */
+  readonly acceptLanguage: string | undefined
+  /** @brief 网络实现 / Network implementation. */
+  readonly fetchImpl: typeof fetch
+  /** @brief 请求 ID 工厂 / Request-ID factory. */
+  readonly requestIdFactory: () => string
+  /** @brief 当前时间读取器 / Current-time reader. */
+  readonly now: () => number
+  /** @brief 跨认证与网络阶段共享的截止信号 / Deadline signal shared across authentication and network phases. */
+  readonly signal: AbortSignal
+}
+
+/**
+ * @brief 执行一次带独立 request ID 的认证 GET / Execute one authenticated GET with its own request ID.
+ * @param attempt 已验证的尝试输入 / Validated attempt input.
+ * @return 已完整解析的 API v2 JSON 响应 / Fully parsed API v2 JSON response.
+ */
+async function performAuthenticatedGet(
+  attempt: AuthenticatedGetAttempt
+): Promise<ApiV2JsonResponse> {
+  /** @brief 本次尝试的新请求 ID / Fresh request ID for this attempt. */
+  const requestId = createRequestId(attempt.requestIdFactory)
+  /** @brief 本次尝试的请求头 / Request headers for this attempt. */
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${attempt.accessToken}`,
+    'X-Request-Id': requestId
+  }
+  if (attempt.acceptLanguage !== undefined) headers['Accept-Language'] = attempt.acceptLanguage
+  /** @brief 原始 fetch 操作 / Raw fetch operation. */
+  const fetchOperation = attempt.fetchImpl(attempt.requestUrl.toString(), {
+    credentials: 'omit',
+    headers,
+    method: 'GET',
+    redirect: 'error',
+    signal: attempt.signal
+  })
+  /** @brief 原始 fetch 响应 / Raw fetch response. */
+  const response = await awaitWithAbort(fetchOperation, attempt.signal)
+  return await awaitWithAbort(
+    parseResponse(response, attempt.expectedStatus, attempt.maximumResponseBytes, attempt.now()),
+    attempt.signal
+  )
+}
+
+/**
+ * @brief 判断错误是否为完整验证的 401 Problem / Determine whether an error is a fully validated 401 Problem.
+ * @param error 捕获的错误 / Caught error.
+ * @return 完整验证的 401 Problem 判定 / Fully validated 401 Problem predicate.
+ */
+function isUnauthorizedProblem(error: unknown): error is ApiV2ProblemError {
+  return error instanceof ApiV2ProblemError && error.problem.status === 401
+}
+
+/**
+ * @brief 将未验证响应前的失败投影为封闭网络错误 / Project a pre-verifiable-response failure into the closed network error model.
+ * @param error 捕获的 transport 或 parse 错误 / Caught transport or parse error.
+ * @param deadline 当前 GET 的共享截止 / Shared deadline for the current GET.
+ * @param callerSignal 调用方取消信号 / Caller cancellation signal.
+ * @throws 已验证协议错误或脱敏网络错误 / A validated protocol error or sanitized network error.
+ */
+function throwTransportFailure(
+  error: unknown,
+  deadline: RequestDeadline,
+  callerSignal: AbortSignal | undefined
+): never {
+  if (
+    error instanceof ApiV2AuthenticationRequiredError ||
+    error instanceof ApiV2ContractError ||
+    error instanceof ApiV2ProblemError
+  ) {
+    throw error
+  }
+  if (deadline.timedOut()) throw new ApiV2NetworkError('timeout')
+  if (callerSignal?.aborted === true) throw new ApiV2NetworkError('aborted')
+  throw new ApiV2NetworkError('network')
+}
+
+/**
+ * @brief 保留认证端口错误，同时统一共享取消语义 / Preserve authentication-port failures while normalizing shared cancellation.
+ * @param error 捕获的认证端口错误 / Caught authentication-port error.
+ * @param deadline 当前 GET 的共享截止 / Shared deadline for the current GET.
+ * @param callerSignal 调用方取消信号 / Caller cancellation signal.
+ * @throws 原始认证错误或统一网络取消错误 / Original authentication error or normalized network cancellation error.
+ */
+function throwAuthenticationFailure(
+  error: unknown,
+  deadline: RequestDeadline,
+  callerSignal: AbortSignal | undefined
+): never {
+  if (deadline.timedOut()) throw new ApiV2NetworkError('timeout')
+  if (callerSignal?.aborted === true) throw new ApiV2NetworkError('aborted')
+  throw error
+}
+
+/**
+ * @brief 条件失效被连续两次拒绝的 token / Conditionally invalidate a token rejected twice in succession.
+ * @param authentication Access Token 生命周期端口 / Access-token lifecycle port.
+ * @param rejectedAccessToken 第二次尝试实际发送的 token / Token actually sent by the second attempt.
+ */
+function invalidateRejectedAccessToken(
+  authentication: ApiV2AuthenticationPort,
+  rejectedAccessToken: string
+): void {
+  try {
+    authentication.invalidateAccessToken(rejectedAccessToken)
+  } catch {
+    throw new ApiV2ContractError('The in-memory access-token invalidation failed.', 401)
+  }
+}
+
 /**
  * @brief 创建 v2-only Bearer 产品客户端 / Create a v2-only Bearer product client.
  * @param options origin、内存凭证与可替换运行时依赖 / Origin, in-memory credentials, and replaceable runtime dependencies.
@@ -435,6 +650,13 @@ export function createApiV2Client(options: ApiV2ClientOptions): ApiV2Client {
   }
   if (options.acceptLanguage !== undefined) {
     locale(options.acceptLanguage, 'request.headers.Accept-Language')
+  }
+  if (
+    typeof options.authentication?.getAccessToken !== 'function' ||
+    typeof options.authentication.refreshAccessToken !== 'function' ||
+    typeof options.authentication.invalidateAccessToken !== 'function'
+  ) {
+    throw new ApiV2ContractError('API v2 requires a complete authentication lifecycle port.')
   }
 
   return {
@@ -464,41 +686,63 @@ export function createApiV2Client(options: ApiV2ClientOptions): ApiV2Client {
         }
         requestUrl.searchParams.set(key, String(value))
       }
-      /** @brief 当前请求 ID / Current request ID. */
-      const requestId = createRequestId(requestIdFactory)
-      /** @brief 当前内存 Bearer token / Current in-memory Bearer token. */
-      const accessToken = readBearerToken(options.getAccessToken)
-      /** @brief v2 公共请求头 / Common v2 request headers. */
-      const headers: Record<string, string> = {
-        Authorization: `Bearer ${accessToken}`,
-        'X-Request-Id': requestId
-      }
-      if (options.acceptLanguage !== undefined) {
-        headers['Accept-Language'] = options.acceptLanguage
-      }
       /** @brief 当前请求组合截止 / Combined deadline for the current request. */
       const deadline = createRequestDeadline(requestOptions.signal, timeoutMilliseconds)
       try {
-        /** @brief 原始 fetch 响应 / Raw fetch response. */
-        const response = await fetchImpl(requestUrl.toString(), {
-          credentials: 'omit',
-          headers,
-          method: 'GET',
-          redirect: 'error',
-          signal: deadline.signal
-        })
-        return await parseResponse(response, expectedStatus, maximumResponseBytes, now())
-      } catch (error: unknown) {
-        if (
-          error instanceof ApiV2AuthenticationRequiredError ||
-          error instanceof ApiV2ContractError ||
-          error instanceof ApiV2ProblemError
-        ) {
-          throw error
+        /** @brief 首次尝试实际发送的 token / Token actually sent by the first attempt. */
+        let accessToken: string
+        try {
+          accessToken = await acquireInitialBearerToken(options.authentication, deadline.signal)
+        } catch (error: unknown) {
+          throwAuthenticationFailure(error, deadline, requestOptions.signal)
         }
-        if (deadline.timedOut()) throw new ApiV2NetworkError('timeout')
-        if (requestOptions.signal?.aborted === true) throw new ApiV2NetworkError('aborted')
-        throw new ApiV2NetworkError('network')
+        try {
+          return await performAuthenticatedGet({
+            acceptLanguage: options.acceptLanguage,
+            accessToken,
+            expectedStatus,
+            fetchImpl,
+            maximumResponseBytes,
+            now,
+            requestIdFactory,
+            requestUrl,
+            signal: deadline.signal
+          })
+        } catch (firstError: unknown) {
+          if (!isUnauthorizedProblem(firstError)) {
+            throwTransportFailure(firstError, deadline, requestOptions.signal)
+          }
+        }
+
+        /** @brief 401 后重试实际发送的 token / Token actually sent by the retry after 401. */
+        let retryAccessToken: string
+        try {
+          retryAccessToken = await acquireReplacementBearerToken(
+            options.authentication,
+            accessToken,
+            deadline.signal
+          )
+        } catch (error: unknown) {
+          throwAuthenticationFailure(error, deadline, requestOptions.signal)
+        }
+        try {
+          return await performAuthenticatedGet({
+            acceptLanguage: options.acceptLanguage,
+            accessToken: retryAccessToken,
+            expectedStatus,
+            fetchImpl,
+            maximumResponseBytes,
+            now,
+            requestIdFactory,
+            requestUrl,
+            signal: deadline.signal
+          })
+        } catch (retryError: unknown) {
+          if (isUnauthorizedProblem(retryError)) {
+            invalidateRejectedAccessToken(options.authentication, retryAccessToken)
+          }
+          throwTransportFailure(retryError, deadline, requestOptions.signal)
+        }
       } finally {
         deadline.dispose()
       }
