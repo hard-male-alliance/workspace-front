@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import type { ApiV2AuthenticationPort } from './authentication'
-import { createApiV2Client, type ApiV2TransportProfile } from './client'
+import { createApiV2Client, createApiV2PublicClient, type ApiV2TransportProfile } from './client'
 import { ApiV2AuthenticationRequiredError, ApiV2ContractError } from './errors'
 import { ApiV2ProblemError } from './problem-error'
 
@@ -703,5 +703,44 @@ describe('createApiV2Client', (): void => {
     })
     expect(refreshSignal?.aborted).toBe(true)
     expect(fetchImpl).not.toHaveBeenCalled()
+  })
+})
+
+describe('createApiV2PublicClient', (): void => {
+  it('reads a public Template without accepting or sending authentication state', async (): Promise<void> => {
+    /** @brief 公开请求的网络替身 / Network double for the public request. */
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ items: [] }))
+    /** @brief 不具备认证或写能力的公开 client / Public client without authentication or write capabilities. */
+    const client = createApiV2PublicClient({
+      acceptLanguage: 'zh-CN',
+      createRequestId: (): string => 'req_public_12345678',
+      fetchImpl
+    })
+
+    await client.getJson('/resume-templates', { query: { cursor: null, limit: 24 } })
+
+    expect(fetchImpl).toHaveBeenCalledOnce()
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://api.hmalliances.org:8022/api/v2/resume-templates?limit=24',
+      expect.objectContaining({
+        credentials: 'omit',
+        headers: {
+          'Accept-Language': 'zh-CN',
+          'X-Request-Id': 'req_public_12345678'
+        },
+        method: 'GET',
+        redirect: 'error'
+      })
+    )
+  })
+
+  it('does not turn a public 401 into an authentication refresh replay', async (): Promise<void> => {
+    /** @brief 始终拒绝公开请求的网络替身 / Network double that always rejects the public request. */
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(unauthorizedResponse())
+    /** @brief 公开 Template client / Public Template client. */
+    const client = createApiV2PublicClient({ fetchImpl })
+
+    await expect(client.getJson('/resume-templates')).rejects.toBeInstanceOf(ApiV2ProblemError)
+    expect(fetchImpl).toHaveBeenCalledOnce()
   })
 })

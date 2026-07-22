@@ -344,14 +344,12 @@ export interface ApiV2WriteClient {
 /** @brief 由运行时组装的完整 API v2 HTTP client / Complete API v2 HTTP client composed by the runtime. */
 export type ApiV2HttpClient = ApiV2Client & ApiV2WriteClient
 
-/** @brief API v2 HTTP 客户端配置 / API v2 HTTP-client options. */
-export interface ApiV2ClientOptions {
+/** @brief API v2 读写客户端共享的 transport 配置 / Transport options shared by API v2 read and write clients. */
+export interface ApiV2TransportOptions {
   /** @brief 默认固定生产；测试直连必须显式选择 / Frozen production by default; direct test transport must be explicit. */
   readonly transportProfile?: ApiV2TransportProfile
   /** @brief 当前界面 Locale / Current UI locale. */
   readonly acceptLanguage?: string | undefined
-  /** @brief 内存 Access Token 的读取、刷新与条件失效端口 / Port for reading, refreshing, and conditionally invalidating in-memory access tokens. */
-  readonly authentication: ApiV2AuthenticationPort
   /** @brief 测试可替换的 fetch / Fetch implementation replaceable in tests. */
   readonly fetchImpl?: typeof fetch
   /** @brief 测试可替换的请求 ID 工厂 / Request-ID factory replaceable in tests. */
@@ -361,6 +359,15 @@ export interface ApiV2ClientOptions {
   /** @brief 测试可替换的当前时间 / Current time replaceable in tests. */
   readonly now?: () => number
 }
+
+/** @brief API v2 受保护产品客户端配置 / Options for the protected API v2 product client. */
+export interface ApiV2ClientOptions extends ApiV2TransportOptions {
+  /** @brief 内存 Access Token 的读取、刷新与条件失效端口 / Port for reading, refreshing, and conditionally invalidating in-memory access tokens. */
+  readonly authentication: ApiV2AuthenticationPort
+}
+
+/** @brief API v2 公开只读客户端配置 / Options for the public read-only API v2 client. */
+export type ApiV2PublicClientOptions = ApiV2TransportOptions
 
 /** @brief 单次请求的组合取消生命周期 / Combined cancellation lifecycle for one request. */
 interface RequestDeadline {
@@ -1048,12 +1055,12 @@ async function parseNoContentResponse(
   return headers.requestId
 }
 
-/** @brief 单次认证 HTTP 尝试的输入 / Input for one authenticated HTTP attempt. */
-interface AuthenticatedRequestAttempt<TResponse> {
+/** @brief 单次 Product API HTTP 尝试的输入 / Input for one Product API HTTP attempt. */
+interface ProductRequestAttempt<TResponse> {
   /** @brief 当前请求 URL / Current request URL. */
   readonly requestUrl: URL
-  /** @brief 当前实际使用的 Bearer token / Bearer token actually used by this attempt. */
-  readonly accessToken: string
+  /** @brief 受保护请求实际使用的 Bearer token；公开请求省略 / Bearer token used by a protected request; omitted for a public request. */
+  readonly accessToken?: string
   /** @brief 当前界面语言 / Current UI language. */
   readonly acceptLanguage: string | undefined
   /** @brief HTTP 方法 / HTTP method. */
@@ -1081,25 +1088,23 @@ interface AuthenticatedRequestAttempt<TResponse> {
 }
 
 /**
- * @brief 执行一次带独立 request ID 的认证请求 / Execute one authenticated request with its own request ID.
+ * @brief 执行一次带独立 request ID 的 Product API 请求 / Execute one Product API request with its own request ID.
  * @param attempt 已验证的尝试输入 / Validated attempt input.
  * @return 已完整解析的 API v2 响应 / Fully parsed API v2 response.
  */
-async function performAuthenticatedRequest<TResponse>(
-  attempt: AuthenticatedRequestAttempt<TResponse>
+async function performProductRequest<TResponse>(
+  attempt: ProductRequestAttempt<TResponse>
 ): Promise<TResponse> {
   if (attempt.signal.aborted) throw abortReason(attempt.signal)
   /** @brief 本次尝试的新请求 ID / Fresh request ID for this attempt. */
   const requestId = createRequestId(attempt.requestIdFactory)
   if (attempt.usedRequestIds.has(requestId)) {
-    throw new ApiV2ContractError('API v2 authentication replay requires a fresh request ID.')
+    throw new ApiV2ContractError('API v2 request attempts require distinct request IDs.')
   }
   attempt.usedRequestIds.add(requestId)
   /** @brief 本次尝试的请求头 / Request headers for this attempt. */
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${attempt.accessToken}`,
-    'X-Request-Id': requestId
-  }
+  const headers: Record<string, string> = { 'X-Request-Id': requestId }
+  if (attempt.accessToken !== undefined) headers.Authorization = `Bearer ${attempt.accessToken}`
   if (attempt.acceptLanguage !== undefined) headers['Accept-Language'] = attempt.acceptLanguage
   if (attempt.contentType !== undefined) headers['Content-Type'] = attempt.contentType
   if (attempt.idempotencyKey !== undefined) headers['Idempotency-Key'] = attempt.idempotencyKey
@@ -1434,8 +1439,8 @@ function locatedWriteResponseMetadata(
   }
 }
 
-/** @brief 进入认证生命周期前已完全预验证的请求 / Fully prevalidated request entering the authentication lifecycle. */
-interface PreparedAuthenticatedRequest<TResponse> {
+/** @brief 进入公开或认证生命周期前已完全预验证的请求 / Fully prevalidated request entering a public or authenticated lifecycle. */
+interface PreparedProductRequest<TResponse> {
   /** @brief 当前请求 URL / Current request URL. */
   readonly requestUrl: URL
   /** @brief HTTP 方法 / HTTP method. */
@@ -1468,12 +1473,36 @@ interface PreparedPostPolicy {
   readonly signal: AbortSignal | undefined
 }
 
+/** @brief 已验证且可复用的 API v2 transport 依赖 / Validated reusable API v2 transport dependencies. */
+interface PreparedApiV2Transport {
+  /** @brief 已验证 Product API v2 基址 / Validated Product API v2 base URL. */
+  readonly apiBaseUrl: URL
+  /** @brief 构造时冻结的可选界面语言 / Optional UI language frozen at construction. */
+  readonly acceptLanguage: string | undefined
+  /** @brief 网络实现 / Network implementation. */
+  readonly fetchImpl: typeof fetch
+  /** @brief 测试可替换的当前时间 / Current time, replaceable in tests. */
+  readonly now: () => number
+  /** @brief 请求 ID 工厂 / Request-ID factory. */
+  readonly requestIdFactory: () => string
+  /** @brief 每次逻辑操作的总截止时间 / Total deadline for each logical operation. */
+  readonly timeoutMilliseconds: number
+}
+
+/** @brief 已完全预验证的 GET 及其调用方取消信号 / Fully prevalidated GET and its caller cancellation signal. */
+interface PreparedGetRequest {
+  /** @brief 不再读取调用方输入的 GET / GET that no longer reads caller input. */
+  readonly request: PreparedProductRequest<ApiV2JsonResponse>
+  /** @brief 调用方取消信号 / Caller cancellation signal. */
+  readonly signal: AbortSignal | undefined
+}
+
 /**
- * @brief 创建 v2-only Bearer 产品客户端 / Create a v2-only Bearer product client.
- * @param options origin、内存凭证与可替换运行时依赖 / Origin, in-memory credentials, and replaceable runtime dependencies.
- * @return 不含 v1 fallback 的严格客户端 / Strict client without a v1 fallback.
+ * @brief 验证并冻结公开与受保护 client 共用的 transport 依赖 / Validate and freeze transport dependencies shared by public and protected clients.
+ * @param options origin、语言、deadline 与可替换运行时依赖 / Origin, language, deadline, and replaceable runtime dependencies.
+ * @return 不含认证策略的已验证 transport / Validated transport without an authentication policy.
  */
-export function createApiV2Client(options: ApiV2ClientOptions): ApiV2HttpClient {
+function prepareApiV2Transport(options: ApiV2TransportOptions): PreparedApiV2Transport {
   /** @brief 已验证 API v2 基址 / Validated API v2 base URL. */
   const apiBaseUrl = resolveApiBaseUrl(options.transportProfile)
   /** @brief 网络实现 / Network implementation. */
@@ -1499,6 +1528,70 @@ export function createApiV2Client(options: ApiV2ClientOptions): ApiV2HttpClient 
     acceptLanguageCandidate === undefined
       ? undefined
       : locale(acceptLanguageCandidate, 'request.headers.Accept-Language')
+  return {
+    acceptLanguage,
+    apiBaseUrl,
+    fetchImpl,
+    now,
+    requestIdFactory,
+    timeoutMilliseconds
+  }
+}
+
+/**
+ * @brief 一次性验证并冻结一项 API v2 GET / Validate and freeze one API v2 GET exactly once.
+ * @param path 相对 Product API path / Relative Product API path.
+ * @param requestOptions query、状态、大小与取消策略 / Query, status, size, and cancellation policy.
+ * @param transport 已验证共享 transport / Validated shared transport.
+ * @return 不再读取调用方对象的 GET / GET that no longer reads caller objects.
+ */
+function prepareGetRequest(
+  path: string,
+  requestOptions: ApiV2GetOptions,
+  transport: PreparedApiV2Transport
+): PreparedGetRequest {
+  /** @brief 当前端点冻结的成功状态 / Success status frozen for the current endpoint. */
+  const expectedStatus = requestOptions.expectedStatus ?? 200
+  if (!Number.isSafeInteger(expectedStatus) || expectedStatus < 200 || expectedStatus > 299) {
+    throw new ApiV2ContractError('API v2 expected success status must be a 2xx integer.')
+  }
+  /** @brief 当前端点响应字节上限 / Response byte limit for the current endpoint. */
+  const maximumResponseBytes = validateByteLimit(
+    requestOptions.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES,
+    ABSOLUTE_MAX_RESPONSE_BYTES,
+    'response'
+  )
+  /** @brief 当前请求 URL / Current request URL. */
+  const requestUrl = resolveRequestUrl(path, transport.apiBaseUrl)
+  for (const [key, value] of Object.entries(requestOptions.query ?? {})) {
+    if (value === null || value === undefined) continue
+    if (typeof value === 'number' && !Number.isFinite(value)) {
+      throw new ApiV2ContractError(`API v2 query parameter ${key} must be finite.`)
+    }
+    requestUrl.searchParams.set(key, String(value))
+  }
+  return {
+    request: {
+      method: 'GET',
+      parse: (response): Promise<ApiV2JsonResponse> =>
+        parseResponse(response, expectedStatus, maximumResponseBytes, transport.now()),
+      requestUrl
+    },
+    signal: requestOptions.signal
+  }
+}
+
+/**
+ * @brief 创建 v2-only Bearer 产品客户端 / Create a v2-only Bearer product client.
+ * @param options origin、内存凭证与可替换运行时依赖 / Origin, in-memory credentials, and replaceable runtime dependencies.
+ * @return 不含 v1 fallback 的严格客户端 / Strict client without a v1 fallback.
+ */
+export function createApiV2Client(options: ApiV2ClientOptions): ApiV2HttpClient {
+  /** @brief 已验证且冻结的共享 transport / Validated and frozen shared transport. */
+  const transport = prepareApiV2Transport(options)
+  /** @brief 便于闭包使用的 transport 字段 / Transport fields used throughout the client closure. */
+  const { acceptLanguage, apiBaseUrl, fetchImpl, now, requestIdFactory, timeoutMilliseconds } =
+    transport
   /** @brief 构造时冻结的认证端口 / Authentication port frozen at construction time. */
   const authentication = options.authentication
   if (
@@ -1517,7 +1610,7 @@ export function createApiV2Client(options: ApiV2ClientOptions): ApiV2HttpClient 
    * @return 严格解析后的端点结果 / Strictly parsed endpoint result.
    */
   function executePrepared<TResponse>(
-    prepared: PreparedAuthenticatedRequest<TResponse>,
+    prepared: PreparedProductRequest<TResponse>,
     callerSignal: AbortSignal | undefined,
     operationKind: 'read' | 'write'
   ): Promise<TResponse> {
@@ -1531,7 +1624,7 @@ export function createApiV2Client(options: ApiV2ClientOptions): ApiV2HttpClient 
         /** @brief 当前尝试是否越过 dispatch 边界 / Whether this attempt crossed the dispatch boundary. */
         let wasDispatched = false
         /** @brief 当前认证请求 Promise / Promise for the current authenticated request. */
-        const operation = performAuthenticatedRequest({
+        const operation = performProductRequest({
           acceptLanguage,
           accessToken,
           ...(prepared.body === undefined ? {} : { body: prepared.body }),
@@ -1634,36 +1727,9 @@ export function createApiV2Client(options: ApiV2ClientOptions): ApiV2HttpClient 
 
   return {
     async getJson(path, requestOptions = {}): Promise<ApiV2JsonResponse> {
-      /** @brief 当前端点冻结的成功状态 / Success status frozen for the current endpoint. */
-      const expectedStatus = requestOptions.expectedStatus ?? 200
-      if (!Number.isSafeInteger(expectedStatus) || expectedStatus < 200 || expectedStatus > 299) {
-        throw new ApiV2ContractError('API v2 expected success status must be a 2xx integer.')
-      }
-      /** @brief 当前端点响应字节上限 / Response byte limit for the current endpoint. */
-      const maximumResponseBytes = validateByteLimit(
-        requestOptions.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES,
-        ABSOLUTE_MAX_RESPONSE_BYTES,
-        'response'
-      )
-      /** @brief 当前请求 URL / Current request URL. */
-      const requestUrl = resolveRequestUrl(path, apiBaseUrl)
-      for (const [key, value] of Object.entries(requestOptions.query ?? {})) {
-        if (value === null || value === undefined) continue
-        if (typeof value === 'number' && !Number.isFinite(value)) {
-          throw new ApiV2ContractError(`API v2 query parameter ${key} must be finite.`)
-        }
-        requestUrl.searchParams.set(key, String(value))
-      }
-      return await executePrepared(
-        {
-          method: 'GET',
-          parse: (response): Promise<ApiV2JsonResponse> =>
-            parseResponse(response, expectedStatus, maximumResponseBytes, now()),
-          requestUrl
-        },
-        requestOptions.signal,
-        'read'
-      )
+      /** @brief 已一次性验证的 GET / GET validated exactly once. */
+      const prepared = prepareGetRequest(path, requestOptions, transport)
+      return await executePrepared(prepared.request, prepared.signal, 'read')
     },
 
     async postJson<TKind extends ApiV2PostSuccessKind>(
@@ -1828,6 +1894,43 @@ export function createApiV2Client(options: ApiV2ClientOptions): ApiV2HttpClient 
         requestOptions?.signal,
         'write'
       )
+    }
+  }
+}
+
+/**
+ * @brief 创建不会读取或发送 Bearer 的 API v2 公开只读客户端 / Create a public read-only API v2 client that neither reads nor sends a Bearer token.
+ * @param options origin、语言、deadline 与可替换运行时依赖 / Origin, language, deadline, and replaceable runtime dependencies.
+ * @return 仅适用于契约公开资源的严格 GET client / Strict GET client only for resources declared public by the contract.
+ * @note 端点模块决定哪些资源公开；该 transport 不提供写方法或认证重放 / Endpoint modules decide which resources are public; this transport exposes neither writes nor authentication replay.
+ */
+export function createApiV2PublicClient(options: ApiV2PublicClientOptions = {}): ApiV2Client {
+  /** @brief 已验证且冻结的公开 transport / Validated and frozen public transport. */
+  const transport = prepareApiV2Transport(options)
+
+  return {
+    async getJson(path, requestOptions = {}): Promise<ApiV2JsonResponse> {
+      /** @brief 已一次性验证的公开 GET / Public GET validated exactly once. */
+      const prepared = prepareGetRequest(path, requestOptions, transport)
+      /** @brief 当前公开读取的组合截止 / Combined deadline for the current public read. */
+      const deadline = createRequestDeadline(prepared.signal, transport.timeoutMilliseconds)
+      try {
+        return await performProductRequest({
+          acceptLanguage: transport.acceptLanguage,
+          fetchImpl: transport.fetchImpl,
+          markDispatched: (): void => undefined,
+          method: prepared.request.method,
+          parse: prepared.request.parse,
+          requestIdFactory: transport.requestIdFactory,
+          requestUrl: prepared.request.requestUrl,
+          signal: deadline.signal,
+          usedRequestIds: new Set<string>()
+        })
+      } catch (error: unknown) {
+        throwTransportFailure(error, deadline, prepared.signal)
+      } finally {
+        deadline.dispose()
+      }
     }
   }
 }

@@ -1,6 +1,6 @@
 /** @file API v2 防腐层公共入口 / Public entrypoint for the API v2 anti-corruption layer. */
 
-export { createApiV2Client } from './http/client'
+export { createApiV2Client, createApiV2PublicClient } from './http/client'
 export type { ApiV2AccessTokenRefreshRequest, ApiV2AuthenticationPort } from './http/authentication'
 export type {
   ApiV2AcceptedResourceResponse,
@@ -19,7 +19,9 @@ export type {
   ApiV2PostJsonResponse,
   ApiV2PostSuccessKind,
   ApiV2PostSuccessPolicy,
+  ApiV2PublicClientOptions,
   ApiV2QueryValue,
+  ApiV2TransportOptions,
   ApiV2ResultWriteJsonResponse,
   ApiV2ResultWriteResponseMetadata,
   ApiV2TransportProfile,
