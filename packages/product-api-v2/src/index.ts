@@ -59,6 +59,8 @@ export type {
   RunningJob,
   SucceededJob
 } from './jobs/job'
+export { parseAcceptedWorkspaceJob } from './jobs/accepted-job'
+export type { AcceptedWorkspaceJobRepresentation } from './jobs/accepted-job'
 export { getWorkspaceArtifact, artifactMediaType, parseArtifact } from './artifacts/artifact'
 export type {
   Artifact,
@@ -213,6 +215,25 @@ export type {
   TerminalResumeProposal,
   TerminalResumeProposalStatus
 } from './resume/proposals'
+export {
+  createWorkspaceResumeImportJob,
+  createWorkspaceResumeRenderJob,
+  createWorkspaceResumeRestoreJob,
+  encodeCreateResumeImportJobRequest,
+  encodeCreateResumeRenderJobRequest,
+  encodeCreateResumeRestoreJobRequest
+} from './resume/job-commands'
+export type {
+  CreateResumeImportJobRequest,
+  CreateResumeRenderJobRequest,
+  CreateResumeRestoreJobRequest,
+  CreateWorkspaceResumeImportJobCommand,
+  CreateWorkspaceResumeRenderJobCommand,
+  CreateWorkspaceResumeRestoreJobCommand,
+  ResumeJobCommandHttpClient,
+  ResumeRenderFormat,
+  ResumeRenderMode
+} from './resume/job-commands'
 export { listWorkspaceAccessPage, parseWorkspaceList } from './workspace/workspace-access'
 export type {
   Workspace,

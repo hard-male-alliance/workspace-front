@@ -22,7 +22,7 @@ import {
 } from '../resources/resource-reference'
 
 /** @brief 单个 Job JSON 响应的解码前字节上限 / Pre-decoding byte ceiling for one Job JSON response. */
-const JOB_MAX_RESPONSE_BYTES = 512 * 1024
+export const JOB_MAX_RESPONSE_BYTES = 512 * 1024
 
 /** @brief Job 进度单位 / Job progress unit. */
 export type JobProgressUnit = 'bytes' | 'items' | 'pages' | 'steps' | 'unknown'
