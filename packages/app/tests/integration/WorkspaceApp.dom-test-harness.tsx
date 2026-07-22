@@ -48,13 +48,20 @@ export function createTestGateways(
 ): WorkspaceAppProps['gateways'] {
   /** @brief 同时实现 Resume 各用例端口的独享测试适配器 / Isolated test adapter implementing each Resume use-case port. */
   const resume = new InMemoryResumeGateway()
+  /** @brief 若 Resume override 同时实现公开目录，则保持两个端口的同一测试状态 / Preserve one test state across both ports when a Resume override also implements the public catalog. */
+  const resumeTemplates =
+    overrides.resume !== undefined &&
+    'listTemplatePage' in overrides.resume &&
+    'getTemplate' in overrides.resume
+      ? (overrides.resume as WorkspaceAppProps['gateways']['resumeTemplates'])
+      : resume
   return {
     identity: new InMemoryIdentityGateway(),
     interview: new InMemoryInterviewGateway(),
     knowledge: new InMemoryKnowledgeGateway(),
     resume,
     resumeCreation: resume,
-    resumeTemplates: resume,
+    resumeTemplates,
     workspace: new InMemoryWorkspaceGateway(),
     ...overrides
   }

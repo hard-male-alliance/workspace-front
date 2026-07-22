@@ -10,13 +10,7 @@ import {
   ResumeTemplateMigrationCapabilityError
 } from '../../application/errors'
 import { ResumeMutationLane } from '../../application/mutation-lane'
-import {
-  getTemplateIdentity,
-  loadTemplateCatalogWithPinnedVersion
-} from '../../application/template-catalog'
 import type {
-  UiResumeEditorModel,
-  UiResumeId,
   UiResumePdfArtifact,
   UiResumeRenderJob,
   UiResumeSectionDeleteInput,
@@ -26,13 +20,11 @@ import type {
   UiResumeSummaryPageRead,
   UiResumeTemplateSettingsUpdateInput,
   UiTemplateManifest,
-  UiTemplateReference,
-  UiTemplateSettingsModel,
   UiStartResumePdfRenderInput
 } from '../../domain/models'
 import { asUiResumeCursor } from '../../domain/models'
+import type { UiResumeEditorModel, UiResumeId, UiTemplateReference } from '../../domain/document'
 import { asUiOpaqueId, type UiWorkspaceId } from '../../../../shared-kernel/identity'
-import type { UiContentLocale } from '../../../../shared-kernel/locale'
 import {
   asUiResumeTemplateCursor,
   type UiCreateResumeFromTemplateCommand,
@@ -48,6 +40,8 @@ import {
   type InMemoryGatewayOptions
 } from '../../../../infrastructure/memory'
 import { asUiConcurrencyToken } from '../../../../shared-kernel/concurrency'
+import type { UiConcurrencyToken } from '../../../../shared-kernel/concurrency'
+import type { UiCommandId } from '../../../../shared-kernel/command'
 import {
   MOCK_RESUME_EDITOR,
   MOCK_RESUME_ID,
@@ -56,6 +50,61 @@ import {
   MOCK_TEMPLATE_MANIFESTS,
   MOCK_TEMPLATE_MANIFEST_VERSIONS
 } from './data'
+
+/** @brief Resume mutation 必须携带的同一权威快照 / Authority snapshot that every Resume mutation must carry. */
+interface ResumeMutationAuthority {
+  /** @brief 显式 Workspace 授权上下文 / Explicit Workspace authorization context. */
+  readonly workspaceId: UiWorkspaceId
+  /** @brief 目标 Resume / Target Resume. */
+  readonly resumeId: UiResumeId
+  /** @brief 领域基础 revision / Domain base revision. */
+  readonly baseRevision: number
+  /** @brief 强 If-Match 令牌 / Strong If-Match token. */
+  readonly concurrencyToken: UiConcurrencyToken
+}
+
+/** @brief 具备可重放 command identity 的 Resume mutation 权威 / Resume-mutation authority carrying a replayable command identity. */
+interface IdempotentResumeMutationAuthority extends ResumeMutationAuthority {
+  /** @brief 同一意图与安全重放共享的 command identity / Command identity shared by one intent and its safe replays. */
+  readonly commandId: UiCommandId
+  /** @brief 可选调用方取消信号 / Optional caller cancellation signal. */
+  readonly signal?: AbortSignal
+}
+
+/** @brief 首次确认结果及其规范请求指纹 / First confirmed result and its canonical request fingerprint. */
+interface CachedResumeCommandResult {
+  /** @brief 不含 command identity 与运行时 signal 的规范意图指纹 / Canonical intent fingerprint excluding command identity and runtime signal. */
+  readonly fingerprint: string
+  /** @brief 首次执行确认的完整权威 / Complete authority confirmed by the first execution. */
+  readonly result: UiResumeEditorModel
+}
+
+/**
+ * @brief 递归规范化测试 command 值 / Recursively canonicalize a test-command value.
+ * @param value 待规范化值 / Value to canonicalize.
+ * @return 对象键已排序且不含 undefined 的 JSON 兼容值 / JSON-compatible value with sorted object keys and no undefined members.
+ */
+function canonicalizeMemoryCommandValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalizeMemoryCommandValue)
+  if (typeof value !== 'object' || value === null) return value
+  /** @brief 按键排序后的规范对象 / Canonical object with sorted keys. */
+  const normalized: Record<string, unknown> = {}
+  for (const key of Object.keys(value).sort()) {
+    /** @brief 当前原始成员 / Current raw member. */
+    const member = (value as Readonly<Record<string, unknown>>)[key]
+    if (member !== undefined) normalized[key] = canonicalizeMemoryCommandValue(member)
+  }
+  return normalized
+}
+
+/**
+ * @brief 创建与 API v2 幂等请求指纹等价的稳定测试指纹 / Create a stable test fingerprint equivalent to the API v2 idempotent request intent.
+ * @param value 不含运行时 signal 的完整意图 / Complete intent without a runtime signal.
+ * @return 规范 JSON 指纹 / Canonical JSON fingerprint.
+ */
+function createMemoryCommandFingerprint(value: unknown): string {
+  return JSON.stringify(canonicalizeMemoryCommandValue(value))
+}
 
 /**
  * @brief Resume 自动化测试内存适配器 / In-memory adapter for automated Resume tests.
@@ -69,6 +118,9 @@ export class InMemoryResumeGateway
   /** @brief 当前实例内的简历编辑器投影 / Resume-editor projection owned by this instance. */
   private editor: UiResumeEditorModel
 
+  /** @brief 独立于领域 revision 的 Mock ETag 单调序号 / Mock ETag sequence independent of the domain revision. */
+  private concurrencySequence = 0
+
   /** @brief 测试 adapter 中按聚合隔离的写通道 / Aggregate-scoped mutation lane in the test adapter. */
   private readonly mutationLane = new ResumeMutationLane()
 
@@ -80,6 +132,9 @@ export class InMemoryResumeGateway
 
   /** @brief 创建意图到规范输入的测试指纹 / Test fingerprints from creation intents to canonical inputs. */
   private readonly creationFingerprints = new Map<string, string>()
+
+  /** @brief 按 Resume 与 command identity 保存的首次 operation 结果 / First operation results cached by Resume and command identity. */
+  private readonly sectionCommandResults = new Map<string, CachedResumeCommandResult>()
 
   /**
    * @brief 构造 Resume 内存测试网关 / Construct the Resume in-memory test gateway.
@@ -249,14 +304,19 @@ export class InMemoryResumeGateway
 
   /**
    * @brief 获取 Mock 三栏简历编辑器 / Get the Mock three-pane resume editor.
+   * @param workspaceId 授权路径所属 Workspace / Workspace owning the authorization path.
    * @param resumeId 简历 ID / Resume ID.
+   * @param signal 资源身份变化或页面卸载时触发的取消信号 / Cancellation signal triggered when resource identity changes or the page unmounts.
    * @return Mock 编辑器数据 / Mock editor data.
    */
   async getResumeEditor(
     workspaceId: UiWorkspaceId,
-    resumeId: UiResumeId
+    resumeId: UiResumeId,
+    signal: AbortSignal
   ): Promise<UiResumeEditorModel> {
+    signal.throwIfAborted()
     const mode = await prepareMemoryRead(this.options)
+    signal.throwIfAborted()
     if (
       mode === 'empty' ||
       resumeId !== MOCK_RESUME_ID ||
@@ -271,7 +331,9 @@ export class InMemoryResumeGateway
   async startResumePdfRender(input: UiStartResumePdfRenderInput): Promise<UiResumeRenderJob> {
     await prepareMemoryRead(this.options)
     input.signal?.throwIfAborted()
-    if (input.resumeId !== MOCK_RESUME_ID) return throwMemoryNotFound('resume editor')
+    if (input.resumeId !== MOCK_RESUME_ID || input.workspaceId !== MOCK_RESUME_WORKSPACE_ID) {
+      return throwMemoryNotFound('resume editor')
+    }
     const job: UiResumeRenderJob = {
       artifacts: [],
       id: asUiOpaqueId<'resume-render-job'>(`render_mock_${input.resumeRevision}`),
@@ -316,122 +378,146 @@ export class InMemoryResumeGateway
    * @return 最新编辑器 / Latest editor.
    */
   async updateResumeSection(input: UiResumeSectionUpdateInput): Promise<UiResumeEditorModel> {
-    return this.mutationLane.run(input.resumeId, async () => {
-      await prepareMemoryRead(this.options)
-      if (input.resumeId !== MOCK_RESUME_ID) {
-        return throwMemoryNotFound('resume editor')
-      }
-      this.assertBaseRevision(input.baseRevision)
-
-      const sectionExists = this.editor.resume.sections.some(
-        (section) => section.id === input.sectionId
-      )
-      if (!sectionExists) {
-        return throwMemoryNotFound('resume section')
-      }
-
-      this.editor = {
-        ...this.editor,
-        resume: {
-          ...this.editor.resume,
-          revision: this.editor.resume.revision + 1,
-          sections: this.editor.resume.sections.map((section) =>
-            section.id === input.sectionId
-              ? {
-                  ...section,
-                  ...(input.title === undefined ? {} : { title: input.title }),
-                  ...(input.content === undefined ? {} : { contentPreview: input.content })
-                }
-              : section
-          ),
-          updatedAt: '2026-07-18T00:00:01.000Z'
+    return this.runIdempotentSectionCommand(
+      input,
+      createMemoryCommandFingerprint({
+        authority: {
+          baseRevision: input.baseRevision,
+          concurrencyToken: input.concurrencyToken,
+          resumeId: input.resumeId,
+          workspaceId: input.workspaceId
+        },
+        content: input.content,
+        kind: 'section-update',
+        sectionId: input.sectionId,
+        title: input.title
+      }),
+      (): UiResumeEditorModel => {
+        const sectionExists = this.editor.resume.sections.some(
+          (section) => section.id === input.sectionId
+        )
+        if (!sectionExists) {
+          return throwMemoryNotFound('resume section')
         }
+
+        this.editor = {
+          concurrencyToken: this.nextConcurrencyToken(),
+          resume: {
+            ...this.editor.resume,
+            revision: this.editor.resume.revision + 1,
+            sections: this.editor.resume.sections.map((section) =>
+              section.id === input.sectionId
+                ? {
+                    ...section,
+                    ...(input.title === undefined ? {} : { title: input.title }),
+                    ...(input.content === undefined
+                      ? {}
+                      : { content: cloneMemoryValue(input.content) })
+                  }
+                : section
+            ),
+            updatedAt: '2026-07-18T00:00:01.000Z'
+          }
+        }
+        return this.editor
       }
-      return cloneMemoryValue(this.editor)
-    })
+    )
   }
 
   /** @brief 调整 Mock 简历板块顺序 / Reorder Mock resume sections. */
   async reorderResumeSections(input: UiResumeSectionsReorderInput): Promise<UiResumeEditorModel> {
-    return this.mutationLane.run(input.resumeId, async () => {
-      await prepareMemoryRead(this.options)
-      if (input.resumeId !== MOCK_RESUME_ID) {
-        return throwMemoryNotFound('resume editor')
-      }
-      this.assertBaseRevision(input.baseRevision)
-
-      const sectionById = new Map(
-        this.editor.resume.sections.map((section) => [section.id, section])
-      )
-      const reorderedSections = input.orderedSectionIds.map((sectionId) =>
-        sectionById.get(sectionId)
-      )
-      if (
-        reorderedSections.length !== this.editor.resume.sections.length ||
-        new Set(input.orderedSectionIds).size !== this.editor.resume.sections.length ||
-        reorderedSections.some((section) => section === undefined)
-      ) {
-        throw new InMemoryGatewayError('memory.conflict', 'The Mock section order is incomplete.')
-      }
-
-      this.editor = {
-        ...this.editor,
-        resume: {
-          ...this.editor.resume,
-          revision: this.editor.resume.revision + 1,
-          sections: reorderedSections.filter((section) => section !== undefined),
-          updatedAt: '2026-07-18T00:00:02.000Z'
+    return this.runIdempotentSectionCommand(
+      input,
+      createMemoryCommandFingerprint({
+        authority: {
+          baseRevision: input.baseRevision,
+          concurrencyToken: input.concurrencyToken,
+          resumeId: input.resumeId,
+          workspaceId: input.workspaceId
+        },
+        kind: 'section-reorder',
+        orderedSectionIds: input.orderedSectionIds
+      }),
+      (): UiResumeEditorModel => {
+        const sectionById = new Map(
+          this.editor.resume.sections.map((section) => [section.id, section])
+        )
+        const reorderedSections = input.orderedSectionIds.map((sectionId) =>
+          sectionById.get(sectionId)
+        )
+        if (
+          reorderedSections.length !== this.editor.resume.sections.length ||
+          new Set(input.orderedSectionIds).size !== this.editor.resume.sections.length ||
+          reorderedSections.some((section) => section === undefined)
+        ) {
+          throw new InMemoryGatewayError('memory.conflict', 'The Mock section order is incomplete.')
         }
+
+        this.editor = {
+          concurrencyToken: this.nextConcurrencyToken(),
+          resume: {
+            ...this.editor.resume,
+            revision: this.editor.resume.revision + 1,
+            sections: reorderedSections.filter((section) => section !== undefined),
+            updatedAt: '2026-07-18T00:00:02.000Z'
+          }
+        }
+        return this.editor
       }
-      return cloneMemoryValue(this.editor)
-    })
+    )
   }
 
   /** @brief 删除 Mock 简历板块 / Delete a Mock resume section. */
   async deleteResumeSection(input: UiResumeSectionDeleteInput): Promise<UiResumeEditorModel> {
-    return this.mutationLane.run(input.resumeId, async () => {
-      await prepareMemoryRead(this.options)
-      if (input.resumeId !== MOCK_RESUME_ID) {
-        return throwMemoryNotFound('resume editor')
-      }
-      this.assertBaseRevision(input.baseRevision)
-
-      const remainingSections = this.editor.resume.sections.filter(
-        (section) => section.id !== input.sectionId
-      )
-      if (remainingSections.length === this.editor.resume.sections.length) {
-        return throwMemoryNotFound('resume section')
-      }
-      if (remainingSections.length === 0) {
-        throw new InMemoryGatewayError(
-          'memory.conflict',
-          'A Mock resume must keep at least one section.'
+    return this.runIdempotentSectionCommand(
+      input,
+      createMemoryCommandFingerprint({
+        authority: {
+          baseRevision: input.baseRevision,
+          concurrencyToken: input.concurrencyToken,
+          resumeId: input.resumeId,
+          workspaceId: input.workspaceId
+        },
+        kind: 'section-delete',
+        sectionId: input.sectionId
+      }),
+      (): UiResumeEditorModel => {
+        const remainingSections = this.editor.resume.sections.filter(
+          (section) => section.id !== input.sectionId
         )
-      }
-
-      this.editor = {
-        ...this.editor,
-        resume: {
-          ...this.editor.resume,
-          revision: this.editor.resume.revision + 1,
-          sections: remainingSections,
-          updatedAt: '2026-07-18T00:00:03.000Z'
+        if (remainingSections.length === this.editor.resume.sections.length) {
+          return throwMemoryNotFound('resume section')
         }
+
+        this.editor = {
+          concurrencyToken: this.nextConcurrencyToken(),
+          resume: {
+            ...this.editor.resume,
+            revision: this.editor.resume.revision + 1,
+            sections: remainingSections,
+            styleIntent: {
+              ...this.editor.resume.styleIntent,
+              sectionLayout: this.editor.resume.styleIntent.sectionLayout.filter(
+                (layout) => layout.sectionId !== input.sectionId
+              )
+            },
+            updatedAt: '2026-07-18T00:00:03.000Z'
+          }
+        }
+        return this.editor
       }
-      return cloneMemoryValue(this.editor)
-    })
+    )
   }
 
   /** @brief 在测试 adapter 中保存模板设置 / Save template settings in the testing adapter. */
   async updateTemplateSettings(
     input: UiResumeTemplateSettingsUpdateInput
-  ): Promise<UiTemplateSettingsModel> {
+  ): Promise<UiResumeEditorModel> {
+    input.signal?.throwIfAborted()
     return this.mutationLane.run(input.resumeId, async () => {
       await prepareMemoryRead(this.options)
-      if (input.resumeId !== MOCK_RESUME_ID) {
-        return throwMemoryNotFound('template settings')
-      }
-      this.assertBaseRevision(input.baseRevision)
+      input.signal?.throwIfAborted()
+      this.assertMutationAuthority(input)
       if (
         this.editor.resume.template.templateId !== input.templateId ||
         this.editor.resume.template.templateVersion !== input.templateVersion
@@ -445,117 +531,84 @@ export class InMemoryResumeGateway
         return throwMemoryNotFound('resume template')
       }
       this.editor = {
-        ...this.editor,
+        concurrencyToken: this.nextConcurrencyToken(),
         resume: {
           ...this.editor.resume,
           revision: this.editor.resume.revision + 1,
-          styleIntent: input.styleIntent,
+          styleIntent: cloneMemoryValue(input.styleIntent),
           updatedAt: '2026-07-18T00:00:05.000Z'
         }
       }
-      /** @brief 最新目录与当前精确版本的合并结果 / Latest catalog merged with the exact current version. */
-      const availableTemplates = MOCK_TEMPLATE_MANIFESTS.some(
-        (item) => getTemplateIdentity(item) === getTemplateIdentity(template)
-      )
-        ? MOCK_TEMPLATE_MANIFESTS
-        : [...MOCK_TEMPLATE_MANIFESTS, template]
-      return {
-        availableTemplates: cloneMemoryValue(availableTemplates),
-        resumeId: input.resumeId,
-        resumeRevision: this.editor.resume.revision,
-        selectedTemplate: cloneMemoryValue(template),
-        styleIntent: cloneMemoryValue(input.styleIntent),
-        workspaceId: this.editor.resume.workspaceId
-      }
+      return cloneMemoryValue(this.editor)
     })
   }
 
   /**
-   * @brief 列出支持指定语言的 Mock 模板 / List Mock templates supporting a locale.
-   * @param locale 资源内容语言 / Resource-content locale.
-   * @return Mock 模板清单 / Mock template manifests.
+   * @brief 执行带 API v2 重放语义的 section command / Execute a section command with API v2 replay semantics.
+   * @param authority 完整授权、并发与 command identity / Complete authorization, concurrency, and command identity.
+   * @param fingerprint 不含 signal 的规范请求指纹 / Canonical request fingerprint excluding signal.
+   * @param mutation 首次执行时应用的原子领域 mutation / Atomic domain mutation applied on first execution.
+   * @return 首次结果或其不共享引用的幂等重放 / First result or an idempotent replay sharing no references.
    */
-  async listTemplateManifests(locale: UiContentLocale): Promise<readonly UiTemplateManifest[]> {
-    const mode = await prepareMemoryRead(this.options)
-    if (mode === 'empty') {
-      return []
-    }
+  private async runIdempotentSectionCommand(
+    authority: IdempotentResumeMutationAuthority,
+    fingerprint: string,
+    mutation: () => UiResumeEditorModel
+  ): Promise<UiResumeEditorModel> {
+    authority.signal?.throwIfAborted()
+    return this.mutationLane.run(authority.resumeId, async () => {
+      await prepareMemoryRead(this.options)
+      authority.signal?.throwIfAborted()
+      /** @brief Resume 与 command identity 的无歧义缓存键 / Unambiguous cache key for Resume and command identity. */
+      const cacheKey = JSON.stringify([authority.resumeId, authority.commandId])
+      /** @brief 同一 key 的首次确认记录 / First confirmed record for the same key. */
+      const cached = this.sectionCommandResults.get(cacheKey)
+      if (cached !== undefined) {
+        if (cached.fingerprint !== fingerprint) {
+          throw new InMemoryGatewayError(
+            'memory.idempotency_key_reused',
+            'The Mock Resume command key was reused with a different intent.'
+          )
+        }
+        return cloneMemoryValue(cached.result)
+      }
 
-    const manifests = MOCK_TEMPLATE_MANIFESTS.filter((template) =>
-      template.supportedLocales.includes(locale)
-    )
-    return cloneMemoryValue(manifests)
+      this.assertMutationAuthority(authority)
+      /** @brief 首次执行产生的新权威 / New authority produced by the first execution. */
+      const result = cloneMemoryValue(mutation())
+      this.sectionCommandResults.set(cacheKey, {
+        fingerprint,
+        result: cloneMemoryValue(result)
+      })
+      return result
+    })
   }
 
   /**
-   * @brief 获取精确 Mock 模板版本 / Get an exact Mock template version.
-   * @param templateId 模板 ID / Template ID.
-   * @param version 不可变模板版本 / Immutable template version.
-   * @return 精确匹配的 Mock 模板 / Exact matching Mock template.
+   * @brief 保证 mutation 同时绑定显式租户、资源、revision 与 ETag / Ensure a mutation is bound to its explicit tenant, resource, revision, and ETag.
+   * @param authority 调用方读取的完整权威身份 / Complete authority identity read by the caller.
    */
-  async getTemplateManifest(
-    templateId: UiTemplateManifest['id'],
-    version: string
-  ): Promise<UiTemplateManifest> {
-    const mode = await prepareMemoryRead(this.options)
-    if (mode === 'empty') {
-      return throwMemoryNotFound('resume template')
-    }
-    /** @brief 由复合身份命中的 Mock 模板 / Mock template matched by composite identity. */
-    const template = MOCK_TEMPLATE_MANIFEST_VERSIONS.find(
-      (item) => item.id === templateId && item.version === version
-    )
-    if (template === undefined) {
-      return throwMemoryNotFound('resume template')
-    }
-    return cloneMemoryValue(template)
-  }
-
-  /**
-   * @brief 获取 Mock 模板设置页数据 / Get Mock template-settings page data.
-   * @param resumeId 简历 ID / Resume ID.
-   * @return Mock 模板设置数据 / Mock template-settings data.
-   */
-  async getTemplateSettings(
-    workspaceId: UiWorkspaceId,
-    resumeId: UiResumeId
-  ): Promise<UiTemplateSettingsModel> {
-    const mode = await prepareMemoryRead(this.options)
+  private assertMutationAuthority(authority: ResumeMutationAuthority): void {
     if (
-      mode === 'empty' ||
-      resumeId !== MOCK_RESUME_ID ||
-      workspaceId !== MOCK_RESUME_WORKSPACE_ID
+      authority.workspaceId !== this.editor.resume.workspaceId ||
+      authority.resumeId !== this.editor.resume.id
     ) {
-      return throwMemoryNotFound('template settings')
+      return throwMemoryNotFound('resume editor')
     }
-
-    const templates = await loadTemplateCatalogWithPinnedVersion(
-      this,
-      this.editor.resume.locale,
-      this.editor.resume.template
-    )
-    const selectedIdentity = getTemplateIdentity(this.editor.resume.template)
-    const selectedTemplate = templates.find(
-      (template) => getTemplateIdentity(template) === selectedIdentity
-    )
-    if (selectedTemplate === undefined) {
-      return throwMemoryNotFound('resume template')
-    }
-    return {
-      availableTemplates: cloneMemoryValue(templates),
-      resumeId,
-      resumeRevision: this.editor.resume.revision,
-      selectedTemplate: cloneMemoryValue(selectedTemplate),
-      styleIntent: cloneMemoryValue(this.editor.resume.styleIntent),
-      workspaceId: this.editor.resume.workspaceId
+    if (
+      authority.baseRevision !== this.editor.resume.revision ||
+      authority.concurrencyToken !== this.editor.concurrencyToken
+    ) {
+      throw new ResumeSnapshotConflictError()
     }
   }
 
   /**
-   * @brief 保证测试 mutation 仍绑定调用方读取的 Resume revision / Ensure a test mutation remains bound to the Resume revision read by its caller.
-   * @param baseRevision 调用方编辑的基础 revision / Base revision edited by the caller.
+   * @brief 为一次成功写入生成新的 opaque 强 ETag / Generate a new opaque strong ETag for one successful write.
+   * @return 不从领域 revision 推导的强并发令牌 / Strong concurrency token not derived from the domain revision.
    */
-  private assertBaseRevision(baseRevision: number): void {
-    if (baseRevision !== this.editor.resume.revision) throw new ResumeSnapshotConflictError()
+  private nextConcurrencyToken(): UiConcurrencyToken {
+    this.concurrencySequence += 1
+    return asUiConcurrencyToken(`"resume-memory-write-${this.concurrencySequence}"`)
   }
 }

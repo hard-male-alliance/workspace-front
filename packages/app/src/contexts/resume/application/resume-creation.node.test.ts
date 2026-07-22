@@ -10,7 +10,8 @@ import {
   type UiCreatedResume,
   type UiResumeTemplatePage
 } from '../domain/creation'
-import type { UiResumeDocument, UiTemplateManifest } from '../domain/models'
+import type { UiResumeDocument } from '../domain/document'
+import type { UiTemplateManifest } from '../domain/models'
 import {
   createResumeFromTemplate,
   loadResumeCreationTemplatePage,

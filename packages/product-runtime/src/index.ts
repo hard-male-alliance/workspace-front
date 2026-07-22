@@ -57,7 +57,7 @@ export function createProductGateways(options: ProductGatewayOptions): AppGatewa
     identity: createApiV2IdentityGateway(client),
     interview: createUnavailableInterviewGateway(),
     knowledge: createUnavailableKnowledgeGateway(),
-    resume: createApiV2ResumeGateway(client),
+    resume: createApiV2ResumeGateway(client, client),
     resumeCreation: createApiV2ResumeCreationGateway(client),
     resumeTemplates: createApiV2ResumeTemplateCatalog(publicClient),
     workspace: createApiV2WorkspaceGateway(client)

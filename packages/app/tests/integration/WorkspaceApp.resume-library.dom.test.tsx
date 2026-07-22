@@ -15,10 +15,10 @@ import { InMemoryKnowledgeGateway } from '../../src/contexts/knowledge/infrastru
 import type { ResumeGateway } from '../../src/contexts/resume/application/gateway'
 import {
   asUiResumeCursor,
-  type UiResumeId,
   type UiResumeSummary,
   type UiResumeSummaryPage
 } from '../../src/contexts/resume/domain/models'
+import type { UiResumeId } from '../../src/contexts/resume/domain/document'
 import {
   MOCK_DAWN_TEMPLATE_ID,
   MOCK_RESUME_WORKSPACE_ID

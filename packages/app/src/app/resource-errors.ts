@@ -1,5 +1,7 @@
 /** @file 页面资源失败的安全用户语义 / Safe user semantics for page-resource failures. */
 
+import { ConfirmedCommandConflictError } from '../shared-kernel/application-error'
+
 /** @brief 页面可恢复失败类别 / Recoverable page-failure categories. */
 export type ResourceFailureKind =
   | 'authentication-required'
@@ -23,6 +25,22 @@ export interface ResourceFailure {
   readonly retryable: boolean
   /** @brief 可安全展示的后端关联编号 / Backend correlation identifier safe to display. */
   readonly referenceId: string | null
+}
+
+/**
+ * @brief 判断失败是否为不代表资源 revision 冲突的幂等状态 / Determine whether a failure is an idempotency state rather than a resource-revision conflict.
+ * @param error 待检查的应用错误 / Application error to inspect.
+ * @return 已验证 API v2 in-progress 或 key-reused Problem 时为 true / True for a validated API v2 in-progress or key-reused Problem.
+ */
+function isCommandIdempotencyConflict(error: unknown): boolean {
+  if (!isRecord(error) || error.name !== 'ApiV2ProblemError' || !isRecord(error.problem)) {
+    return false
+  }
+  return (
+    error.problem.status === 409 &&
+    (error.problem.code === 'idempotency.in_progress' ||
+      error.problem.code === 'idempotency.key_reused')
+  )
 }
 
 /**
@@ -78,6 +96,9 @@ function classifyHttpStatus(
  * @note 后端 title、detail、URL、字段值和响应正文均不会进入此投影 / Backend titles, details, URLs, field values, and response bodies never enter this projection.
  */
 export function classifyResourceFailure(error: unknown): ResourceFailure {
+  if (error instanceof ConfirmedCommandConflictError) {
+    return { kind: 'conflict', referenceId: null, retryable: false }
+  }
   if (isRecord(error)) {
     /** @brief 技术错误的稳定名称 / Stable technical error name. */
     const name = typeof error.name === 'string' ? error.name : ''
@@ -148,15 +169,6 @@ export function classifyResourceFailure(error: unknown): ResourceFailure {
     if (name.endsWith('CapabilityError')) {
       return { kind: 'capability-unavailable', referenceId: null, retryable: false }
     }
-    if (name === 'ResumeOperationRejectedError') {
-      return typeof error.status === 'number'
-        ? classifyHttpStatus(
-            error.status,
-            typeof error.retryable === 'boolean' ? error.retryable : false,
-            null
-          )
-        : { kind: 'invalid-request', referenceId: null, retryable: false }
-    }
     if (name === 'TimeoutError') {
       return { kind: 'service-unavailable', referenceId: null, retryable: true }
     }
@@ -177,6 +189,8 @@ export function classifyResourceFailure(error: unknown): ResourceFailure {
  * Even when a 409/412 body violates ProblemDetails, the HTTP status is sufficient to prevent blind replay; user copy remains invalid-response and never trusts the invalid body.
  */
 export function requiresAuthorityReload(error: unknown): boolean {
+  if (error instanceof ConfirmedCommandConflictError) return false
+  if (isCommandIdempotencyConflict(error)) return false
   /** @brief 已脱敏的通用失败类别 / Sanitized general failure category. */
   const failure = classifyResourceFailure(error)
   if (failure.kind === 'conflict' || failure.kind === 'outcome-unknown') return true

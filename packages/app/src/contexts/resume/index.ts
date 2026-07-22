@@ -3,9 +3,18 @@
 export type {
   UiResumeId,
   UiResumeSectionId,
+  UiResumeItemId,
+  UiResumeContactId,
   UiTemplateId,
   UiResumeSectionKind,
   UiResumeItemKind,
+  UiResumePartialDate,
+  UiResumeDateRange,
+  UiResumeTextMarkKind,
+  UiResumeLinkTextMark,
+  UiResumeStyleTextMark,
+  UiResumeTextMark,
+  UiResumeRichText,
   UiResumeItem,
   UiResumeSection,
   UiResumeContactKind,
@@ -23,10 +32,14 @@ export type {
   UiColorValue,
   UiPaletteIntent,
   UiSectionLayoutIntent,
-  UiTemplateSettingValue,
+  UiJsonValue,
   UiResumeStyleIntent,
   UiTemplateReference,
   UiResumeDocument,
+  UiResumeEditorModel
+} from './domain/document'
+export { asUiResumePartialDate, replaceUiResumeRichTextText } from './domain/document'
+export type {
   UiResumeCursor,
   UiResumePageLimit,
   UiResumeSummary,
@@ -44,7 +57,6 @@ export type {
   UiResumeRenderJobStatus,
   UiResumeRenderJob,
   UiStartResumePdfRenderInput,
-  UiResumeEditorModel,
   UiResumeSectionUpdateInput,
   UiResumeSectionsReorderInput,
   UiResumeSectionDeleteInput,
@@ -82,6 +94,12 @@ export type {
   ResumeCreationPort,
   ResumeTemplateCatalogPort
 } from './application/resume-creation'
+export {
+  getResumeBatchConflict,
+  getResumeIdempotencyConflict,
+  ResumeBatchConflictError
+} from './application/errors'
+export type { ResumeBatchConflict, ResumeBatchConflictRecovery } from './application/errors'
 export { ResumeCreationPage } from './presentation/ResumeCreationPage'
 export { ResumeEditorPage } from './presentation/ResumeEditorPage'
 export { ResumeListPage } from './presentation/ResumeListPage'

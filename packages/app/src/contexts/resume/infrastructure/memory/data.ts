@@ -1,13 +1,17 @@
 /** @file Resume 限界上下文的确定性内存数据 / Deterministic in-memory data for the Resume bounded context. */
 
+import {
+  asUiResumePartialDate,
+  type UiResumeDocument,
+  type UiResumeEditorModel
+} from '../../domain/document'
 import type {
-  UiResumeDocument,
-  UiResumeEditorModel,
   UiResumeSummary,
   UiTemplateManifest,
   UiTemplateSettingsModel
 } from '../../domain/models'
 import { asUiOpaqueId } from '../../../../shared-kernel/identity'
+import { asUiConcurrencyToken } from '../../../../shared-kernel/concurrency'
 
 /** @brief Resume fixture 所属工作区 ID / Workspace ID owned by Resume fixtures. */
 export const MOCK_RESUME_WORKSPACE_ID = asUiOpaqueId<'workspace'>('ws_mock_klee_career_lab')
@@ -45,12 +49,12 @@ export const MOCK_DAWN_TEMPLATE: UiTemplateManifest = {
   supportedLocales: ['zh-SG', 'en-US'],
   supportedOutputFormats: ['pdf'],
   supportedPageSizes: ['A4', 'LETTER'],
-  supportedSectionKinds: ['summary', 'experience', 'education', 'projects', 'skills', 'custom'],
+  supportedSectionKinds: ['experience', 'education', 'projects', 'skills', 'custom'],
   zones: [
     {
       id: 'main',
       labelKey: 'template.zoneMain',
-      acceptedSectionKinds: ['summary', 'experience', 'education', 'projects', 'skills', 'custom'],
+      acceptedSectionKinds: ['experience', 'education', 'projects', 'skills', 'custom'],
       maxSections: null
     },
     {
@@ -136,24 +140,24 @@ export const MOCK_EDITORIAL_TEMPLATE: UiTemplateManifest = {
   supportedOutputFormats: ['pdf'],
   supportedPageSizes: ['A4', 'LETTER', 'LEGAL'],
   supportedSectionKinds: [
-    'summary',
     'experience',
     'education',
     'projects',
     'skills',
-    'publications'
+    'publications',
+    'custom'
   ],
   zones: [
     {
       id: 'main',
       labelKey: 'template.zoneMain',
       acceptedSectionKinds: [
-        'summary',
         'experience',
         'education',
         'projects',
         'skills',
-        'publications'
+        'publications',
+        'custom'
       ],
       maxSections: null
     }
@@ -205,6 +209,18 @@ export const MOCK_TEMPLATE_MANIFEST_VERSIONS: readonly UiTemplateManifest[] = [
   MOCK_HISTORICAL_DAWN_TEMPLATE
 ]
 
+/** @brief 与 Mock Resume 初始表示原子配对的强 ETag / Strong ETag atomically paired with the initial Mock Resume representation. */
+export const MOCK_RESUME_CONCURRENCY_TOKEN = asUiConcurrencyToken('"resume-memory-initial"')
+
+/**
+ * @brief 构造无 marks 的 Mock 富文本 / Build Mock rich text without marks.
+ * @param text 纯文本正文 / Plain-text body.
+ * @return 保留正式 RichText 结构的测试值 / Test value preserving the formal RichText shape.
+ */
+function richText(text: string): { readonly text: string; readonly marks: readonly [] } {
+  return { marks: [], text }
+}
+
 /** @brief Mock 简历文档 / Mock resume document. */
 export const MOCK_RESUME_DOCUMENT: UiResumeDocument = {
   id: MOCK_RESUME_ID,
@@ -220,20 +236,40 @@ export const MOCK_RESUME_DOCUMENT: UiResumeDocument = {
   profile: {
     fullName: 'Klee Chen',
     headline: 'AI Platform Engineer · Distributed Systems',
-    summary: '面向生产环境构建可靠的 AI 平台与开发者工具，专注检索、推理编排和可观测性。',
+    summary: richText('面向生产环境构建可靠的 AI 平台与开发者工具，专注检索、推理编排和可观测性。'),
     contacts: [
-      { kind: 'email', label: '邮箱', value: 'klee@example.com' },
-      { kind: 'github', label: 'GitHub', value: 'github.com/klee-lab' },
-      { kind: 'location', label: '地点', value: 'Singapore' }
+      {
+        id: asUiOpaqueId<'resume-contact'>('contact_mock_email'),
+        kind: 'email',
+        label: '邮箱',
+        url: 'mailto:klee@example.com',
+        value: 'klee@example.com'
+      },
+      {
+        id: asUiOpaqueId<'resume-contact'>('contact_mock_github'),
+        kind: 'github',
+        label: 'GitHub',
+        url: 'https://github.com/klee-lab',
+        value: 'github.com/klee-lab'
+      },
+      {
+        id: asUiOpaqueId<'resume-contact'>('contact_mock_location'),
+        kind: 'location',
+        label: '地点',
+        url: null,
+        value: 'Singapore'
+      }
     ]
   },
   sections: [
     {
       id: MOCK_SUMMARY_SECTION_ID,
-      kind: 'summary',
+      kind: 'custom',
       title: '职业摘要',
       visible: true,
-      contentPreview: '面向生产环境构建可靠的 AI 平台与开发者工具，专注检索、推理编排和可观测性。',
+      content: richText(
+        '面向生产环境构建可靠的 AI 平台与开发者工具，专注检索、推理编排和可观测性。'
+      ),
       items: []
     },
     {
@@ -241,31 +277,42 @@ export const MOCK_RESUME_DOCUMENT: UiResumeDocument = {
       kind: 'experience',
       title: '工作经历',
       visible: true,
-      contentPreview: null,
+      content: null,
       items: [
         {
-          id: 'itm_mock_platform_engineer',
+          id: asUiOpaqueId<'resume-item'>('itm_mock_platform_engineer'),
           kind: 'experience',
           title: 'AI 平台工程师',
-          subtitle: 'Arcadia Systems',
-          dateLabel: '2023.03 — 至今',
-          locationLabel: 'Singapore',
+          subtitle: null,
+          organization: 'Arcadia Systems',
+          location: 'Singapore',
+          dateRange: { end: 'present', start: asUiResumePartialDate('2023-03') },
+          summary: null,
           highlights: [
-            '设计多租户 Agent 运行时，将在线推理 p95 延迟降低 31%。',
-            '建立端到端可观测性与评估闭环，缩短生产问题定位时间。'
+            richText('设计多租户 Agent 运行时，将在线推理 p95 延迟降低 31%。'),
+            richText('建立端到端可观测性与评估闭环，缩短生产问题定位时间。')
           ],
+          skills: ['TypeScript', 'Python', 'Kubernetes'],
           tags: ['TypeScript', 'Python', 'Kubernetes'],
+          url: null,
           visible: true
         },
         {
-          id: 'itm_mock_backend_engineer',
+          id: asUiOpaqueId<'resume-item'>('itm_mock_backend_engineer'),
           kind: 'experience',
           title: '后端工程师',
-          subtitle: 'Northwind Labs',
-          dateLabel: '2020.07 — 2023.02',
-          locationLabel: 'Shanghai',
-          highlights: ['负责高并发 API 网关与异步任务平台的演进。'],
+          subtitle: null,
+          organization: 'Northwind Labs',
+          location: 'Shanghai',
+          dateRange: {
+            end: asUiResumePartialDate('2023-02'),
+            start: asUiResumePartialDate('2020-07')
+          },
+          summary: null,
+          highlights: [richText('负责高并发 API 网关与异步任务平台的演进。')],
+          skills: ['Go', 'PostgreSQL'],
           tags: ['Go', 'PostgreSQL'],
+          url: null,
           visible: true
         }
       ]
@@ -275,20 +322,27 @@ export const MOCK_RESUME_DOCUMENT: UiResumeDocument = {
       kind: 'projects',
       title: '代表项目',
       visible: true,
-      contentPreview: null,
+      content: null,
       items: [
         {
-          id: 'itm_mock_resume_workspace',
+          id: asUiOpaqueId<'resume-item'>('itm_mock_resume_workspace'),
           kind: 'project',
           title: 'AI 求职 Workspace',
           subtitle: '个人项目',
-          dateLabel: '2026',
-          locationLabel: null,
+          organization: null,
+          location: null,
+          dateRange: {
+            end: asUiResumePartialDate('2026'),
+            start: asUiResumePartialDate('2026')
+          },
+          summary: richText('面向求职全过程的本地优先 Workspace。'),
           highlights: [
-            '以语义中间表示驱动简历编辑、PDF 渲染与 Agent proposal 审批。',
-            '设计默认拒绝的个人知识可见性模型。'
+            richText('以语义中间表示驱动简历编辑、PDF 渲染与 Agent proposal 审批。'),
+            richText('设计默认拒绝的个人知识可见性模型。')
           ],
+          skills: ['React', 'Electron', 'WebRTC'],
           tags: ['React', 'Electron', 'WebRTC'],
+          url: 'https://example.com/klee/resume-workspace',
           visible: true
         }
       ]
@@ -298,17 +352,25 @@ export const MOCK_RESUME_DOCUMENT: UiResumeDocument = {
       kind: 'skills',
       title: '技能',
       visible: true,
-      contentPreview: null,
+      content: null,
       items: [
         {
-          id: 'itm_mock_core_skills',
+          id: asUiOpaqueId<'resume-item'>('itm_mock_core_skills'),
           kind: 'skill_group',
           title: '核心能力',
           subtitle: null,
-          dateLabel: null,
-          locationLabel: null,
-          highlights: ['分布式系统', 'LLM 应用工程', '数据与可观测性'],
+          organization: null,
+          location: null,
+          dateRange: null,
+          summary: null,
+          highlights: [
+            richText('分布式系统'),
+            richText('LLM 应用工程'),
+            richText('数据与可观测性')
+          ],
+          skills: ['Python', 'TypeScript', 'React', 'PostgreSQL'],
           tags: ['Python', 'TypeScript', 'React', 'PostgreSQL'],
+          url: null,
           visible: true
         }
       ]
@@ -420,11 +482,13 @@ export const MOCK_RESUME_SUMMARIES: readonly UiResumeSummary[] = [
 
 /** @brief Mock 简历编辑器数据 / Mock resume-editor data. */
 export const MOCK_RESUME_EDITOR: UiResumeEditorModel = {
+  concurrencyToken: MOCK_RESUME_CONCURRENCY_TOKEN,
   resume: MOCK_RESUME_DOCUMENT
 }
 
 /** @brief Mock 模板设置数据 / Mock template-settings data. */
 export const MOCK_TEMPLATE_SETTINGS: UiTemplateSettingsModel = {
+  concurrencyToken: MOCK_RESUME_CONCURRENCY_TOKEN,
   resumeId: MOCK_RESUME_ID,
   resumeRevision: MOCK_RESUME_DOCUMENT.revision,
   selectedTemplate: MOCK_DAWN_TEMPLATE,

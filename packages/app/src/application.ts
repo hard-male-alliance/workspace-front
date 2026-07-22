@@ -47,13 +47,24 @@ export type {
 export { asUiResumeCursor, asUiResumePageLimit } from './contexts/resume/domain/models'
 export type {
   UiResumeCursor,
-  UiResumeDocument,
-  UiResumeId,
   UiResumeSummary,
   UiResumeSummaryPage,
-  UiTemplateManifest,
-  UiTemplateReference
+  UiTemplateManifest
 } from './contexts/resume/domain/models'
+export type {
+  UiColorValue,
+  UiJsonValue,
+  UiMeasurement,
+  UiResumeDocument,
+  UiResumeEditorModel,
+  UiResumeId,
+  UiResumePartialDate,
+  UiResumeRichText,
+  UiResumeStyleIntent,
+  UiResumeTextMark,
+  UiTemplateReference
+} from './contexts/resume/domain/document'
+export { asUiResumePartialDate } from './contexts/resume/domain/document'
 export {
   asUiResumeTemplateCursor,
   asUiResumeTemplatePageLimit,
@@ -83,6 +94,14 @@ export type {
   ResumeCreationPort,
   ResumeTemplateCatalogPort
 } from './contexts/resume/application/resume-creation'
+export {
+  getResumeBatchConflict,
+  ResumeBatchConflictError
+} from './contexts/resume/application/errors'
+export type {
+  ResumeBatchConflict,
+  ResumeBatchConflictRecovery
+} from './contexts/resume/application/errors'
 
 /** @brief 产品应用依赖的上下文端口集合 / Context ports required by the product application. */
 export interface AppGateways {

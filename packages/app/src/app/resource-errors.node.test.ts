@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
 import { HttpCommandOutcomeUnknownError, HttpContractError, HttpProblemError } from '../http'
+import { ConfirmedCommandConflictError } from '../shared-kernel/application-error'
 import { classifyResourceFailure, requiresAuthorityReload } from './resource-errors'
+
+/** @brief 分类器测试使用的已确认命令冲突 / Confirmed command conflict used by classifier tests. */
+class TestConfirmedCommandConflictError extends ConfirmedCommandConflictError {}
 
 describe('classifyResourceFailure', (): void => {
   it.each([
@@ -224,30 +228,36 @@ describe('classifyResourceFailure', (): void => {
     })
   })
 
-  it('presents a rejected Resume operation as a non-retryable input failure', (): void => {
-    /** @brief 已通过 transport 但被领域规则拒绝的写入 / Write accepted by transport but rejected by domain rules. */
-    const error = new Error('private operation problem')
-    error.name = 'ResumeOperationRejectedError'
-
-    expect(classifyResourceFailure(error)).toEqual({
-      kind: 'invalid-request',
-      referenceId: null,
-      retryable: false
-    })
-  })
-
-  it('preserves conflict recovery semantics from a rejected Resume operation', (): void => {
-    /** @brief operation result 携带的安全冲突错误 / Safe conflict error carried by an operation result. */
-    const error = Object.assign(new Error('private operation problem'), {
-      name: 'ResumeOperationRejectedError',
-      retryable: true,
-      status: 412
-    })
+  it('classifies a confirmed Resume batch conflict without invented retry semantics', (): void => {
+    /** @brief 不依赖具体限界上下文载荷的已确认冲突 / Confirmed conflict independent of a bounded-context payload. */
+    const error = new TestConfirmedCommandConflictError('Confirmed command conflict.')
 
     expect(classifyResourceFailure(error)).toEqual({
       kind: 'conflict',
       referenceId: null,
+      retryable: false
+    })
+    expect(requiresAuthorityReload(error)).toBe(false)
+  })
+
+  it('does not trust a forged Resume batch-conflict name', (): void => {
+    expect(classifyResourceFailure({ name: 'ResumeBatchConflictError' })).toEqual({
+      kind: 'unknown',
+      referenceId: null,
       retryable: true
     })
   })
+
+  it.each(['idempotency.in_progress', 'idempotency.key_reused'] as const)(
+    'does not mistake %s for a Resume authority conflict',
+    (code): void => {
+      /** @brief API v2 transport 已验证的幂等 Problem / Idempotency Problem validated by the API v2 transport. */
+      const error = {
+        name: 'ApiV2ProblemError',
+        problem: { code, retryable: code === 'idempotency.in_progress', status: 409 }
+      }
+
+      expect(requiresAuthorityReload(error)).toBe(false)
+    }
+  )
 })

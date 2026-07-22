@@ -16,7 +16,8 @@ import type {
   UiResumeCreationTemplatePage,
   UiResumeTemplateCursor
 } from '../../domain/creation'
-import type { UiTemplateManifest, UiTemplateReference } from '../../domain/models'
+import type { UiTemplateReference } from '../../domain/document'
+import type { UiTemplateManifest } from '../../domain/models'
 import {
   formatContentLocale,
   getTemplateKey,

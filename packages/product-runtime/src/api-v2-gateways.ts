@@ -1,18 +1,28 @@
 /** @file API v2 协议到应用领域的防腐层 / Anti-corruption layer from API v2 protocol to application domains. */
 
 import {
+  applyResumeOperations,
   createWorkspaceResume,
   getCurrentUser,
+  getWorkspaceResume,
   getResumeTemplate,
   listResumePage,
   listResumeTemplatePage,
   listWorkspaceAccessPage,
   type ApiV2Client,
   ApiV2ContractError,
+  ApiV2WriteOutcomeUnknownError,
   type CurrentUser,
+  type ColorValue,
+  type Measurement,
   type ResumeDocument,
   type ResumeCreationHttpClient,
+  type ResumeOperation,
+  type ResumeOperationBatch,
+  type ResumeOperationsHttpClient,
   type ResumeSummary,
+  type RichText,
+  type TextMark,
   type TemplateList,
   type TemplateManifest,
   type WorkspaceAccess
@@ -22,6 +32,7 @@ import {
   asUiEmailAddress,
   asUiOAuthScope,
   asUiOpaqueId,
+  asUiResumePartialDate,
   asUiPrincipalSubject,
   asUiResumeCursor,
   asUiResumeTemplateCursor,
@@ -30,9 +41,17 @@ import {
   asUiWorkspaceRevision,
   asUiWorkspaceSlug,
   asUiWorkspaceTimestamp,
+  ResumeBatchConflictError,
   type AppGateways,
   type UiCreatedResumeResource,
+  type UiColorValue,
   type UiCurrentUser,
+  type UiJsonValue,
+  type UiMeasurement,
+  type UiResumeDocument,
+  type UiResumeEditorModel,
+  type UiResumeRichText,
+  type UiResumeTextMark,
   type UiResumeSummary,
   type UiResumeSummaryPage,
   type UiResumeTemplatePage,
@@ -181,6 +200,222 @@ export function mapCreatedResumeResource(source: ResumeDocument): UiCreatedResum
 }
 
 /**
+ * @brief 映射一个无损 RichText mark / Map one lossless RichText mark.
+ * @param source 已由协议层验证的 mark / Mark validated by the protocol layer.
+ * @return 保留 href 判别关系与 omission 的 camelCase mark / camelCase mark preserving href discrimination and omission.
+ */
+function mapResumeTextMark(source: TextMark): UiResumeTextMark {
+  if (source.kind === 'link') {
+    return { end: source.end, href: source.href, kind: source.kind, start: source.start }
+  }
+  return source.href === undefined
+    ? { end: source.end, kind: source.kind, start: source.start }
+    : { end: source.end, href: null, kind: source.kind, start: source.start }
+}
+
+/**
+ * @brief 把 camelCase 领域 mark 无损映射回 API v2 wire mark / Losslessly map a camelCase domain mark back to an API v2 wire mark.
+ * @param source 已由 Resume 领域持有的完整 mark / Complete mark held by the Resume domain.
+ * @return 不共享引用且保留 link href 与 null/omission 差异的 wire mark / Wire mark sharing no references and preserving link href plus null/omission distinctions.
+ */
+export function mapUiResumeTextMarkToApiV2(source: UiResumeTextMark): TextMark {
+  if (source.kind === 'link') {
+    return { end: source.end, href: source.href, kind: source.kind, start: source.start }
+  }
+  return source.href === undefined
+    ? { end: source.end, kind: source.kind, start: source.start }
+    : { end: source.end, href: null, kind: source.kind, start: source.start }
+}
+
+/**
+ * @brief 映射无损 Resume RichText / Map lossless Resume RichText.
+ * @param source 已由协议层验证的富文本 / Rich text validated by the protocol layer.
+ * @return 保留正文和全部 marks 的领域富文本 / Domain rich text preserving the body and every mark.
+ */
+function mapResumeRichText(source: RichText): UiResumeRichText {
+  return { marks: source.marks.map(mapResumeTextMark), text: source.text }
+}
+
+/**
+ * @brief 把领域 RichText 无损映射回 API v2 wire DTO / Losslessly map domain RichText back to an API v2 wire DTO.
+ * @param source 完整 camelCase 富文本 / Complete camelCase rich text.
+ * @return 保留 Unicode 文本、code-point offsets、marks 与链接的独立 DTO / Independent DTO preserving Unicode text, code-point offsets, marks, and links.
+ */
+export function mapUiResumeRichTextToApiV2(source: UiResumeRichText): RichText {
+  return { marks: source.marks.map(mapUiResumeTextMarkToApiV2), text: source.text }
+}
+
+/**
+ * @brief 把 RichText DTO 收紧为 set_field 可发送的严格 JSON 值 / Narrow a RichText DTO to a strict JSON value sendable by set_field.
+ * @param source 完整领域富文本 / Complete domain rich text.
+ * @return 只含 canonical RichText wire 字段的 JSON / JSON containing only canonical RichText wire fields.
+ */
+function encodeUiResumeRichTextValue(source: UiResumeRichText): UiJsonValue {
+  /** @brief 无损 wire RichText / Lossless wire RichText. */
+  const wire = mapUiResumeRichTextToApiV2(source)
+  return {
+    marks: wire.marks.map((mark) =>
+      mark.kind === 'link'
+        ? { end: mark.end, href: mark.href, kind: mark.kind, start: mark.start }
+        : mark.href === undefined
+          ? { end: mark.end, kind: mark.kind, start: mark.start }
+          : { end: mark.end, href: null, kind: mark.kind, start: mark.start }
+    ),
+    text: wire.text
+  }
+}
+
+/**
+ * @brief 映射语义测量值 / Map a semantic measurement.
+ * @param source 已验证 measurement / Validated measurement.
+ * @return camelCase 领域 measurement / camelCase domain measurement.
+ */
+function mapMeasurement(source: Measurement): UiMeasurement {
+  return { unit: source.unit, value: source.value }
+}
+
+/**
+ * @brief 映射语义颜色值 / Map a semantic color value.
+ * @param source 已验证颜色 / Validated color.
+ * @return camelCase 领域颜色 / camelCase domain color.
+ */
+function mapColorValue(source: ColorValue): UiColorValue {
+  return { space: source.space, value: source.value }
+}
+
+/**
+ * @brief 克隆已由 API v2 decoder 验证的 JSON map / Clone a JSON map validated by the API v2 decoder.
+ * @param source 已验证 JSON map / Validated JSON map.
+ * @return 不与 transport DTO 共享引用的 JSON map / JSON map sharing no references with the transport DTO.
+ */
+function cloneJsonMap(
+  source: Readonly<Record<string, UiJsonValue>>
+): Readonly<Record<string, UiJsonValue>> {
+  return structuredClone(source)
+}
+
+/**
+ * @brief 把完整 ResumeDocument DTO 无损映射为 camelCase 编辑权威 / Losslessly map a complete ResumeDocument DTO into camelCase editor authority.
+ * @param source 已由 API v2 decoder 完整验证的 SIR / Complete SIR validated by the API v2 decoder.
+ * @return 不含展示派生字段且保留所有语义事实的领域文档 / Domain document preserving every semantic fact without derived display fields.
+ */
+export function mapResumeDocument(source: ResumeDocument): UiResumeDocument {
+  return {
+    createdAt: source.created_at,
+    id: asUiOpaqueId<'resume'>(source.id),
+    knowledgeSourceId:
+      source.knowledge_source_id === null
+        ? null
+        : asUiOpaqueId<'knowledge-source'>(source.knowledge_source_id),
+    locale: source.locale,
+    profile: {
+      contacts: source.profile.contacts.map((contact) => ({
+        id: asUiOpaqueId<'resume-contact'>(contact.id),
+        kind: contact.kind,
+        label: contact.label,
+        url: contact.url,
+        value: contact.value
+      })),
+      fullName: source.profile.full_name,
+      headline: source.profile.headline,
+      summary: source.profile.summary === null ? null : mapResumeRichText(source.profile.summary)
+    },
+    revision: source.revision,
+    sections: source.sections.map((section) => ({
+      content: section.content === null ? null : mapResumeRichText(section.content),
+      id: asUiOpaqueId<'resume-section'>(section.id),
+      items: section.items.map((item) => ({
+        dateRange:
+          item.date_range === null
+            ? null
+            : {
+                end:
+                  item.date_range.end === null || item.date_range.end === 'present'
+                    ? item.date_range.end
+                    : asUiResumePartialDate(item.date_range.end),
+                start:
+                  item.date_range.start === null
+                    ? null
+                    : asUiResumePartialDate(item.date_range.start)
+              },
+        highlights: item.highlights.map(mapResumeRichText),
+        id: asUiOpaqueId<'resume-item'>(item.id),
+        kind: item.kind,
+        location: item.location,
+        organization: item.organization,
+        skills: [...item.skills],
+        subtitle: item.subtitle,
+        summary: item.summary === null ? null : mapResumeRichText(item.summary),
+        tags: [...item.tags],
+        title: item.title,
+        url: item.url,
+        visible: item.visible
+      })),
+      kind: section.kind,
+      title: section.title,
+      visible: section.visible
+    })),
+    styleIntent: {
+      bulletStyleToken: source.style.bullet_style_token,
+      dateFormatToken: source.style.date_format_token,
+      density: source.style.density,
+      extensions: cloneJsonMap(source.style.extensions),
+      page: {
+        customHeight:
+          source.style.page.custom_height === null
+            ? null
+            : mapMeasurement(source.style.page.custom_height),
+        customWidth:
+          source.style.page.custom_width === null
+            ? null
+            : mapMeasurement(source.style.page.custom_width),
+        margins: {
+          bottom: mapMeasurement(source.style.page.margins.bottom),
+          left: mapMeasurement(source.style.page.margins.left),
+          right: mapMeasurement(source.style.page.margins.right),
+          top: mapMeasurement(source.style.page.margins.top)
+        },
+        maxPages: source.style.page.max_pages,
+        orientation: source.style.page.orientation,
+        showPageNumbers: source.style.page.show_page_numbers,
+        size: source.style.page.size
+      },
+      palette: {
+        background: mapColorValue(source.style.palette.background),
+        mutedText: mapColorValue(source.style.palette.muted_text),
+        primary: mapColorValue(source.style.palette.primary),
+        secondary: mapColorValue(source.style.palette.secondary),
+        text: mapColorValue(source.style.palette.text)
+      },
+      sectionLayout: source.style.section_layout.map((layout) => ({
+        compactness: layout.compactness,
+        headingStyleToken: layout.heading_style_token,
+        keepTogether: layout.keep_together,
+        pageBreakBefore: layout.page_break_before,
+        sectionId: asUiOpaqueId<'resume-section'>(layout.section_id),
+        zone: layout.zone
+      })),
+      styleContractVersion: source.style.style_contract_version,
+      templateSettings: cloneJsonMap(source.style.template_settings),
+      typography: {
+        baseSizePt: source.style.typography.base_size_pt,
+        fontFamilyToken: source.style.typography.font_family_token,
+        headingScale: source.style.typography.heading_scale,
+        letterSpacingEm: source.style.typography.letter_spacing_em,
+        lineHeight: source.style.typography.line_height
+      }
+    },
+    template: {
+      templateId: asUiOpaqueId<'template'>(source.template.template_id),
+      templateVersion: source.template.version
+    },
+    title: source.title,
+    updatedAt: source.updated_at,
+    workspaceId: asUiOpaqueId<'workspace'>(source.workspace_id)
+  }
+}
+
+/**
  * @brief 把 ResumeSummary 协议页映射为封闭领域页 / Map a ResumeSummary protocol page into a closed domain page.
  * @param source 已验证的协议页 / Validated protocol page.
  * @return 以判别联合表达 cursor 关系的领域页 / Domain page expressing the cursor relation as a discriminated union.
@@ -313,19 +548,161 @@ export function createApiV2WorkspaceGateway(client: ApiV2Client): AppGateways['w
   }
 }
 
+/** @brief Resume section command 的公共权威输入 / Shared authority input for a Resume-section command. */
+interface ResumeSectionCommandAuthority {
+  /** @brief 同一用户意图及其安全重试内稳定的命令身份 / Command identity stable within one user intent and its safe retries. */
+  readonly commandId: string
+  /** @brief Workspace 授权路径 / Workspace authorization path. */
+  readonly workspaceId: string
+  /** @brief 目标 Resume / Target Resume. */
+  readonly resumeId: string
+  /** @brief 用户意图基于的领域 revision / Domain revision on which the user intent is based. */
+  readonly baseRevision: number
+  /** @brief 与 baseRevision 同一表示读取的强 ETag / Strong ETag read from the same representation as baseRevision. */
+  readonly concurrencyToken: string
+  /** @brief 调用方取消信号 / Caller cancellation signal. */
+  readonly signal?: AbortSignal
+}
+
+/**
+ * @brief 从稳定 command identity 派生唯一且可重试的 operation identity / Derive a unique retry-stable operation identity from a stable command identity.
+ * @param commandId 用户意图身份 / User-intent identity.
+ * @param suffix batch 内唯一的固定后缀 / Fixed suffix unique within the batch.
+ * @return 满足 OpaqueId 上限的 operation identity / Operation identity within the OpaqueId limit.
+ */
+function resumeOperationId(commandId: string, suffix: string): string {
+  return `${commandId}_${suffix}`
+}
+
+/** @brief 当前 Resume section 用例可明确证明的写后条件 / Postcondition explicitly provable by the current Resume-section use case. */
+type ResumeSectionCommandPostcondition = (document: ResumeDocument) => boolean
+
+/**
+ * @brief 精确比较两个已验证 RichText marks / Exactly compare two validated RichText marks.
+ * @param left 左 mark / Left mark.
+ * @param right 右 mark / Right mark.
+ * @return kind、区间与 href omission 均相同时为 true / True when kind, range, and href omission all match.
+ */
+function resumeTextMarksEqual(left: TextMark, right: TextMark): boolean {
+  if (left.kind !== right.kind || left.start !== right.start || left.end !== right.end) return false
+  if (left.kind === 'link' || right.kind === 'link') {
+    return left.kind === 'link' && right.kind === 'link' && left.href === right.href
+  }
+  return Object.hasOwn(left, 'href') === Object.hasOwn(right, 'href') && left.href === right.href
+}
+
+/**
+ * @brief 精确比较完整 RichText / Exactly compare complete RichText values.
+ * @param left 权威响应中的 RichText / RichText from the authoritative response.
+ * @param right 当前命令要求的 RichText / RichText required by the current command.
+ * @return 文本和有序 marks 全部相同时为 true / True when text and ordered marks all match.
+ */
+function resumeRichTextsEqual(left: RichText | null, right: RichText): boolean {
+  return (
+    left !== null &&
+    left.text === right.text &&
+    left.marks.length === right.marks.length &&
+    left.marks.every((mark, index) => {
+      /** @brief 同一位置的预期 mark / Expected mark at the same position. */
+      const expected = right.marks[index]
+      return expected !== undefined && resumeTextMarksEqual(mark, expected)
+    })
+  )
+}
+
+/**
+ * @brief 原子提交 section operations 并映射权威结果 / Atomically submit section operations and map the authoritative result.
+ * @param client API v2 Resume operations 写端口 / API v2 Resume-operations write port.
+ * @param input 同一权威表示与稳定用户意图 / Same authoritative representation and stable user intent.
+ * @param operations 至少一个语义 operation / At least one semantic operation.
+ * @param conflictStrategy 与产品意图匹配的并发策略 / Concurrency strategy matching the product intent.
+ * @param postcondition 当前产品用例可明确验证的写后条件 / Postcondition explicitly verifiable by the current product use case.
+ * @return 新强 ETag 与完整权威 Resume 组成的编辑器 / Editor composed of the new strong ETag and complete authoritative Resume.
+ * @throws {ResumeBatchConflictError} 合法 200 结果原子拒绝了全部 operations / Thrown when a valid 200 result atomically rejected every operation.
+ * @throws {ApiV2WriteOutcomeUnknownError} 已确认成功的结果未反映当前明确产品意图 / Thrown when an acknowledged success does not reflect the explicit product intent.
+ */
+async function applyResumeSectionCommand(
+  client: ResumeOperationsHttpClient,
+  input: ResumeSectionCommandAuthority,
+  operations: readonly ResumeOperation[],
+  conflictStrategy: ResumeOperationBatch['conflict_strategy'],
+  postcondition: ResumeSectionCommandPostcondition
+): Promise<UiResumeEditorModel> {
+  /** @brief 协议层严格验证并与 path/batch 核对后的结果 / Result strictly validated and correlated with path and batch by the protocol layer. */
+  const representation = await applyResumeOperations(client, {
+    batch: {
+      base_revision: input.baseRevision,
+      client_batch_id: input.commandId,
+      conflict_strategy: conflictStrategy,
+      operations,
+      // Section 写入不得制造无人观察的 Render Job；显式 PDF 渲染进程统一拥有 preview。
+      // Section writes must not create an unobserved Render Job; the explicit PDF-render process owns previews.
+      render_hint: 'none'
+    },
+    idempotencyKey: input.commandId,
+    ifMatch: input.concurrencyToken,
+    resumeId: input.resumeId,
+    ...(input.signal === undefined ? {} : { signal: input.signal }),
+    workspaceId: input.workspaceId
+  })
+  /** @brief 与 batch 结果原子配对的新编辑权威 / New editor authority atomically paired with the batch result. */
+  const authoritativeEditor: UiResumeEditorModel = {
+    concurrencyToken: asUiConcurrencyToken(representation.entityTag),
+    resume: mapResumeDocument(representation.value.resume)
+  }
+  if (representation.value.conflicts.length > 0) {
+    throw new ResumeBatchConflictError(
+      authoritativeEditor,
+      representation.value.conflicts.map((conflict) => ({
+        code: conflict.code,
+        entityId: conflict.entity_id,
+        fieldPath: [...conflict.field_path],
+        operationId: conflict.operation_id
+      }))
+    )
+  }
+  if (!postcondition(representation.value.resume)) {
+    throw new ApiV2WriteOutcomeUnknownError('contract', 200, null, representation.requestId)
+  }
+  return authoritativeEditor
+}
+
 /**
  * @brief 创建 Resume 的 API v2 应用适配器 / Create the API v2 application adapter for Resume.
- * @param client v2-only Bearer 客户端 / v2-only Bearer client.
+ * @param client v2-only Bearer 读取客户端 / v2-only Bearer read client.
+ * @param operationsClient v2-only Resume operations 写端口 / v2-only Resume-operations write port.
  * @return Resume 应用端口；未接入操作显式失败 / Resume application port; unconnected operations fail explicitly.
  */
-export function createApiV2ResumeGateway(client: ApiV2Client): AppGateways['resume'] {
+export function createApiV2ResumeGateway(
+  client: ApiV2Client,
+  operationsClient: ResumeOperationsHttpClient
+): AppGateways['resume'] {
   return {
-    deleteResumeSection: unavailableOperation('resume.operations.delete-section'),
-    getResumeEditor: unavailableOperation('resume.document.read'),
+    async deleteResumeSection(input): Promise<UiResumeEditorModel> {
+      return applyResumeSectionCommand(
+        operationsClient,
+        input,
+        [
+          {
+            entity_id: input.sectionId,
+            entity_kind: 'section',
+            op: 'remove_entity',
+            operation_id: resumeOperationId(input.commandId, 'remove')
+          }
+        ],
+        'reject',
+        (document) => !document.sections.some((section) => section.id === input.sectionId)
+      )
+    },
+    async getResumeEditor(workspaceId, resumeId, signal): Promise<UiResumeEditorModel> {
+      /** @brief 带强 ETag 的完整协议表示 / Complete protocol representation carrying a strong ETag. */
+      const representation = await getWorkspaceResume(client, { resumeId, signal, workspaceId })
+      return {
+        concurrencyToken: asUiConcurrencyToken(representation.entityTag),
+        resume: mapResumeDocument(representation.value)
+      }
+    },
     getResumeRenderJob: unavailableOperation('jobs.read'),
-    getTemplateManifest: unavailableOperation('resume-templates.read-one'),
-    getTemplateSettings: unavailableOperation('resume.template-settings.read'),
-    listTemplateManifests: unavailableOperation('resume-templates.list'),
     async listResumeSummariesPage(request): Promise<UiResumeSummaryPage> {
       /** @brief 当前 ResumeSummary 协议页 / Current protocol page of ResumeSummary values. */
       const page = await listResumePage(client, request.workspaceId, {
@@ -335,9 +712,68 @@ export function createApiV2ResumeGateway(client: ApiV2Client): AppGateways['resu
       })
       return mapResumeSummaryPage(page)
     },
-    reorderResumeSections: unavailableOperation('resume.operations.reorder-sections'),
+    async reorderResumeSections(input): Promise<UiResumeEditorModel> {
+      /** @brief 按完整目标顺序从首位开始重建的 move operations / Move operations rebuilding the complete target order from the first position. */
+      const operations = input.orderedSectionIds.map((sectionId, index): ResumeOperation => ({
+        after_id: input.orderedSectionIds[index - 1] ?? null,
+        entity_id: sectionId,
+        entity_kind: 'section',
+        op: 'move_entity',
+        operation_id: resumeOperationId(input.commandId, `move_${index}`),
+        parent_id: null
+      }))
+      return applyResumeSectionCommand(
+        operationsClient,
+        input,
+        operations,
+        'reject',
+        (document) =>
+          document.sections.length === input.orderedSectionIds.length &&
+          document.sections.every((section, index) => section.id === input.orderedSectionIds[index])
+      )
+    },
     startResumePdfRender: unavailableOperation('resume.render-jobs.create'),
-    updateResumeSection: unavailableOperation('resume.operations.update-section'),
+    async updateResumeSection(input): Promise<UiResumeEditorModel> {
+      /** @brief 字段级意图使用稳定 entity identity，可由服务端仅在安全时 rebase / Field-level intents use stable entity identity and may be rebased only when safe by the service. */
+      const operations: ResumeOperation[] = []
+      /** @brief 当前命令要求的完整 wire RichText / Complete wire RichText required by the current command. */
+      const expectedContent =
+        input.content === undefined ? undefined : mapUiResumeRichTextToApiV2(input.content)
+      if (input.title !== undefined) {
+        operations.push({
+          entity_id: input.sectionId,
+          field_path: ['title'],
+          op: 'set_field',
+          operation_id: resumeOperationId(input.commandId, 'title'),
+          value: input.title
+        })
+      }
+      if (input.content !== undefined) {
+        operations.push({
+          entity_id: input.sectionId,
+          field_path: ['content'],
+          op: 'set_field',
+          operation_id: resumeOperationId(input.commandId, 'content'),
+          value: encodeUiResumeRichTextValue(input.content)
+        })
+      }
+      return applyResumeSectionCommand(
+        operationsClient,
+        input,
+        operations,
+        'rebase_if_safe',
+        (document) => {
+          /** @brief 写后权威 section / Authoritative section after the write. */
+          const section = document.sections.find((candidate) => candidate.id === input.sectionId)
+          return (
+            section !== undefined &&
+            (input.title === undefined || section.title === input.title) &&
+            (expectedContent === undefined ||
+              resumeRichTextsEqual(section.content, expectedContent))
+          )
+        }
+      )
+    },
     updateTemplateSettings: unavailableOperation('resume.operations.update-template-settings')
   }
 }

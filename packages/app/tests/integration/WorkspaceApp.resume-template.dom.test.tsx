@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { HttpCommandOutcomeUnknownError, HttpProblemError } from '@ai-job-workspace/app/http'
+import { ResumeBatchConflictError } from '@ai-job-workspace/app/application'
 import {
   MOCK_DAWN_TEMPLATE,
   MOCK_HISTORICAL_DAWN_TEMPLATE,
@@ -8,6 +9,8 @@ import {
   MOCK_RESUME_WORKSPACE_ID,
   InMemoryResumeGateway
 } from '@ai-job-workspace/app/testing'
+import { loadResumeTemplateSettings } from '../../src/contexts/resume/application/template-catalog'
+import type { UiTemplateSettingsModel } from '../../src/contexts/resume/domain/models'
 
 import {
   createTestGateways,
@@ -17,6 +20,91 @@ import {
 } from './WorkspaceApp.dom-test-harness'
 
 installWorkspaceAppTestCleanup()
+
+/** @brief 测试用模板设置页模型 / Template-settings page model used by tests. */
+type TestTemplateSettingsModel = UiTemplateSettingsModel
+
+/** @brief 测试用 Resume 编辑权威 / Resume editor authority used by tests. */
+type TestResumeEditor = Awaited<ReturnType<InMemoryResumeGateway['getResumeEditor']>>
+
+/**
+ * @brief 通过正式 Resume + Template 端口读取测试设置页 / Read a test settings page through the formal Resume and Template ports.
+ * @param resume 同时实现两个端口的内存 adapter / In-memory adapter implementing both ports.
+ * @return 组合后的模板设置模型 / Composed template-settings model.
+ */
+function readTemplateSettings(resume: InMemoryResumeGateway): Promise<UiTemplateSettingsModel> {
+  return loadResumeTemplateSettings(
+    resume,
+    resume,
+    MOCK_RESUME_WORKSPACE_ID,
+    MOCK_RESUME_ID,
+    new AbortController().signal
+  )
+}
+
+/**
+ * @brief 在测试端口上安装 Resume 权威与公开 Template 目录 / Install Resume authority and the public Template catalog on test ports.
+ * @param resume 同时实现 Resume 与 Template 端口的测试 adapter / Test adapter implementing both Resume and Template ports.
+ * @param model 要投影的模板设置模型 / Template-settings model to project.
+ * @return 为写命令构造新 Resume 权威的函数 / Function constructing new Resume authority for write commands.
+ */
+async function installTemplateSettingsModel(
+  resume: InMemoryResumeGateway,
+  model: TestTemplateSettingsModel
+): Promise<(styleIntent: TestTemplateSettingsModel['styleIntent']) => TestResumeEditor> {
+  /** @brief 保留其他无损 SIR 字段的基础权威 / Base authority preserving every other lossless SIR field. */
+  const baseEditor = await resume.getResumeEditor(
+    MOCK_RESUME_WORKSPACE_ID,
+    MOCK_RESUME_ID,
+    new AbortController().signal
+  )
+  /**
+   * @brief 从页面模型构造带强 ETag 的 Resume 权威 / Build Resume authority carrying a strong ETag from the page model.
+   * @param styleIntent 权威样式意图 / Authoritative style intent.
+   * @return 可由应用服务重新投影的编辑权威 / Editor authority that the application service can project again.
+   */
+  const createEditor = (
+    styleIntent: TestTemplateSettingsModel['styleIntent']
+  ): TestResumeEditor => ({
+    concurrencyToken: model.concurrencyToken,
+    resume: {
+      ...baseEditor.resume,
+      id: model.resumeId,
+      revision: model.resumeRevision,
+      styleIntent,
+      template: {
+        templateId: model.selectedTemplate.id,
+        templateVersion: model.selectedTemplate.version
+      },
+      workspaceId: model.workspaceId
+    }
+  })
+  vi.spyOn(resume, 'getResumeEditor').mockImplementation(
+    (_workspaceId, _resumeId, signal): Promise<TestResumeEditor> => {
+      signal.throwIfAborted()
+      return Promise.resolve(structuredClone(createEditor(model.styleIntent)))
+    }
+  )
+  vi.spyOn(resume, 'listTemplatePage').mockImplementation((input) => {
+    input.signal.throwIfAborted()
+    return Promise.resolve({
+      hasMore: false,
+      items: structuredClone(model.availableTemplates),
+      nextCursor: null
+    })
+  })
+  vi.spyOn(resume, 'getTemplate').mockImplementation((reference, signal) => {
+    signal.throwIfAborted()
+    /** @brief 与精确引用匹配的测试模板 / Test Template matching the exact reference. */
+    const template = model.availableTemplates.find(
+      (candidate) =>
+        candidate.id === reference.templateId && candidate.version === reference.templateVersion
+    )
+    if (template === undefined) throw new Error('Missing exact test Template version.')
+    return Promise.resolve(structuredClone(template))
+  })
+  return createEditor
+}
 
 /** @brief 简历模板与版式用户行为 / Resume-template and layout behaviours. */
 describe('WorkspaceApp Resume template', (): void => {
@@ -70,12 +158,59 @@ describe('WorkspaceApp Resume template', (): void => {
     expect(screen.queryByText('演示数据')).not.toBeInTheDocument()
   })
 
+  it('保存其他样式字段时不把 manifest default 倒灌为权威设置', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 提供 omission 语义的 Resume gateway / Resume gateway exposing omission semantics. */
+    const resume = new InMemoryResumeGateway()
+    /** @brief 原始权威设置模型 / Original authoritative settings model. */
+    const baseModel = await readTemplateSettings(resume)
+    /** @brief 省略了已声明 default key 的权威 map / Authoritative map omitting a declared default key. */
+    const omittedSettings = Object.fromEntries(
+      Object.entries(baseModel.styleIntent.templateSettings).filter(
+        ([key]) => key !== 'show_contact_icons'
+      )
+    )
+    /** @brief 保留 omission 的页面模型 / Page model preserving the omission. */
+    const omissionModel = {
+      ...baseModel,
+      styleIntent: { ...baseModel.styleIntent, templateSettings: omittedSettings }
+    }
+    /** @brief omission 权威的编辑器工厂 / Editor-authority factory for the omission model. */
+    const createEditor = await installTemplateSettingsModel(resume, omissionModel)
+    /** @brief 可观察的保存命令 / Observable save command. */
+    const update = vi
+      .spyOn(resume, 'updateTemplateSettings')
+      .mockImplementation((input) => Promise.resolve(createEditor(input.styleIntent)))
+
+    render(
+      <WorkspaceApp
+        gateways={createTestGateways({ resume })}
+        initialPath="/resumes/res_mock_ai_platform/template"
+      />
+    )
+    await screen.findByRole('heading', { name: '模板与版式' })
+    expect(screen.getByRole('switch', { name: '显示联系方式图标' })).toHaveAttribute(
+      'aria-checked',
+      'true'
+    )
+    fireEvent.change(screen.getByRole('combobox', { name: '页面规格' }), {
+      target: { value: 'LETTER' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: '保存设置' }))
+
+    await vi.waitFor((): void => expect(update).toHaveBeenCalledOnce())
+    expect(update.mock.calls[0]?.[0].styleIntent.templateSettings).toEqual(omittedSettings)
+    expect(update.mock.calls[0]?.[0].styleIntent.templateSettings).not.toHaveProperty(
+      'show_contact_icons'
+    )
+  })
+
   it('按 manifest 分组、条件与控件语义编辑结构化设置', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
     /** @brief 提供完整设置控件矩阵的 Resume gateway / Resume gateway providing the complete setting-control matrix. */
     const resume = new InMemoryResumeGateway()
     /** @brief 基础模板设置模型 / Base template-settings model. */
-    const baseModel = await resume.getTemplateSettings(MOCK_RESUME_WORKSPACE_ID, MOCK_RESUME_ID)
+    const baseModel = await readTemplateSettings(resume)
     /** @brief 覆盖全部公开控件和条件可见性的模板 / Template covering every public control and conditional visibility. */
     const controlsTemplate = {
       ...baseModel.selectedTemplate,
@@ -209,15 +344,17 @@ describe('WorkspaceApp Resume template', (): void => {
       ...baseModel,
       availableTemplates: [controlsTemplate],
       selectedTemplate: controlsTemplate,
-      styleIntent: { ...baseModel.styleIntent, templateSettings: initialSettings }
+      styleIntent: {
+        ...baseModel.styleIntent,
+        templateSettings: { ...initialSettings, future_server_state: { enabled: true } }
+      }
     }
-    vi.spyOn(resume, 'getTemplateSettings').mockResolvedValue(controlsModel)
+    /** @brief 控件矩阵权威的编辑器工厂 / Editor-authority factory for the control matrix. */
+    const createEditor = await installTemplateSettingsModel(resume, controlsModel)
     /** @brief 捕获最终结构化 payload 的保存命令 / Save command capturing the final structured payload. */
     const update = vi
       .spyOn(resume, 'updateTemplateSettings')
-      .mockImplementation((input) =>
-        Promise.resolve({ ...controlsModel, styleIntent: input.styleIntent })
-      )
+      .mockImplementation((input) => Promise.resolve(createEditor(input.styleIntent)))
 
     render(
       <WorkspaceApp
@@ -239,10 +376,12 @@ describe('WorkspaceApp Resume template', (): void => {
     fireEvent.change(screen.getByLabelText('template.settings.color.label'), {
       target: { value: '#445566' }
     })
-    fireEvent.change(
-      screen.getByRole('spinbutton', { name: 'template.settings.measurement.label · 数值' }),
-      { target: { value: '12' } }
-    )
+    /** @brief 提交时才解析的 Measurement 原始数值输入 / Raw Measurement magnitude parsed only on commit. */
+    const measurementMagnitude = screen.getByRole('textbox', {
+      name: 'template.settings.measurement.label · 数值'
+    })
+    fireEvent.change(measurementMagnitude, { target: { value: '12' } })
+    fireEvent.blur(measurementMagnitude)
     fireEvent.change(
       screen.getByRole('combobox', { name: 'template.settings.measurement.label · 单位' }),
       { target: { value: 'pt' } }
@@ -250,6 +389,13 @@ describe('WorkspaceApp Resume template', (): void => {
     fireEvent.change(screen.getByRole('textbox', { name: 'template.settings.text.label' }), {
       target: { value: 'Published' }
     })
+    fireEvent.click(screen.getByRole('switch', { name: '显示联系方式图标' }))
+    expect(screen.queryByRole('textbox', { name: 'template.settings.text.label' })).toBeNull()
+    fireEvent.click(screen.getByRole('switch', { name: '显示联系方式图标' }))
+    expect(screen.getByRole('textbox', { name: 'template.settings.text.label' })).toHaveValue(
+      'Published'
+    )
+    fireEvent.click(screen.getByRole('switch', { name: '显示联系方式图标' }))
     /** @brief 由用户可见标签解析的 roomy 选项值 / Roomy option value resolved from its user-visible label. */
     const roomyOptionValue = screen
       .getByRole('option', { name: 'template.layout.roomy' })
@@ -268,11 +414,77 @@ describe('WorkspaceApp Resume template', (): void => {
       accent_color: { space: 'srgb_hex', value: '#445566' },
       accent_style: 'ink',
       column_count: 3,
+      future_server_state: { enabled: true },
       gutter: { unit: 'pt', value: 12 },
-      header_text: 'Published',
       layout: 'roomy',
       scale: 0.8,
-      show_advanced: true
+      show_advanced: false
+    })
+  })
+
+  it('在原始草稿中保留负数 Measurement 的输入中间态', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 提供允许负数 Measurement 的 Resume gateway / Resume gateway allowing a negative Measurement. */
+    const resume = new InMemoryResumeGateway()
+    /** @brief 基础模板设置权威 / Base template-settings authority. */
+    const baseModel = await readTemplateSettings(resume)
+    /** @brief 仅声明一个无下界 Measurement 的模板 / Template declaring one unbounded Measurement. */
+    const measurementTemplate = {
+      ...baseModel.selectedTemplate,
+      settings: [
+        {
+          choices: [],
+          control: 'measurement' as const,
+          defaultValue: { unit: 'pt' as const, value: 2 },
+          descriptionKey: null,
+          groupKey: null,
+          key: 'offset',
+          labelKey: 'template.settings.measurement.label',
+          maximum: null,
+          minimum: null,
+          valueType: 'measurement' as const,
+          visibleWhen: null
+        }
+      ]
+    }
+    /** @brief 负数编辑测试的权威模型 / Authority model for negative-number editing. */
+    const measurementModel = {
+      ...baseModel,
+      availableTemplates: [measurementTemplate],
+      selectedTemplate: measurementTemplate,
+      styleIntent: {
+        ...baseModel.styleIntent,
+        templateSettings: { offset: { unit: 'pt' as const, value: 2 } }
+      }
+    }
+    /** @brief Measurement 权威的编辑器工厂 / Editor-authority factory for the Measurement model. */
+    const createEditor = await installTemplateSettingsModel(resume, measurementModel)
+    /** @brief 可观察的保存命令 / Observable save command. */
+    const update = vi
+      .spyOn(resume, 'updateTemplateSettings')
+      .mockImplementation((input) => Promise.resolve(createEditor(input.styleIntent)))
+
+    render(
+      <WorkspaceApp
+        gateways={createTestGateways({ resume })}
+        initialPath="/resumes/res_mock_ai_platform/template"
+      />
+    )
+    await screen.findByRole('heading', { name: '模板与版式' })
+    /** @brief 保留不完整数字字符串的 Measurement 输入 / Measurement input preserving incomplete numeric strings. */
+    const magnitude = screen.getByRole('textbox', {
+      name: 'template.settings.measurement.label · 数值'
+    })
+    fireEvent.change(magnitude, { target: { value: '-' } })
+    expect(magnitude).toHaveValue('-')
+    fireEvent.change(magnitude, { target: { value: '-3.5' } })
+    fireEvent.blur(magnitude)
+    expect(magnitude).toHaveValue('-3.5')
+    fireEvent.click(screen.getByRole('button', { name: '保存设置' }))
+
+    await vi.waitFor((): void => expect(update).toHaveBeenCalledOnce())
+    expect(update.mock.calls[0]?.[0].styleIntent.templateSettings).toEqual({
+      offset: { unit: 'pt', value: -3.5 }
     })
   })
 
@@ -281,7 +493,7 @@ describe('WorkspaceApp Resume template', (): void => {
     /** @brief 提供未来设置值的 Resume gateway / Resume gateway providing a future setting value. */
     const resume = new InMemoryResumeGateway()
     /** @brief 基础权威模板设置 / Base authoritative template settings. */
-    const baseModel = await resume.getTemplateSettings(MOCK_RESUME_WORKSPACE_ID, MOCK_RESUME_ID)
+    const baseModel = await readTemplateSettings(resume)
     /** @brief 冻结 Schema 允许但 switch 控件无法表达的 JSON 值 / JSON value allowed by the frozen schema but not expressible by a switch. */
     const futureValue = {
       fallback: null,
@@ -341,13 +553,12 @@ describe('WorkspaceApp Resume template', (): void => {
         }
       }
     }
-    vi.spyOn(resume, 'getTemplateSettings').mockResolvedValue(futureModel)
+    /** @brief 未来值权威的编辑器工厂 / Editor-authority factory for future values. */
+    const createEditor = await installTemplateSettingsModel(resume, futureModel)
     /** @brief 可观察的保存命令 / Observable save command. */
     const update = vi
       .spyOn(resume, 'updateTemplateSettings')
-      .mockImplementation((input) =>
-        Promise.resolve({ ...futureModel, styleIntent: input.styleIntent })
-      )
+      .mockImplementation((input) => Promise.resolve(createEditor(input.styleIntent)))
 
     render(
       <WorkspaceApp
@@ -388,7 +599,7 @@ describe('WorkspaceApp Resume template', (): void => {
       })
     )
     /** @brief 权威模板设置重载调用 / Authoritative template-settings reload call. */
-    const reload = vi.spyOn(resume, 'getTemplateSettings')
+    const reload = vi.spyOn(resume, 'getResumeEditor')
 
     render(
       <WorkspaceApp
@@ -422,6 +633,57 @@ describe('WorkspaceApp Resume template', (): void => {
     )
   })
 
+  it('直接吸收模板 batch conflict 的权威并保留可表达草稿，不额外 GET', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 当前测试独享的模板 Gateway / Template gateway owned by this test. */
+    const resume = new InMemoryResumeGateway()
+    /** @brief 初始 Resume 权威 / Initial Resume authority. */
+    const initial = await resume.getResumeEditor(
+      MOCK_RESUME_WORKSPACE_ID,
+      MOCK_RESUME_ID,
+      new AbortController().signal
+    )
+    /** @brief 合法 200 conflict 携带的新权威 / New authority carried by a valid 200 conflict. */
+    const conflictAuthority = {
+      ...initial,
+      concurrencyToken: '"template-conflict-etag-19"' as typeof initial.concurrencyToken,
+      resume: { ...initial.resume, revision: 19 }
+    }
+    /** @brief 页面只允许进行初始 Resume GET / Page permitting only its initial Resume GET. */
+    const getEditor = vi.spyOn(resume, 'getResumeEditor').mockResolvedValue(initial)
+    vi.spyOn(resume, 'updateTemplateSettings').mockRejectedValueOnce(
+      new ResumeBatchConflictError(conflictAuthority, [
+        {
+          code: 'resume.style_conflict',
+          entityId: initial.resume.id,
+          fieldPath: ['style', 'template_settings'],
+          operationId: 'operation_template_settings_conflict_0001'
+        }
+      ])
+    )
+
+    render(
+      <WorkspaceApp
+        gateways={createTestGateways({ resume })}
+        initialPath="/resumes/res_mock_ai_platform/template"
+      />
+    )
+    await screen.findByRole('heading', { name: '模板与版式' })
+    /** @brief conflict 后仍可表达的本地设置草稿 / Local settings draft still expressible after the conflict. */
+    const showContactIcons = screen.getByRole('switch', { name: '显示联系方式图标' })
+    fireEvent.click(showContactIcons)
+    fireEvent.click(screen.getByRole('button', { name: '保存设置' }))
+
+    expect(await screen.findByText('服务端未应用这次模板设置。')).toBeInTheDocument()
+    expect(getEditor).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('switch', { name: '显示联系方式图标' })).toHaveAttribute(
+      'aria-checked',
+      'false'
+    )
+    expect(screen.getByRole('switch', { name: '显示联系方式图标' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '检查后重新保存' })).toBeEnabled()
+  })
+
   it('模板写入结果未知时先重载权威版本并保留本地草稿', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
     /** @brief 返回未知写结果的模板 Gateway / Template gateway returning an unknown write outcome. */
@@ -431,7 +693,7 @@ describe('WorkspaceApp Resume template', (): void => {
       .spyOn(resume, 'updateTemplateSettings')
       .mockRejectedValue(new HttpCommandOutcomeUnknownError('network'))
     /** @brief 初始与恢复阶段的权威读取 / Authoritative reads during initial load and recovery. */
-    const reload = vi.spyOn(resume, 'getTemplateSettings')
+    const reload = vi.spyOn(resume, 'getResumeEditor')
 
     render(
       <WorkspaceApp
@@ -489,7 +751,7 @@ describe('WorkspaceApp Resume template', (): void => {
         throw new HttpCommandOutcomeUnknownError('network')
       })
     /** @brief 初始与恢复阶段的权威读取 / Authoritative reads during initial load and recovery. */
-    const reload = vi.spyOn(resume, 'getTemplateSettings')
+    const reload = vi.spyOn(resume, 'getResumeEditor')
 
     render(
       <WorkspaceApp
@@ -553,24 +815,19 @@ describe('WorkspaceApp Resume template', (): void => {
     /** @brief 当前简历固定历史模板版本的测试 Gateway / Test gateway whose Resume is pinned to a historical template version. */
     const resume = new InMemoryResumeGateway()
     /** @brief 默认模板设置投影 / Default template-settings projection. */
-    const current = await resume.getTemplateSettings(MOCK_RESUME_WORKSPACE_ID, MOCK_RESUME_ID)
+    const current = await readTemplateSettings(resume)
     /** @brief 将权威当前模板固定为历史版本的投影 / Projection pinning the authoritative current template to a historical version. */
     const historicalModel = {
       ...current,
       availableTemplates: [...current.availableTemplates, MOCK_HISTORICAL_DAWN_TEMPLATE],
       selectedTemplate: MOCK_HISTORICAL_DAWN_TEMPLATE
     }
-    vi.spyOn(resume, 'getTemplateSettings').mockResolvedValue(historicalModel)
+    /** @brief 历史固定版本权威的编辑器工厂 / Editor-authority factory for the historical pinned version. */
+    const createEditor = await installTemplateSettingsModel(resume, historicalModel)
     /** @brief 可观察的模板设置写命令 / Observable template-settings write command. */
     const updateTemplateSettings = vi
       .spyOn(resume, 'updateTemplateSettings')
-      .mockImplementation((input) =>
-        Promise.resolve({
-          ...historicalModel,
-          resumeRevision: historicalModel.resumeRevision + 1,
-          styleIntent: input.styleIntent
-        })
-      )
+      .mockImplementation((input) => Promise.resolve(createEditor(input.styleIntent)))
 
     render(
       <WorkspaceApp

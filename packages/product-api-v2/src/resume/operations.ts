@@ -12,7 +12,7 @@ import {
   strongEntityTag,
   stringValue
 } from '../http/contract'
-import { ApiV2ContractError } from '../http/errors'
+import { ApiV2ContractError, ApiV2WriteOutcomeUnknownError } from '../http/errors'
 import { parseResourceReference, type ResourceReference } from '../resources/resource-reference'
 import {
   parseResumeDocument,
@@ -542,6 +542,26 @@ function assertOperationResultMatchesCommand(
 }
 
 /**
+ * @brief 从 200 写响应中提取独立可信的 request ID / Extract an independently trusted request ID from a 200 write response.
+ * @param response 已返回的结构化响应 / Returned structural response.
+ * @return 合法 request ID；不可验证时为 null / Valid request ID, or null when it cannot be validated.
+ */
+function trustedOperationResponseRequestId(response: unknown): string | null {
+  try {
+    if (response === null || typeof response !== 'object') return null
+    /** @brief 未验证响应元数据 / Unvalidated response metadata. */
+    const metadata = (response as Readonly<Record<string, unknown>>).metadata
+    if (metadata === null || typeof metadata !== 'object' || Array.isArray(metadata)) return null
+    return opaqueId(
+      (metadata as Readonly<Record<string, unknown>>).requestId,
+      'response.headers.X-Request-Id'
+    )
+  } catch {
+    return null
+  }
+}
+
+/**
  * @brief 原子提交六类 Resume 语义操作 / Atomically submit the six Resume semantic operation kinds.
  * @param client 固定 updated-result 语义的写端口 / Write port fixed to updated-result semantics.
  * @param command Workspace、Resume、并发校验器与 batch / Workspace, Resume, concurrency validator, and batch.
@@ -575,12 +595,21 @@ export async function applyResumeOperations(
     ...(signal === undefined ? {} : { signal }),
     successKind: 'updated-result'
   })
-  /** @brief 无损解码的 operation result / Losslessly decoded operation result. */
-  const value = parseResumeOperationResult(response.data)
-  assertOperationResultMatchesCommand(value, workspaceId, resumeId, batch)
-  /** @brief 与结果原子配对的下一强 ETag / Next strong ETag atomically paired with the result. */
-  const entityTag = strongEntityTag(response.metadata.entityTag, 'response.headers.ETag')
-  /** @brief 已验证服务端 request ID / Validated server request ID. */
-  const requestId = opaqueId(response.metadata.requestId, 'response.headers.X-Request-Id')
-  return { entityTag, requestId, value }
+  /** @brief 可独立保留且不泄露响应内容的 request ID / Independently retainable request ID that reveals no response content. */
+  const trustedRequestId = trustedOperationResponseRequestId(response)
+  try {
+    /** @brief 无损解码的 operation result / Losslessly decoded operation result. */
+    const value = parseResumeOperationResult(response.data)
+    assertOperationResultMatchesCommand(value, workspaceId, resumeId, batch)
+    /** @brief 与结果原子配对的下一强 ETag / Next strong ETag atomically paired with the result. */
+    const entityTag = strongEntityTag(response.metadata.entityTag, 'response.headers.ETag')
+    /** @brief 已验证服务端 request ID / Validated server request ID. */
+    const requestId = opaqueId(response.metadata.requestId, 'response.headers.X-Request-Id')
+    return { entityTag, requestId, value }
+  } catch (error: unknown) {
+    if (error instanceof ApiV2ContractError) {
+      throw new ApiV2WriteOutcomeUnknownError('contract', 200, null, trustedRequestId)
+    }
+    throw error
+  }
 }

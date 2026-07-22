@@ -8,7 +8,8 @@ import {
   type UiResumeCreationTemplateOption,
   type UiResumeCreationTemplatePage
 } from '../../domain/creation'
-import type { UiTemplateManifest, UiTemplateReference } from '../../domain/models'
+import type { UiTemplateReference } from '../../domain/document'
+import type { UiTemplateManifest } from '../../domain/models'
 
 /** @brief 创建页每次读取的 Template 数量 / Number of Templates read by each creation-page request. */
 export const RESUME_CREATION_TEMPLATE_PAGE_LIMIT = asUiResumeTemplatePageLimit(24)

@@ -1,10 +1,8 @@
 /** @file Resume Authoring 应用端口 / Resume Authoring application port. */
 
 import type { UiWorkspaceId } from '../../../shared-kernel/identity'
-import type { UiContentLocale } from '../../../shared-kernel/locale'
+import type { UiResumeEditorModel, UiResumeId } from '../domain/document'
 import type {
-  UiResumeEditorModel,
-  UiResumeId,
   UiResumeRenderJob,
   UiResumeSectionDeleteInput,
   UiResumeSectionsReorderInput,
@@ -12,9 +10,7 @@ import type {
   UiResumeSummaryPage,
   UiResumeSummaryPageRead,
   UiResumeTemplateSettingsUpdateInput,
-  UiStartResumePdfRenderInput,
-  UiTemplateManifest,
-  UiTemplateSettingsModel
+  UiStartResumePdfRenderInput
 } from '../domain/models'
 
 /** @brief 简历与模板页面数据端口 / Resume and template page-data port. */
@@ -28,10 +24,16 @@ export interface ResumeGateway {
 
   /**
    * @brief 获取三栏编辑器数据 / Get three-pane editor data.
+   * @param workspaceId 授权路径所属 Workspace / Workspace owning the authorization path.
    * @param resumeId 简历 ID / Resume ID.
+   * @param signal 资源身份变化或页面卸载时触发的取消信号 / Cancellation signal triggered when resource identity changes or the page unmounts.
    * @return 编辑器页面展示模型 / Editor-page display model.
    */
-  getResumeEditor(workspaceId: UiWorkspaceId, resumeId: UiResumeId): Promise<UiResumeEditorModel>
+  getResumeEditor(
+    workspaceId: UiWorkspaceId,
+    resumeId: UiResumeId,
+    signal: AbortSignal
+  ): Promise<UiResumeEditorModel>
 
   /** @brief 启动 PDF preview Render Job / Start a PDF preview Render Job. */
   startResumePdfRender(input: UiStartResumePdfRenderInput): Promise<UiResumeRenderJob>
@@ -56,35 +58,5 @@ export interface ResumeGateway {
   deleteResumeSection(input: UiResumeSectionDeleteInput): Promise<UiResumeEditorModel>
 
   /** @brief 原子保存当前固定模板的完整语义样式意图 / Atomically save complete semantic-style intent for the currently pinned template. */
-  updateTemplateSettings(
-    input: UiResumeTemplateSettingsUpdateInput
-  ): Promise<UiTemplateSettingsModel>
-
-  /**
-   * @brief 按界面语言列出模板 / List templates by UI locale.
-   * @param locale 资源内容语言 / Resource-content locale.
-   * @return 模板展示模型列表 / Template display models.
-   */
-  listTemplateManifests(locale: UiContentLocale): Promise<readonly UiTemplateManifest[]>
-
-  /**
-   * @brief 读取指定的不可变模板版本 / Read an exact immutable template version.
-   * @param templateId 模板 ID / Template ID.
-   * @param version 不可变模板版本 / Immutable template version.
-   * @return 精确匹配 ID 与版本的模板 / Template matching the exact ID and version.
-   */
-  getTemplateManifest(
-    templateId: UiTemplateManifest['id'],
-    version: UiTemplateManifest['version']
-  ): Promise<UiTemplateManifest>
-
-  /**
-   * @brief 获取模板设置页数据 / Get template-settings page data.
-   * @param resumeId 简历 ID / Resume ID.
-   * @return 模板设置页展示模型 / Template-settings page display model.
-   */
-  getTemplateSettings(
-    workspaceId: UiWorkspaceId,
-    resumeId: UiResumeId
-  ): Promise<UiTemplateSettingsModel>
+  updateTemplateSettings(input: UiResumeTemplateSettingsUpdateInput): Promise<UiResumeEditorModel>
 }

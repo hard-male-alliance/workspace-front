@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { HttpCommandOutcomeUnknownError } from '@ai-job-workspace/app/http'
 import { InMemoryResumeGateway, MOCK_TEMPLATE_MANIFESTS } from '@ai-job-workspace/app/testing'
@@ -28,6 +28,33 @@ describe('WorkspaceApp Resume artifact', (): void => {
     expect(preview).toHaveAttribute('src', 'about:blank#mock-resume-pdf')
     expect(preview).toHaveAttribute('sandbox', '')
     expect(screen.getByRole('button', { name: '下载 PDF' })).toBeInTheDocument()
+  })
+
+  it('在同一 React commit 内只接受一次 Render 启动意图', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 当前测试独享的 Resume gateway / Resume gateway owned by this test. */
+    const resume = new InMemoryResumeGateway()
+    /** @brief 保持待定以暴露同步重入窗口的启动观测器 / Start observer kept pending to expose the synchronous re-entry window. */
+    const startRender = vi
+      .spyOn(resume, 'startResumePdfRender')
+      .mockImplementation(() => new Promise<never>(() => undefined))
+    /** @brief 当前页面视图 / Current page view. */
+    const view = render(
+      <WorkspaceApp
+        gateways={createTestGateways({ resume })}
+        initialPath="/resumes/res_mock_ai_platform/edit"
+      />
+    )
+    await screen.findByRole('heading', { name: 'Klee Chen' })
+    /** @brief 同一 commit 内被双击的生成按钮 / Render button double-invoked within one commit. */
+    const renderButton = screen.getByRole('button', { name: '生成 PDF 预览' })
+    act((): void => {
+      renderButton.click()
+      renderButton.click()
+    })
+
+    expect(startRender).toHaveBeenCalledTimes(1)
+    view.unmount()
   })
 
   it('以相同命令身份确认结果未知的 PDF 生成请求', async (): Promise<void> => {
@@ -247,12 +274,17 @@ describe('WorkspaceApp Resume artifact', (): void => {
     await setWorkspaceAppTestLocale('zh-SG')
     /** @brief 声明模板不支持 PDF 的测试 Gateway / Test Gateway whose templates do not support PDF. */
     const resume = new InMemoryResumeGateway()
-    vi.spyOn(resume, 'listTemplateManifests').mockResolvedValue(
-      MOCK_TEMPLATE_MANIFESTS.map((template) => ({
-        ...template,
-        supportedOutputFormats: ['png']
-      }))
-    )
+    vi.spyOn(resume, 'listTemplatePage').mockImplementation((input) => {
+      input.signal.throwIfAborted()
+      return Promise.resolve({
+        hasMore: false,
+        items: MOCK_TEMPLATE_MANIFESTS.map((template) => ({
+          ...template,
+          supportedOutputFormats: ['png']
+        })),
+        nextCursor: null
+      })
+    })
     /** @brief PDF Render Job 启动观测器 / PDF Render Job start observer. */
     const startRender = vi.spyOn(resume, 'startResumePdfRender')
 
@@ -290,9 +322,15 @@ describe('WorkspaceApp Resume artifact', (): void => {
     fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
     await screen.findByTitle('简历 PDF 预览')
 
-    fireEvent.click(screen.getByRole('button', { name: '下载 PDF' }))
+    /** @brief 同一 commit 内被双击的保存按钮 / Save button double-invoked within one commit. */
+    const saveButton = screen.getByRole('button', { name: '下载 PDF' })
+    act((): void => {
+      saveButton.click()
+      saveButton.click()
+    })
 
     expect(screen.getByRole('button', { name: '正在保存 PDF…' })).toBeDisabled()
+    expect(saveArtifact).toHaveBeenCalledTimes(1)
     expect(saveArtifact).toHaveBeenCalledWith({
       artifactId: 'artifact_mock_18',
       suggestedFileName: 'Klee Chen Resume.pdf'

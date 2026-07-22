@@ -8,7 +8,8 @@ import type {
   UiResumeTemplatePage,
   UiResumeTemplatePageRead
 } from '../domain/creation'
-import type { UiTemplateManifest, UiTemplateReference } from '../domain/models'
+import type { UiTemplateReference } from '../domain/document'
+import type { UiTemplateManifest } from '../domain/models'
 import { asUiConcurrencyToken } from '../../../shared-kernel/concurrency'
 import type { UiContentLocale } from '../../../shared-kernel/locale'
 

@@ -286,10 +286,27 @@ export const zhSGTranslation = {
       conflictDescription: '服务器上的简历已发生变化。请先重新加载权威版本，再继续编辑。',
       operationRejectedTitle: '部分简历操作未被接受',
       operationRejectedDescription:
-        '服务器已返回批次结果。请先重新加载权威版本，确认已应用与未应用的修改后再继续。',
+        '服务器已拒绝整个批次，并随结果返回最新权威版本。请检查保留的本地草稿后再继续。',
       outcomeUnknownTitle: '简历操作结果待确认',
+      authorityReadRequiredTitle: '需要读取服务器版本',
+      invalidSuccessTitle: '服务端响应无法确认',
+      idempotencyKeyReusedTitle: '命令标识发生冲突',
+      commandRejectedTitle: '原操作已被拒绝',
       outcomeUnknownDescription:
-        '请求可能已由服务器处理。请先重新加载权威版本确认结果，不要重复提交。',
+        '请求可能已由服务器处理。请原样确认同一条幂等命令，不要创建新的写入意图。',
+      outcomeContractDescription:
+        '服务端成功响应不符合 API v2 契约。请重新读取权威版本；不要重放会返回同一坏响应的命令。',
+      idempotencyKeyReusedDescription:
+        '服务端拒绝了重复用于不同意图的命令标识。请重新读取权威版本，再创建新操作。',
+      commandRejectedDescription:
+        '服务端已明确拒绝原命令。请重新读取权威版本，再检查保留的本地草稿。',
+      abandonedConfirmationDescription:
+        '已放弃旧命令标识。必须完成权威读取，才能基于保留的草稿创建新操作。',
+      confirmCommand: '确认上次操作结果',
+      confirmingCommand: '正在确认同一命令…',
+      waitingToConfirm: '等待服务端允许重试…',
+      readAuthorityInstead: '放弃确认并读取服务器版本',
+      confirmCommandError: '仍无法确认上次操作结果。',
       reloadAuthority: '重新加载服务器版本',
       reloadingAuthority: '正在重新加载…',
       reloadAuthorityError: '无法重新加载服务器版本。',
@@ -912,10 +929,27 @@ export const enUSTranslation = {
         'This resume changed on the server. Reload the authoritative version before editing.',
       operationRejectedTitle: 'Some resume operations were rejected',
       operationRejectedDescription:
-        'The server returned a batch result. Reload the authoritative version to reconcile applied and rejected changes before continuing.',
+        'The server rejected the whole batch and returned the latest authority with that result. Review the retained local draft before continuing.',
       outcomeUnknownTitle: 'Resume operation result is unknown',
+      authorityReadRequiredTitle: 'Server version must be read',
+      invalidSuccessTitle: 'Server response could not be confirmed',
+      idempotencyKeyReusedTitle: 'Command identifier conflict',
+      commandRejectedTitle: 'Original operation was rejected',
       outcomeUnknownDescription:
-        'The server may have processed this request. Reload the authoritative version to confirm the result before submitting another change.',
+        'The server may have processed this request. Confirm the exact same idempotent command instead of creating a new write intent.',
+      outcomeContractDescription:
+        'The successful server response violated API v2. Reload authority instead of replaying a command that would return the same invalid response.',
+      idempotencyKeyReusedDescription:
+        'The server rejected a command identifier reused for a different intent. Reload authority before creating a new operation.',
+      commandRejectedDescription:
+        'The server definitively rejected the original command. Reload authority, then review the retained local draft.',
+      abandonedConfirmationDescription:
+        'The old command identifier was abandoned. Complete the authority read before creating a new operation from the retained draft.',
+      confirmCommand: 'Confirm previous operation',
+      confirmingCommand: 'Confirming the same command…',
+      waitingToConfirm: 'Waiting for the server retry window…',
+      readAuthorityInstead: 'Abandon confirmation and read server version',
+      confirmCommandError: 'The previous operation still could not be confirmed.',
       reloadAuthority: 'Reload server version',
       reloadingAuthority: 'Reloading…',
       reloadAuthorityError: 'The server version could not be reloaded.',

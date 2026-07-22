@@ -4,7 +4,8 @@ import type { UiCommandId } from '../../../shared-kernel/command'
 import type { UiConcurrencyToken } from '../../../shared-kernel/concurrency'
 import type { UiWorkspaceId } from '../../../shared-kernel/identity'
 import type { UiContentLocale } from '../../../shared-kernel/locale'
-import type { UiResumeId, UiTemplateManifest, UiTemplateReference } from './models'
+import type { UiResumeId, UiTemplateReference } from './document'
+import type { UiTemplateManifest } from './models'
 
 /** @brief Template 目录 cursor 的名义类型品牌 / Nominal type brand for Template-catalog cursors. */
 declare const resumeTemplateCursorBrand: unique symbol

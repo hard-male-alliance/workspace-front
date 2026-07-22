@@ -267,17 +267,19 @@ function operationResult(
  * @brief 构造固定成功的 operations HTTP port / Build an operations HTTP port with a fixed success.
  * @param data 返回 body / Response body.
  * @param entityTag 返回 ETag / Response ETag.
+ * @param requestId 返回 request ID / Response request ID.
  * @return 可观察的固定 200 port / Observable fixed-200 port.
  */
 function operationsClient(
   data: unknown = operationResult(),
-  entityTag = ENTITY_TAG
+  entityTag = ENTITY_TAG,
+  requestId = REQUEST_ID
 ): ResumeOperationsHttpClient {
   return {
     postJson: vi.fn<ResumeOperationsHttpClient['postJson']>(() =>
       Promise.resolve({
         data,
-        metadata: { entityTag, location: null, requestId: REQUEST_ID },
+        metadata: { entityTag, location: null, requestId },
         status: 200
       })
     )
@@ -554,7 +556,7 @@ describe('API v2 Resume semantic operation batches', (): void => {
       'an outcome with neither applied operations nor conflicts',
       operationResult({ applied_operation_ids: [], conflicts: [] })
     ]
-  ])('rejects %s', async (_label, result): Promise<void> => {
+  ])('marks %s as an unknown 200 write outcome', async (_label, result): Promise<void> => {
     await expect(
       applyResumeOperations(operationsClient(result), {
         batch: operationBatch(),
@@ -563,22 +565,63 @@ describe('API v2 Resume semantic operation batches', (): void => {
         resumeId: RESUME_ID,
         workspaceId: WORKSPACE_ID
       })
-    ).rejects.toBeInstanceOf(ApiV2ContractError)
+    ).rejects.toMatchObject({
+      kind: 'contract',
+      name: 'ApiV2WriteOutcomeUnknownError',
+      requestId: REQUEST_ID,
+      status: 200
+    })
   })
 
-  it('rejects result schema drift and a weak next validator from structural clients', async (): Promise<void> => {
+  it('keeps the pure result decoder definitive before dispatch', (): void => {
     expect(() =>
       parseResumeOperationResult({ ...operationResult(), legacy_html: '<main />' })
     ).toThrow(ApiV2ContractError)
+  })
 
+  it.each([
+    ['result schema drift', { ...operationResult(), legacy_html: '<main />' }, ENTITY_TAG],
+    [
+      'nested decoder failure',
+      operationResult({ resume: resumeDocument({ title: null }) }),
+      ENTITY_TAG
+    ],
+    ['a weak next validator', operationResult(), 'W/"resume-18"']
+  ])(
+    'marks %s after the 200 boundary as unknown while retaining the trusted request ID',
+    async (_label, result, entityTag): Promise<void> => {
+      await expect(
+        applyResumeOperations(operationsClient(result, entityTag), {
+          batch: operationBatch(),
+          idempotencyKey: IDEMPOTENCY_KEY,
+          ifMatch: '"resume-17"',
+          resumeId: RESUME_ID,
+          workspaceId: WORKSPACE_ID
+        })
+      ).rejects.toMatchObject({
+        kind: 'contract',
+        name: 'ApiV2WriteOutcomeUnknownError',
+        problemCode: null,
+        requestId: REQUEST_ID,
+        status: 200
+      })
+    }
+  )
+
+  it('does not retain an invalid response request ID in the unknown outcome', async (): Promise<void> => {
     await expect(
-      applyResumeOperations(operationsClient(operationResult(), 'W/"resume-18"'), {
+      applyResumeOperations(operationsClient(operationResult(), ENTITY_TAG, 'invalid'), {
         batch: operationBatch(),
         idempotencyKey: IDEMPOTENCY_KEY,
         ifMatch: '"resume-17"',
         resumeId: RESUME_ID,
         workspaceId: WORKSPACE_ID
       })
-    ).rejects.toBeInstanceOf(ApiV2ContractError)
+    ).rejects.toMatchObject({
+      kind: 'contract',
+      name: 'ApiV2WriteOutcomeUnknownError',
+      requestId: null,
+      status: 200
+    })
   })
 })
