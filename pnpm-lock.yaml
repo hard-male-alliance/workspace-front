@@ -171,6 +171,8 @@ importers:
 
   packages/platform: {}
 
+  packages/product-api-v2: {}
+
   packages/product-runtime:
     dependencies:
       '@ai-job-workspace/app':
