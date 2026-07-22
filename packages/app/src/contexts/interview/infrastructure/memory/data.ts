@@ -40,30 +40,40 @@ export const DEMO_SYSTEM_DESIGN_SCENARIO: UiInterviewScenario = {
     dimensions: [
       {
         id: 'rub_dim_problem_framing',
+        maximumScore: 100,
+        minimumScore: 0,
         name: '问题界定',
         weight: 0.25,
         observableIndicators: ['主动澄清负载、用户与约束', '将目标转化为可验证的需求']
       },
       {
         id: 'rub_dim_architecture',
+        maximumScore: 100,
+        minimumScore: 0,
         name: '架构取舍',
         weight: 0.35,
         observableIndicators: ['解释关键组件职责', '明确一致性、成本与延迟取舍']
       },
       {
         id: 'rub_dim_communication',
+        maximumScore: 100,
+        minimumScore: 0,
         name: '表达与协作',
         weight: 0.2,
         observableIndicators: ['回答结构清晰', '及时校准面试官理解']
       },
       {
         id: 'rub_dim_reliability',
+        maximumScore: 100,
+        minimumScore: 0,
         name: '可靠性与演进',
         weight: 0.15,
         observableIndicators: ['覆盖故障场景', '提出可观测性和渐进迁移路径']
       },
       {
         id: 'rub_dim_evidence',
+        maximumScore: 100,
+        minimumScore: 0,
         name: '案例与证据',
         weight: 0.05,
         observableIndicators: ['使用具体经历支持判断', '提供可验证的结果或指标']
@@ -153,6 +163,8 @@ export const DEMO_INTERVIEW_HISTORY: readonly UiInterviewHistoryItem[] = [
     difficulty: DEMO_SYSTEM_DESIGN_SCENARIO.difficulty,
     completedAt: '2026-07-14T14:30:00.000Z',
     durationMinutes: 38,
+    overallMaximumScore: 100,
+    overallMinimumScore: 0,
     overallScore: 82
   }
 ]
@@ -174,6 +186,8 @@ export const DEMO_INTERVIEW_REPORT: UiInterviewReport = {
   sessionId: DEMO_INTERVIEW_SESSION_ID,
   reportVersion: '1.0.0-mock',
   overallScore: 82,
+  overallMaximumScore: 100,
+  overallMinimumScore: 0,
   overallConfidence: 0.78,
   executiveSummary:
     '你以需求澄清和控制面/数据面分层建立了稳健的答题骨架；下一步应更早量化容量假设，并把关键一致性取舍落到具体故障路径。',
@@ -182,6 +196,9 @@ export const DEMO_INTERVIEW_REPORT: UiInterviewReport = {
   rubricScores: [
     {
       dimensionId: 'rub_dim_problem_framing',
+      dimensionName: '问题界定',
+      maximumScore: 100,
+      minimumScore: 0,
       score: 88,
       confidence: 0.85,
       summary: '需求澄清覆盖了用户、并发和数据保留约束。',
@@ -197,6 +214,9 @@ export const DEMO_INTERVIEW_REPORT: UiInterviewReport = {
     },
     {
       dimensionId: 'rub_dim_architecture',
+      dimensionName: '架构取舍',
+      maximumScore: 100,
+      minimumScore: 0,
       score: 79,
       confidence: 0.73,
       summary: '分层方向正确，但容量、队列边界和一致性策略还可更具体。',
@@ -212,6 +232,9 @@ export const DEMO_INTERVIEW_REPORT: UiInterviewReport = {
     },
     {
       dimensionId: 'rub_dim_communication',
+      dimensionName: '表达与协作',
+      maximumScore: 100,
+      minimumScore: 0,
       score: 84,
       confidence: 0.76,
       summary: '表达有清晰结构，术语使用准确。',
@@ -220,6 +243,9 @@ export const DEMO_INTERVIEW_REPORT: UiInterviewReport = {
     },
     {
       dimensionId: 'rub_dim_reliability',
+      dimensionName: '可靠性与演进',
+      maximumScore: 100,
+      minimumScore: 0,
       score: 77,
       confidence: 0.69,
       summary: '提到了可观测性，但还未完整覆盖背压和降级路径。',
@@ -228,6 +254,9 @@ export const DEMO_INTERVIEW_REPORT: UiInterviewReport = {
     },
     {
       dimensionId: 'rub_dim_evidence',
+      dimensionName: '案例与证据',
+      maximumScore: 100,
+      minimumScore: 0,
       score: 74,
       confidence: 0.7,
       summary: '使用了具体架构动作，但缺少量化结果支撑关键取舍。',

@@ -51,6 +51,10 @@ export interface UiInterviewRubricDimension {
   readonly weight: number
   /** @brief 可观察指标 / Observable indicators. */
   readonly observableIndicators: readonly string[]
+  /** @brief 该维度量表的最低分 / Minimum score on this dimension's scale. */
+  readonly minimumScore: number
+  /** @brief 该维度量表的最高分 / Maximum score on this dimension's scale. */
+  readonly maximumScore: number
 }
 
 /** @brief 面试评分量表 / Interview evaluation rubric. */
@@ -178,6 +182,10 @@ export interface UiInterviewHistoryItem {
   readonly durationMinutes: number
   /** @brief 总评分；未形成权威分数时为空 / Overall score, or null without an authoritative score. */
   readonly overallScore: number | null
+  /** @brief 总分量表最低值 / Minimum value of the overall score scale. */
+  readonly overallMinimumScore: number
+  /** @brief 总分量表最高值 / Maximum value of the overall score scale. */
+  readonly overallMaximumScore: number
 }
 
 /** @brief 新面试配置页投影 / New-interview setup projection. */
@@ -198,6 +206,14 @@ export interface UiInterviewSessionDetails {
   readonly scenario: UiInterviewScenario
   /** @brief 由会话起止时间计算的实际分钟数 / Actual minutes derived from session timestamps. */
   readonly durationMinutes: number
+}
+
+/** @brief 同一权威会话快照下的总结投影 / Summary projection under one authoritative session snapshot. */
+export interface UiInterviewSummaryModel {
+  /** @brief 会话与场景详情 / Session and scenario details. */
+  readonly details: UiInterviewSessionDetails
+  /** @brief 由该场景固定量表解释的报告 / Report interpreted by the scenario's pinned rubric. */
+  readonly report: UiInterviewReport
 }
 
 /** @brief 创建面试的领域输入 / Domain input for creating an interview. */
@@ -257,8 +273,14 @@ export interface UiInterviewEvidence {
 export interface UiInterviewRubricScore {
   /** @brief 维度 ID / Dimension ID. */
   readonly dimensionId: string
+  /** @brief 后端量表给出的维度名称 / Dimension name supplied by the backend rubric. */
+  readonly dimensionName: string
   /** @brief 得分 / Score. */
   readonly score: number
+  /** @brief 该维度量表最低值 / Minimum value of this dimension's scale. */
+  readonly minimumScore: number
+  /** @brief 该维度量表最高值 / Maximum value of this dimension's scale. */
+  readonly maximumScore: number
   /** @brief 置信度 / Confidence. */
   readonly confidence: number
   /** @brief 摘要 / Summary. */
@@ -317,6 +339,10 @@ export interface UiInterviewReport {
   readonly reportVersion: string
   /** @brief 总分 / Overall score. */
   readonly overallScore: number | null
+  /** @brief 总分量表最低值 / Minimum value of the overall score scale. */
+  readonly overallMinimumScore: number
+  /** @brief 总分量表最高值 / Maximum value of the overall score scale. */
+  readonly overallMaximumScore: number
   /** @brief 总体置信度 / Overall confidence. */
   readonly overallConfidence: number
   /** @brief 执行摘要 / Executive summary. */

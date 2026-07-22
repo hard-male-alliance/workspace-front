@@ -5,7 +5,8 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { useAsyncResource, useInterviewGateway } from '../../../app/AppData'
 import { runDiagnosticCommand, useDiagnostics } from '../../../app/Diagnostics'
-import { ResourceErrorState } from '../../../app/ResourceErrorState'
+import { ResourceErrorState, ResourceFailureMessage } from '../../../app/ResourceErrorState'
+import { classifyResourceFailure, requiresAuthorityReload } from '../../../app/resource-errors'
 import { asUiOpaqueId } from '../../../shared-kernel/identity'
 import { LoadingState } from '../../../ui'
 import type { UiInterviewRuntimeModel, UiTranscriptEntry } from '../domain/models'
@@ -42,15 +43,36 @@ function InterviewRoom({ initialRuntime }: { readonly initialRuntime: UiIntervie
   const navigate = useNavigate()
   const [runtime, setRuntime] = useState(initialRuntime)
   const [isSubmitting, setSubmitting] = useState(false)
-  const [submitError, setSubmitError] = useState<string | null>(null)
+  /** @brief 最近一次回答提交错误 / Latest answer-submission error. */
+  const [submitError, setSubmitError] = useState<unknown>(null)
   const [isExitOpen, setExitOpen] = useState(false)
   const [isEnding, setEnding] = useState(false)
-  const [exitError, setExitError] = useState<string | null>(null)
+  /** @brief 最近一次结束会话错误 / Latest session-end error. */
+  const [exitError, setExitError] = useState<unknown>(null)
+  /** @brief 是否正在重新读取权威会话状态 / Whether authoritative session state is being reloaded. */
+  const [isReloadingAuthority, setReloadingAuthority] = useState(false)
+  /** @brief 权威会话重新读取错误 / Authoritative-session reload error. */
+  const [authorityReloadError, setAuthorityReloadError] = useState<unknown>(null)
+  /** @brief 回答提交失败后是否必须重新读取权威会话 / Whether answer failure requires an authoritative session reload. */
+  const submitAuthorityReloadRequired = submitError !== null && requiresAuthorityReload(submitError)
+  /** @brief 结束会话失败后是否必须重新读取权威会话 / Whether end-session failure requires an authoritative session reload. */
+  const exitAuthorityReloadRequired = exitError !== null && requiresAuthorityReload(exitError)
+  /** @brief 回答结果是否仍无法由当前契约证明 / Whether the answer outcome remains unprovable under the current contract. */
+  const submitOutcomeUnknown =
+    submitError !== null && classifyResourceFailure(submitError).kind === 'outcome-unknown'
+  /** @brief 结束结果是否仍无法由当前契约证明 / Whether the end-session outcome remains unprovable under the current contract. */
+  const exitOutcomeUnknown =
+    exitError !== null && classifyResourceFailure(exitError).kind === 'outcome-unknown'
   const isOvertime = runtime.elapsedSeconds > runtime.estimatedDurationMinutes * 60
   const isCompletionReady = runtime.phase === 'completion_ready'
 
   const submitAnswer = (): void => {
-    if (isSubmitting || runtime.currentTranscript.trim().length === 0) return
+    if (
+      isSubmitting ||
+      submitAuthorityReloadRequired ||
+      runtime.currentTranscript.trim().length === 0
+    )
+      return
     setSubmitting(true)
     setSubmitError(null)
     void runDiagnosticCommand(
@@ -62,12 +84,8 @@ function InterviewRoom({ initialRuntime }: { readonly initialRuntime: UiIntervie
         setRuntime(nextRuntime)
         setSubmitting(false)
       })
-      .catch(() => {
-        setSubmitError(
-          t('interviewRoom.submitError', {
-            defaultValue: '当前回答提交失败，转写内容仍已保留，请重试。'
-          })
-        )
+      .catch((error: unknown) => {
+        setSubmitError(error)
         setSubmitting(false)
       })
   }
@@ -81,20 +99,38 @@ function InterviewRoom({ initialRuntime }: { readonly initialRuntime: UiIntervie
         : t('interviewRoom.active', { defaultValue: '面试进行中' })
 
   const confirmExit = (): void => {
-    if (isEnding) return
+    if (isEnding || exitAuthorityReloadRequired) return
     setEnding(true)
     setExitError(null)
     void interview
       .endInterview(runtime.session.id)
       .then(() => navigate('/interviews'))
-      .catch(() => {
-        setExitError(
-          t('interviewRoom.exitError', {
-            defaultValue: '未能结束本次面试，服务器没有确认退出。请保留当前页面并稍后重试。'
-          })
-        )
+      .catch((error: unknown) => {
+        setExitError(error)
         setEnding(false)
       })
+  }
+
+  /**
+   * @brief 在写结果需要确认时重新读取权威会话状态 / Reload authoritative session state when a write result needs confirmation.
+   * @return 读取完成的 Promise / Promise fulfilled after the read settles.
+   * @note 不会重放原回答或结束命令 / Never replays the original answer or session-end command.
+   */
+  const reloadAuthoritativeRuntime = async (): Promise<void> => {
+    if (isReloadingAuthority) return
+    setReloadingAuthority(true)
+    setAuthorityReloadError(null)
+    try {
+      /** @brief 服务端重新读取的权威运行态 / Authoritative runtime re-read from the service. */
+      const authoritativeRuntime = await interview.getInterviewRuntime(runtime.session.id)
+      setRuntime(authoritativeRuntime)
+      if (!submitOutcomeUnknown) setSubmitError(null)
+      if (!exitOutcomeUnknown) setExitError(null)
+    } catch (error: unknown) {
+      setAuthorityReloadError(error)
+    } finally {
+      setReloadingAuthority(false)
+    }
   }
 
   return (
@@ -180,9 +216,42 @@ function InterviewRoom({ initialRuntime }: { readonly initialRuntime: UiIntervie
             t('interviewRoom.transcriptLocked', { defaultValue: '本轮回答已提交。' })}
         </output>
         {submitError !== null ? (
-          <p className="aw-inline-error" role="alert">
-            {submitError}
-          </p>
+          <div className="aw-inline-error" role="alert">
+            <strong>
+              {t('interviewRoom.submitError', {
+                defaultValue: '当前回答尚未提交；转写内容仍保留在本页。'
+              })}
+            </strong>{' '}
+            <ResourceFailureMessage error={submitError} />
+            {submitAuthorityReloadRequired ? (
+              <button
+                className="aw-quiet-button"
+                disabled={isReloadingAuthority}
+                onClick={(): void => {
+                  void reloadAuthoritativeRuntime()
+                }}
+                type="button"
+              >
+                {isReloadingAuthority
+                  ? t('interviewRoom.reloadingSessionState', {
+                      defaultValue: '正在重新加载会话状态…'
+                    })
+                  : t('interviewRoom.reloadSessionState', {
+                      defaultValue: '重新加载会话状态'
+                    })}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        {authorityReloadError !== null && submitAuthorityReloadRequired ? (
+          <div className="aw-inline-error" role="alert">
+            <strong>
+              {t('interviewRoom.reloadSessionError', {
+                defaultValue: '无法重新加载会话状态。'
+              })}
+            </strong>{' '}
+            <ResourceFailureMessage error={authorityReloadError} />
+          </div>
         ) : null}
         <div className="aw-interview-answer-actions">
           <span className="aw-interview-privacy">
@@ -204,7 +273,11 @@ function InterviewRoom({ initialRuntime }: { readonly initialRuntime: UiIntervie
           ) : (
             <button
               className="aw-primary-button"
-              disabled={isSubmitting || runtime.currentTranscript.trim().length === 0}
+              disabled={
+                isSubmitting ||
+                submitAuthorityReloadRequired ||
+                runtime.currentTranscript.trim().length === 0
+              }
               onClick={submitAnswer}
               type="button"
             >
@@ -240,9 +313,42 @@ function InterviewRoom({ initialRuntime }: { readonly initialRuntime: UiIntervie
               })}
             </p>
             {exitError !== null ? (
-              <p className="aw-inline-error" role="alert">
-                {exitError}
-              </p>
+              <div className="aw-inline-error" role="alert">
+                <strong>
+                  {t('interviewRoom.exitError', {
+                    defaultValue: '无法确认本次面试已经结束。'
+                  })}
+                </strong>{' '}
+                <ResourceFailureMessage error={exitError} />
+                {exitAuthorityReloadRequired ? (
+                  <button
+                    className="aw-quiet-button"
+                    disabled={isReloadingAuthority}
+                    onClick={(): void => {
+                      void reloadAuthoritativeRuntime()
+                    }}
+                    type="button"
+                  >
+                    {isReloadingAuthority
+                      ? t('interviewRoom.reloadingSessionState', {
+                          defaultValue: '正在重新加载会话状态…'
+                        })
+                      : t('interviewRoom.reloadSessionState', {
+                          defaultValue: '重新加载会话状态'
+                        })}
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            {authorityReloadError !== null && exitAuthorityReloadRequired ? (
+              <div className="aw-inline-error" role="alert">
+                <strong>
+                  {t('interviewRoom.reloadSessionError', {
+                    defaultValue: '无法重新加载会话状态。'
+                  })}
+                </strong>{' '}
+                <ResourceFailureMessage error={authorityReloadError} />
+              </div>
             ) : null}
             <div className="aw-inline-actions">
               <button
@@ -255,7 +361,7 @@ function InterviewRoom({ initialRuntime }: { readonly initialRuntime: UiIntervie
               </button>
               <button
                 className="aw-danger-button"
-                disabled={isEnding}
+                disabled={isEnding || exitAuthorityReloadRequired}
                 onClick={confirmExit}
                 type="button"
               >

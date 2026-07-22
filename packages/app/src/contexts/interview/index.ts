@@ -15,6 +15,7 @@ export type {
   UiInterviewMediaPreferences,
   UiInterviewSession,
   UiInterviewSessionDetails,
+  UiInterviewSummaryModel,
   UiTranscriptSpeaker,
   UiTranscriptEntry,
   UiInterviewHistoryItem,

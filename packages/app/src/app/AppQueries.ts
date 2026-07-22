@@ -300,10 +300,7 @@ export function createAppQueries(
   /** @brief Interview 总结聚合查询 / Interview-summary aggregate query. */
   const interviewSummary: InterviewSummaryQuery = {
     async load(sessionId): Promise<InterviewSummaryQueryResult> {
-      const [report, details] = await Promise.all([
-        gateways.interview.getInterviewReport(sessionId),
-        gateways.interview.getInterviewSessionDetails(sessionId)
-      ])
+      const { details, report } = await gateways.interview.getInterviewSummary(sessionId)
       /** @brief 本次会话可用的 Knowledge 来源投影 / Knowledge source projections available to this session. */
       const knowledgeSources = await gateways.knowledge.listKnowledgeSources(
         details.session.workspaceId

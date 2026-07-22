@@ -236,7 +236,9 @@ describe('WorkspaceApp Resume artifact', (): void => {
     await screen.findByRole('heading', { name: 'Klee Chen' })
     fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('PDF 预览生成失败，请重试。')
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('无法生成 PDF 预览')
+    expect(alert).toHaveTextContent('应用遇到未预期的问题')
     expect(screen.queryByTitle('简历 PDF 预览')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '下载 PDF' })).not.toBeInTheDocument()
   })
@@ -315,7 +317,9 @@ describe('WorkspaceApp Resume artifact', (): void => {
     await screen.findByTitle('简历 PDF 预览')
     fireEvent.click(screen.getByRole('button', { name: '下载 PDF' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('PDF 保存失败，请重试。')
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('无法保存 PDF')
+    expect(alert).toHaveTextContent('应用遇到未预期的问题')
     expect(screen.queryByText(/Users\/klee/u)).not.toBeInTheDocument()
     expect(screen.getByTitle('简历 PDF 预览')).toHaveAttribute('src', 'about:blank#mock-resume-pdf')
   })

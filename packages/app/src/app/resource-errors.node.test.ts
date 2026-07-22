@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { HttpCommandOutcomeUnknownError, HttpContractError, HttpProblemError } from '../http'
-import { classifyResourceFailure } from './resource-errors'
+import { classifyResourceFailure, requiresAuthorityReload } from './resource-errors'
 
 describe('classifyResourceFailure', (): void => {
   it.each([
@@ -102,6 +102,33 @@ describe('classifyResourceFailure', (): void => {
       kind: 'service-unavailable',
       retryable: true
     })
+  })
+
+  it.each([409, 412] as const)(
+    'keeps a malformed HTTP %i response invalid while requiring authority reload',
+    (status): void => {
+      /** @brief 状态可信但正文违反 ProblemDetails 的响应错误 / Response error with a trusted status and invalid ProblemDetails body. */
+      const error = new HttpContractError('private malformed conflict body', status)
+
+      expect(classifyResourceFailure(error)).toEqual({
+        kind: 'invalid-response',
+        referenceId: null,
+        retryable: false
+      })
+      expect(requiresAuthorityReload(error)).toBe(true)
+    }
+  )
+
+  it('does not require authority reload for a malformed non-conflict response', (): void => {
+    /** @brief 普通请求错误的违约响应 / Contract-invalid response for an ordinary request error. */
+    const error = new HttpContractError('private malformed request body', 422)
+
+    expect(classifyResourceFailure(error)).toEqual({
+      kind: 'invalid-response',
+      referenceId: null,
+      retryable: false
+    })
+    expect(requiresAuthorityReload(error)).toBe(false)
   })
 
   it('keeps unavailable capabilities honest and non-retryable', (): void => {

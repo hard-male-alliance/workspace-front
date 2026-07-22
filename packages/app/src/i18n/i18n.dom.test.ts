@@ -30,10 +30,10 @@ describe('application i18n', () => {
       '服务未接受提交的内容。请检查输入；如问题持续，请联系支持。'
     )
     expect(appI18n.t('errors.outcomeUnknown')).toBe(
-      '请求可能已被服务处理。请先重新加载权威数据确认结果，不要立即重复提交。'
+      '请求可能已被服务处理。请先重新加载权威数据，或使用页面提供的确认操作核对结果；不要立即重复提交。'
     )
     expect(appI18n.t('errors.unknown')).toBe(
-      '应用无法确认本次请求结果。继续操作前，请重新加载最新数据。'
+      '应用遇到未预期的问题。请保留当前内容并稍后重试；如问题持续，请联系支持。'
     )
     expect(document.documentElement.lang).toBe('zh-SG')
     expect(document.title).toBe('求职工作台')
@@ -64,10 +64,10 @@ describe('application i18n', () => {
       'The service did not accept the submitted content. Check the input, or contact support if the problem continues.'
     )
     expect(appI18n.t('errors.outcomeUnknown')).toBe(
-      'The request may already have been processed. Reload authoritative data to confirm the result; do not submit it again immediately.'
+      'The request may already have been processed. Reload authoritative data or use the confirmation action on this page to verify the result; do not submit it again immediately.'
     )
     expect(appI18n.t('errors.unknown')).toBe(
-      'The app could not confirm the result of this request. Reload the latest data before continuing.'
+      'The app encountered an unexpected problem. Keep your current work and try again later; contact support if it continues.'
     )
     expect(document.documentElement.lang).toBe('en-US')
     expect(document.title).toBe('Career Workspace')

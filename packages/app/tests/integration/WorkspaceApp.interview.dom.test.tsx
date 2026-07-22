@@ -2,7 +2,11 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { DEMO_INTERVIEW_SESSION_ID, InMemoryInterviewGateway } from '@ai-job-workspace/app/testing'
-import { HttpCommandOutcomeUnknownError, HttpProblemError } from '@ai-job-workspace/app/http'
+import {
+  HttpCommandOutcomeUnknownError,
+  HttpContractError,
+  HttpProblemError
+} from '@ai-job-workspace/app/http'
 
 import {
   createTestGateways,
@@ -79,7 +83,32 @@ describe('WorkspaceApp interview workflow', (): void => {
       '/interviews/new'
     )
     expect(await screen.findByText('AI Platform Engineer')).toBeInTheDocument()
-    expect(screen.getByText('82')).toBeInTheDocument()
+    expect(screen.getByRole('listitem')).toHaveTextContent('AI Platform Engineer')
+    expect(screen.getByRole('listitem')).toHaveTextContent('82 / 100')
+  })
+
+  it('shows the backend overall scale in completed Interview history', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 使用非百分制历史投影的 Interview 测试网关 / Interview test gateway using a non-percent history projection. */
+    const interview = new InMemoryInterviewGateway()
+    /** @brief 内存网关提供的基准历史投影 / Baseline history projection supplied by the memory gateway. */
+    const history = await interview.listCompletedInterviews('ws_mock_klee_career_lab' as never)
+    vi.spyOn(interview, 'listCompletedInterviews').mockResolvedValue(
+      history.map((item) => ({
+        ...item,
+        overallMaximumScore: 5,
+        overallMinimumScore: 1,
+        overallScore: 4
+      }))
+    )
+
+    render(<WorkspaceApp gateways={createTestGateways({ interview })} initialPath="/interviews" />)
+
+    /** @brief 展示权威量表的历史行 / History row displaying the authoritative scale. */
+    const historyRow = await screen.findByRole('listitem')
+    expect(historyRow).toHaveTextContent('AI Platform Engineer')
+    expect(historyRow).toHaveTextContent('4 [1–5]')
+    expect(historyRow).not.toHaveTextContent('/ 100')
   })
 
   it('starts an interview from a compact setup form with knowledge selected by default', async () => {
@@ -117,9 +146,10 @@ describe('WorkspaceApp interview workflow', (): void => {
     await screen.findByRole('heading', { name: '配置模拟面试' })
     fireEvent.click(screen.getByRole('button', { name: '开始面试' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      '上次创建结果尚未确认。当前设置已锁定；请确认上次结果，不要创建重复的面试会话。'
-    )
+    /** @brief 动态创建错误的可访问告警 / Accessible alert for the dynamic creation error. */
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('上次创建结果尚未确认；当前设置已锁定。')
+    expect(alert).toHaveTextContent('请求可能已被服务处理')
     expect(screen.getByRole('combobox', { name: '目标岗位' })).toBeDisabled()
     expect(screen.getByRole('combobox', { name: '练习场景' })).toBeDisabled()
     expect(screen.getAllByRole('checkbox').every((option) => option.hasAttribute('disabled'))).toBe(
@@ -176,12 +206,51 @@ describe('WorkspaceApp interview workflow', (): void => {
     fireEvent.click(await screen.findByRole('button', { name: 'Confirm previous creation' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'The interview could not be created. Your settings are preserved; try again.'
+      'The interview could not be created. Your settings are preserved.'
     )
+    expect(screen.getByRole('alert')).toHaveTextContent('The service did not accept')
     expect(screen.queryByText(/private backend/u)).not.toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Target role' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Start interview' })).toBeEnabled()
     expect(createInterview).toHaveBeenCalledTimes(2)
+  })
+
+  it('reloads setup authority instead of replaying a 409 creation conflict', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 创建返回并发冲突的 Interview 测试网关 / Interview test gateway whose creation returns a conflict. */
+    const interview = new InMemoryInterviewGateway()
+    /** @brief 配置权威读取观察 / Setup-authority read observation. */
+    const getInterviewSetup = vi.spyOn(interview, 'getInterviewSetup')
+    /** @brief 不得由恢复按钮重放的创建命令 / Creation command that the recovery button must not replay. */
+    const createInterview = vi.spyOn(interview, 'createInterview').mockRejectedValue(
+      new HttpProblemError({
+        code: 'interview.session_conflict',
+        detail: 'private conflict detail at https://internal.example.test',
+        requestId: 'req_conflict_1234',
+        retryable: true,
+        retryAfterMs: null,
+        status: 409,
+        title: 'private conflict title'
+      })
+    )
+
+    render(
+      <WorkspaceApp gateways={createTestGateways({ interview })} initialPath="/interviews/new" />
+    )
+    await screen.findByRole('heading', { name: '配置模拟面试' })
+    fireEvent.click(screen.getByRole('button', { name: '开始面试' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('内容已在其他位置更新')
+    expect(alert).toHaveTextContent('支持编号：req_conflict_1234')
+    expect(alert).not.toHaveTextContent(/private|internal\.example/u)
+    expect(screen.getByRole('button', { name: '开始面试' })).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: '重新加载最新数据' }))
+
+    await vi.waitFor((): void => expect(getInterviewSetup).toHaveBeenCalledTimes(2))
+    expect(createInterview).toHaveBeenCalledOnce()
+    expect(await screen.findByRole('button', { name: '开始面试' })).toBeEnabled()
   })
 
   it('allows a student to enter a target role that is not in the saved list', async () => {
@@ -241,6 +310,76 @@ describe('WorkspaceApp interview workflow', (): void => {
     )
   })
 
+  it('reloads session authority without replaying an answer whose outcome is unknown', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 回答结果未知的 Interview 测试网关 / Interview test gateway with an unknown answer outcome. */
+    const interview = new InMemoryInterviewGateway()
+    /** @brief 权威运行态读取观察 / Authoritative-runtime read observation. */
+    const getInterviewRuntime = vi.spyOn(interview, 'getInterviewRuntime')
+    /** @brief 不得由恢复动作重放的回答提交 / Answer submission that recovery must not replay. */
+    const submitInterviewAnswer = vi
+      .spyOn(interview, 'submitInterviewAnswer')
+      .mockRejectedValue(new HttpCommandOutcomeUnknownError('network'))
+
+    render(
+      <WorkspaceApp
+        gateways={createTestGateways({ interview })}
+        initialPath="/interviews/int_mock_system_design"
+      />
+    )
+    await screen.findByRole('heading', { name: '模拟面试进行中' })
+    fireEvent.click(screen.getByRole('button', { name: '结束录音并提交' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('请求可能已被服务处理')
+    expect(screen.getByRole('button', { name: '结束录音并提交' })).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: '重新加载会话状态' }))
+
+    await vi.waitFor((): void => expect(getInterviewRuntime).toHaveBeenCalledTimes(2))
+    expect(submitInterviewAnswer).toHaveBeenCalledOnce()
+    expect(screen.getByRole('alert')).toHaveTextContent('请求可能已被服务处理')
+    expect(screen.getByRole('button', { name: '结束录音并提交' })).toBeDisabled()
+  })
+
+  it('reloads session authority without replaying an answer after a malformed 409 response', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 返回违约 409 响应的 Interview 测试网关 / Interview test gateway returning a malformed 409 response. */
+    const interview = new InMemoryInterviewGateway()
+    /** @brief 权威运行态读取观察 / Authoritative-runtime read observation. */
+    const getInterviewRuntime = vi.spyOn(interview, 'getInterviewRuntime')
+    /** @brief 不得由恢复动作重放的回答提交 / Answer submission that recovery must not replay. */
+    const submitInterviewAnswer = vi
+      .spyOn(interview, 'submitInterviewAnswer')
+      .mockRejectedValue(
+        new HttpContractError('private malformed response at https://internal.example.test', 409)
+      )
+
+    render(
+      <WorkspaceApp
+        gateways={createTestGateways({ interview })}
+        initialPath="/interviews/int_mock_system_design"
+      />
+    )
+    await screen.findByRole('heading', { name: '模拟面试进行中' })
+    fireEvent.click(screen.getByRole('button', { name: '结束录音并提交' }))
+
+    /** @brief 违约响应的安全可访问告警 / Safe accessible alert for the malformed response. */
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('服务返回了无法识别的数据')
+    expect(alert).not.toHaveTextContent(/private|internal\.example/u)
+    expect(screen.getByRole('button', { name: '结束录音并提交' })).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: '重新加载会话状态' }))
+
+    await vi.waitFor((): void => expect(getInterviewRuntime).toHaveBeenCalledTimes(2))
+    expect(submitInterviewAnswer).toHaveBeenCalledOnce()
+    await vi.waitFor((): void => {
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    })
+    expect(screen.getByRole('button', { name: '结束录音并提交' })).toBeEnabled()
+  })
+
   it('does not claim microphone capture when audio is disabled for the session', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
     /** @brief 面试测试网关 / Interview test gateway. */
@@ -298,9 +437,10 @@ describe('WorkspaceApp interview workflow', (): void => {
     fireEvent.click(screen.getByRole('button', { name: '退出本次练习' }))
     fireEvent.click(screen.getByRole('button', { name: '确认退出' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      '未能结束本次面试，服务器没有确认退出。请保留当前页面并稍后重试。'
-    )
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('无法确认本次面试已经结束。')
+    expect(alert).toHaveTextContent('应用遇到未预期的问题')
+    expect(alert).not.toHaveTextContent('end request unavailable')
     expect(screen.getByRole('heading', { name: '模拟面试进行中' })).toBeInTheDocument()
   })
 
@@ -328,5 +468,68 @@ describe('WorkspaceApp interview workflow', (): void => {
       'href',
       '/interviews/new'
     )
+  })
+
+  it('uses backend rubric names and normalizes a 1..5 score without opaque-ID labels', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 提供非百分制总结的 Interview 测试网关 / Interview test gateway providing a non-percent summary. */
+    const interview = new InMemoryInterviewGateway()
+    /** @brief 内存网关提供的基准总结投影 / Baseline summary projection supplied by the memory gateway. */
+    const summary = await interview.getInterviewSummary(DEMO_INTERVIEW_SESSION_ID)
+    /** @brief 来自服务端量表而非 opaque ID 映射的维度名 / Dimension name supplied by the backend rubric rather than an opaque-ID map. */
+    const backendDimensionName = '服务端量表：问题重构'
+    vi.spyOn(interview, 'getInterviewSummary').mockResolvedValue({
+      details: {
+        ...summary.details,
+        scenario: {
+          ...summary.details.scenario,
+          rubric: {
+            ...summary.details.scenario.rubric,
+            dimensions: summary.details.scenario.rubric.dimensions.map((dimension, index) => ({
+              ...dimension,
+              maximumScore: 5,
+              minimumScore: 1,
+              name: index === 0 ? backendDimensionName : dimension.name
+            })),
+            maximumScore: 5,
+            minimumScore: 1
+          }
+        }
+      },
+      report: {
+        ...summary.report,
+        overallMaximumScore: 5,
+        overallMinimumScore: 1,
+        overallScore: 4,
+        rubricScores: summary.report.rubricScores.map((score, index) => ({
+          ...score,
+          dimensionName: index === 0 ? backendDimensionName : score.dimensionName,
+          maximumScore: 5,
+          minimumScore: 1,
+          score: index === 0 ? 4 : (index % 5) + 1
+        }))
+      }
+    })
+
+    render(
+      <WorkspaceApp
+        gateways={createTestGateways({ interview })}
+        initialPath={`/interviews/${DEMO_INTERVIEW_SESSION_ID}/summary`}
+      />
+    )
+
+    await screen.findByRole('heading', { name: '面试分析' })
+    expect(screen.getByLabelText('总评分')).toHaveTextContent(/4\s*\[1–5\]/u)
+    expect(screen.getAllByText(backendDimensionName)).not.toHaveLength(0)
+    expect(screen.queryByText('问题界定')).not.toBeInTheDocument()
+
+    /** @brief 以 1..5 原始量表标注的首个进度条 / First progress bar labelled with the raw 1..5 scale. */
+    const progressbar = screen.getByRole('progressbar', {
+      name: `${backendDimensionName} 4`
+    })
+    expect(progressbar).toHaveAttribute('aria-valuemin', '1')
+    expect(progressbar).toHaveAttribute('aria-valuemax', '5')
+    expect(progressbar).toHaveAttribute('aria-valuenow', '4')
+    expect(progressbar.firstElementChild).toHaveStyle({ width: '75%' })
   })
 })

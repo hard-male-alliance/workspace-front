@@ -5,11 +5,10 @@ import type {
   UiCreateInterviewInput,
   UiCreateInterviewResult,
   UiInterviewHistoryItem,
-  UiInterviewReport,
   UiInterviewRuntimeModel,
   UiInterviewScenario,
-  UiInterviewSessionDetails,
   UiInterviewSessionId,
+  UiInterviewSummaryModel,
   UiInterviewSetupModel
 } from '../domain/models'
 
@@ -31,12 +30,8 @@ export interface InterviewGateway {
    */
   listInterviewScenarios(workspaceId: UiWorkspaceId): Promise<readonly UiInterviewScenario[]>
 
-  /**
-   * @brief 获取 REST 可还原的会话详情 / Get session details reconstructable through REST.
-   * @param sessionId 面试会话 ID / Interview session ID.
-   * @return 会话、场景和权威时长 / Session, scenario, and authoritative duration.
-   */
-  getInterviewSessionDetails(sessionId: UiInterviewSessionId): Promise<UiInterviewSessionDetails>
+  /** @brief 从同一会话快照加载场景量表与报告 / Load scenario rubric and report from one session snapshot. */
+  getInterviewSummary(sessionId: UiInterviewSessionId): Promise<UiInterviewSummaryModel>
 
   /** @brief 获取正式面试运行状态 / Get the live interview runtime state. */
   getInterviewRuntime(sessionId: UiInterviewSessionId): Promise<UiInterviewRuntimeModel>
@@ -50,11 +45,4 @@ export interface InterviewGateway {
    * @return 服务端确认请求后的空结果 / Empty result after server acknowledgement.
    */
   endInterview(sessionId: UiInterviewSessionId): Promise<void>
-
-  /**
-   * @brief 获取面试总结 / Get an interview summary.
-   * @param sessionId 面试会话 ID / Interview session ID.
-   * @return 面试报告展示模型 / Interview-report display model.
-   */
-  getInterviewReport(sessionId: UiInterviewSessionId): Promise<UiInterviewReport>
 }

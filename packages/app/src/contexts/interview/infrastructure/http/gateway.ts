@@ -5,11 +5,10 @@ import type {
   UiCreateInterviewInput,
   UiCreateInterviewResult,
   UiInterviewHistoryItem,
-  UiInterviewReport,
   UiInterviewRuntimeModel,
   UiInterviewScenario,
   UiInterviewSessionId,
-  UiInterviewSessionDetails,
+  UiInterviewSummaryModel,
   UiInterviewSetupModel
 } from '../../domain/models'
 import type { UiWorkspaceId } from '../../../../shared-kernel/identity'
@@ -377,9 +376,8 @@ export class HttpInterviewGateway implements InterviewGateway {
   }
 
   /** @inheritdoc */
-  async getInterviewSessionDetails(
-    sessionId: UiInterviewSessionId
-  ): Promise<UiInterviewSessionDetails> {
+  async getInterviewSummary(sessionId: UiInterviewSessionId): Promise<UiInterviewSummaryModel> {
+    /** @brief 总结所基于的单一会话快照 / Single session snapshot on which the summary is based. */
     const sessionResponse = await this.#client.getJson(
       `/interview-sessions/${encodeURIComponent(sessionId)}`
     )
@@ -389,14 +387,37 @@ export class HttpInterviewGateway implements InterviewGateway {
     }
     if (session.scenario_id === null) {
       throw new HttpContractError(
-        'Interview session has no scenario required by the summary projection.',
+        'Interview summary cannot be interpreted without its scenario rubric.',
         200
       )
     }
-    const scenarioResponse = await this.#client.getJson(
-      `/interview-scenarios/${encodeURIComponent(session.scenario_id)}`
-    )
-    return mapInterviewSessionDetails(session, parseInterviewScenarioDto(scenarioResponse.data))
+    if (session.report_id === null) {
+      throw new InterviewCapabilityError(
+        'report-not-ready',
+        'The Interview session has no completed report yet.'
+      )
+    }
+
+    /** @brief 从同一会话快照解析出的场景与报告读取 / Scenario and report reads derived from the same session snapshot. */
+    const [scenarioResponse, reportResponse] = await Promise.all([
+      this.#client.getJson(`/interview-scenarios/${encodeURIComponent(session.scenario_id)}`),
+      this.#client.getJson(`/interview-reports/${encodeURIComponent(session.report_id)}`)
+    ])
+    const scenario = parseInterviewScenarioDto(scenarioResponse.data)
+    const report = parseInterviewReportDto(reportResponse.data)
+    if (report.id !== session.report_id || report.session_id !== session.id) {
+      throw new HttpContractError(
+        'Backend returned a different Interview report than requested.',
+        200
+      )
+    }
+    if (scenario.id !== session.scenario_id || scenario.workspace_id !== session.workspace_id) {
+      throw new HttpContractError('Backend returned a scenario outside the Interview session.', 200)
+    }
+    return {
+      details: mapInterviewSessionDetails(session, scenario),
+      report: mapInterviewReportDto(report, scenario)
+    }
   }
 
   /** @inheritdoc */
@@ -420,34 +441,6 @@ export class HttpInterviewGateway implements InterviewGateway {
         'The end-request response contract is not frozen, so the UI cannot report a successful exit.'
       )
     )
-  }
-
-  /** @inheritdoc */
-  async getInterviewReport(sessionId: UiInterviewSessionId): Promise<UiInterviewReport> {
-    const sessionResponse = await this.#client.getJson(
-      `/interview-sessions/${encodeURIComponent(sessionId)}`
-    )
-    const session = parseInterviewSessionDto(sessionResponse.data)
-    if (session.id !== sessionId) {
-      throw new HttpContractError('Backend returned a different Interview session.', 200)
-    }
-    if (session.report_id === null) {
-      throw new InterviewCapabilityError(
-        'report-not-ready',
-        'The Interview session has no completed report yet.'
-      )
-    }
-    const reportResponse = await this.#client.getJson(
-      `/interview-reports/${encodeURIComponent(session.report_id)}`
-    )
-    const report = parseInterviewReportDto(reportResponse.data)
-    if (report.session_id !== session.id) {
-      throw new HttpContractError(
-        'Backend returned a report for a different Interview session.',
-        200
-      )
-    }
-    return mapInterviewReportDto(report)
   }
 
   /**

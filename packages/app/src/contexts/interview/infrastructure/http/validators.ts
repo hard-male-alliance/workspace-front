@@ -318,6 +318,16 @@ function parseRubric(value: unknown, path: string): InterviewRubricDto {
           1_000,
           false
         ),
+        scoring_scale: {
+          labels: Object.fromEntries(
+            Object.entries(labels).map(([labelKey, label], labelIndex) => [
+              labelKey,
+              string(label, `${dimensionPath}.scoring_scale.labels[${labelIndex}]`)
+            ])
+          ),
+          maximum: number(scoringScale.maximum, `${dimensionPath}.scoring_scale.maximum`),
+          minimum: number(scoringScale.minimum, `${dimensionPath}.scoring_scale.minimum`)
+        },
         weight: boundedNumber(dimension.weight, `${dimensionPath}.weight`, 0, 1)
       }
     }),
@@ -788,6 +798,10 @@ export function parseInterviewReportDto(value: unknown): InterviewReportDto {
         ? null
         : number(input.overall_score, 'interviewReport.overall_score'),
     report_version: boundedString(input.report_version, 'interviewReport.report_version', 1, 128),
+    rubric_ref: {
+      id: opaqueId(rubricRef.id, 'interviewReport.rubric_ref.id'),
+      version: boundedString(rubricRef.version, 'interviewReport.rubric_ref.version', 1, 128)
+    },
     rubric_scores: boundedArray(input.rubric_scores, 'interviewReport.rubric_scores', 1, 100).map(
       (item, index) => {
         /** @brief 当前量表得分路径 / Current rubric-score path. */

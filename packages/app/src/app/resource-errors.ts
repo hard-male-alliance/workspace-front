@@ -93,7 +93,11 @@ export function classifyResourceFailure(error: unknown): ResourceFailure {
       if (typeof error.status === 'number' && error.status >= 500) {
         return { kind: 'service-unavailable', referenceId: null, retryable: true }
       }
-      return { kind: 'invalid-response', referenceId: null, retryable: true }
+      return {
+        kind: 'invalid-response',
+        referenceId: null,
+        retryable: typeof error.status !== 'number' || error.status < 400
+      }
     }
     if (name === 'HttpCommandOutcomeUnknownError') {
       return { kind: 'outcome-unknown', referenceId: null, retryable: false }
@@ -120,4 +124,18 @@ export function classifyResourceFailure(error: unknown): ResourceFailure {
   }
 
   return { kind: 'unknown', referenceId: null, retryable: true }
+}
+
+/**
+ * @brief 判断失败后是否必须先重新读取权威资源 / Determine whether authority must be re-read after a failure.
+ * @param error 应用端口返回的未知错误 / Unknown error returned by an application port.
+ * @return 结果未知或可信 HTTP 状态表示并发冲突时为 true / True for an unknown outcome or a trusted HTTP concurrency status.
+ * @note 409/412 的响应正文即使违反 ProblemDetails，HTTP 状态仍足以阻止同一写命令盲目重放；用户文案仍保持 invalid-response，不采信违约正文。
+ * Even when a 409/412 body violates ProblemDetails, the HTTP status is sufficient to prevent blind replay; user copy remains invalid-response and never trusts the invalid body.
+ */
+export function requiresAuthorityReload(error: unknown): boolean {
+  /** @brief 已脱敏的通用失败类别 / Sanitized general failure category. */
+  const failure = classifyResourceFailure(error)
+  if (failure.kind === 'conflict' || failure.kind === 'outcome-unknown') return true
+  return isRecord(error) && (error.status === 409 || error.status === 412)
 }

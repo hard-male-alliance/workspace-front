@@ -5,10 +5,9 @@ import type {
   UiCreateInterviewInput,
   UiCreateInterviewResult,
   UiInterviewHistoryItem,
-  UiInterviewReport,
   UiInterviewRuntimeModel,
   UiInterviewScenario,
-  UiInterviewSessionDetails,
+  UiInterviewSummaryModel,
   UiInterviewSetupModel,
   UiInterviewSessionId
 } from '../../domain/models'
@@ -103,21 +102,22 @@ export class InMemoryInterviewGateway implements InterviewGateway {
   }
 
   /** @inheritdoc */
-  async getInterviewSessionDetails(
-    sessionId: UiInterviewSessionId
-  ): Promise<UiInterviewSessionDetails> {
+  async getInterviewSummary(sessionId: UiInterviewSessionId): Promise<UiInterviewSummaryModel> {
     const mode = await prepareMemoryRead(this.options)
     if (mode === 'empty' || sessionId !== DEMO_INTERVIEW_SESSION_ID) {
-      return throwMemoryNotFound('interview session details')
+      return throwMemoryNotFound('interview summary')
     }
     return cloneMemoryValue({
-      durationMinutes: 38,
-      scenario: DEMO_SYSTEM_DESIGN_SCENARIO,
-      session: {
-        ...DEMO_INTERVIEW_SESSION,
-        endedAt: '2026-07-15T03:58:00.000Z',
-        status: 'completed' as const
-      }
+      details: {
+        durationMinutes: 38,
+        scenario: DEMO_SYSTEM_DESIGN_SCENARIO,
+        session: {
+          ...DEMO_INTERVIEW_SESSION,
+          endedAt: '2026-07-15T03:58:00.000Z',
+          status: 'completed' as const
+        }
+      },
+      report: DEMO_INTERVIEW_REPORT
     })
   }
 
@@ -162,19 +162,5 @@ export class InMemoryInterviewGateway implements InterviewGateway {
   /** @inheritdoc */
   async endInterview(sessionId: UiInterviewSessionId): Promise<void> {
     await this.getInterviewRuntime(sessionId)
-  }
-
-  /**
-   * @brief 获取演示面试总结 / Get the demo interview report.
-   * @param sessionId 面试会话 ID / Interview session ID.
-   * @return 演示面试报告 / Demo interview report.
-   */
-  async getInterviewReport(sessionId: UiInterviewSessionId): Promise<UiInterviewReport> {
-    const mode = await prepareMemoryRead(this.options)
-    if (mode === 'empty' || sessionId !== DEMO_INTERVIEW_SESSION_ID) {
-      return throwMemoryNotFound('interview report')
-    }
-
-    return cloneMemoryValue(DEMO_INTERVIEW_REPORT)
   }
 }

@@ -11,8 +11,8 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router-dom'
 import { useAsyncResource, useResumeGateway } from '../../../app/AppData'
-import { ResourceErrorState } from '../../../app/ResourceErrorState'
-import { classifyResourceFailure } from '../../../app/resource-errors'
+import { ResourceErrorState, ResourceFailureMessage } from '../../../app/ResourceErrorState'
+import { requiresAuthorityReload } from '../../../app/resource-errors'
 import { asUiOpaqueId } from '../../../shared-kernel/identity'
 import { LoadingState } from '../../../ui'
 import type {
@@ -679,15 +679,12 @@ function TemplateSettingsContent({
   const [saveError, setSaveError] = useState<unknown>(null)
   /** @brief 是否正在重新读取服务端权威设置 / Whether authoritative server settings are being reloaded. */
   const [isReloadingAuthority, setReloadingAuthority] = useState(false)
-  /** @brief 权威设置重新读取是否失败 / Whether reloading authoritative settings failed. */
-  const [authorityReloadError, setAuthorityReloadError] = useState(false)
-  /** @brief 最近保存错误的安全类别 / Safe category of the latest save error. */
-  const saveFailureKind = saveError === null ? null : classifyResourceFailure(saveError).kind
+  /** @brief 权威设置重新读取错误 / Authoritative-settings reload error. */
+  const [authorityReloadError, setAuthorityReloadError] = useState<unknown>(null)
   /** @brief 是否必须先重新读取权威版本 / Whether the authoritative version must be reloaded first. */
   const authorityReloadRequired =
-    saveFailureKind === 'conflict' ||
-    saveFailureKind === 'outcome-unknown' ||
-    isResumeOperationRejected(saveError)
+    saveError !== null &&
+    (requiresAuthorityReload(saveError) || isResumeOperationRejected(saveError))
   /** @brief 写响应待定或权威恢复前是否冻结编辑 / Whether editing is frozen while a write is pending or authority must be recovered. */
   const isWriteLocked = saveStatus === 'saving' || authorityReloadRequired
   /** @brief 当前展示的模板 / Currently displayed template. */
@@ -798,7 +795,7 @@ function TemplateSettingsContent({
   const reloadAuthoritativeSettings = useCallback(async (): Promise<void> => {
     if (isReloadingAuthority) return
     setReloadingAuthority(true)
-    setAuthorityReloadError(false)
+    setAuthorityReloadError(null)
     try {
       /** @brief 服务端当前权威模板设置 / Current authoritative template settings from the service. */
       const authoritative = await gateway.getTemplateSettings(model.resumeId)
@@ -841,8 +838,8 @@ function TemplateSettingsContent({
         setSaveStatus('idle')
       }
       setSaveError(null)
-    } catch {
-      setAuthorityReloadError(true)
+    } catch (error: unknown) {
+      setAuthorityReloadError(error)
     } finally {
       setReloadingAuthority(false)
     }
@@ -1225,11 +1222,14 @@ function TemplateSettingsContent({
             title={t('template.saveFailed', { defaultValue: '无法保存模板设置' })}
           />
         ) : null}
-        {saveStatus === 'error' && authorityReloadError ? (
+        {saveStatus === 'error' && authorityReloadError !== null ? (
           <div className="aw-inline-error" role="alert">
-            {t('resume.workspace.reloadAuthorityError', {
-              defaultValue: '无法重新加载服务器版本，请重试。'
-            })}
+            <strong>
+              {t('resume.workspace.reloadAuthorityError', {
+                defaultValue: '无法重新加载服务器版本。'
+              })}
+            </strong>{' '}
+            <ResourceFailureMessage error={authorityReloadError} />
           </div>
         ) : null}
       </section>

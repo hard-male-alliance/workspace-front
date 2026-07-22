@@ -21,6 +21,11 @@ export interface InterviewRubricDimensionDto {
   readonly name: string
   readonly weight: number
   readonly observable_indicators: readonly string[]
+  readonly scoring_scale: {
+    readonly minimum: number
+    readonly maximum: number
+    readonly labels: Readonly<Record<string, string>>
+  }
 }
 
 /** @brief 评估量表 DTO / Evaluation-rubric DTO. */
@@ -107,6 +112,10 @@ export interface InterviewReportDto {
   readonly id: string
   readonly session_id: string
   readonly report_version: string
+  readonly rubric_ref: {
+    readonly id: string
+    readonly version: string
+  }
   readonly overall_score: number | null
   readonly overall_confidence: number
   readonly executive_summary: InterviewRichTextDto

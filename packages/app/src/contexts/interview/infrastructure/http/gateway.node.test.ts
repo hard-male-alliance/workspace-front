@@ -7,8 +7,24 @@ import {
   type HttpInterviewGatewayOptions
 } from './gateway'
 
+/** @brief 构造契约有效的量表维度 / Build a contract-valid rubric dimension. */
+function rubricDimension(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    description: null,
+    dimension_id: 'dimension_clarity',
+    name: '表达清晰度',
+    observable_indicators: ['结构清晰'],
+    scoring_scale: { labels: { '5': '优秀' }, maximum: 5, minimum: 1 },
+    weight: 1,
+    ...overrides
+  }
+}
+
 /** @brief 构造契约有效的场景响应 / Build a contract-valid scenario response. */
-function scenario(id = 'scenario_one'): Record<string, unknown> {
+function scenario(
+  id = 'scenario_one',
+  rubricOverrides: Record<string, unknown> = {}
+): Record<string, unknown> {
   return {
     allow_barge_in: true,
     allow_followups: true,
@@ -23,24 +39,29 @@ function scenario(id = 'scenario_one'): Record<string, unknown> {
     name: '综合面试',
     revision: 1,
     rubric: {
-      dimensions: [
-        {
-          description: null,
-          dimension_id: 'dimension_clarity',
-          name: '表达清晰度',
-          observable_indicators: ['结构清晰'],
-          scoring_scale: { labels: { '5': '优秀' }, maximum: 5, minimum: 1 },
-          weight: 1
-        }
-      ],
+      dimensions: [rubricDimension()],
       name: '标准量表',
       overall_scale: { maximum: 100, minimum: 0 },
       rubric_id: 'rubric_standard',
-      rubric_version: '1.0'
+      rubric_version: '1.0',
+      ...rubricOverrides
     },
     target_question_count: 5,
     updated_at: '2026-07-20T00:00:00Z',
     workspace_id: 'workspace_one'
+  }
+}
+
+/** @brief 构造契约有效的量表维度分数 / Build a contract-valid rubric-dimension score. */
+function rubricScore(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    confidence: 0.9,
+    dimension_id: 'dimension_clarity',
+    evidence: [{ end_ms: 20_000, quote: '先给结论', segment_id: 'segment_one', start_ms: 0 }],
+    improvement_actions: ['补充约束'],
+    score: 4,
+    summary: richText('结构清晰'),
+    ...overrides
   }
 }
 
@@ -117,7 +138,7 @@ function richText(text: string): Record<string, unknown> {
 }
 
 /** @brief 构造契约有效的报告响应 / Build a contract-valid report response. */
-function report(): Record<string, unknown> {
+function report(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     action_plan: [
       {
@@ -150,21 +171,30 @@ function report(): Record<string, unknown> {
     report_version: '1.0',
     revision: 1,
     rubric_ref: { id: 'rubric_standard', version: '1.0' },
-    rubric_scores: [
-      {
-        confidence: 0.9,
-        dimension_id: 'dimension_clarity',
-        evidence: [{ end_ms: 20_000, quote: '先给结论', segment_id: 'segment_one', start_ms: 0 }],
-        improvement_actions: ['补充约束'],
-        score: 4,
-        summary: richText('结构清晰')
-      }
-    ],
+    rubric_scores: [rubricScore()],
     session_id: 'session_one',
     strengths: [richText('表达清晰')],
     transcript_artifact_id: null,
-    updated_at: '2026-07-20T00:31:00Z'
+    updated_at: '2026-07-20T00:31:00Z',
+    ...overrides
   }
+}
+
+/**
+ * @brief 构造总结聚合的三次权威读取 / Build the three authoritative reads for a summary aggregate.
+ * @param scenarioPayload 场景响应 / Scenario response.
+ * @param reportPayload 报告响应 / Report response.
+ * @return 按会话、场景、报告顺序响应的 fetch 替身 / Fetch double responding with session, scenario, and report in order.
+ */
+function summaryFetch(
+  scenarioPayload: Record<string, unknown>,
+  reportPayload: Record<string, unknown>
+): ReturnType<typeof vi.fn<typeof fetch>> {
+  return vi
+    .fn<typeof fetch>()
+    .mockResolvedValueOnce(Response.json(session()))
+    .mockResolvedValueOnce(Response.json(scenarioPayload))
+    .mockResolvedValueOnce(Response.json(reportPayload))
 }
 
 /** @brief 构造游标列表响应 / Build a cursor-list response. */
@@ -445,38 +475,205 @@ describe('HttpInterviewGateway', (): void => {
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json(session()))
+      .mockResolvedValueOnce(Response.json(scenario()))
       .mockResolvedValueOnce(Response.json(report()))
     const gateway = new HttpInterviewGateway(
       createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl }),
       options
     )
 
-    const result = await gateway.getInterviewReport('session_one' as never)
+    const result = await gateway.getInterviewSummary('session_one' as never)
 
-    expect(result).toMatchObject({
+    expect(result.report).toMatchObject({
       executiveSummary: '整体表现稳定',
       improvements: ['补充权衡'],
       strengths: ['表达清晰']
     })
   })
 
-  it('derives summary session duration from authoritative REST timestamps', async (): Promise<void> => {
-    const fetchImpl = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(Response.json(session()))
-      .mockResolvedValueOnce(Response.json(scenario()))
+  it('interprets a non-percent report through the exact scenario rubric from one session snapshot', async (): Promise<void> => {
+    /** @brief 使用 1..5 总分量表的场景响应 / Scenario response using a 1..5 overall scale. */
+    const scenarioPayload = scenario('scenario_one', {
+      dimensions: [
+        rubricDimension(),
+        rubricDimension({
+          dimension_id: 'dimension_systems',
+          name: '系统性'
+        })
+      ],
+      overall_scale: { maximum: 5, minimum: 1 }
+    })
+    /** @brief 与该场景量表一致的报告响应 / Report response consistent with that scenario rubric. */
+    const reportPayload = report({ overall_score: 4 })
+    /** @brief 可观察总结聚合读取次数与地址的网络替身 / Network double exposing summary read count and URLs. */
+    const fetchImpl = summaryFetch(scenarioPayload, reportPayload)
+    /** @brief 被测 Interview Gateway / Interview Gateway under test. */
     const gateway = new HttpInterviewGateway(
       createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl }),
       options
     )
 
-    const details = await gateway.getInterviewSessionDetails('session_one' as never)
+    const result = await gateway.getInterviewSummary('session_one' as never)
+
+    expect(result.report).toMatchObject({
+      overallMaximumScore: 5,
+      overallMinimumScore: 1,
+      overallScore: 4,
+      rubricScores: [
+        expect.objectContaining({
+          dimensionId: 'dimension_clarity',
+          dimensionName: '表达清晰度',
+          maximumScore: 5,
+          minimumScore: 1,
+          score: 4
+        })
+      ]
+    })
+    expect(result.details.scenario.rubric.dimensions).toHaveLength(2)
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
+    expect(fetchUrl(fetchImpl, 0)).toBe(
+      'http://127.0.0.1:8000/api/v1/interview-sessions/session_one'
+    )
+    expect(fetchUrl(fetchImpl, 1)).toBe(
+      'http://127.0.0.1:8000/api/v1/interview-scenarios/scenario_one'
+    )
+    expect(fetchUrl(fetchImpl, 2)).toBe('http://127.0.0.1:8000/api/v1/interview-reports/report_one')
+  })
+
+  it.each([
+    {
+      caseName: 'a different rubric ID',
+      reportPayload: report({ rubric_ref: { id: 'rubric_other', version: '1.0' } }),
+      scenarioPayload: scenario()
+    },
+    {
+      caseName: 'a different rubric version',
+      reportPayload: report({ rubric_ref: { id: 'rubric_standard', version: '2.0' } }),
+      scenarioPayload: scenario()
+    },
+    {
+      caseName: 'an overall score above its scale',
+      reportPayload: report({ overall_score: 6 }),
+      scenarioPayload: scenario('scenario_one', {
+        overall_scale: { maximum: 5, minimum: 1 }
+      })
+    },
+    {
+      caseName: 'a dimension score above its scale',
+      reportPayload: report({ rubric_scores: [rubricScore({ score: 6 })] }),
+      scenarioPayload: scenario()
+    },
+    {
+      caseName: 'an unknown dimension ID',
+      reportPayload: report({
+        rubric_scores: [rubricScore({ dimension_id: 'dimension_unknown' })]
+      }),
+      scenarioPayload: scenario()
+    },
+    {
+      caseName: 'a duplicate dimension score',
+      reportPayload: report({ rubric_scores: [rubricScore(), rubricScore()] }),
+      scenarioPayload: scenario()
+    },
+    {
+      caseName: 'a non-positive overall scale',
+      reportPayload: report(),
+      scenarioPayload: scenario('scenario_one', {
+        overall_scale: { maximum: 1, minimum: 1 }
+      })
+    },
+    {
+      caseName: 'a non-positive dimension scale',
+      reportPayload: report(),
+      scenarioPayload: scenario('scenario_one', {
+        dimensions: [
+          rubricDimension({
+            scoring_scale: { labels: {}, maximum: 5, minimum: 5 }
+          })
+        ]
+      })
+    }
+  ])(
+    'fails closed when the summary combines $caseName',
+    async ({ reportPayload, scenarioPayload }): Promise<void> => {
+      /** @brief 当前无效组合对应的网络替身 / Network double for the current invalid combination. */
+      const fetchImpl = summaryFetch(scenarioPayload, reportPayload)
+      /** @brief 被测 Interview Gateway / Interview Gateway under test. */
+      const gateway = new HttpInterviewGateway(
+        createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl }),
+        options
+      )
+
+      await expect(gateway.getInterviewSummary('session_one' as never)).rejects.toMatchObject({
+        name: 'HttpContractError'
+      })
+    }
+  )
+
+  it.each([
+    {
+      caseName: 'references another rubric',
+      reportPayload: report({ rubric_ref: { id: 'rubric_other', version: '1.0' } }),
+      scenarioPayload: scenario()
+    },
+    {
+      caseName: 'contains an out-of-range score',
+      reportPayload: report({ rubric_scores: [rubricScore({ score: 6 })] }),
+      scenarioPayload: scenario()
+    }
+  ])(
+    'fails closed when completed history $caseName',
+    async ({ reportPayload, scenarioPayload }): Promise<void> => {
+      /** @brief 返回一条完成会话及其关联资源的网络替身 / Network double returning one completed session and its related resources. */
+      const fetchImpl = vi.fn<typeof fetch>().mockImplementation((input) => {
+        const url =
+          typeof input === 'string'
+            ? input
+            : input instanceof Request
+              ? input.url
+              : input.toString()
+        if (url.includes('/interview-sessions?')) return Promise.resolve(page([session()]))
+        if (url.includes('/interview-scenarios/')) {
+          return Promise.resolve(Response.json(scenarioPayload))
+        }
+        if (url.includes('/interview-reports/')) {
+          return Promise.resolve(Response.json(reportPayload))
+        }
+        throw new Error(`Unexpected URL: ${url}`)
+      })
+      /** @brief 被测 Interview Gateway / Interview Gateway under test. */
+      const gateway = new HttpInterviewGateway(
+        createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl }),
+        options
+      )
+
+      await expect(gateway.listCompletedInterviews('workspace_one' as never)).rejects.toMatchObject(
+        {
+          name: 'HttpContractError'
+        }
+      )
+    }
+  )
+
+  it('derives summary session duration from authoritative REST timestamps', async (): Promise<void> => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json(session()))
+      .mockResolvedValueOnce(Response.json(scenario()))
+      .mockResolvedValueOnce(Response.json(report()))
+    const gateway = new HttpInterviewGateway(
+      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl }),
+      options
+    )
+
+    const { details } = await gateway.getInterviewSummary('session_one' as never)
 
     expect(details).toMatchObject({
       durationMinutes: 30,
       scenario: { id: 'scenario_one' },
       session: { id: 'session_one' }
     })
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
   })
 
   it('rejects an unusable session before POST and never returns fake realtime state', async (): Promise<void> => {

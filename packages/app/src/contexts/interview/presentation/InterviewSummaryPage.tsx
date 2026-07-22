@@ -17,22 +17,14 @@ import { ResourceErrorState } from '../../../app/ResourceErrorState'
 import { asUiOpaqueId } from '../../../shared-kernel/identity'
 import { LoadingState } from '../../../ui'
 
-function getDimensionLabel(
-  dimensionId: string,
-  translate: ReturnType<typeof useTranslation>['t']
-): string {
-  const labels: Readonly<Record<string, string>> = {
-    rub_dim_problem_framing: translate('interviewSummary.relevance', {
-      defaultValue: '内容相关性'
-    }),
-    rub_dim_reliability: translate('interviewSummary.structure', { defaultValue: '回答结构' }),
-    rub_dim_architecture: translate('interviewSummary.depth', { defaultValue: '专业深度' }),
-    rub_dim_evidence: translate('interviewSummary.evidenceDimension', {
-      defaultValue: '案例与证据'
-    }),
-    rub_dim_communication: translate('interviewSummary.delivery', { defaultValue: '表达与节奏' })
-  }
-  return labels[dimensionId] ?? dimensionId
+/** @brief 将量表范围格式化为紧凑展示 / Format a score scale as compact display text. */
+function formatScoreScale(minimum: number, maximum: number): string {
+  return minimum === 0 ? `/ ${maximum}` : `[${minimum}–${maximum}]`
+}
+
+/** @brief 将任意有效量表分数归一化为进度条百分比 / Normalize a score from any valid scale into a progress percentage. */
+function normalizeScore(score: number, minimum: number, maximum: number): number {
+  return ((score - minimum) / (maximum - minimum)) * 100
 }
 
 function InterviewSummary({
@@ -59,7 +51,7 @@ function InterviewSummary({
           aria-label={t('interviewSummary.overallScore', { defaultValue: '总评分' })}
         >
           <strong>{report.overallScore ?? '—'}</strong>
-          <span>/ 100</span>
+          <span>{formatScoreScale(report.overallMinimumScore, report.overallMaximumScore)}</span>
         </div>
       </header>
 
@@ -105,18 +97,24 @@ function InterviewSummary({
             {report.rubricScores.map((score) => (
               <div className="aw-score-bar-row" key={score.dimensionId}>
                 <div>
-                  <span>{getDimensionLabel(score.dimensionId, t)}</span>
-                  <strong>{score.score}</strong>
+                  <span>{score.dimensionName}</span>
+                  <strong>
+                    {score.score} {formatScoreScale(score.minimumScore, score.maximumScore)}
+                  </strong>
                 </div>
                 <div
-                  aria-label={`${getDimensionLabel(score.dimensionId, t)} ${score.score}`}
-                  aria-valuemax={100}
-                  aria-valuemin={0}
+                  aria-label={`${score.dimensionName} ${score.score}`}
+                  aria-valuemax={score.maximumScore}
+                  aria-valuemin={score.minimumScore}
                   aria-valuenow={score.score}
                   className="aw-score-track"
                   role="progressbar"
                 >
-                  <span style={{ width: `${score.score}%` }} />
+                  <span
+                    style={{
+                      width: `${normalizeScore(score.score, score.minimumScore, score.maximumScore)}%`
+                    }}
+                  />
                 </div>
               </div>
             ))}
@@ -164,8 +162,10 @@ function InterviewSummary({
           {report.rubricScores.map((score) => (
             <details className="aw-evidence-item" key={score.dimensionId}>
               <summary>
-                <span>{getDimensionLabel(score.dimensionId, t)}</span>
-                <strong>{score.score}</strong>
+                <span>{score.dimensionName}</span>
+                <strong>
+                  {score.score} {formatScoreScale(score.minimumScore, score.maximumScore)}
+                </strong>
               </summary>
               <p>{score.summary}</p>
               {score.evidence.map((evidence) => (

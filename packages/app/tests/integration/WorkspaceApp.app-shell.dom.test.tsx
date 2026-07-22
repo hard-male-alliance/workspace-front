@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { InMemoryWorkspaceGateway } from '@ai-job-workspace/app/testing'
+import { HttpProblemError } from '@ai-job-workspace/app/http'
 
 import {
   createTestGateways,
@@ -86,6 +87,32 @@ describe('WorkspaceApp app shell', (): void => {
 
     fireEvent.click(screen.getByRole('button', { name: '重试' }))
     expect(loadWorkspaceAccess).toHaveBeenCalledTimes(2)
+  })
+
+  it('turns a Workspace 401 into localized guidance without exposing ProblemDetails text', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('en-US')
+    /** @brief 返回真实 HTTP 身份失败语义的 Workspace 端口 / Workspace port returning real HTTP authentication-failure semantics. */
+    const workspace = {
+      loadAccess: vi.fn().mockRejectedValue(
+        new HttpProblemError({
+          code: 'auth.token_expired',
+          detail: 'private auth detail at https://internal.example.test/oidc',
+          requestId: 'req_auth_12345678',
+          retryable: false,
+          retryAfterMs: null,
+          status: 401,
+          title: 'private authentication title'
+        })
+      )
+    }
+
+    render(<WorkspaceApp gateways={createTestGateways({ workspace })} initialPath="/" />)
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('This content requires sign-in')
+    expect(alert).toHaveTextContent('Support reference: req_auth_12345678')
+    expect(alert).not.toHaveTextContent(/private|internal\.example/u)
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument()
   })
 
   it('renders only the runtime identity injected by its host composition root', async (): Promise<void> => {

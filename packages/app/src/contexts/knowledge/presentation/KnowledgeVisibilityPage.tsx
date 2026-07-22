@@ -13,8 +13,8 @@ import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router-dom'
 import { useAsyncResource, useKnowledgeGateway } from '../../../app/AppData'
-import { ResourceErrorState } from '../../../app/ResourceErrorState'
-import { classifyResourceFailure } from '../../../app/resource-errors'
+import { ResourceErrorState, ResourceFailureMessage } from '../../../app/ResourceErrorState'
+import { requiresAuthorityReload } from '../../../app/resource-errors'
 import { asUiOpaqueId } from '../../../shared-kernel/identity'
 import { LoadingState } from '../../../ui'
 import type { KnowledgeGateway } from '../application/gateway'
@@ -217,14 +217,11 @@ function KnowledgeVisibilityContent({
   >({ status: 'idle' })
   /** @brief 是否正在重新读取权威策略 / Whether the authoritative policy is being reloaded. */
   const [isReloadingAuthority, setReloadingAuthority] = useState(false)
-  /** @brief 权威策略重新读取是否失败 / Whether reloading the authoritative policy failed. */
-  const [authorityReloadError, setAuthorityReloadError] = useState(false)
-  /** @brief 最近保存错误的安全类别 / Safe category of the latest save error. */
-  const saveFailureKind =
-    saveState.status === 'error' ? classifyResourceFailure(saveState.error).kind : null
+  /** @brief 权威策略重新读取错误 / Authoritative-policy reload error. */
+  const [authorityReloadError, setAuthorityReloadError] = useState<unknown>(null)
   /** @brief 是否必须先重新读取权威授权策略 / Whether the authoritative authorization policy must be reloaded first. */
   const authorityReloadRequired =
-    saveFailureKind === 'conflict' || saveFailureKind === 'outcome-unknown'
+    saveState.status === 'error' && requiresAuthorityReload(saveState.error)
   /** @brief 当前开关草稿是否不同于最近权威策略 / Whether the toggle draft differs from the latest authoritative policy. */
   const isDirty =
     sessionOverrideAllowed !== model.source.visibility.sessionOverrideAllowed ||
@@ -274,7 +271,7 @@ function KnowledgeVisibilityContent({
   const reloadAuthoritativeVisibility = useCallback(async (): Promise<void> => {
     if (isReloadingAuthority) return
     setReloadingAuthority(true)
-    setAuthorityReloadError(false)
+    setAuthorityReloadError(null)
     try {
       /** @brief 服务端当前权威可见性模型 / Current authoritative visibility model from the service. */
       const authoritative = await gateway.getKnowledgeVisibility(model.source.id)
@@ -290,8 +287,8 @@ function KnowledgeVisibilityContent({
       } else {
         setSaveState({ status: 'idle' })
       }
-    } catch {
-      setAuthorityReloadError(true)
+    } catch (error: unknown) {
+      setAuthorityReloadError(error)
     } finally {
       setReloadingAuthority(false)
     }
@@ -370,11 +367,14 @@ function KnowledgeVisibilityContent({
               : {})}
             title={t('visibility.saveFailed', { defaultValue: '无法保存可见性策略' })}
           />
-          {authorityReloadError ? (
+          {authorityReloadError !== null ? (
             <div className="aw-inline-error" role="alert">
-              {t('visibility.reloadFailed', {
-                defaultValue: '无法重新加载权威可见性策略，请重试。'
-              })}
+              <strong>
+                {t('visibility.reloadFailed', {
+                  defaultValue: '无法重新加载权威可见性策略。'
+                })}
+              </strong>{' '}
+              <ResourceFailureMessage error={authorityReloadError} />
             </div>
           ) : null}
         </div>

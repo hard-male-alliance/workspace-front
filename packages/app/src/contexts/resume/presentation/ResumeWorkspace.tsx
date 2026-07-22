@@ -17,7 +17,7 @@ import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { runDiagnosticCommand, useDiagnostics } from '../../../app/Diagnostics'
 import { useArtifactSave } from '../../../app/Host'
-import { ResourceErrorState } from '../../../app/ResourceErrorState'
+import { ResourceErrorState, ResourceFailureMessage } from '../../../app/ResourceErrorState'
 import { classifyResourceFailure } from '../../../app/resource-errors'
 import { sanitizePdfFileName } from '@ai-job-workspace/platform'
 import { createUiCommandId, type UiCommandId } from '../../../shared-kernel/command'
@@ -62,6 +62,14 @@ interface ResumeSectionSaveFailure {
   readonly sectionId: UiResumeSectionId
   /** @brief 失败的显式字段修改 / Explicit field change that failed. */
   readonly field: 'title' | 'content'
+}
+
+/** @brief 板块结构操作的安全失败状态 / Safe failure state for a section-structure operation. */
+interface ResumeStructureFailure {
+  /** @brief 未向用户直接展示的技术错误 / Technical error not displayed directly to the user. */
+  readonly error: unknown
+  /** @brief 保留动作上下文的安全本地化标题 / Safe localized title preserving action context. */
+  readonly title: string
 }
 
 /** @brief 必须先通过权威读取恢复的简历写状态 / Resume-write state requiring an authoritative read before recovery. */
@@ -365,8 +373,8 @@ function ResumeSectionsEditor({
   const [savingSectionId, setSavingSectionId] = useState<UiResumeSectionId | null>(null)
   /** @brief 最近一次板块保存失败 / Latest section-save failure. */
   const [saveFailure, setSaveFailure] = useState<ResumeSectionSaveFailure | null>(null)
-  /** @brief 结构操作的安全用户错误 / Safe user-facing structural-operation error. */
-  const [structureError, setStructureError] = useState<string | null>(null)
+  /** @brief 结构操作的安全失败状态 / Safe structural-operation failure state. */
+  const [structureFailure, setStructureFailure] = useState<ResumeStructureFailure | null>(null)
 
   useEffect((): void => {
     setDrafts((current) => {
@@ -443,7 +451,7 @@ function ResumeSectionsEditor({
       )
       if (next === null) return
       onEditorChange(next)
-      setStructureError(null)
+      setStructureFailure(null)
       setDrafts((current) => {
         /** @brief 回包成功响应中的权威板块 / Authoritative section returned in the successful response. */
         const confirmedSection = next.resume.sections.find((item) => item.id === section.id)
@@ -491,10 +499,13 @@ function ResumeSectionsEditor({
       )
       if (next === null) return
       onEditorChange(next)
-      setStructureError(null)
+      setStructureFailure(null)
     } catch (reason: unknown) {
       if (onMutationError(reason)) return
-      setStructureError(t('resume.workspace.reorderError', { defaultValue: '无法调整板块顺序。' }))
+      setStructureFailure({
+        error: reason,
+        title: t('resume.workspace.reorderError', { defaultValue: '无法调整板块顺序。' })
+      })
     }
   }
 
@@ -535,12 +546,15 @@ function ResumeSectionsEditor({
       )
       if (next === null) return
       onEditorChange(next)
-      setStructureError(null)
+      setStructureFailure(null)
       setFocusedSectionId(next.resume.sections.at(0)?.id ?? null)
       setDeleteCandidate(null)
     } catch (reason: unknown) {
       if (onMutationError(reason)) return
-      setStructureError(t('resume.workspace.deleteError', { defaultValue: '无法删除这个板块。' }))
+      setStructureFailure({
+        error: reason,
+        title: t('resume.workspace.deleteError', { defaultValue: '无法删除这个板块。' })
+      })
     }
   }
 
@@ -574,9 +588,10 @@ function ResumeSectionsEditor({
           {t('resume.workspace.editorHint', { defaultValue: '浏览全部板块，点击后聚焦编辑。' })}
         </p>
       </div>
-      {structureError !== null ? (
+      {structureFailure !== null ? (
         <div className="aw-inline-error" role="alert">
-          {structureError}
+          <strong>{structureFailure.title}</strong>{' '}
+          <ResourceFailureMessage error={structureFailure.error} />
         </div>
       ) : null}
       {saveFailure !== null ? (
@@ -738,6 +753,7 @@ function ResumePreviewPanel({
   generation,
   gateway,
   isWriteLocked,
+  onAuthorityConflict,
   pdfSupported
 }: {
   readonly editor: UiResumeEditorModel
@@ -745,6 +761,8 @@ function ResumePreviewPanel({
   readonly gateway: ResumeGateway
   /** @brief 文档权威状态未恢复时禁止创建新 Job / Prevent new Job creation until document authority is recovered. */
   readonly isWriteLocked: boolean
+  /** @brief 将并发冲突提升到 Resume 聚合恢复状态 / Promote a concurrency conflict to Resume aggregate recovery. */
+  readonly onAuthorityConflict: (status: ResumeConflictStatus) => void
   readonly pdfSupported: boolean
 }): React.JSX.Element {
   const { t } = useTranslation()
@@ -761,8 +779,8 @@ function ResumePreviewPanel({
   const [isSaving, setSaving] = useState(false)
   /** @brief 产物保存的可访问状态 / Accessible artifact-save status. */
   const [saveStatus, setSaveStatus] = useState<string | null>(null)
-  /** @brief 产物保存失败消息 / Artifact-save failure message. */
-  const [saveError, setSaveError] = useState<string | null>(null)
+  /** @brief 产物保存失败 / Artifact-save failure. */
+  const [saveError, setSaveError] = useState<unknown>(null)
   const renderAbortRef = useRef<AbortController | null>(null)
   /** @brief 当前仍允许提交异步结果的预览代际 / Preview generation still allowed to commit async results. */
   const activeGenerationRef = useRef<string | null>(generation)
@@ -773,6 +791,9 @@ function ResumePreviewPanel({
     error !== null && job !== null && ['queued', 'running'].includes(job.status)
   /** @brief 是否必须用同一幂等键确认 Job 创建结果 / Whether Job creation must be confirmed with the same idempotency key. */
   const mustConfirmStart = renderFailure?.kind === 'outcome-unknown' && startCommandId !== null
+  /** @brief 产物保存结果是否无法确认 / Whether the artifact-save outcome cannot be confirmed. */
+  const saveOutcomeUnknown =
+    saveError !== null && classifyResourceFailure(saveError).kind === 'outcome-unknown'
 
   useEffect((): (() => void) => {
     activeGenerationRef.current = generation
@@ -869,6 +890,13 @@ function ResumePreviewPanel({
       )
     } catch (reason: unknown) {
       if (canCommitGeneration(expectedGeneration, controller.signal)) {
+        /** @brief PDF 生成返回的权威并发冲突 / Authoritative concurrency conflict returned by PDF generation. */
+        const conflictStatus = getResumeConflictStatus(reason)
+        if (conflictStatus !== null) {
+          setStartCommandId(null)
+          onAuthorityConflict(conflictStatus)
+          return
+        }
         setError(reason)
         if (classifyResourceFailure(reason).kind !== 'outcome-unknown') {
           setStartCommandId(null)
@@ -912,9 +940,9 @@ function ResumePreviewPanel({
       } else {
         setSaveStatus(t('resume.workspace.pdfSaveCancelled', { defaultValue: '已取消保存。' }))
       }
-    } catch {
+    } catch (error: unknown) {
       if (canCommitGeneration(expectedGeneration)) {
-        setSaveError(t('resume.workspace.pdfSaveError', { defaultValue: 'PDF 保存失败，请重试。' }))
+        setSaveError(error)
       }
     } finally {
       if (canCommitGeneration(expectedGeneration)) setSaving(false)
@@ -972,7 +1000,7 @@ function ResumePreviewPanel({
         {artifact !== null ? (
           <button
             className="aw-quiet-button"
-            disabled={isSaving}
+            disabled={isSaving || saveOutcomeUnknown}
             onClick={(): void => {
               void savePdf()
             }}
@@ -991,17 +1019,26 @@ function ResumePreviewPanel({
       ) : null}
       {saveError !== null ? (
         <div className="aw-inline-error" role="alert">
-          {saveError}
+          <strong>
+            {saveOutcomeUnknown
+              ? t('resume.workspace.pdfSaveOutcomeUnknown', {
+                  defaultValue: 'PDF 保存结果待确认。请先检查下载记录或目标文件。'
+                })
+              : t('resume.workspace.pdfSaveError', { defaultValue: '无法保存 PDF' })}
+          </strong>{' '}
+          <ResourceFailureMessage error={saveError} />
         </div>
       ) : null}
       {error !== null ? (
         <div className="aw-inline-error" role="alert">
-          {mustConfirmStart
-            ? t('resume.workspace.renderOutcomeUnknown', {
-                defaultValue:
-                  '生成请求可能已被服务器处理。请确认上一次请求，不要创建重复的 PDF 任务。'
-              })
-            : t('resume.workspace.renderError', { defaultValue: 'PDF 预览生成失败，请重试。' })}
+          <strong>
+            {mustConfirmStart
+              ? t('resume.workspace.renderOutcomeUnknown', {
+                  defaultValue: 'PDF 生成结果待确认。'
+                })
+              : t('resume.workspace.renderError', { defaultValue: '无法生成 PDF 预览' })}
+          </strong>{' '}
+          <ResourceFailureMessage error={error} />
         </div>
       ) : null}
       <div className="aw-editor-scroll aw-editor-preview">
@@ -1066,7 +1103,8 @@ export function ResumeWorkspace({
   /** @brief 在同一事件循环内也能原子拒绝第二个写意图 / Atomic guard rejecting a second write intent within the same event loop. */
   const mutationInFlightRef = useRef(false)
   const [isReloadingAuthority, setReloadingAuthority] = useState(false)
-  const [authorityReloadError, setAuthorityReloadError] = useState(false)
+  /** @brief 权威简历重新读取错误 / Authoritative Resume reload error. */
+  const [authorityReloadError, setAuthorityReloadError] = useState<unknown>(null)
   const [authorityReloadRevision, setAuthorityReloadRevision] = useState(0)
   /** @brief 仅在并发冲突后重置本地编辑草稿的序号 / Sequence that resets local editor drafts only after a concurrency conflict. */
   const [editorResetRevision, setEditorResetRevision] = useState(0)
@@ -1129,7 +1167,7 @@ export function ResumeWorkspace({
     /** @brief 发起读取时需要恢复的写失败类别 / Write-failure category being recovered by this read. */
     const recoveryKind = authorityRecovery?.kind
     setReloadingAuthority(true)
-    setAuthorityReloadError(false)
+    setAuthorityReloadError(null)
     try {
       const { nextEditor, nextTemplates } = await runDiagnosticCommand(
         diagnostics,
@@ -1151,8 +1189,8 @@ export function ResumeWorkspace({
         setEditorResetRevision((current) => current + 1)
       }
       setAuthorityRecovery(null)
-    } catch {
-      setAuthorityReloadError(true)
+    } catch (error: unknown) {
+      setAuthorityReloadError(error)
     } finally {
       setReloadingAuthority(false)
     }
@@ -1191,6 +1229,9 @@ export function ResumeWorkspace({
         gateway={gateway}
         isWriteLocked={isWriteLocked}
         key={previewGeneration}
+        onAuthorityConflict={(status): void => {
+          setAuthorityRecovery({ kind: 'conflict', status })
+        }}
         pdfSupported={selectedTemplate?.supportedOutputFormats.includes('pdf') === true}
       />
     )
@@ -1228,7 +1269,12 @@ export function ResumeWorkspace({
               ? t('resume.workspace.reloadingAuthority')
               : t('resume.workspace.reloadAuthority')}
           </button>
-          {authorityReloadError ? <span>{t('resume.workspace.reloadAuthorityError')}</span> : null}
+          {authorityReloadError !== null ? (
+            <span>
+              <strong>{t('resume.workspace.reloadAuthorityError')}</strong>{' '}
+              <ResourceFailureMessage error={authorityReloadError} />
+            </span>
+          ) : null}
         </div>
       )}
       <div

@@ -72,7 +72,10 @@ function InterviewHistory({ items }: { readonly items: readonly UiInterviewHisto
             })}
           </span>
           <span className="aw-interview-history-score">
-            {item.overallScore ?? '—'}
+            {item.overallScore ?? '—'}{' '}
+            {item.overallMinimumScore === 0
+              ? `/ ${item.overallMaximumScore}`
+              : `[${item.overallMinimumScore}–${item.overallMaximumScore}]`}
             <ArrowRight aria-hidden="true" size={15} />
           </span>
         </Link>

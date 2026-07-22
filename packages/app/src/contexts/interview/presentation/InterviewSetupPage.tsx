@@ -7,7 +7,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAsyncResource, useInterviewGateway, useInterviewSetupQuery } from '../../../app/AppData'
 import type { InterviewSetupQueryResult } from '../../../app/AppQueries'
 import { runDiagnosticCommand, useDiagnostics } from '../../../app/Diagnostics'
-import { ResourceErrorState } from '../../../app/ResourceErrorState'
+import { ResourceErrorState, ResourceFailureMessage } from '../../../app/ResourceErrorState'
 import { classifyResourceFailure } from '../../../app/resource-errors'
 import { createUiCommandId } from '../../../shared-kernel/command'
 import type { UiKnowledgeSourceId } from '../../knowledge'
@@ -18,9 +18,12 @@ import type { UiCreateInterviewInput } from '../domain/models'
 const customJobValue = '__custom__'
 
 function InterviewSetupForm({
-  data
+  data,
+  onReloadAuthority
 }: {
   readonly data: InterviewSetupQueryResult
+  /** @brief 重新读取面试配置权威数据 / Reload authoritative Interview setup data. */
+  readonly onReloadAuthority: () => void
 }): React.JSX.Element {
   const { t } = useTranslation()
   const diagnostics = useDiagnostics()
@@ -44,8 +47,15 @@ function InterviewSetupForm({
   const submitFailureKind = submitError === null ? null : classifyResourceFailure(submitError).kind
   /** @brief 是否必须以原命令确认创建结果 / Whether creation must be confirmed with the original command. */
   const creationOutcomeUnknown = unconfirmedCreation !== null
+  /** @brief 当前失败是否要求重新读取配置而非盲目重放创建 / Whether the failure requires reloading setup instead of blindly replaying creation. */
+  const creationAuthorityReloadRequired =
+    submitFailureKind !== null &&
+    ['authentication-required', 'forbidden', 'not-found', 'conflict', 'invalid-response'].includes(
+      submitFailureKind
+    )
   /** @brief 编辑控件是否需要冻结到当前命令快照 / Whether editors must remain frozen to the current command snapshot. */
-  const configurationLocked = isSubmitting || creationOutcomeUnknown
+  const configurationLocked =
+    isSubmitting || creationOutcomeUnknown || creationAuthorityReloadRequired
   const allKnowledgeSelected =
     data.knowledgeSources.length > 0 && selectedKnowledge.size === data.knowledgeSources.length
   const selectedJob = useMemo(
@@ -354,18 +364,25 @@ function InterviewSetupForm({
       </div>
       {submitError !== null ? (
         <p className="aw-inline-error" role="alert">
-          {creationOutcomeUnknown
-            ? t('interviewSetup.outcomeUnknown', {
-                defaultValue:
-                  '上次创建结果尚未确认。当前设置已锁定；请确认上次结果，不要创建重复的面试会话。'
-              })
-            : submitFailureKind === 'capability-unavailable'
-              ? t('interviewSetup.realtimeUnavailable', {
-                  defaultValue: '实时面试连接尚未就绪，本次没有创建无法使用的会话。'
+          <strong>
+            {creationOutcomeUnknown
+              ? t('interviewSetup.outcomeUnknown', {
+                  defaultValue: '上次创建结果尚未确认；当前设置已锁定。'
                 })
-              : t('interviewSetup.submitError', {
-                  defaultValue: '无法创建面试，请保留当前设置并重试。'
-                })}
+              : submitFailureKind === 'capability-unavailable'
+                ? t('interviewSetup.realtimeUnavailable', {
+                    defaultValue: '实时面试连接尚未就绪，本次没有创建无法使用的会话。'
+                  })
+                : t('interviewSetup.submitError', {
+                    defaultValue: '无法创建面试；当前设置仍保留。'
+                  })}
+          </strong>{' '}
+          <ResourceFailureMessage error={submitError} />
+          {creationAuthorityReloadRequired ? (
+            <button className="aw-quiet-button" onClick={onReloadAuthority} type="button">
+              {t('common.reloadLatest', { defaultValue: '重新加载最新数据' })}
+            </button>
+          ) : null}
         </p>
       ) : null}
       <div className="aw-interview-setup-actions">
@@ -399,7 +416,8 @@ function InterviewSetupForm({
               jobTitle.trim().length === 0 ||
               selectedScenario === null ||
               !data.setup.realtimeAvailable ||
-              isSubmitting
+              isSubmitting ||
+              creationAuthorityReloadRequired
             }
             type="submit"
           >
@@ -451,7 +469,7 @@ export function InterviewSetupPage(): React.JSX.Element {
           </p>
         </div>
       </div>
-      <InterviewSetupForm data={setup.data} />
+      <InterviewSetupForm data={setup.data} onReloadAuthority={setup.retry} />
     </div>
   )
 }
