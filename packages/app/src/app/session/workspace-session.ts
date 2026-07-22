@@ -305,17 +305,17 @@ export function createWorkspaceSession(
   async function loadMoreWorkspaceAccesses(signal?: AbortSignal): Promise<WorkspaceSessionAccess> {
     await getAccess()
     if (currentLoadMoreRequest !== undefined) return currentLoadMoreRequest
+    /** @brief 本轮追加前的稳定权威引用 / Stable authority reference before this append. */
+    const authority = currentAuthority
     if (
-      currentAuthority === undefined ||
-      !currentAuthority.hasMoreWorkspaces ||
-      currentAuthority.nextWorkspaceCursor === null
+      authority === undefined ||
+      !authority.hasMoreWorkspaces ||
+      authority.nextWorkspaceCursor === null
     ) {
-      if (currentAuthority === undefined) throw new Error('Workspace authority is unavailable.')
-      return projectAccess(currentAuthority)
+      if (authority === undefined) throw new Error('Workspace authority is unavailable.')
+      return projectAccess(authority)
     }
 
-    /** @brief 本轮追加前的权威 / Authority before this append. */
-    const authority = currentAuthority
     /** @brief 本轮追加页 cursor / Cursor for this append. */
     const cursor = authority.nextWorkspaceCursor
     /** @brief 本轮追加页控制器 / Controller for this append. */
