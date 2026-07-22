@@ -21,7 +21,6 @@ describe('application i18n', () => {
     expect(appI18n.t('resume.semanticPreviewAria')).toBe('简历语义内容预览')
     expect(appI18n.t('resume.workspace.previewWindow')).toBe('预览')
     expect(appI18n.t('resume.workspace.semanticPreviewRegion')).toBe('语义内容预览')
-    expect(appI18n.t('template.layoutIllustration')).toBe('版式示意（非最终模板预览）')
     expect(appI18n.t('errors.authenticationRequired')).toBe(
       '此内容需要登录，但当前应用尚未接通身份认证。请联系管理员完成配置。'
     )
@@ -51,9 +50,6 @@ describe('application i18n', () => {
     expect(appI18n.t('resume.semanticPreviewAria')).toBe('Resume semantic-content preview')
     expect(appI18n.t('resume.workspace.previewWindow')).toBe('Preview')
     expect(appI18n.t('resume.workspace.semanticPreviewRegion')).toBe('Semantic-content preview')
-    expect(appI18n.t('template.layoutIllustration')).toBe(
-      'Layout illustration (not the final template preview)'
-    )
     expect(appI18n.t('errors.authenticationRequired')).toBe(
       'This content requires sign-in, but authentication is not connected in this app. Contact an administrator to finish setup.'
     )

@@ -489,8 +489,13 @@ export const MOCK_RESUME_EDITOR: UiResumeEditorModel = {
 /** @brief Mock 模板设置数据 / Mock template-settings data. */
 export const MOCK_TEMPLATE_SETTINGS: UiTemplateSettingsModel = {
   concurrencyToken: MOCK_RESUME_CONCURRENCY_TOKEN,
+  locale: MOCK_RESUME_DOCUMENT.locale,
   resumeId: MOCK_RESUME_ID,
   resumeRevision: MOCK_RESUME_DOCUMENT.revision,
+  sections: MOCK_RESUME_DOCUMENT.sections.map((section) => ({
+    id: section.id,
+    kind: section.kind
+  })),
   selectedTemplate: MOCK_DAWN_TEMPLATE,
   availableTemplates: MOCK_TEMPLATE_MANIFESTS,
   styleIntent: MOCK_RESUME_DOCUMENT.styleIntent,

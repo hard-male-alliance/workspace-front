@@ -11,8 +11,10 @@ import type {
   UiResumePageSize,
   UiResumeRichText,
   UiResumeSectionId,
+  UiResumeSectionKind,
   UiResumeStyleIntent,
-  UiTemplateId
+  UiTemplateId,
+  UiTemplateReference
 } from './document'
 
 /** @brief Resume cursor 的名义类型品牌 / Nominal type brand for Resume cursors. */
@@ -331,24 +333,33 @@ export interface UiResumeSectionDeleteInput extends UiResumeSectionMutationInput
   readonly sectionId: UiResumeSectionId
 }
 
-/** @brief 保存当前固定模板语义样式设置的领域输入 / Domain input for saving semantic style settings of the currently pinned template. */
-export interface UiResumeTemplateSettingsUpdateInput {
+/**
+ * @brief 原子选择不可变模板并保存完整语义样式的命令 / Command atomically selecting an immutable Template and saving complete semantic style.
+ * @note 该对象是可冻结并原样重放的幂等信封；AbortSignal 属于调用生命周期，不属于用户意图。 / This object is an idempotent envelope that can be frozen and replayed verbatim; AbortSignal belongs to call lifecycle, not user intent.
+ */
+export interface UiResumeTemplateStyleCommand {
+  /** @brief 一次用户意图及其安全确认重放共享的命令身份 / Command identity shared by one user intent and its safe confirmation replays. */
+  readonly commandId: UiCommandId
   /** @brief 显式 Workspace 授权上下文 / Explicit Workspace authorization context. */
   readonly workspaceId: UiWorkspaceId
   /** @brief 目标简历 / Target resume. */
   readonly resumeId: UiResumeId
   /** @brief 与 baseRevision 同一权威表示的强 If-Match 令牌 / Strong If-Match token from the same authority as baseRevision. */
   readonly concurrencyToken: UiConcurrencyToken
-  /** @brief 用户编辑设置时的权威 Resume revision / Authoritative Resume revision when the user edited the settings. */
+  /** @brief 用户开始编辑时的权威 Resume revision / Authoritative Resume revision when the user began editing. */
   readonly baseRevision: number
-  /** @brief 当前固定模板；不得借此字段请求迁移 / Currently pinned template; this field must not request migration. */
-  readonly templateId: UiTemplateId
-  /** @brief 当前固定模板的不可变版本 / Immutable version of the currently pinned template. */
-  readonly templateVersion: string
-  /** @brief 完整且受模板约束的样式意图 / Complete template-constrained style intent. */
+  /** @brief 用户明确选择的目标不可变模板 / Exact immutable Template explicitly selected by the user. */
+  readonly targetTemplate: UiTemplateReference
+  /** @brief 面向目标模板的完整语义样式意图 / Complete semantic style intent for the target Template. */
   readonly styleIntent: UiResumeStyleIntent
-  /** @brief 可选取消信号 / Optional cancellation signal. */
-  readonly signal?: AbortSignal
+}
+
+/** @brief 模板兼容性与 zone 选择所需的最小 section 事实 / Minimal section facts required for Template compatibility and zone selection. */
+export interface UiResumeTemplateSectionFact {
+  /** @brief 稳定 section identity / Stable section identity. */
+  readonly id: UiResumeSectionId
+  /** @brief 由 TemplateManifest 约束的开放 section kind / Open section kind constrained by TemplateManifest. */
+  readonly kind: UiResumeSectionKind
 }
 
 /** @brief 模板设置页数据模型 / Template-settings page data model. */
@@ -359,6 +370,8 @@ export interface UiTemplateSettingsModel {
   readonly resumeId: UiResumeId
   /** @brief 当前设置所绑定的权威 Resume revision / Authoritative Resume revision to which these settings are bound. */
   readonly resumeRevision: number
+  /** @brief Template supportedLocales 必须约束的 Resume 内容语言 / Resume content locale constrained by Template supportedLocales. */
+  readonly locale: UiContentLocale
   /** @brief 与 resumeRevision 原子配对的强 If-Match 令牌 / Strong If-Match token atomically paired with resumeRevision. */
   readonly concurrencyToken: UiConcurrencyToken
   /** @brief 当前选择的模板 / Currently selected template. */
@@ -367,4 +380,6 @@ export interface UiTemplateSettingsModel {
   readonly availableTemplates: readonly UiTemplateManifest[]
   /** @brief 语义样式意图 / Semantic style intent. */
   readonly styleIntent: UiResumeStyleIntent
+  /** @brief 选择 zone 与执行本地约束投影所需的 section 事实 / Section facts required for zone selection and local constraint projection. */
+  readonly sections: readonly UiResumeTemplateSectionFact[]
 }

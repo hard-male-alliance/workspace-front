@@ -12,7 +12,7 @@ import { asUiOpaqueId } from '../../../shared-kernel/identity'
 import { LoadingState } from '../../../ui'
 import type { UiResumeEditorModel } from '../domain/document'
 import type { UiTemplateManifest } from '../domain/models'
-import { loadTemplateCatalogWithPinnedVersion } from '../application/template-catalog'
+import { loadPinnedResumeTemplate } from '../application/template-catalog'
 import { ResumeWorkspace } from './ResumeWorkspace'
 
 /** @brief 简历工作台加载结果 / Loaded resume-workspace resources. */
@@ -49,13 +49,13 @@ export function ResumeEditorPage(): React.JSX.Element {
       }
       const editor = await resume.getResumeEditor(workspace.id, requestedResumeId, signal)
       signal.throwIfAborted()
-      const templates = await loadTemplateCatalogWithPinnedVersion(
+      const pinnedTemplate = await loadPinnedResumeTemplate(
         templateCatalog,
         editor.resume.template,
         signal
       )
       signal.throwIfAborted()
-      return { editor, templates }
+      return { editor, templates: [pinnedTemplate] }
     },
     [getCurrentWorkspace, requestedResumeId, resume, resumeId, templateCatalog]
   )

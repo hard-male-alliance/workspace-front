@@ -18,6 +18,7 @@ import { Link } from 'react-router-dom'
 import { runDiagnosticCommand, useDiagnostics } from '../../../app/Diagnostics'
 import { useArtifactSave } from '../../../app/Host'
 import { ResourceErrorState, ResourceFailureMessage } from '../../../app/ResourceErrorState'
+import { useUnsavedChanges } from '../../../app/UnsavedChanges'
 import { classifyResourceFailure } from '../../../app/resource-errors'
 import { sanitizePdfFileName } from '@ai-job-workspace/platform'
 import { createUiCommandId, type UiCommandId } from '../../../shared-kernel/command'
@@ -33,10 +34,7 @@ import {
 } from '../application/errors'
 import type { ResumeGateway } from '../application/gateway'
 import type { ResumeTemplateCatalogPort } from '../application/resume-creation'
-import {
-  getTemplateIdentity,
-  loadTemplateCatalogWithPinnedVersion
-} from '../application/template-catalog'
+import { loadPinnedResumeTemplate } from '../application/template-catalog'
 import {
   getUiResumeSectionTextViolation,
   replaceUiResumeRichTextText,
@@ -522,6 +520,11 @@ function ResumeSectionsEditor({
   const reorderCommandAttemptRef = useRef<ResumeReorderCommandAttempt | null>(null)
   /** @brief 尚未被服务端确认的删除 command / Delete command not yet confirmed by the service. */
   const deleteCommandAttemptRef = useRef<ResumeDeleteCommandAttempt | null>(null)
+
+  useUnsavedChanges(
+    `resume.section-drafts:${editor.resume.id}`,
+    drafts.size > 0 || savingSectionId !== null
+  )
 
   /** @brief 服务端已删除对应 section、但仍须交还用户的本地草稿 / Local drafts whose sections were removed by the server but must still be returned to the user. */
   const orphanedDrafts = [...drafts].filter(
@@ -1604,6 +1607,10 @@ export function ResumeWorkspace({
   const previewGeneration = `${authorityReloadRevision}:${createResumePreviewIdentity(editor)}`
   /** @brief 是否必须完成权威读取后才能继续修改简历 / Whether an authoritative read is required before further Resume writes. */
   const isWriteLocked = authorityRecovery !== null || isMutatingResume
+  useUnsavedChanges(
+    `resume.aggregate-command:${editor.resume.id}`,
+    authorityRecovery !== null || isMutatingResume || isReloadingAuthority
+  )
   /** @brief 服务端 Retry-After 是否仍阻止确认同一命令 / Whether server Retry-After still blocks confirmation of the same command. */
   const isConfirmationCoolingDown =
     authorityRecovery?.kind === 'outcome-unknown' &&
@@ -1768,13 +1775,13 @@ export function ResumeWorkspace({
             controller.signal
           )
           controller.signal.throwIfAborted()
-          const nextTemplates = await loadTemplateCatalogWithPinnedVersion(
+          const pinnedTemplate = await loadPinnedResumeTemplate(
             templateCatalog,
             nextEditor.resume.template,
             controller.signal
           )
           controller.signal.throwIfAborted()
-          return { nextEditor, nextTemplates }
+          return { nextEditor, nextTemplates: [pinnedTemplate] }
         }
       )
       controller.signal.throwIfAborted()
@@ -2024,49 +2031,23 @@ export function ResumeWorkspace({
             onToggle={(): void => togglePane('preview')}
             trailing={
               <>
-                <label className="aw-template-quick-select">
-                  <span className="aw-sr-only">
-                    {t('resume.workspace.quickTemplate', { defaultValue: '快速切换简历模板' })}
-                  </span>
-                  <select
-                    aria-describedby="resume-template-migration-unavailable"
-                    aria-label={t('resume.workspace.quickTemplate', {
-                      defaultValue: '快速切换简历模板'
-                    })}
-                    disabled
-                    title={t('resume.workspace.templateMigrationUnavailable', {
-                      defaultValue: '模板切换暂不可用；你仍可调整当前模板的版式设置。'
-                    })}
-                    value={getTemplateIdentity(editor.resume.template)}
-                  >
-                    {availableTemplates.map((template) => (
-                      <option
-                        key={getTemplateIdentity(template)}
-                        value={getTemplateIdentity(template)}
-                      >
-                        {template.name}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="aw-muted-copy" id="resume-template-migration-unavailable">
-                    {t('resume.workspace.templateMigrationUnavailable', {
-                      defaultValue: '模板切换暂不可用；你仍可调整当前模板的版式设置。'
-                    })}
-                  </span>
-                </label>
-                <span className="aw-current-template" aria-live="polite">
-                  {selectedTemplate?.name ?? ''}
-                </span>
                 <Link
                   aria-disabled={isWriteLocked}
-                  aria-label={t('resume.templateSettings', { defaultValue: '模板设置' })}
-                  className="aw-icon-button"
+                  aria-label={t('resume.workspace.openTemplateSettings', {
+                    defaultValue: '打开模板与样式设置'
+                  })}
+                  className="aw-template-settings-link"
                   onClick={(event): void => {
                     if (isWriteLocked) event.preventDefault()
                   }}
                   to={`/resumes/${editor.resume.id}/template`}
                 >
                   <Settings2 aria-hidden="true" size={15} />
+                  <span>
+                    {selectedTemplate === undefined
+                      ? t('resume.templateSettings', { defaultValue: '模板设置' })
+                      : `${selectedTemplate.name} · v${selectedTemplate.version}`}
+                  </span>
                 </Link>
               </>
             }

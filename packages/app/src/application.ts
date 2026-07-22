@@ -17,6 +17,7 @@ export type { UiConcurrencyToken } from './shared-kernel/concurrency'
 export { asUiOpaqueId } from './shared-kernel/identity'
 export type { UiOpaqueId, UiWorkspaceId } from './shared-kernel/identity'
 export type { UiContentLocale } from './shared-kernel/locale'
+export { cloneUiJsonValue, uiJsonValuesEqual } from './shared-kernel/json'
 export {
   asUiEmailAddress,
   asUiOAuthScope,
@@ -47,12 +48,15 @@ export type {
 export { asUiResumeCursor, asUiResumePageLimit } from './contexts/resume/domain/models'
 export type {
   UiResumeCursor,
+  UiResumeTemplateSectionFact,
+  UiResumeTemplateStyleCommand,
   UiResumeSummary,
   UiResumeSummaryPage,
   UiTemplateManifest
 } from './contexts/resume/domain/models'
 export type {
   UiColorValue,
+  UiJsonObject,
   UiJsonValue,
   UiMeasurement,
   UiResumeDocument,

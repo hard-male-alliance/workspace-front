@@ -60,7 +60,8 @@ export type {
   UiResumeSectionUpdateInput,
   UiResumeSectionsReorderInput,
   UiResumeSectionDeleteInput,
-  UiResumeTemplateSettingsUpdateInput,
+  UiResumeTemplateSectionFact,
+  UiResumeTemplateStyleCommand,
   UiTemplateSettingsModel
 } from './domain/models'
 export { asUiResumeCursor, asUiResumePageLimit, UI_RESUME_PAGE_LIMIT_MAX } from './domain/models'

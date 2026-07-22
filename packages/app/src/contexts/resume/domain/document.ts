@@ -7,15 +7,8 @@ import type {
   UiWorkspaceId
 } from '../../../shared-kernel/identity'
 import type { UiContentLocale } from '../../../shared-kernel/locale'
-
-/** @brief 可无损保留的 JSON 对象 / JSON object preserved losslessly. */
-export interface UiJsonObject {
-  /** @brief 任意 JSON 成员 / Arbitrary JSON member. */
-  readonly [key: string]: UiJsonValue
-}
-
-/** @brief 可无损保留的 JSON 值 / JSON value preserved losslessly. */
-export type UiJsonValue = boolean | number | string | null | readonly UiJsonValue[] | UiJsonObject
+import type { UiJsonValue } from '../../../shared-kernel/json'
+export type { UiJsonObject, UiJsonValue } from '../../../shared-kernel/json'
 
 /** @brief 简历标识符 / Resume identifier. */
 export type UiResumeId = UiOpaqueId<'resume'>

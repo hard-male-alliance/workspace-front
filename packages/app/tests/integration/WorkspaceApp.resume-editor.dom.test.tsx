@@ -4,7 +4,6 @@ import { HttpCommandOutcomeUnknownError, HttpProblemError } from '@ai-job-worksp
 import { ResumeBatchConflictError } from '@ai-job-workspace/app/application'
 import { ApiV2ProblemError, ApiV2WriteOutcomeUnknownError } from '@ai-job-workspace/product-api-v2'
 import {
-  MOCK_DAWN_TEMPLATE,
   MOCK_HISTORICAL_DAWN_TEMPLATE,
   MOCK_RESUME_ID,
   MOCK_RESUME_WORKSPACE_ID,
@@ -366,8 +365,8 @@ describe('WorkspaceApp Resume editor', (): void => {
       expect(content).toBeDisabled()
       expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled()
       expect(
-        screen.getByRole('combobox', { name: 'Quickly switch resume template' })
-      ).toBeDisabled()
+        screen.getByRole('link', { name: 'Open Template and style settings' })
+      ).toHaveAttribute('aria-disabled', 'true')
       expect(screen.getByText('Revision 18')).toBeInTheDocument()
       expect(update).toHaveBeenCalledTimes(1)
 
@@ -406,7 +405,9 @@ describe('WorkspaceApp Resume editor', (): void => {
         .spyOn(resume, 'getResumeEditor')
         .mockResolvedValueOnce(initial)
         .mockResolvedValue(forbiddenReload)
-      /** @brief 可观察的公开 Template 目录读取 / Observable public Template-catalog reads. */
+      /** @brief 可观察的 exact pinned Template 读取 / Observable exact pinned-Template reads. */
+      const getTemplate = vi.spyOn(resume, 'getTemplate')
+      /** @brief 编辑器不应读取的公开目录 / Public catalog that the editor must not read. */
       const listTemplates = vi.spyOn(resume, 'listTemplatePage')
       /** @brief 可观察的板块更新命令 / Observable section-update command. */
       const update = vi.spyOn(resume, 'updateResumeSection')
@@ -541,7 +542,8 @@ describe('WorkspaceApp Resume editor', (): void => {
       expect(screen.getByRole('button', { name: 'Generate PDF preview' })).toBeDisabled()
       expect(selectedCalls()).toHaveLength(1)
       expect(getEditor).toHaveBeenCalledTimes(1)
-      expect(listTemplates).toHaveBeenCalledTimes(1)
+      expect(getTemplate).toHaveBeenCalledTimes(1)
+      expect(listTemplates).not.toHaveBeenCalled()
 
       fireEvent.click(confirm)
 
@@ -553,7 +555,8 @@ describe('WorkspaceApp Resume editor', (): void => {
       expect(firstInput).toBeDefined()
       expect(confirmedInput).toStrictEqual(firstInput)
       expect(getEditor).toHaveBeenCalledTimes(1)
-      expect(listTemplates).toHaveBeenCalledTimes(1)
+      expect(getTemplate).toHaveBeenCalledTimes(1)
+      expect(listTemplates).not.toHaveBeenCalled()
       expect(screen.queryByText('Forbidden authority reload')).not.toBeInTheDocument()
       expect(await screen.findByText(confirmedTitle)).toBeInTheDocument()
       expect(screen.getByText('Revision 91')).toBeInTheDocument()
@@ -594,7 +597,9 @@ describe('WorkspaceApp Resume editor', (): void => {
       .spyOn(resume, 'getResumeEditor')
       .mockResolvedValueOnce(initial)
       .mockResolvedValue(forbiddenReload)
-    /** @brief 只允许初始加载的一次 Template 目录读取 / Template-catalog read allowing only initial loading. */
+    /** @brief 只允许初始加载的一次 exact pinned Template 读取 / Exact pinned-Template read allowing only initial loading. */
+    const getTemplate = vi.spyOn(resume, 'getTemplate')
+    /** @brief 编辑器不应读取的公开目录 / Public catalog that the editor must not read. */
     const listTemplates = vi.spyOn(resume, 'listTemplatePage')
     /** @brief 首次结果未知、确认重放成功的写端口 / Writer whose first outcome is unknown and whose confirming replay succeeds. */
     const update = vi
@@ -632,7 +637,8 @@ describe('WorkspaceApp Resume editor', (): void => {
     const firstInput = update.mock.calls[0]?.[0]
     expect(firstInput).toBeDefined()
     expect(getEditor).toHaveBeenCalledTimes(1)
-    expect(listTemplates).toHaveBeenCalledTimes(1)
+    expect(getTemplate).toHaveBeenCalledTimes(1)
+    expect(listTemplates).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole('button', { name: 'Confirm previous operation' }))
 
@@ -641,7 +647,8 @@ describe('WorkspaceApp Resume editor', (): void => {
     })
     expect(update.mock.calls[1]?.[0]).toStrictEqual(firstInput)
     expect(getEditor).toHaveBeenCalledTimes(1)
-    expect(listTemplates).toHaveBeenCalledTimes(1)
+    expect(getTemplate).toHaveBeenCalledTimes(1)
+    expect(listTemplates).not.toHaveBeenCalled()
     expect(screen.queryByText('Forbidden focused-test reload')).not.toBeInTheDocument()
     expect(await screen.findByText('Revision 19')).toBeInTheDocument()
     expect(content).toBeEnabled()
@@ -1401,7 +1408,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     expect(content).toHaveValue('尚未由服务端确认的草稿')
   })
 
-  it('offers section mutations and exposes the template catalog without inventing migration', async (): Promise<void> => {
+  it('offers section mutations and routes the exact current Template to its product settings page', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
 
     render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
@@ -1409,20 +1416,11 @@ describe('WorkspaceApp Resume editor', (): void => {
 
     expect(screen.getByRole('button', { name: '下移职业摘要' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '删除职业摘要' })).toBeInTheDocument()
-    /** @brief 快速模板选择器 / Quick-template selector. */
-    const templateSelect = screen.getByRole('combobox', { name: '快速切换简历模板' })
-    /** @brief 当前 Dawn option / Current Dawn option. */
-    const dawnOption = screen.getByRole<HTMLOptionElement>('option', { name: 'Dawn' })
-    /** @brief Editorial option / Editorial option. */
-    const editorialOption = screen.getByRole<HTMLOptionElement>('option', { name: 'Editorial' })
-    expect(templateSelect).toHaveValue(dawnOption.value)
-
-    expect(templateSelect).toBeDisabled()
-    expect(templateSelect).toHaveAccessibleDescription(
-      '模板切换功能正在准备中。你仍可编辑当前模板的版式设置。'
-    )
-    expect(dawnOption.selected).toBe(true)
-    expect(editorialOption.selected).toBe(false)
+    /** @brief 只表达当前 exact pinned 身份的设置入口 / Settings entry expressing only the current exact pinned identity. */
+    const templateSettings = screen.getByRole('link', { name: '打开模板与样式设置' })
+    expect(templateSettings).toHaveTextContent('Dawn · v1.0.0')
+    expect(templateSettings).toHaveAttribute('href', '/resumes/res_mock_ai_platform/template')
+    expect(templateSettings).not.toHaveAttribute('aria-disabled', 'true')
   })
 
   it('loads a pinned historical manifest without offering an unsafe version migration', async (): Promise<void> => {
@@ -1456,19 +1454,9 @@ describe('WorkspaceApp Resume editor', (): void => {
     )
     await screen.findByRole('heading', { name: 'Klee Chen' })
 
-    /** @brief 快速模板选择器 / Quick-template selector. */
-    const templateSelect = screen.getByRole('combobox', { name: '快速切换简历模板' })
-    /** @brief 历史版本 option / Historical-version option. */
-    const historicalOption = screen.getByRole<HTMLOptionElement>('option', {
-      name: MOCK_HISTORICAL_DAWN_TEMPLATE.name
-    })
-    /** @brief 同 ID 的最新版本 option / Latest-version option sharing the same ID. */
-    const latestOption = screen.getByRole<HTMLOptionElement>('option', {
-      name: MOCK_DAWN_TEMPLATE.name
-    })
-
-    expect(historicalOption.value).not.toBe(latestOption.value)
-    expect(templateSelect).toHaveValue(historicalOption.value)
+    /** @brief 历史 exact pinned 身份的设置入口 / Settings entry for the historical exact pinned identity. */
+    const templateSettings = screen.getByRole('link', { name: '打开模板与样式设置' })
+    expect(templateSettings).toHaveTextContent('Dawn Legacy · v0.9.0')
     expect(getTemplate).toHaveBeenCalledWith(
       {
         templateId: MOCK_HISTORICAL_DAWN_TEMPLATE.id,
@@ -1476,9 +1464,6 @@ describe('WorkspaceApp Resume editor', (): void => {
       },
       expect.any(AbortSignal)
     )
-    expect(templateSelect).toBeDisabled()
-    expect(templateSelect).toHaveAccessibleDescription(
-      '模板切换功能正在准备中。你仍可编辑当前模板的版式设置。'
-    )
+    expect(templateSettings).toHaveAttribute('href', '/resumes/res_mock_ai_platform/template')
   })
 })

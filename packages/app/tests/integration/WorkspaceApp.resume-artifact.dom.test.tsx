@@ -274,16 +274,15 @@ describe('WorkspaceApp Resume artifact', (): void => {
     await setWorkspaceAppTestLocale('zh-SG')
     /** @brief 声明模板不支持 PDF 的测试 Gateway / Test Gateway whose templates do not support PDF. */
     const resume = new InMemoryResumeGateway()
-    vi.spyOn(resume, 'listTemplatePage').mockImplementation((input) => {
-      input.signal.throwIfAborted()
-      return Promise.resolve({
-        hasMore: false,
-        items: MOCK_TEMPLATE_MANIFESTS.map((template) => ({
-          ...template,
-          supportedOutputFormats: ['png']
-        })),
-        nextCursor: null
-      })
+    vi.spyOn(resume, 'getTemplate').mockImplementation((reference, signal) => {
+      signal.throwIfAborted()
+      /** @brief 当前 Resume 固定引用的精确模板 / Exact Template pinned by the current Resume. */
+      const template = MOCK_TEMPLATE_MANIFESTS.find(
+        (candidate) =>
+          candidate.id === reference.templateId && candidate.version === reference.templateVersion
+      )
+      if (template === undefined) throw new Error('Expected the pinned test Template to exist.')
+      return Promise.resolve({ ...template, supportedOutputFormats: ['png'] })
     })
     /** @brief PDF Render Job 启动观测器 / PDF Render Job start observer. */
     const startRender = vi.spyOn(resume, 'startResumePdfRender')

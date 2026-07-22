@@ -16,6 +16,7 @@ import {
   type ColorValue,
   type Measurement,
   type ResumeDocument,
+  type ResumeStyleIntent,
   type ResumeCreationHttpClient,
   type ResumeOperation,
   type ResumeOperationBatch,
@@ -41,7 +42,9 @@ import {
   asUiWorkspaceRevision,
   asUiWorkspaceSlug,
   asUiWorkspaceTimestamp,
+  cloneUiJsonValue,
   ResumeBatchConflictError,
+  uiJsonValuesEqual,
   type AppGateways,
   type UiCreatedResumeResource,
   type UiColorValue,
@@ -51,6 +54,7 @@ import {
   type UiResumeDocument,
   type UiResumeEditorModel,
   type UiResumeRichText,
+  type UiResumeStyleIntent,
   type UiResumeTextMark,
   type UiResumeSummary,
   type UiResumeSummaryPage,
@@ -284,6 +288,80 @@ function mapColorValue(source: ColorValue): UiColorValue {
 }
 
 /**
+ * @brief 把领域 measurement 映射回 API v2 wire 值 / Map a domain measurement back to an API v2 wire value.
+ * @param source 领域 measurement / Domain measurement.
+ * @return 不共享引用的 wire measurement / Wire measurement sharing no references.
+ */
+function mapUiMeasurementToApiV2(source: UiMeasurement): Measurement {
+  return { unit: source.unit, value: source.value }
+}
+
+/**
+ * @brief 把领域颜色映射回 API v2 wire 值 / Map a domain color back to an API v2 wire value.
+ * @param source 领域颜色 / Domain color.
+ * @return 不共享引用的 wire color / Wire color sharing no references.
+ */
+function mapUiColorValueToApiV2(source: UiColorValue): ColorValue {
+  return { space: source.space, value: source.value }
+}
+
+/**
+ * @brief 把完整领域样式无损映射回 API v2 ResumeStyleIntent / Losslessly map complete domain style back to API v2 ResumeStyleIntent.
+ * @param source 完整 camelCase 样式意图 / Complete camelCase style intent.
+ * @return 只含 canonical wire 字段且不共享引用的样式 / Style containing only canonical wire fields and sharing no references.
+ */
+export function mapUiResumeStyleIntentToApiV2(source: UiResumeStyleIntent): ResumeStyleIntent {
+  return {
+    bullet_style_token: source.bulletStyleToken,
+    date_format_token: source.dateFormatToken,
+    density: source.density,
+    extensions: cloneUiJsonValue(source.extensions),
+    page: {
+      custom_height:
+        source.page.customHeight === null
+          ? null
+          : mapUiMeasurementToApiV2(source.page.customHeight),
+      custom_width:
+        source.page.customWidth === null ? null : mapUiMeasurementToApiV2(source.page.customWidth),
+      margins: {
+        bottom: mapUiMeasurementToApiV2(source.page.margins.bottom),
+        left: mapUiMeasurementToApiV2(source.page.margins.left),
+        right: mapUiMeasurementToApiV2(source.page.margins.right),
+        top: mapUiMeasurementToApiV2(source.page.margins.top)
+      },
+      max_pages: source.page.maxPages,
+      orientation: source.page.orientation,
+      show_page_numbers: source.page.showPageNumbers,
+      size: source.page.size
+    },
+    palette: {
+      background: mapUiColorValueToApiV2(source.palette.background),
+      muted_text: mapUiColorValueToApiV2(source.palette.mutedText),
+      primary: mapUiColorValueToApiV2(source.palette.primary),
+      secondary: mapUiColorValueToApiV2(source.palette.secondary),
+      text: mapUiColorValueToApiV2(source.palette.text)
+    },
+    section_layout: source.sectionLayout.map((layout) => ({
+      compactness: layout.compactness,
+      heading_style_token: layout.headingStyleToken,
+      keep_together: layout.keepTogether,
+      page_break_before: layout.pageBreakBefore,
+      section_id: layout.sectionId,
+      zone: layout.zone
+    })),
+    style_contract_version: source.styleContractVersion,
+    template_settings: cloneUiJsonValue(source.templateSettings),
+    typography: {
+      base_size_pt: source.typography.baseSizePt,
+      font_family_token: source.typography.fontFamilyToken,
+      heading_scale: source.typography.headingScale,
+      letter_spacing_em: source.typography.letterSpacingEm,
+      line_height: source.typography.lineHeight
+    }
+  }
+}
+
+/**
  * @brief 克隆已由 API v2 decoder 验证的 JSON map / Clone a JSON map validated by the API v2 decoder.
  * @param source 已验证 JSON map / Validated JSON map.
  * @return 不与 transport DTO 共享引用的 JSON map / JSON map sharing no references with the transport DTO.
@@ -291,7 +369,7 @@ function mapColorValue(source: ColorValue): UiColorValue {
 function cloneJsonMap(
   source: Readonly<Record<string, UiJsonValue>>
 ): Readonly<Record<string, UiJsonValue>> {
-  return structuredClone(source)
+  return cloneUiJsonValue(source)
 }
 
 /**
@@ -460,10 +538,10 @@ export function mapTemplateManifest(source: TemplateManifest): UiTemplateManifes
       choices: setting.choices.map((choice) => ({
         descriptionKey: choice.description_key,
         labelKey: choice.label_key,
-        value: structuredClone(choice.value)
+        value: cloneUiJsonValue(choice.value)
       })),
       control: setting.control,
-      defaultValue: structuredClone(setting.default),
+      defaultValue: cloneUiJsonValue(setting.default),
       descriptionKey: setting.description_key,
       groupKey: setting.group_key,
       key: setting.key,
@@ -475,7 +553,7 @@ export function mapTemplateManifest(source: TemplateManifest): UiTemplateManifes
         setting.visible_when === null
           ? null
           : {
-              equals: structuredClone(setting.visible_when.equals),
+              equals: cloneUiJsonValue(setting.visible_when.equals),
               key: setting.visible_when.key
             }
     })),
@@ -548,8 +626,8 @@ export function createApiV2WorkspaceGateway(client: ApiV2Client): AppGateways['w
   }
 }
 
-/** @brief Resume section command 的公共权威输入 / Shared authority input for a Resume-section command. */
-interface ResumeSectionCommandAuthority {
+/** @brief Resume command 的公共权威输入 / Shared authority input for a Resume command. */
+interface ResumeCommandAuthority {
   /** @brief 同一用户意图及其安全重试内稳定的命令身份 / Command identity stable within one user intent and its safe retries. */
   readonly commandId: string
   /** @brief Workspace 授权路径 / Workspace authorization path. */
@@ -560,8 +638,6 @@ interface ResumeSectionCommandAuthority {
   readonly baseRevision: number
   /** @brief 与 baseRevision 同一表示读取的强 ETag / Strong ETag read from the same representation as baseRevision. */
   readonly concurrencyToken: string
-  /** @brief 调用方取消信号 / Caller cancellation signal. */
-  readonly signal?: AbortSignal
 }
 
 /**
@@ -574,8 +650,8 @@ function resumeOperationId(commandId: string, suffix: string): string {
   return `${commandId}_${suffix}`
 }
 
-/** @brief 当前 Resume section 用例可明确证明的写后条件 / Postcondition explicitly provable by the current Resume-section use case. */
-type ResumeSectionCommandPostcondition = (document: ResumeDocument) => boolean
+/** @brief 当前 Resume 用例可明确证明的写后条件 / Postcondition explicitly provable by the current Resume use case. */
+type ResumeCommandPostcondition = (document: ResumeDocument) => boolean
 
 /**
  * @brief 精确比较两个已验证 RichText marks / Exactly compare two validated RichText marks.
@@ -611,9 +687,10 @@ function resumeRichTextsEqual(left: RichText | null, right: RichText): boolean {
 }
 
 /**
- * @brief 原子提交 section operations 并映射权威结果 / Atomically submit section operations and map the authoritative result.
+ * @brief 原子提交 Resume operations 并映射权威结果 / Atomically submit Resume operations and map the authoritative result.
  * @param client API v2 Resume operations 写端口 / API v2 Resume-operations write port.
- * @param input 同一权威表示与稳定用户意图 / Same authoritative representation and stable user intent.
+ * @param command 同一权威表示与稳定用户意图 / Same authoritative representation and stable user intent.
+ * @param signal 当前调用生命周期的可选取消信号 / Optional cancellation signal for the current call lifecycle.
  * @param operations 至少一个语义 operation / At least one semantic operation.
  * @param conflictStrategy 与产品意图匹配的并发策略 / Concurrency strategy matching the product intent.
  * @param postcondition 当前产品用例可明确验证的写后条件 / Postcondition explicitly verifiable by the current product use case.
@@ -621,29 +698,30 @@ function resumeRichTextsEqual(left: RichText | null, right: RichText): boolean {
  * @throws {ResumeBatchConflictError} 合法 200 结果原子拒绝了全部 operations / Thrown when a valid 200 result atomically rejected every operation.
  * @throws {ApiV2WriteOutcomeUnknownError} 已确认成功的结果未反映当前明确产品意图 / Thrown when an acknowledged success does not reflect the explicit product intent.
  */
-async function applyResumeSectionCommand(
+async function applyResumeCommand(
   client: ResumeOperationsHttpClient,
-  input: ResumeSectionCommandAuthority,
+  command: ResumeCommandAuthority,
+  signal: AbortSignal | undefined,
   operations: readonly ResumeOperation[],
   conflictStrategy: ResumeOperationBatch['conflict_strategy'],
-  postcondition: ResumeSectionCommandPostcondition
+  postcondition: ResumeCommandPostcondition
 ): Promise<UiResumeEditorModel> {
   /** @brief 协议层严格验证并与 path/batch 核对后的结果 / Result strictly validated and correlated with path and batch by the protocol layer. */
   const representation = await applyResumeOperations(client, {
     batch: {
-      base_revision: input.baseRevision,
-      client_batch_id: input.commandId,
+      base_revision: command.baseRevision,
+      client_batch_id: command.commandId,
       conflict_strategy: conflictStrategy,
       operations,
       // Section 写入不得制造无人观察的 Render Job；显式 PDF 渲染进程统一拥有 preview。
       // Section writes must not create an unobserved Render Job; the explicit PDF-render process owns previews.
       render_hint: 'none'
     },
-    idempotencyKey: input.commandId,
-    ifMatch: input.concurrencyToken,
-    resumeId: input.resumeId,
-    ...(input.signal === undefined ? {} : { signal: input.signal }),
-    workspaceId: input.workspaceId
+    idempotencyKey: command.commandId,
+    ifMatch: command.concurrencyToken,
+    resumeId: command.resumeId,
+    ...(signal === undefined ? {} : { signal }),
+    workspaceId: command.workspaceId
   })
   /** @brief 与 batch 结果原子配对的新编辑权威 / New editor authority atomically paired with the batch result. */
   const authoritativeEditor: UiResumeEditorModel = {
@@ -668,6 +746,222 @@ async function applyResumeSectionCommand(
 }
 
 /**
+ * @brief 为模板与完整样式生成确定性原子 operations / Create deterministic atomic operations for a Template and complete style.
+ * @param commandId 用户模板样式意图的稳定身份 / Stable identity of the user's Template-style intent.
+ * @param resumeId 接收顶层 style fields 的 Resume entity identity / Resume entity identity receiving top-level style fields.
+ * @param targetTemplate 目标不可变 Template / Target immutable Template.
+ * @param style 完整 API v2 wire 样式 / Complete API v2 wire style.
+ * @return set_template 与固定顺序 style leaf operations / set_template and fixed-order style-leaf operations.
+ * @note style_contract_version 是固定协议判别值；template_settings 只由 set_template 原子设置，二者不会产生重复 set_field。 / style_contract_version is a fixed protocol discriminator; template_settings is set atomically only by set_template, so neither creates a duplicate set_field.
+ */
+function createResumeTemplateStyleOperations(
+  commandId: string,
+  resumeId: string,
+  targetTemplate: { readonly templateId: string; readonly templateVersion: string },
+  style: ResumeStyleIntent
+): readonly ResumeOperation[] {
+  return [
+    {
+      op: 'set_template',
+      operation_id: resumeOperationId(commandId, 'template'),
+      settings: cloneUiJsonValue(style.template_settings),
+      template: {
+        template_id: targetTemplate.templateId,
+        version: targetTemplate.templateVersion
+      }
+    },
+    {
+      entity_id: resumeId,
+      field_path: ['style', 'page', 'size'],
+      op: 'set_field',
+      operation_id: resumeOperationId(commandId, 'style_page_size'),
+      value: style.page.size
+    },
+    {
+      entity_id: resumeId,
+      field_path: ['style', 'page', 'custom_width'],
+      op: 'set_field',
+      operation_id: resumeOperationId(commandId, 'style_page_custom_width'),
+      value:
+        style.page.custom_width === null
+          ? null
+          : { unit: style.page.custom_width.unit, value: style.page.custom_width.value }
+    },
+    {
+      entity_id: resumeId,
+      field_path: ['style', 'page', 'custom_height'],
+      op: 'set_field',
+      operation_id: resumeOperationId(commandId, 'style_page_custom_height'),
+      value:
+        style.page.custom_height === null
+          ? null
+          : { unit: style.page.custom_height.unit, value: style.page.custom_height.value }
+    },
+    {
+      entity_id: resumeId,
+      field_path: ['style', 'page', 'orientation'],
+      op: 'set_field',
+      operation_id: resumeOperationId(commandId, 'style_page_orientation'),
+      value: style.page.orientation
+    },
+    {
+      entity_id: resumeId,
+      field_path: ['style', 'page', 'margins', 'top'],
+      op: 'set_field',
+      operation_id: resumeOperationId(commandId, 'style_page_margin_top'),
+      value: { unit: style.page.margins.top.unit, value: style.page.margins.top.value }
+    },
+    {
+      entity_id: resumeId,
+      field_path: ['style', 'page', 'margins', 'right'],
+      op: 'set_field',
+      operation_id: resumeOperationId(commandId, 'style_page_margin_right'),
+      value: { unit: style.page.margins.right.unit, value: style.page.margins.right.value }
+    },
+    {
+      entity_id: resumeId,
+      field_path: ['style', 'page', 'margins', 'bottom'],
+      op: 'set_field',
+      operation_id: resumeOperationId(commandId, 'style_page_margin_bottom'),
+      value: { unit: style.page.margins.bottom.unit, value: style.page.margins.bottom.value }
+    },
+    {
+      entity_id: resumeId,
+      field_path: ['style', 'page', 'margins', 'left'],
+      op: 'set_field',
+      operation_id: resumeOperationId(commandId, 'style_page_margin_left'),
+      value: { unit: style.page.margins.left.unit, value: style.page.margins.left.value }
+    },
+    {
+      entity_id: resumeId,
+      field_path: ['style', 'page', 'max_pages'],
+      op: 'set_field',
+      operation_id: resumeOperationId(commandId, 'style_page_max_pages'),
+      value: style.page.max_pages
+    },
+    {
+      entity_id: resumeId,
+      field_path: ['style', 'page', 'show_page_numbers'],
+      op: 'set_field',
+      operation_id: resumeOperationId(commandId, 'style_page_show_numbers'),
+      value: style.page.show_page_numbers
+    },
+    {
+      entity_id: resumeId,
+      field_path: ['style', 'typography', 'font_family_token'],
+      op: 'set_field',
+      operation_id: resumeOperationId(commandId, 'style_type_font'),
+      value: style.typography.font_family_token
+    },
+    {
+      entity_id: resumeId,
+      field_path: ['style', 'typography', 'base_size_pt'],
+      op: 'set_field',
+      operation_id: resumeOperationId(commandId, 'style_type_size'),
+      value: style.typography.base_size_pt
+    },
+    {
+      entity_id: resumeId,
+      field_path: ['style', 'typography', 'line_height'],
+      op: 'set_field',
+      operation_id: resumeOperationId(commandId, 'style_type_line_height'),
+      value: style.typography.line_height
+    },
+    {
+      entity_id: resumeId,
+      field_path: ['style', 'typography', 'heading_scale'],
+      op: 'set_field',
+      operation_id: resumeOperationId(commandId, 'style_type_heading_scale'),
+      value: style.typography.heading_scale
+    },
+    {
+      entity_id: resumeId,
+      field_path: ['style', 'typography', 'letter_spacing_em'],
+      op: 'set_field',
+      operation_id: resumeOperationId(commandId, 'style_type_letter_spacing'),
+      value: style.typography.letter_spacing_em
+    },
+    {
+      entity_id: resumeId,
+      field_path: ['style', 'palette', 'primary'],
+      op: 'set_field',
+      operation_id: resumeOperationId(commandId, 'style_color_primary'),
+      value: { space: style.palette.primary.space, value: style.palette.primary.value }
+    },
+    {
+      entity_id: resumeId,
+      field_path: ['style', 'palette', 'secondary'],
+      op: 'set_field',
+      operation_id: resumeOperationId(commandId, 'style_color_secondary'),
+      value: { space: style.palette.secondary.space, value: style.palette.secondary.value }
+    },
+    {
+      entity_id: resumeId,
+      field_path: ['style', 'palette', 'text'],
+      op: 'set_field',
+      operation_id: resumeOperationId(commandId, 'style_color_text'),
+      value: { space: style.palette.text.space, value: style.palette.text.value }
+    },
+    {
+      entity_id: resumeId,
+      field_path: ['style', 'palette', 'muted_text'],
+      op: 'set_field',
+      operation_id: resumeOperationId(commandId, 'style_color_muted_text'),
+      value: { space: style.palette.muted_text.space, value: style.palette.muted_text.value }
+    },
+    {
+      entity_id: resumeId,
+      field_path: ['style', 'palette', 'background'],
+      op: 'set_field',
+      operation_id: resumeOperationId(commandId, 'style_color_background'),
+      value: { space: style.palette.background.space, value: style.palette.background.value }
+    },
+    {
+      entity_id: resumeId,
+      field_path: ['style', 'density'],
+      op: 'set_field',
+      operation_id: resumeOperationId(commandId, 'style_density'),
+      value: style.density
+    },
+    {
+      entity_id: resumeId,
+      field_path: ['style', 'date_format_token'],
+      op: 'set_field',
+      operation_id: resumeOperationId(commandId, 'style_date_format'),
+      value: style.date_format_token
+    },
+    {
+      entity_id: resumeId,
+      field_path: ['style', 'bullet_style_token'],
+      op: 'set_field',
+      operation_id: resumeOperationId(commandId, 'style_bullet'),
+      value: style.bullet_style_token
+    },
+    {
+      entity_id: resumeId,
+      field_path: ['style', 'section_layout'],
+      op: 'set_field',
+      operation_id: resumeOperationId(commandId, 'style_section_layout'),
+      value: style.section_layout.map((layout) => ({
+        compactness: layout.compactness,
+        heading_style_token: layout.heading_style_token,
+        keep_together: layout.keep_together,
+        page_break_before: layout.page_break_before,
+        section_id: layout.section_id,
+        zone: layout.zone
+      }))
+    },
+    {
+      entity_id: resumeId,
+      field_path: ['style', 'extensions'],
+      op: 'set_field',
+      operation_id: resumeOperationId(commandId, 'style_extensions'),
+      value: style.extensions
+    }
+  ]
+}
+
+/**
  * @brief 创建 Resume 的 API v2 应用适配器 / Create the API v2 application adapter for Resume.
  * @param client v2-only Bearer 读取客户端 / v2-only Bearer read client.
  * @param operationsClient v2-only Resume operations 写端口 / v2-only Resume-operations write port.
@@ -679,9 +973,10 @@ export function createApiV2ResumeGateway(
 ): AppGateways['resume'] {
   return {
     async deleteResumeSection(input): Promise<UiResumeEditorModel> {
-      return applyResumeSectionCommand(
+      return applyResumeCommand(
         operationsClient,
         input,
+        input.signal,
         [
           {
             entity_id: input.sectionId,
@@ -722,9 +1017,10 @@ export function createApiV2ResumeGateway(
         operation_id: resumeOperationId(input.commandId, `move_${index}`),
         parent_id: null
       }))
-      return applyResumeSectionCommand(
+      return applyResumeCommand(
         operationsClient,
         input,
+        input.signal,
         operations,
         'reject',
         (document) =>
@@ -757,9 +1053,10 @@ export function createApiV2ResumeGateway(
           value: encodeUiResumeRichTextValue(input.content)
         })
       }
-      return applyResumeSectionCommand(
+      return applyResumeCommand(
         operationsClient,
         input,
+        input.signal,
         operations,
         'rebase_if_safe',
         (document) => {
@@ -774,7 +1071,31 @@ export function createApiV2ResumeGateway(
         }
       )
     },
-    updateTemplateSettings: unavailableOperation('resume.operations.update-template-settings')
+    async updateResumeTemplateAndStyle(command, signal): Promise<UiResumeEditorModel> {
+      /** @brief 完整目标 wire 样式；同一冻结 command 每次映射结果相同 / Complete target wire style; the same frozen command maps identically on every attempt. */
+      const expectedStyle = mapUiResumeStyleIntentToApiV2(command.styleIntent)
+      /** @brief set_template 与确定性 style leaf operations / set_template and deterministic style-leaf operations. */
+      const operations = createResumeTemplateStyleOperations(
+        command.commandId,
+        command.resumeId,
+        command.targetTemplate,
+        expectedStyle
+      )
+      return applyResumeCommand(
+        operationsClient,
+        command,
+        signal,
+        operations,
+        'reject',
+        (document) =>
+          document.template.template_id === command.targetTemplate.templateId &&
+          document.template.version === command.targetTemplate.templateVersion &&
+          uiJsonValuesEqual(
+            document.style as unknown as UiJsonValue,
+            expectedStyle as unknown as UiJsonValue
+          )
+      )
+    }
   }
 }
 

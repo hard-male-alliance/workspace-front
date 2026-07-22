@@ -230,7 +230,7 @@ describe('InMemoryResumeGateway', () => {
     expect(completed.artifacts[0]).toMatchObject({ id: 'artifact_mock_18' })
   })
 
-  it('routes section structure and current-template settings through the resume gateway', async () => {
+  it('routes section structure and atomic template style through the resume gateway', async () => {
     /** @brief 简历 Mock 网关 / Resume Mock gateway. */
     const resumeGateway = new InMemoryResumeGateway()
     /** @brief 初始编辑器 / Initial editor. */
@@ -272,13 +272,16 @@ describe('InMemoryResumeGateway', () => {
     const settings = await readTemplateSettings(resumeGateway)
     /** @brief 调用方仍可持有并尝试修改的样式 command 值 / Style command value that remains reachable and mutable by its caller. */
     const submittedStyleIntent = { ...settings.styleIntent, density: 0.75 }
-    const saved = await resumeGateway.updateTemplateSettings({
+    const saved = await resumeGateway.updateResumeTemplateAndStyle({
       baseRevision: deleted.resume.revision,
+      commandId: createUiCommandId(),
       concurrencyToken: deleted.concurrencyToken,
       resumeId: MOCK_RESUME_ID,
       styleIntent: submittedStyleIntent,
-      templateId: settings.selectedTemplate.id,
-      templateVersion: settings.selectedTemplate.version,
+      targetTemplate: {
+        templateId: settings.selectedTemplate.id,
+        templateVersion: settings.selectedTemplate.version
+      },
       workspaceId: settings.workspaceId
     })
     expect(saved.resume.styleIntent.density).toBe(0.75)
@@ -497,36 +500,87 @@ describe('InMemoryResumeGateway', () => {
     ).resolves.toEqual(MOCK_HISTORICAL_DAWN_TEMPLATE)
   })
 
-  it('does not use template-settings persistence as an implicit migration command', async () => {
+  it('atomically migrates Template and style with idempotent replay semantics', async () => {
     const resumeGateway = new InMemoryResumeGateway()
     const settings = await readTemplateSettings(resumeGateway)
+    /** @brief 迁移到 Editorial 的完整最终样式 / Complete final style migrating to Editorial. */
+    const targetStyle = {
+      ...settings.styleIntent,
+      sectionLayout: settings.styleIntent.sectionLayout.map((layout) => ({
+        ...layout,
+        zone: 'main'
+      })),
+      templateSettings: { show_rule: false }
+    }
+    /** @brief 在结果确认重放中保持冻结的命令 / Command kept frozen across result-confirmation replay. */
+    const command = {
+      baseRevision: settings.resumeRevision,
+      commandId: createUiCommandId(),
+      concurrencyToken: settings.concurrencyToken,
+      resumeId: settings.resumeId,
+      styleIntent: targetStyle,
+      targetTemplate: {
+        templateId: MOCK_EDITORIAL_TEMPLATE.id,
+        templateVersion: MOCK_EDITORIAL_TEMPLATE.version
+      },
+      workspaceId: settings.workspaceId
+    }
+
+    /** @brief 首次原子确认结果 / First atomically confirmed result. */
+    const saved = await resumeGateway.updateResumeTemplateAndStyle(command)
+    /** @brief 同一信封的幂等确认重放 / Idempotent confirmation replay of the same envelope. */
+    const replayed = await resumeGateway.updateResumeTemplateAndStyle(command)
+
+    expect(saved).toEqual(replayed)
+    expect(saved).toMatchObject({
+      resume: {
+        revision: settings.resumeRevision + 1,
+        styleIntent: targetStyle,
+        template: {
+          templateId: MOCK_EDITORIAL_TEMPLATE.id,
+          templateVersion: MOCK_EDITORIAL_TEMPLATE.version
+        }
+      }
+    })
+    await expect(
+      resumeGateway.updateResumeTemplateAndStyle({
+        ...command,
+        styleIntent: { ...targetStyle, density: 0.5 }
+      })
+    ).rejects.toMatchObject({ code: 'memory.idempotency_key_reused' })
+  })
+
+  it('rejects an invalid target setting without partially changing Template or revision', async () => {
+    /** @brief 独享原子状态的 Resume 网关 / Resume gateway owning isolated atomic state. */
+    const resumeGateway = new InMemoryResumeGateway()
+    /** @brief mutation 前的完整权威 / Complete authority before the mutation. */
+    const initial = await resumeGateway.getResumeEditor(
+      MOCK_RESUME_WORKSPACE_ID,
+      MOCK_RESUME_ID,
+      ACTIVE_RESUME_READ_SIGNAL
+    )
 
     await expect(
-      resumeGateway.updateTemplateSettings({
-        baseRevision: settings.resumeRevision,
-        concurrencyToken: settings.concurrencyToken,
-        resumeId: settings.resumeId,
-        styleIntent: settings.styleIntent,
-        templateId: MOCK_EDITORIAL_TEMPLATE.id,
-        templateVersion: MOCK_EDITORIAL_TEMPLATE.version,
-        workspaceId: settings.workspaceId
+      resumeGateway.updateResumeTemplateAndStyle({
+        baseRevision: initial.resume.revision,
+        commandId: createUiCommandId(),
+        concurrencyToken: initial.concurrencyToken,
+        resumeId: initial.resume.id,
+        styleIntent: {
+          ...initial.resume.styleIntent,
+          templateSettings: { unknown_setting: true }
+        },
+        targetTemplate: initial.resume.template,
+        workspaceId: initial.resume.workspaceId
       })
-    ).rejects.toMatchObject({ name: 'ResumeTemplateMigrationCapabilityError' })
+    ).rejects.toMatchObject({ code: 'unknown-setting' })
     await expect(
       resumeGateway.getResumeEditor(
         MOCK_RESUME_WORKSPACE_ID,
         MOCK_RESUME_ID,
         ACTIVE_RESUME_READ_SIGNAL
       )
-    ).resolves.toMatchObject({
-      resume: {
-        revision: settings.resumeRevision,
-        template: {
-          templateId: settings.selectedTemplate.id,
-          templateVersion: settings.selectedTemplate.version
-        }
-      }
-    })
+    ).resolves.toEqual(initial)
   })
 
   it('rejects a second mutation while the same Resume aggregate lane is occupied', async () => {

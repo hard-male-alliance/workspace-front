@@ -60,20 +60,38 @@
   text-align: center;
 }
 
-.aw-template-quick-select select {
-  max-width: 104px;
+.aw-template-settings-link {
+  display: inline-flex;
+  max-width: 190px;
   min-height: 30px;
-  padding: 4px 23px 4px 8px;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
   border: 1px solid var(--ui-color-border);
   border-radius: 6px;
   background: var(--ui-color-surface-raised);
   color: var(--ui-color-ink);
   font: inherit;
   font-size: 11px;
+  text-decoration: none;
 }
 
-.aw-current-template {
-  display: none;
+.aw-template-settings-link > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aw-template-settings-link[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.aw-template-settings-link:not([aria-disabled='true']):hover,
+.aw-template-settings-link:not([aria-disabled='true']):focus-visible {
+  border-color: var(--ui-color-accent);
+  box-shadow: var(--ui-focus-ring);
 }
 
 .aw-resume-workspace-content {

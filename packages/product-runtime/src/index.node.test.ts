@@ -25,6 +25,7 @@ import {
   createApiV2WorkspaceGateway,
   mapResumeDocument,
   mapUiResumeRichTextToApiV2,
+  mapUiResumeStyleIntentToApiV2,
   mapResumeSummaryPage,
   mapResumeTemplatePage,
   mapCreatedResumeResource,
@@ -1227,6 +1228,202 @@ describe('API v2 Resume ACL', (): void => {
       name: 'ApiV2WriteOutcomeUnknownError',
       problemCode: null,
       requestId,
+      status: 200
+    })
+  })
+
+  it('原子提交 set_template 与完整确定性 style leaves，并让不同 signal 共享冻结信封', async (): Promise<void> => {
+    /** @brief 用户模板样式命令基于的完整领域文档 / Complete domain document on which the user's Template-style command is based. */
+    const initialDocument = mapResumeDocument(parseResumeDocument(createdResumeDocument()))
+    /** @brief 用户为目标模板确认的完整最终样式 / Complete final style confirmed by the user for the target Template. */
+    const styleIntent = {
+      ...initialDocument.styleIntent,
+      density: 0.73,
+      page: {
+        ...initialDocument.styleIntent.page,
+        showPageNumbers: true
+      },
+      templateSettings: {
+        'accent.color': { space: 'srgb_hex' as const, value: '#445566' },
+        'show.photo': true
+      }
+    }
+    /** @brief 精确目标 wire 样式 / Exact target wire style. */
+    const expectedStyle = mapUiResumeStyleIntentToApiV2(styleIntent)
+    /** @brief 目标不可变模板 / Target immutable Template. */
+    const targetTemplate = {
+      templateId: asUiOpaqueId<'template'>('template_target_atomic_000001'),
+      templateVersion: '3.0.0'
+    }
+    /** @brief 同一用户意图保持稳定的 command identity / Command identity stable for the same user intent. */
+    const commandId = createUiCommandId()
+    /** @brief transport 观察到的冻结 batches / Frozen batches observed by the transport. */
+    const observedBatches: ResumeOperationBatch[] = []
+    /** @brief transport 观察到的调用选项 / Call options observed by the transport. */
+    const observedOptions: Parameters<ResumeOperationsHttpClient['postJson']>[2][] = []
+    /** @brief 返回同一已确认结果的 operation 端口 / Operations port returning the same confirmed result. */
+    const operationsClient: ResumeOperationsHttpClient = {
+      postJson(_path, body, options) {
+        /** @brief 当前严格 batch / Current strict batch. */
+        const batch = body as ResumeOperationBatch
+        observedBatches.push(batch)
+        observedOptions.push(options)
+        return Promise.resolve({
+          data: {
+            applied_operation_ids: batch.operations.map((operation) => operation.operation_id),
+            conflicts: [],
+            render_job_ref: null,
+            resume: {
+              ...createdResumeDocument(),
+              revision: 2,
+              style: expectedStyle,
+              template: {
+                template_id: targetTemplate.templateId,
+                version: targetTemplate.templateVersion
+              },
+              updated_at: '2026-07-23T12:00:02Z'
+            }
+          },
+          metadata: {
+            entityTag: '"resume-template-style-etag-2"',
+            location: null,
+            requestId: 'request_resume_template_style_0001'
+          },
+          status: 200
+        })
+      }
+    }
+    /** @brief Resume 应用 ACL / Resume application ACL. */
+    const gateway = createApiV2ResumeGateway(
+      {
+        getJson: (): Promise<never> =>
+          Promise.reject(new Error('The Template-style test unexpectedly performed a read.'))
+      },
+      operationsClient
+    )
+    /** @brief 不包含调用生命周期 signal 的冻结命令 / Frozen command excluding call-lifecycle signals. */
+    const command = {
+      baseRevision: 1,
+      commandId,
+      concurrencyToken: asUiConcurrencyToken('"resume-operation-etag-1"'),
+      resumeId: initialDocument.id,
+      styleIntent,
+      targetTemplate,
+      workspaceId: initialDocument.workspaceId
+    }
+    /** @brief 首次提交的调用生命周期 / Call lifecycle of the first submission. */
+    const firstSignal = new AbortController().signal
+    /** @brief 结果确认重放的独立调用生命周期 / Independent call lifecycle for confirmation replay. */
+    const replaySignal = new AbortController().signal
+
+    await expect(gateway.updateResumeTemplateAndStyle(command, firstSignal)).resolves.toMatchObject(
+      {
+        concurrencyToken: '"resume-template-style-etag-2"',
+        resume: {
+          revision: 2,
+          styleIntent,
+          template: targetTemplate
+        }
+      }
+    )
+    await expect(
+      gateway.updateResumeTemplateAndStyle(command, replaySignal)
+    ).resolves.toMatchObject({
+      concurrencyToken: '"resume-template-style-etag-2"'
+    })
+
+    expect(observedBatches).toHaveLength(2)
+    expect(observedBatches[1]).toEqual(observedBatches[0])
+    expect(observedOptions[0]?.signal).toBe(firstSignal)
+    expect(observedOptions[1]?.signal).toBe(replaySignal)
+    expect(observedOptions.map((options) => options.idempotencyKey)).toEqual([commandId, commandId])
+    /** @brief 首次传输的确定性 batch / Deterministic batch sent on the first attempt. */
+    const batch = observedBatches[0]
+    if (batch === undefined) throw new Error('Expected a Template-style operation batch.')
+    expect(batch).toMatchObject({
+      base_revision: 1,
+      client_batch_id: commandId,
+      conflict_strategy: 'reject',
+      render_hint: 'none'
+    })
+    expect(batch.operations).toHaveLength(26)
+    expect(batch.operations[0]).toEqual({
+      op: 'set_template',
+      operation_id: `${commandId}_template`,
+      settings: expectedStyle.template_settings,
+      template: {
+        template_id: targetTemplate.templateId,
+        version: targetTemplate.templateVersion
+      }
+    })
+    /** @brief 全部 style set_field paths / Every style set_field path. */
+    const fieldPaths = batch.operations.flatMap((operation) =>
+      operation.op === 'set_field' ? [operation.field_path.join('.')] : []
+    )
+    expect(fieldPaths).toHaveLength(25)
+    expect(fieldPaths).not.toContain('style.style_contract_version')
+    expect(fieldPaths).not.toContain('style.template_settings')
+    expect(new Set(batch.operations.map((operation) => operation.operation_id)).size).toBe(26)
+  })
+
+  it('把不满足完整模板样式 postcondition 的 200 视为 outcome unknown', async (): Promise<void> => {
+    /** @brief 初始完整领域文档 / Initial complete domain document. */
+    const initialDocument = mapResumeDocument(parseResumeDocument(createdResumeDocument()))
+    /** @brief 用户要求的目标样式 / Target style required by the user. */
+    const styleIntent = { ...initialDocument.styleIntent, density: 0.77 }
+    /** @brief 故意返回不同 density 的 200 operation 端口 / 200 operations port intentionally returning a different density. */
+    const operationsClient: ResumeOperationsHttpClient = {
+      postJson(_path, body) {
+        /** @brief transport 接收的严格 batch / Strict batch received by the transport. */
+        const batch = body as ResumeOperationBatch
+        /** @brief 与命令不一致的服务端样式 / Server style inconsistent with the command. */
+        const wrongStyle = {
+          ...mapUiResumeStyleIntentToApiV2(styleIntent),
+          density: 0.12
+        }
+        return Promise.resolve({
+          data: {
+            applied_operation_ids: batch.operations.map((operation) => operation.operation_id),
+            conflicts: [],
+            render_job_ref: null,
+            resume: {
+              ...createdResumeDocument(),
+              revision: 2,
+              style: wrongStyle,
+              updated_at: '2026-07-23T12:00:02Z'
+            }
+          },
+          metadata: {
+            entityTag: '"resume-template-style-etag-bad"',
+            location: null,
+            requestId: 'request_resume_template_style_bad_0001'
+          },
+          status: 200
+        })
+      }
+    }
+    /** @brief Resume 应用 ACL / Resume application ACL. */
+    const gateway = createApiV2ResumeGateway(
+      {
+        getJson: (): Promise<never> =>
+          Promise.reject(new Error('The Template-style test unexpectedly performed a read.'))
+      },
+      operationsClient
+    )
+
+    await expect(
+      gateway.updateResumeTemplateAndStyle({
+        baseRevision: 1,
+        commandId: createUiCommandId(),
+        concurrencyToken: asUiConcurrencyToken('"resume-operation-etag-1"'),
+        resumeId: initialDocument.id,
+        styleIntent,
+        targetTemplate: initialDocument.template,
+        workspaceId: initialDocument.workspaceId
+      })
+    ).rejects.toMatchObject({
+      kind: 'contract',
+      name: 'ApiV2WriteOutcomeUnknownError',
       status: 200
     })
   })

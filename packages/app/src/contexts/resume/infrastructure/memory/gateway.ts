@@ -5,10 +5,7 @@ import type {
   ResumeCreationPort,
   ResumeTemplateCatalogPort
 } from '../../application/resume-creation'
-import {
-  ResumeSnapshotConflictError,
-  ResumeTemplateMigrationCapabilityError
-} from '../../application/errors'
+import { ResumeSnapshotConflictError } from '../../application/errors'
 import { ResumeMutationLane } from '../../application/mutation-lane'
 import type {
   UiResumePdfArtifact,
@@ -18,12 +15,13 @@ import type {
   UiResumeSectionUpdateInput,
   UiResumeSummaryPage,
   UiResumeSummaryPageRead,
-  UiResumeTemplateSettingsUpdateInput,
+  UiResumeTemplateStyleCommand,
   UiTemplateManifest,
   UiStartResumePdfRenderInput
 } from '../../domain/models'
 import { asUiResumeCursor } from '../../domain/models'
 import type { UiResumeEditorModel, UiResumeId, UiTemplateReference } from '../../domain/document'
+import { assertResumeMatchesTemplateManifest } from '../../domain/template-policy'
 import { asUiOpaqueId, type UiWorkspaceId } from '../../../../shared-kernel/identity'
 import {
   asUiResumeTemplateCursor,
@@ -134,7 +132,7 @@ export class InMemoryResumeGateway
   private readonly creationFingerprints = new Map<string, string>()
 
   /** @brief 按 Resume 与 command identity 保存的首次 operation 结果 / First operation results cached by Resume and command identity. */
-  private readonly sectionCommandResults = new Map<string, CachedResumeCommandResult>()
+  private readonly resumeCommandResults = new Map<string, CachedResumeCommandResult>()
 
   /**
    * @brief 构造 Resume 内存测试网关 / Construct the Resume in-memory test gateway.
@@ -378,8 +376,9 @@ export class InMemoryResumeGateway
    * @return 最新编辑器 / Latest editor.
    */
   async updateResumeSection(input: UiResumeSectionUpdateInput): Promise<UiResumeEditorModel> {
-    return this.runIdempotentSectionCommand(
+    return this.runIdempotentResumeCommand(
       input,
+      input.signal,
       createMemoryCommandFingerprint({
         authority: {
           baseRevision: input.baseRevision,
@@ -426,8 +425,9 @@ export class InMemoryResumeGateway
 
   /** @brief 调整 Mock 简历板块顺序 / Reorder Mock resume sections. */
   async reorderResumeSections(input: UiResumeSectionsReorderInput): Promise<UiResumeEditorModel> {
-    return this.runIdempotentSectionCommand(
+    return this.runIdempotentResumeCommand(
       input,
+      input.signal,
       createMemoryCommandFingerprint({
         authority: {
           baseRevision: input.baseRevision,
@@ -469,8 +469,9 @@ export class InMemoryResumeGateway
 
   /** @brief 删除 Mock 简历板块 / Delete a Mock resume section. */
   async deleteResumeSection(input: UiResumeSectionDeleteInput): Promise<UiResumeEditorModel> {
-    return this.runIdempotentSectionCommand(
+    return this.runIdempotentResumeCommand(
       input,
+      input.signal,
       createMemoryCommandFingerprint({
         authority: {
           baseRevision: input.baseRevision,
@@ -509,38 +510,54 @@ export class InMemoryResumeGateway
     )
   }
 
-  /** @brief 在测试 adapter 中保存模板设置 / Save template settings in the testing adapter. */
-  async updateTemplateSettings(
-    input: UiResumeTemplateSettingsUpdateInput
+  /**
+   * @brief 在测试 adapter 中原子选择模板并保存样式 / Atomically select a Template and save style in the testing adapter.
+   * @param command 可原样重放的模板样式命令 / Template-style command safe to replay verbatim.
+   * @param signal 当前调用生命周期的取消信号 / Cancellation signal for the current call lifecycle.
+   * @return 新的完整 Resume 权威 / New complete Resume authority.
+   */
+  async updateResumeTemplateAndStyle(
+    command: UiResumeTemplateStyleCommand,
+    signal?: AbortSignal
   ): Promise<UiResumeEditorModel> {
-    input.signal?.throwIfAborted()
-    return this.mutationLane.run(input.resumeId, async () => {
-      await prepareMemoryRead(this.options)
-      input.signal?.throwIfAborted()
-      this.assertMutationAuthority(input)
-      if (
-        this.editor.resume.template.templateId !== input.templateId ||
-        this.editor.resume.template.templateVersion !== input.templateVersion
-      ) {
-        throw new ResumeTemplateMigrationCapabilityError()
-      }
-      const template = MOCK_TEMPLATE_MANIFEST_VERSIONS.find(
-        (item) => item.id === input.templateId && item.version === input.templateVersion
-      )
-      if (template === undefined) {
-        return throwMemoryNotFound('resume template')
-      }
-      this.editor = {
-        concurrencyToken: this.nextConcurrencyToken(),
-        resume: {
+    return this.runIdempotentResumeCommand(
+      command,
+      signal,
+      createMemoryCommandFingerprint({
+        authority: {
+          baseRevision: command.baseRevision,
+          concurrencyToken: command.concurrencyToken,
+          resumeId: command.resumeId,
+          workspaceId: command.workspaceId
+        },
+        kind: 'template-style',
+        styleIntent: command.styleIntent,
+        targetTemplate: command.targetTemplate
+      }),
+      (): UiResumeEditorModel => {
+        /** @brief 由精确不可变身份命中的目标模板 / Target Template matched by exact immutable identity. */
+        const template = MOCK_TEMPLATE_MANIFEST_VERSIONS.find(
+          (item) =>
+            item.id === command.targetTemplate.templateId &&
+            item.version === command.targetTemplate.templateVersion
+        )
+        if (template === undefined) return throwMemoryNotFound('resume template')
+        /** @brief mutation 前构造并验证的完整最终 Resume / Complete final Resume constructed and validated before mutation. */
+        const nextResume = {
           ...this.editor.resume,
           revision: this.editor.resume.revision + 1,
-          styleIntent: cloneMemoryValue(input.styleIntent),
+          styleIntent: cloneMemoryValue(command.styleIntent),
+          template: cloneMemoryValue(command.targetTemplate),
           updatedAt: '2026-07-18T00:00:05.000Z'
         }
+        assertResumeMatchesTemplateManifest(nextResume, template)
+        this.editor = {
+          concurrencyToken: this.nextConcurrencyToken(),
+          resume: nextResume
+        }
+        return this.editor
       }
-      return cloneMemoryValue(this.editor)
-    })
+    )
   }
 
   /**
@@ -550,19 +567,20 @@ export class InMemoryResumeGateway
    * @param mutation 首次执行时应用的原子领域 mutation / Atomic domain mutation applied on first execution.
    * @return 首次结果或其不共享引用的幂等重放 / First result or an idempotent replay sharing no references.
    */
-  private async runIdempotentSectionCommand(
+  private async runIdempotentResumeCommand(
     authority: IdempotentResumeMutationAuthority,
+    signal: AbortSignal | undefined,
     fingerprint: string,
     mutation: () => UiResumeEditorModel
   ): Promise<UiResumeEditorModel> {
-    authority.signal?.throwIfAborted()
+    signal?.throwIfAborted()
     return this.mutationLane.run(authority.resumeId, async () => {
       await prepareMemoryRead(this.options)
-      authority.signal?.throwIfAborted()
+      signal?.throwIfAborted()
       /** @brief Resume 与 command identity 的无歧义缓存键 / Unambiguous cache key for Resume and command identity. */
       const cacheKey = JSON.stringify([authority.resumeId, authority.commandId])
       /** @brief 同一 key 的首次确认记录 / First confirmed record for the same key. */
-      const cached = this.sectionCommandResults.get(cacheKey)
+      const cached = this.resumeCommandResults.get(cacheKey)
       if (cached !== undefined) {
         if (cached.fingerprint !== fingerprint) {
           throw new InMemoryGatewayError(
@@ -576,7 +594,7 @@ export class InMemoryResumeGateway
       this.assertMutationAuthority(authority)
       /** @brief 首次执行产生的新权威 / New authority produced by the first execution. */
       const result = cloneMemoryValue(mutation())
-      this.sectionCommandResults.set(cacheKey, {
+      this.resumeCommandResults.set(cacheKey, {
         fingerprint,
         result: cloneMemoryValue(result)
       })

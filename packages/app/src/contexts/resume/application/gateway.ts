@@ -9,7 +9,7 @@ import type {
   UiResumeSectionUpdateInput,
   UiResumeSummaryPage,
   UiResumeSummaryPageRead,
-  UiResumeTemplateSettingsUpdateInput,
+  UiResumeTemplateStyleCommand,
   UiStartResumePdfRenderInput
 } from '../domain/models'
 
@@ -57,6 +57,14 @@ export interface ResumeGateway {
   /** @brief 删除简历板块 / Delete a resume section. */
   deleteResumeSection(input: UiResumeSectionDeleteInput): Promise<UiResumeEditorModel>
 
-  /** @brief 原子保存当前固定模板的完整语义样式意图 / Atomically save complete semantic-style intent for the currently pinned template. */
-  updateTemplateSettings(input: UiResumeTemplateSettingsUpdateInput): Promise<UiResumeEditorModel>
+  /**
+   * @brief 原子选择模板并保存完整语义样式 / Atomically select a Template and save complete semantic style.
+   * @param command 可冻结并原样确认重放的用户意图 / User-intent envelope that can be frozen and replayed verbatim for confirmation.
+   * @param signal 当前调用生命周期的可选取消信号 / Optional cancellation signal for the current call lifecycle.
+   * @return 新强 ETag 与完整 Resume 权威 / New strong ETag and complete Resume authority.
+   */
+  updateResumeTemplateAndStyle(
+    command: UiResumeTemplateStyleCommand,
+    signal?: AbortSignal
+  ): Promise<UiResumeEditorModel>
 }
