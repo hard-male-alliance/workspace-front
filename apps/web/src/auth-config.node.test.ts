@@ -13,11 +13,11 @@ describe('resolveWebOAuthConfiguration', (): void => {
   it('derives the exact HTTPS callback and frozen v2 scopes', (): void => {
     expect(
       resolveWebOAuthConfiguration(
-        { VITE_OAUTH_CLIENT_ID: 'workspace-web' },
+        { VITE_OAUTH_CLIENT_ID: 'aiws-web-local' },
         'https://app.hmalliances.org'
       )
     ).toEqual({
-      clientId: 'workspace-web',
+      clientId: 'aiws-web-local',
       redirectUri: 'https://app.hmalliances.org/oauth/callback',
       scopes: WEB_OAUTH_SCOPES
     })
@@ -30,13 +30,11 @@ describe('resolveWebOAuthConfiguration', (): void => {
     'allows development loopback HTTP origin for %s',
     (_host, origin, redirectUri): void => {
       expect(
-        resolveWebOAuthConfiguration(
-          { VITE_OAUTH_CLIENT_ID: 'workspace-web-local' },
-          origin,
-          { allowDevelopmentLoopbackHttp: true }
-        )
+        resolveWebOAuthConfiguration({ VITE_OAUTH_CLIENT_ID: 'aiws-web-local' }, origin, {
+          allowDevelopmentLoopbackHttp: true
+        })
       ).toEqual({
-        clientId: 'workspace-web-local',
+        clientId: 'aiws-web-local',
         redirectUri,
         scopes: WEB_OAUTH_SCOPES
       })
@@ -49,24 +47,22 @@ describe('resolveWebOAuthConfiguration', (): void => {
     'http://localhost.evil.test:5173'
   ] as const)('rejects non-loopback HTTP origin in development: %s', (origin): void => {
     expect(() =>
-      resolveWebOAuthConfiguration(
-        { VITE_OAUTH_CLIENT_ID: 'workspace-web-local' },
-        origin,
-        { allowDevelopmentLoopbackHttp: true }
-      )
+      resolveWebOAuthConfiguration({ VITE_OAUTH_CLIENT_ID: 'aiws-web-local' }, origin, {
+        allowDevelopmentLoopbackHttp: true
+      })
     ).toThrow(WebOAuthConfigurationError)
   })
 
   it('keeps production HTTP origins rejected even for localhost', (): void => {
     expect(() =>
       resolveWebOAuthConfiguration(
-        { VITE_OAUTH_CLIENT_ID: 'workspace-web-local' },
+        { VITE_OAUTH_CLIENT_ID: 'aiws-web-local' },
         'http://localhost:5173'
       )
     ).toThrow(WebOAuthConfigurationError)
   })
 
-  it.each([{}, { VITE_OAUTH_CLIENT_ID: ' workspace-web' }] as const)(
+  it.each([{}, { VITE_OAUTH_CLIENT_ID: ' aiws-web-local' }] as const)(
     'describes how to fix a missing or invalid public client ID',
     (environment): void => {
       expect(() =>
@@ -78,7 +74,7 @@ describe('resolveWebOAuthConfiguration', (): void => {
   it('rejects a callback transaction created under different deployment settings', (): void => {
     /** @brief 当前部署配置 / Current deployment configuration. */
     const configuration = resolveWebOAuthConfiguration(
-      { VITE_OAUTH_CLIENT_ID: 'workspace-web' },
+      { VITE_OAUTH_CLIENT_ID: 'aiws-web-local' },
       'https://app.hmalliances.org'
     )
 
@@ -98,9 +94,9 @@ describe('resolveWebOAuthConfiguration', (): void => {
 
   it.each([
     [{}, 'https://app.hmalliances.org'],
-    [{ VITE_OAUTH_CLIENT_ID: ' workspace-web' }, 'https://app.hmalliances.org'],
-    [{ VITE_OAUTH_CLIENT_ID: 'workspace-web' }, 'http://app.hmalliances.org'],
-    [{ VITE_OAUTH_CLIENT_ID: 'workspace-web' }, 'https://user@example.com']
+    [{ VITE_OAUTH_CLIENT_ID: ' aiws-web-local' }, 'https://app.hmalliances.org'],
+    [{ VITE_OAUTH_CLIENT_ID: 'aiws-web-local' }, 'http://app.hmalliances.org'],
+    [{ VITE_OAUTH_CLIENT_ID: 'aiws-web-local' }, 'https://user@example.com']
   ] as const)(
     'rejects an unsafe or incomplete public configuration',
     (environment, origin): void => {

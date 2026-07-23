@@ -160,14 +160,14 @@ function WorkspaceApplicationProviders({
 }
 
 /** @brief 工作区应用 Data Router / Workspace-application Data Router. */
-type WorkspaceRouter = ReturnType<typeof createBrowserRouter>
+export type WorkspaceRouter = ReturnType<typeof createBrowserRouter>
 
 /**
  * @brief 根据宿主环境创建唯一 Data Router / Create the single Data Router for the host environment.
  * @param props 不可变的宿主组合根属性 / Immutable host composition-root properties.
  * @return 浏览器 history 路由，或带显式初始路径的内存路由 / Browser-history router, or a memory router with an explicit initial path.
  */
-function createWorkspaceRouter(props: WorkspaceAppProps): WorkspaceRouter {
+export function createWorkspaceRouter(props: WorkspaceAppProps): WorkspaceRouter {
   /** @brief 与宿主依赖一起固定的路由对象 / Route objects fixed together with host dependencies. */
   const routes = [
     {

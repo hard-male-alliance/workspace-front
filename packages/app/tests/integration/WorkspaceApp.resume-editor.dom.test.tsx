@@ -68,6 +68,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     const pendingEditorB = new Promise<typeof editorB>((resolve): void => {
       resolveEditorB = resolve
     })
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation((): void => {})
     vi.spyOn(resume, 'getResumeEditor').mockImplementation((workspaceId, requestedId) => {
       if (workspaceId !== editorA.resume.workspaceId) {
         return Promise.reject(new Error('Unexpected Workspace ID.'))
@@ -84,7 +85,12 @@ describe('WorkspaceApp Resume editor', (): void => {
       target: { value: '只属于 A 的本地草稿' }
     })
 
-    navigateWorkspaceApp(`/resumes/${resumeBId}/edit`)
+    await navigateWorkspaceApp(`/resumes/${resumeBId}/edit`)
+    expect(await screen.findByRole('alertdialog')).toBeInTheDocument()
+    expect(consoleWarn.mock.calls.join('\n')).not.toContain(
+      'You are trying to use a blocker on a POP navigation'
+    )
+    fireEvent.click(screen.getByRole('button', { name: /放弃.*继续/u }))
 
     expect(screen.getByText('正在加载简历编辑器…')).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Klee Chen' })).not.toBeInTheDocument()
@@ -94,6 +100,10 @@ describe('WorkspaceApp Resume editor', (): void => {
       resolveEditorB?.(editorB)
       await pendingEditorB
     })
+
+    expect(consoleWarn.mock.calls.join('\n')).not.toContain(
+      'You are trying to use a blocker on a POP navigation'
+    )
 
     expect(await screen.findByText('B 端权威简历')).toBeInTheDocument()
     expect(screen.queryByDisplayValue('只属于 A 的本地草稿')).not.toBeInTheDocument()
@@ -149,7 +159,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     const view = render(<WorkspaceApp gateways={createTestGateways({ resume })} />)
     await waitFor((): void => expect(getEditor).toHaveBeenCalledTimes(1))
 
-    navigateWorkspaceApp(`/resumes/${resumeBId}/edit`)
+    await navigateWorkspaceApp(`/resumes/${resumeBId}/edit`)
 
     expect(await screen.findByText('B 的最新权威响应')).toBeInTheDocument()
     expect(oldSignal?.aborted).toBe(true)

@@ -12,7 +12,7 @@ import { beginWebAuthorization } from './web-oauth'
 
 /** @brief 已注册的测试 Web OAuth 配置 / Registered Web OAuth configuration used by tests. */
 const CONFIGURATION: WebOAuthConfiguration = {
-  clientId: 'workspace-web',
+  clientId: 'aiws-web-local',
   redirectUri: 'https://app.hmalliances.org/oauth/callback',
   scopes: WEB_OAUTH_SCOPES
 }

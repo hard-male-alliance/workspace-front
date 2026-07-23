@@ -39,8 +39,9 @@ cp apps/web/.env.example apps/web/.env
 
 `VITE_OAUTH_CLIENT_ID` is a public client identifier, not a secret. The local value must be
 registered by the Authorization Server for `http://localhost:5173/oauth/callback` before a real
-account can complete sign-in. Production and preview deployments continue to require a canonical
-HTTPS origin and an exact HTTPS redirect URI.
+account can complete sign-in. The currently confirmed local Web public client ID is
+`aiws-web-local`. Production and preview deployments continue to require a canonical HTTPS origin
+and an exact HTTPS redirect URI.
 
 ## 质量门禁
 

@@ -1,7 +1,9 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { InMemoryIdentityGateway, InMemoryWorkspaceGateway } from '@ai-job-workspace/app/testing'
 import { ApiV2ProblemError } from '@ai-job-workspace/product-api-v2'
+import { asUiEmailAddress, asUiPrincipalSubject } from '../../src/contexts/identity'
 import { asUiWorkspaceCursor, asUiWorkspaceSlug } from '../../src/contexts/workspace'
 import { asUiOpaqueId } from '../../src/shared-kernel/identity'
 
@@ -38,6 +40,88 @@ async function readDemoAuthority(): Promise<{
 }
 
 /** @brief 应用外壳与工作台用户行为测试 / App-shell and workspace user-behaviour tests. */
+interface TestAccountSessionInput {
+  readonly displayName: string
+  readonly email: string
+  readonly subject: string
+  readonly userId: string
+  readonly workspaceId: string
+  readonly workspaceName: string
+  readonly workspaceSlug: string
+}
+
+async function createAccountSessionGateways(
+  input: TestAccountSessionInput
+): Promise<ReturnType<typeof createTestGateways>> {
+  const { currentUser, firstAccess } = await readDemoAuthority()
+  const workspaceId = asUiOpaqueId<'workspace'>(input.workspaceId)
+  const access = {
+    ...firstAccess,
+    memberId: asUiOpaqueId<'workspace-member'>(`member_${input.workspaceId}`),
+    workspace: {
+      ...firstAccess.workspace,
+      id: workspaceId,
+      name: input.workspaceName,
+      slug: asUiWorkspaceSlug(input.workspaceSlug)
+    }
+  }
+
+  return createTestGateways({
+    identity: {
+      loadCurrentUser: vi.fn().mockResolvedValue({
+        ...currentUser,
+        defaultWorkspaceId: workspaceId,
+        displayName: input.displayName,
+        email: asUiEmailAddress(input.email),
+        id: asUiOpaqueId<'user'>(input.userId),
+        subject: asUiPrincipalSubject(input.subject)
+      })
+    },
+    workspace: {
+      listWorkspaceAccessPage: vi.fn().mockResolvedValue({
+        hasMore: false,
+        items: [access],
+        nextCursor: null
+      })
+    }
+  })
+}
+
+interface AccountSwitchHarnessProps {
+  readonly accountA: ReturnType<typeof createTestGateways>
+  readonly accountB: ReturnType<typeof createTestGateways>
+}
+
+function AccountSwitchHarness({
+  accountA,
+  accountB
+}: AccountSwitchHarnessProps): React.JSX.Element {
+  const [phase, setPhase] = useState<'account-a' | 'account-b' | 'signed-out'>('account-a')
+
+  if (phase === 'signed-out') {
+    return (
+      <main>
+        <h1>Signed out locally</h1>
+        <button onClick={(): void => setPhase('account-b')} type="button">
+          Establish account B session
+        </button>
+      </main>
+    )
+  }
+
+  return (
+    <WorkspaceApp
+      gateways={phase === 'account-a' ? accountA : accountB}
+      initialPath="/"
+      key={phase}
+      onSignOut={(): Promise<void> => {
+        setPhase('signed-out')
+        return Promise.resolve()
+      }}
+    />
+  )
+}
+
 describe('WorkspaceApp app shell', (): void => {
   it('仅在宿主提供能力时呈现并调用退出登录', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
@@ -48,6 +132,47 @@ describe('WorkspaceApp app shell', (): void => {
     fireEvent.click(await screen.findByRole('button', { name: '退出登录' }))
 
     await waitFor((): void => expect(onSignOut).toHaveBeenCalledOnce())
+  })
+
+  it('clears account A state before showing a later account B session', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('en-US')
+    const accountA = await createAccountSessionGateways({
+      displayName: 'Account Alpha',
+      email: 'account.alpha@example.com',
+      subject: 'subject_account_alpha',
+      userId: 'user_account_alpha',
+      workspaceId: 'ws_account_alpha',
+      workspaceName: 'Alpha Workspace',
+      workspaceSlug: 'alpha-workspace'
+    })
+    const accountB = await createAccountSessionGateways({
+      displayName: 'Account Beta',
+      email: 'account.beta@example.com',
+      subject: 'subject_account_beta',
+      userId: 'user_account_beta',
+      workspaceId: 'ws_account_beta',
+      workspaceName: 'Beta Workspace',
+      workspaceSlug: 'beta-workspace'
+    })
+
+    render(<AccountSwitchHarness accountA={accountA} accountB={accountB} />)
+
+    expect(await screen.findByText('Account Alpha')).toBeInTheDocument()
+    expect(screen.getAllByText('Alpha Workspace').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Account Beta')).not.toBeInTheDocument()
+    expect(screen.queryByText('Beta Workspace')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /^(Sign out|退出登录)$/u }))
+    expect(await screen.findByRole('heading', { name: 'Signed out locally' })).toBeInTheDocument()
+    expect(screen.queryByText('Account Alpha')).not.toBeInTheDocument()
+    expect(screen.queryByText('Alpha Workspace')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Establish account B session' }))
+
+    expect(await screen.findByText('Account Beta')).toBeInTheDocument()
+    expect(screen.getAllByText('Beta Workspace').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Account Alpha')).not.toBeInTheDocument()
+    expect(screen.queryByText('Alpha Workspace')).not.toBeInTheDocument()
   })
 
   it('keeps one current workspace selection while navigating across contexts', async (): Promise<void> => {

@@ -1,6 +1,8 @@
 import { act, cleanup } from '@testing-library/react'
+import { useEffect, useState } from 'react'
+import { RouterProvider } from 'react-router-dom'
 import { afterEach } from 'vitest'
-import { WorkspaceApp as SharedWorkspaceApp } from '@ai-job-workspace/app'
+import { createWorkspaceRouter } from '@ai-job-workspace/app'
 import type { WorkspaceAppProps } from '@ai-job-workspace/app'
 import { createDiagnostics } from '@ai-job-workspace/app/diagnostics'
 import { appI18n, appI18nReady } from '@ai-job-workspace/app/i18n'
@@ -15,6 +17,9 @@ import {
 } from '@ai-job-workspace/app/testing'
 import { APPLICATION_VERSION } from '@ai-job-workspace/platform'
 import type { ArtifactSavePort } from '@ai-job-workspace/platform'
+
+/** @brief 当前测试应用的 Data Router / Data Router owned by the current test app. */
+let activeWorkspaceRouter: ReturnType<typeof createWorkspaceRouter> | undefined
 
 /** @brief 测试版应用属性 / Test application properties. */
 export type TestWorkspaceAppProps = Omit<
@@ -88,15 +93,24 @@ export function WorkspaceApp({
   runtimeInfo,
   ...props
 }: TestWorkspaceAppProps): React.JSX.Element {
-  return (
-    <SharedWorkspaceApp
-      {...props}
-      artifactSave={artifactSave ?? createTestArtifactSavePort()}
-      diagnostics={diagnostics ?? createDiagnostics({ sinks: [] })}
-      gateways={gateways ?? createTestGateways()}
-      runtimeInfo={runtimeInfo ?? { appVersion: APPLICATION_VERSION, platform: 'web' }}
-    />
+  const [router] = useState(() =>
+    createWorkspaceRouter({
+      ...props,
+      artifactSave: artifactSave ?? createTestArtifactSavePort(),
+      diagnostics: diagnostics ?? createDiagnostics({ sinks: [] }),
+      gateways: gateways ?? createTestGateways(),
+      runtimeInfo: runtimeInfo ?? { appVersion: APPLICATION_VERSION, platform: 'web' }
+    })
   )
+
+  useEffect((): (() => void) => {
+    activeWorkspaceRouter = router
+    return (): void => {
+      if (activeWorkspaceRouter === router) activeWorkspaceRouter = undefined
+    }
+  }, [router])
+
+  return <RouterProvider router={router} />
 }
 
 /**
@@ -106,6 +120,7 @@ export function WorkspaceApp({
 export function installWorkspaceAppTestCleanup(): void {
   afterEach((): void => {
     cleanup()
+    activeWorkspaceRouter = undefined
     window.history.replaceState(null, '', '/')
     window.localStorage.clear()
     document.documentElement.removeAttribute('data-theme')
@@ -117,10 +132,13 @@ export function installWorkspaceAppTestCleanup(): void {
  * @param path 目标应用路径 / Target application path.
  * @return 无返回值；路由提交由 act 同步刷新 / No return value; the route commit is flushed synchronously by act.
  */
-export function navigateWorkspaceApp(path: string): void {
-  act((): void => {
-    window.history.pushState(null, '', path)
-    window.dispatchEvent(new PopStateEvent('popstate'))
+export async function navigateWorkspaceApp(path: string): Promise<void> {
+  if (activeWorkspaceRouter === undefined) {
+    throw new Error('WorkspaceApp test router is not mounted.')
+  }
+  const router = activeWorkspaceRouter
+  await act(async (): Promise<void> => {
+    await router.navigate(path)
   })
 }
 
