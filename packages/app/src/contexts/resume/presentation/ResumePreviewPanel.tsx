@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { sanitizePdfFileName } from '@ai-job-workspace/platform'
 
-import { ResumeRenderProcessError, type ResumeRenderTarget } from '../../../app/AppProcesses'
+import { ResumeRenderProcessError, type ResumeRenderSpecification } from '../../../app/AppProcesses'
 import { useResumeRenderProcess } from '../../../app/AppData'
 import { runDiagnosticCommand, useDiagnostics } from '../../../app/Diagnostics'
 import { useArtifactSave } from '../../../app/Host'
@@ -90,9 +90,11 @@ export function ResumePreviewPanel({
   const diagnostics = useDiagnostics()
   const artifactSave = useArtifactSave()
   const renderProcess = useResumeRenderProcess()
-  /** @brief 当前 Resume Render 绑定的不可变目标 / Immutable target bound to the current Resume Render. */
-  const target = useMemo<ResumeRenderTarget>(
+  /** @brief 当前 PDF preview 绑定的不可变 Render 规格 / Immutable Render specification bound to the current PDF preview. */
+  const target = useMemo<ResumeRenderSpecification>(
     () => ({
+      formats: ['pdf'],
+      mode: 'preview',
       resumeId: editor.resume.id,
       resumeRevision: editor.resume.revision,
       workspaceId: editor.resume.workspaceId
@@ -364,12 +366,17 @@ export function ResumePreviewPanel({
     if (!isCurrentGeneration(expectedGeneration) || controller.signal.aborted) return
     commitJobAuthority(terminal)
     if (terminal.job.status !== 'succeeded') return
-    /** @brief 从 result_refs 解析的唯一 PDF / Sole PDF resolved from result_refs. */
-    const { artifact: completedArtifact } = await renderProcess.resolvePdf(
+    /** @brief 从 result_refs 严格解析的唯一 PDF 输出 / Sole PDF output strictly resolved from result_refs. */
+    const [completedOutput] = await renderProcess.resolveOutputs(
       target,
       terminal.job,
       controller.signal
     )
+    if (completedOutput === undefined) {
+      throw new ResumeRenderProcessError('artifact-result-missing')
+    }
+    /** @brief 已完成跨资源核对的 PDF Artifact / PDF Artifact after cross-resource validation. */
+    const completedArtifact = completedOutput.artifact
     if (!isCurrentGeneration(expectedGeneration) || controller.signal.aborted) return
     setArtifact(completedArtifact)
     setArtifactExpired(false)
@@ -431,7 +438,7 @@ export function ResumePreviewPanel({
             recovered ??
             (resumeKnownJob && jobAuthorityRef.current !== null
               ? jobAuthorityRef.current
-              : await renderProcess.startPdfPreview({
+              : await renderProcess.start({
                   commandId,
                   ...target,
                   signal: controller.signal
@@ -491,7 +498,10 @@ export function ResumePreviewPanel({
     setRecoveryError(null)
     try {
       /** @brief 有界候选集合 / Bounded candidate set. */
-      const candidates = await renderProcess.findRecoveryCandidates(target, controller.signal)
+      const candidates = await renderProcess.findPreviewRecoveryCandidates(
+        target,
+        controller.signal
+      )
       if (!isCurrentGeneration(expectedGeneration) || controller.signal.aborted) return
       setRecoveryCandidates(candidates.jobs)
       setRecoveryHasMore(candidates.hasMore)

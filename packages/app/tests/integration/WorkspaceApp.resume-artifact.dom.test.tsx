@@ -124,7 +124,7 @@ describe('WorkspaceApp Resume artifact', (): void => {
     expect(objectUrls.createObjectURL).toHaveBeenCalledTimes(1)
     expect(objectUrls.createObjectURL.mock.calls[0]?.[0]).toBeInstanceOf(Blob)
     expect(preview).not.toHaveAttribute('src', expect.stringContaining('/api/v2/'))
-    expect(screen.getByRole('button', { name: '下载 PDF' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '下载预览 PDF' })).toBeEnabled()
   })
 
   it('offers an explicit download fallback when the browser has no inline PDF viewer', async (): Promise<void> => {
@@ -139,7 +139,7 @@ describe('WorkspaceApp Resume artifact', (): void => {
       await screen.findByText('当前浏览器无法内嵌显示 PDF', {}, { timeout: 4_000 })
     ).toBeInTheDocument()
     expect(screen.queryByTitle('简历 PDF 预览')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '下载 PDF' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '下载预览 PDF' })).toBeEnabled()
   })
 
   it('segments long Artifact expiry waits instead of overflowing the browser timer', async (): Promise<void> => {
@@ -177,7 +177,7 @@ describe('WorkspaceApp Resume artifact', (): void => {
           globalThis.setTimeout(resolve, 20)
         })
     )
-    expect(screen.getByRole('button', { name: '下载 PDF' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '下载预览 PDF' })).toBeEnabled()
     expect(screen.queryByText('该 PDF 已过期，请重新生成。')).not.toBeInTheDocument()
   })
 
@@ -461,7 +461,7 @@ describe('WorkspaceApp Resume artifact', (): void => {
     await screen.findByTitle('简历 PDF 预览', {}, { timeout: 4_000 })
 
     /** @brief 同一 React commit 内双击的保存按钮 / Save button double-clicked within one React commit. */
-    const saveButton = screen.getByRole('button', { name: '下载 PDF' })
+    const saveButton = screen.getByRole('button', { name: '下载预览 PDF' })
     act((): void => {
       saveButton.click()
       saveButton.click()

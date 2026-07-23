@@ -60,6 +60,11 @@ export type {
   UiResumeSummaryPage,
   UiTemplateManifest
 } from './contexts/resume/domain/models'
+export { deriveResumeRenderFormatAvailability } from './contexts/resume/domain/render-policy'
+export type {
+  ResumeRenderFormatAvailability,
+  UiResumeDeliverableFormat
+} from './contexts/resume/domain/render-policy'
 export type {
   UiColorValue,
   UiJsonObject,

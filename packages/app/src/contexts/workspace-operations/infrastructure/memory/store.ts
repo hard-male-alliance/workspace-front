@@ -453,6 +453,7 @@ export class InMemoryWorkspaceOperationsStore {
       requestId: `request_observe_${jobId}`
     }
     this.jobs.set(jobId, completed)
+    this.renderFormats.delete(jobId)
     return completed
   }
 
@@ -493,6 +494,7 @@ export class InMemoryWorkspaceOperationsStore {
     }
     this.jobs.set(jobId, cancelled)
     if (current.job.kind === 'resume.restore') this.restoreProcesses.delete(jobId)
+    if (current.job.kind === 'resume.render') this.renderFormats.delete(jobId)
     return cancelled
   }
 

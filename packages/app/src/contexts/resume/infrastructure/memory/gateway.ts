@@ -1078,7 +1078,9 @@ export class InMemoryResumeGateway
       input.resumeRevision < 1 ||
       input.formats.length < 1 ||
       input.formats.length > 3 ||
-      new Set(input.formats).size !== input.formats.length
+      new Set(input.formats).size !== input.formats.length ||
+      input.formats.some((format) => format !== 'pdf' && format !== 'json' && format !== 'docx') ||
+      (input.mode !== 'preview' && input.mode !== 'final' && input.mode !== 'export')
     ) {
       throw new InMemoryGatewayError(
         'memory.conflict',

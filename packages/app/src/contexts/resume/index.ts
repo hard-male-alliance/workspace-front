@@ -64,6 +64,11 @@ export type {
   UiTemplateSettingsModel
 } from './domain/models'
 export { asUiResumeCursor, asUiResumePageLimit, UI_RESUME_PAGE_LIMIT_MAX } from './domain/models'
+export { deriveResumeRenderFormatAvailability } from './domain/render-policy'
+export type {
+  ResumeRenderFormatAvailability,
+  UiResumeDeliverableFormat
+} from './domain/render-policy'
 export {
   asUiResumeTemplateCursor,
   asUiResumeTemplatePageLimit,
