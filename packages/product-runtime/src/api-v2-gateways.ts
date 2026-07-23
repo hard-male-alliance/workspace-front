@@ -1435,7 +1435,9 @@ export function createApiV2ResumeGateway(
         authority.value.workspace_id !== input.workspaceId ||
         authority.value.subject.resource_type !== 'resume' ||
         authority.value.subject.id !== input.resumeId ||
-        authority.value.subject.revision !== input.resumeRevision
+        (authority.value.subject.revision !== undefined &&
+          authority.value.subject.revision !== null &&
+          authority.value.subject.revision !== input.resumeRevision)
       ) {
         throw new ApiV2WriteOutcomeUnknownError('contract', 202, null, authority.requestId)
       }

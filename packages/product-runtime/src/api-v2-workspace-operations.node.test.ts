@@ -324,7 +324,7 @@ describe('API v2 Workspace Operations ACL', (): void => {
     expect(getAuthenticatedContent).not.toHaveBeenCalled()
   })
 
-  it('启动通用 Render payload 并对 202 Job kind/subject/revision 做后置校验', async (): Promise<void> => {
+  it('启动通用 Render payload，并只在 202 Job 提供 revision 时核对它', async (): Promise<void> => {
     /** @brief 被 Render command 观察的 payload / Render payload observed by the command port. */
     let observedBody: unknown
     /** @brief 接受 Resume Render Job 的写端口 / Write port accepting a Resume Render Job. */
@@ -382,6 +382,45 @@ describe('API v2 Workspace Operations ACL', (): void => {
       formats: ['pdf', 'json'],
       mode: 'export',
       resume_revision: 18
+    })
+
+    /** @brief 合法省略可选 subject revision 的写端口 / Write port legitimately omitting the optional subject revision. */
+    const sparseSubjectClient: ResumeJobCommandHttpClient = {
+      postJson: () =>
+        Promise.resolve({
+          data: {
+            ...QUEUED_JOB,
+            subject: { id: RESUME_ID, resource_type: 'resume' }
+          },
+          metadata: {
+            entityTag: '"job-etag-sparse-subject"',
+            location: `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}/jobs/${JOB_ID}`,
+            requestId: 'request_render_sparse_subject_0001'
+          },
+          status: 202
+        })
+    }
+    /** @brief 使用稀疏 ResourceRef 的 Resume ACL / Resume ACL using a sparse ResourceRef. */
+    const sparseSubjectGateway = createApiV2ResumeGateway(
+      { getJson: (): Promise<never> => Promise.reject(new Error('Unexpected Resume read.')) },
+      operationsClient,
+      sparseSubjectClient
+    )
+
+    await expect(
+      sparseSubjectGateway.startResumeRender({
+        commandId: createUiCommandId(),
+        formats: ['pdf'],
+        mode: 'preview',
+        resumeId: asUiOpaqueId<'resume'>(RESUME_ID),
+        resumeRevision: 18,
+        workspaceId: asUiOpaqueId<'workspace'>(WORKSPACE_ID)
+      })
+    ).resolves.toMatchObject({
+      job: {
+        subject: { id: RESUME_ID, resourceType: 'resume' }
+      },
+      requestId: 'request_render_sparse_subject_0001'
     })
 
     /** @brief 返回错误开放 kind 的已确认 202 写端口 / Acknowledged 202 write port returning the wrong open kind. */
