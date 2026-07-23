@@ -1,0 +1,216 @@
+/* API v2 Resume library */
+.aw-resume-library-page {
+  max-width: 1120px;
+}
+
+.aw-resume-library-loading {
+  min-height: 240px;
+  justify-content: center;
+}
+
+.aw-resume-library-header {
+  align-items: flex-start;
+}
+
+.aw-resume-library-results {
+  display: grid;
+  gap: 18px;
+}
+
+.aw-resume-summary-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.aw-resume-summary-card {
+  min-width: 0;
+  border: 1px solid var(--ui-color-border);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-color-surface);
+  box-shadow: var(--ui-shadow-1);
+  transition:
+    border-color var(--ui-transition-fast),
+    background var(--ui-transition-fast),
+    transform var(--ui-transition-fast);
+}
+
+.aw-resume-summary-card:hover {
+  border-color: var(--ui-color-border-strong);
+  background: var(--ui-color-surface-raised);
+  transform: translateY(-1px);
+}
+
+.aw-resume-summary-card:focus-within {
+  border-color: var(--ui-color-accent);
+}
+
+.aw-resume-summary-link {
+  display: grid;
+  min-height: 132px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 13px;
+  padding: 18px;
+  color: var(--ui-color-ink);
+  text-decoration: none;
+}
+
+.aw-resume-summary-icon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-color-accent-subtle);
+  color: var(--ui-color-accent-subtle-foreground);
+}
+
+.aw-resume-summary-copy {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+}
+
+.aw-resume-summary-copy > strong {
+  overflow: hidden;
+  color: var(--ui-color-ink);
+  font-size: 15px;
+  font-weight: 720;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aw-resume-summary-meta {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 4px 7px;
+  color: var(--ui-color-ink-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.aw-resume-summary-updated {
+  color: var(--ui-color-ink-subtle);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.aw-resume-summary-open {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: var(--ui-radius-sm);
+  color: var(--ui-color-ink-subtle);
+  transition:
+    color var(--ui-transition-fast),
+    transform var(--ui-transition-fast);
+}
+
+.aw-resume-summary-card:hover .aw-resume-summary-open {
+  color: var(--ui-color-accent-subtle-foreground);
+  transform: translateX(2px);
+}
+
+.aw-resume-load-more {
+  display: flex;
+  justify-content: center;
+  padding-top: 2px;
+}
+
+.aw-resume-load-more > .aw-quiet-button {
+  min-width: 152px;
+  border-color: var(--ui-color-border);
+  background: var(--ui-color-surface);
+}
+
+.aw-resume-load-more > .aw-quiet-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.aw-resume-load-more-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px 15px;
+  border: 1px solid var(--ui-color-danger);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-color-danger-subtle);
+  color: var(--ui-color-danger);
+}
+
+.aw-resume-load-more-error strong {
+  font-size: 13px;
+}
+
+.aw-resume-load-more-error p {
+  margin: 3px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.aw-resume-load-more-error .aw-quiet-button {
+  flex: none;
+  color: currentcolor;
+}
+
+.aw-resume-library-end {
+  margin: 0;
+  color: var(--ui-color-ink-subtle);
+  font-size: 11px;
+  text-align: center;
+}
+
+.aw-resume-library-state {
+  min-height: 260px;
+  border: 1px solid var(--ui-color-border);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-color-surface);
+}
+
+@media (max-width: 900px) {
+  .aw-resume-summary-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .aw-resume-summary-link {
+    min-height: 0;
+    grid-template-columns: auto minmax(0, 1fr);
+    padding: 15px;
+  }
+
+  .aw-resume-summary-open {
+    display: none;
+  }
+
+  .aw-resume-load-more-error {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .aw-resume-load-more-error .aw-quiet-button {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aw-resume-summary-card,
+  .aw-resume-summary-open {
+    transition: none;
+  }
+
+  .aw-resume-summary-card:hover,
+  .aw-resume-summary-card:hover .aw-resume-summary-open {
+    transform: none;
+  }
+}

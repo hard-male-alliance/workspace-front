@@ -1,6 +1,6 @@
 # 前端领域上下文图
 
-本文件定义本仓库采用的统一语言（Ubiquitous Language）与上下文边界。共享 API 的正式语义仍只来自只读的 `workspace-shared-docs/contracts/v1/`；本文件只描述前端如何消费该契约，不复制或修改契约。
+本文件定义本仓库采用的统一语言（Ubiquitous Language）与上下文边界。共享 API 的正式语义只来自只读的 `workspace-shared-docs/contracts/v2/` 四个发布物；本文件只描述前端如何消费契约，不复制或修改契约。当前生产组合仍显式使用 v1 runtime adapter，直到相应 bounded context 的后端、身份、Workspace 授权与端到端验证全部具备证据；不得把 v2 发布状态理解为已经部署，也不得静默回退 major version。
 
 ## 产品上下文
 

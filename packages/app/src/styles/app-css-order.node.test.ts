@@ -20,14 +20,17 @@ const expectedImportPaths = [
   '../ui/design-tokens.css',
   '../ui/ui.css',
   './foundation.css',
-  './knowledge/remote-operations.css',
   './interview/workspace.css',
   './resume/workspace.css',
   './shell/base.css',
   './shared-ui/core.css',
   './workspace/home.css',
   './shared-ui/status.css',
+  './resume/library.css',
+  './resume/creation.css',
   './resume/editor.css',
+  './resume/review.css',
+  './resume/output.css',
   './shared-ui/domain-layouts.css',
   './resume/templates.css',
   './interview/session.css',
@@ -36,7 +39,10 @@ const expectedImportPaths = [
 ] as const
 
 /** @brief 由独立组件按需加载、但仍属于受管理级联的样式分片 / Style fragments loaded on demand by isolated components but still owned by the managed cascade. */
-const expectedComponentFragmentPaths = ['./shared-ui/host-startup-failure.css'] as const
+const expectedComponentFragmentPaths = [
+  './shared-ui/host-startup-failure.css',
+  './shared-ui/hosted-authentication.css'
+] as const
 
 /**
  * @brief 递归收集目录中的 CSS 文件 / Recursively collect CSS files in a directory.

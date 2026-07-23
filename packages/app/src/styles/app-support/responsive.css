@@ -47,11 +47,14 @@
     padding: 0 22px;
   }
 
+  .aw-topbar-workspace-picker select {
+    width: min(180px, 26vw);
+  }
+
   .aw-overview-grid,
   .aw-today-grid,
   .aw-workbench-grid,
   .aw-template-layout,
-  .aw-knowledge-layout,
   .aw-summary-layout,
   .aw-interview-grid,
   .aw-visibility-grid {
@@ -70,10 +73,6 @@
 
   .aw-visibility-summary-stats {
     flex-wrap: wrap;
-  }
-
-  .aw-source-detail {
-    position: static;
   }
 
   .aw-editor-workspace {
@@ -110,7 +109,12 @@
   }
 
   .aw-mobile-tabs .aw-tab {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
     flex: 1;
+    text-decoration: none;
   }
 
   .aw-mobile-tabs .aw-tab[aria-pressed='true'] {
@@ -181,8 +185,39 @@
   }
 
   .aw-topbar {
+    justify-content: flex-end;
     min-height: 58px;
     padding: 0 14px;
+  }
+
+  .aw-breadcrumb {
+    display: none;
+  }
+
+  .aw-topbar-actions {
+    min-width: 0;
+    flex: 1;
+    justify-content: flex-end;
+    gap: 4px;
+  }
+
+  .aw-workspace-controls {
+    min-width: 0;
+  }
+
+  .aw-topbar-workspace-picker select {
+    width: min(142px, 42vw);
+  }
+
+  .aw-workspace-load-more {
+    width: 36px;
+    flex: none;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .aw-workspace-load-more > span {
+    display: none;
   }
 
   .aw-topbar-actions .aw-quiet-button {
@@ -299,8 +334,12 @@
     padding: 20px 10px;
   }
 
-  .aw-paper {
+  .aw-paper,
+  .aw-pdf-preview-stage {
     min-height: 630px;
+  }
+
+  .aw-paper {
     padding: 38px 29px;
   }
 

@@ -5,10 +5,13 @@ import type { AppGateways } from '@ai-job-workspace/app/application'
 import { createDiagnostics } from '@ai-job-workspace/app/diagnostics'
 import { appI18n, appI18nReady } from '@ai-job-workspace/app/i18n'
 import {
+  InMemoryIdentityGateway,
   InMemoryInterviewGateway,
   InMemoryKnowledgeGateway,
   InMemoryResumeGateway,
-  InMemoryWorkspaceGateway
+  InMemoryWorkspaceGateway,
+  InMemoryWorkspaceOperationsGateway,
+  InMemoryWorkspaceOperationsStore
 } from '@ai-job-workspace/app/testing'
 import { APPLICATION_VERSION } from '@ai-job-workspace/platform'
 
@@ -17,11 +20,21 @@ import { APPLICATION_VERSION } from '@ai-job-workspace/platform'
  * @return 不共享可变状态的 Gateway 集合 / Gateway collection without shared mutable state.
  */
 function createBrowserTestGateways(): AppGateways {
+  /** @brief 同时实现 Resume 各用例端口的独享测试适配器 / Isolated test adapter implementing each Resume use-case port. */
+  const operationsStore = new InMemoryWorkspaceOperationsStore()
+  /** @brief 与 Resume command 共享状态的 Workspace Operations adapter / Workspace Operations adapter sharing state with Resume commands. */
+  const workspaceOperations = new InMemoryWorkspaceOperationsGateway({}, operationsStore)
+  const resume = new InMemoryResumeGateway({ operationsStore })
   return {
+    identity: new InMemoryIdentityGateway(),
     interview: new InMemoryInterviewGateway(),
     knowledge: new InMemoryKnowledgeGateway(),
-    resume: new InMemoryResumeGateway(),
-    workspace: new InMemoryWorkspaceGateway()
+    resume,
+    resumeReview: resume,
+    resumeCreation: resume,
+    resumeTemplates: resume,
+    workspace: new InMemoryWorkspaceGateway(),
+    workspaceOperations
   }
 }
 
@@ -35,7 +48,10 @@ export async function renderBrowserWorkspace(
 ): Promise<Awaited<ReturnType<typeof render>>> {
   return render(
     <WorkspaceApp
-      artifactSave={{ saveArtifact: () => Promise.resolve({ status: 'saved' }) }}
+      artifactSave={{
+        maximumArtifactBytes: null,
+        saveArtifact: () => Promise.resolve({ status: 'saved' })
+      }}
       diagnostics={createDiagnostics({ sinks: [] })}
       gateways={createBrowserTestGateways()}
       initialPath={initialPath}

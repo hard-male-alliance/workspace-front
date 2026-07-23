@@ -19,6 +19,7 @@ const RESOLUTION_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.m
 const IGNORED_DIRECTORIES = new Set([
   '.git',
   '.cache',
+  '.tmp',
   '.vite',
   'coverage',
   'dist',
@@ -79,7 +80,10 @@ const TEST_PROJECT_NAMES = Object.freeze(['node', 'dom', 'browser'])
 const GATEWAY_HOOK_OWNERS = Object.freeze({
   useInterviewGateway: 'interview',
   useKnowledgeGateway: 'knowledge',
+  useResumeCreation: 'resume',
   useResumeGateway: 'resume',
+  useResumeRenderProcess: 'resume',
+  useResumeTemplateCatalog: 'resume',
   useWorkspaceGateway: 'workspace'
 })
 

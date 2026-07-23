@@ -199,14 +199,19 @@ export async function runDiagnosticCommand<TValue>(
 function getDiagnosticRoute(pathname: string): DiagnosticRoute {
   if (pathname === '/') return 'workspace.home'
   if (pathname === '/resumes') return 'resume.entry'
-  if (pathname.endsWith('/edit')) return 'resume.editor'
-  if (pathname.endsWith('/template')) return 'resume.template_settings'
+  if (pathname === '/resumes/new') return 'resume.creation'
+  if (pathname.startsWith('/resumes/')) {
+    if (pathname.endsWith('/export')) return 'resume.output'
+    if (pathname.endsWith('/review')) return 'resume.review'
+    if (pathname.endsWith('/template')) return 'resume.template_settings'
+    return 'resume.editor'
+  }
   if (pathname === '/interviews') return 'interview.history'
   if (pathname === '/interviews/new') return 'interview.setup'
   if (pathname.endsWith('/summary')) return 'interview.summary'
   if (pathname.startsWith('/interviews/')) return 'interview.room'
   if (pathname === '/knowledge') return 'knowledge.sources'
-  if (pathname.endsWith('/visibility')) return 'knowledge.visibility'
+  if (pathname.startsWith('/knowledge/')) return 'knowledge.source'
   return 'unknown'
 }
 

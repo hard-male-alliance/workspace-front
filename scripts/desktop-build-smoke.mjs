@@ -53,7 +53,25 @@ async function verifyRendererAssetBase() {
   }
 }
 
+/**
+ * @brief 验证发布提供的 public client ID 已静态写入 main bundle / Verify that the release-supplied public client ID is statically embedded in the main bundle.
+ * @return 验证完成时兑现 / Resolves after verification.
+ */
+async function verifyEmbeddedOAuthClientId() {
+  /** @brief 当前构建供应链提供的非秘密 client ID / Non-secret client ID supplied by the current build pipeline. */
+  const clientId = process.env.AI_JOB_WORKSPACE_OAUTH_CLIENT_ID
+  if (typeof clientId !== 'string' || clientId.length === 0) {
+    throw new Error('Desktop smoke requires the same public OAuth client ID used by the build.')
+  }
+  /** @brief 已构建 main bundle / Built main-process bundle. */
+  const mainBundle = await readFile(desktopMainPath, 'utf8')
+  if (!mainBundle.includes(clientId)) {
+    throw new Error('Desktop main bundle does not contain the release-supplied public client ID.')
+  }
+}
+
 await verifyRendererAssetBase()
+await verifyEmbeddedOAuthClientId()
 await runDesktopRuntimeSmoke({
   ...createDesktopSmokeLaunch(process.execPath, electronCliScriptPath, desktopMainPath),
   cwd: repositoryRoot

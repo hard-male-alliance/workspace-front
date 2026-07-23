@@ -1,8 +1,16 @@
-import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
-import { HttpCommandOutcomeUnknownError } from '@ai-job-workspace/app/http'
-import { InMemoryResumeGateway, MOCK_TEMPLATE_MANIFESTS } from '@ai-job-workspace/app/testing'
-import type { ArtifactSavePort, SaveArtifactResult } from '@ai-job-workspace/platform'
+import { act, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ApiV2ProblemError, ApiV2WriteOutcomeUnknownError } from '@ai-job-workspace/product-api-v2'
+import {
+  InMemoryResumeGateway,
+  InMemoryWorkspaceOperationsGateway,
+  InMemoryWorkspaceOperationsStore
+} from '@ai-job-workspace/app/testing'
+import type {
+  ArtifactSavePort,
+  SaveArtifactRequest,
+  SaveArtifactResult
+} from '@ai-job-workspace/platform'
 
 import {
   createTestGateways,
@@ -13,376 +21,474 @@ import {
 
 installWorkspaceAppTestCleanup()
 
-/** @brief 简历产物生成与保存用户行为 / Resume-artifact generation and save behaviours. */
+/** @brief URL.createObjectURL 的原始属性描述 / Original URL.createObjectURL property descriptor. */
+const originalCreateObjectUrl = Object.getOwnPropertyDescriptor(URL, 'createObjectURL')
+/** @brief URL.revokeObjectURL 的原始属性描述 / Original URL.revokeObjectURL property descriptor. */
+const originalRevokeObjectUrl = Object.getOwnPropertyDescriptor(URL, 'revokeObjectURL')
+/** @brief navigator.pdfViewerEnabled 的原始自有属性 / Original own navigator.pdfViewerEnabled property. */
+const originalPdfViewerEnabled = Object.getOwnPropertyDescriptor(navigator, 'pdfViewerEnabled')
+
+/**
+ * @brief 安装可观察但不读取远端 URL 的 Blob URL 宿主 / Install an observable Blob-URL host that never reads a remote URL.
+ * @return create/revoke 观测器 / Create and revoke observers.
+ */
+function installBlobUrlHost(): {
+  readonly createObjectURL: ReturnType<typeof vi.fn<(blob: Blob) => string>>
+  readonly revokeObjectURL: ReturnType<typeof vi.fn<(url: string) => void>>
+} {
+  /** @brief Blob URL 创建观测器 / Blob-URL creation observer. */
+  const createObjectURL = vi.fn<(blob: Blob) => string>().mockReturnValue('blob:resume-pdf-preview')
+  /** @brief Blob URL 释放观测器 / Blob-URL revocation observer. */
+  const revokeObjectURL = vi.fn<(url: string) => void>()
+  Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectURL })
+  Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectURL })
+  return { createObjectURL, revokeObjectURL }
+}
+
+/**
+ * @brief 恢复测试前的 Blob URL 宿主 / Restore the Blob-URL host that existed before the tests.
+ */
+function restoreBlobUrlHost(): void {
+  if (originalCreateObjectUrl === undefined) {
+    Reflect.deleteProperty(URL, 'createObjectURL')
+  } else {
+    Object.defineProperty(URL, 'createObjectURL', originalCreateObjectUrl)
+  }
+  if (originalRevokeObjectUrl === undefined) {
+    Reflect.deleteProperty(URL, 'revokeObjectURL')
+  } else {
+    Object.defineProperty(URL, 'revokeObjectURL', originalRevokeObjectUrl)
+  }
+}
+
+/**
+ * @brief 设置浏览器公开的原生 PDF 查看器能力 / Set the browser-reported native PDF-viewer capability.
+ * @param enabled 浏览器是否明确支持内嵌 PDF / Whether the browser explicitly supports inline PDF.
+ */
+function setPdfViewerEnabled(enabled: boolean): void {
+  Object.defineProperty(navigator, 'pdfViewerEnabled', {
+    configurable: true,
+    value: enabled
+  })
+}
+
+/** @brief 恢复测试前的 PDF 查看器能力 / Restore the PDF-viewer capability that existed before the tests. */
+function restorePdfViewerEnabled(): void {
+  if (originalPdfViewerEnabled === undefined) {
+    Reflect.deleteProperty(navigator, 'pdfViewerEnabled')
+  } else {
+    Object.defineProperty(navigator, 'pdfViewerEnabled', originalPdfViewerEnabled)
+  }
+}
+
+/**
+ * @brief 获取承载语义或 PDF 预览的 busy surface / Get the busy surface carrying the semantic or PDF preview.
+ * @return 带 aria-busy 的预览容器 / Preview container carrying aria-busy.
+ */
+function getPreviewBusySurface(): HTMLElement {
+  /** @brief 直接由可访问 busy 状态定位的预览容器 / Preview container located directly by its accessible busy state. */
+  const surface = document.querySelector('.aw-editor-preview[aria-busy]')
+  if (!(surface instanceof HTMLElement)) {
+    throw new Error('Expected the Resume preview to have an aria-busy container.')
+  }
+  return surface
+}
+
+beforeEach(async (): Promise<void> => {
+  await setWorkspaceAppTestLocale('zh-SG')
+  vi.spyOn(Math, 'random').mockReturnValue(0)
+  setPdfViewerEnabled(true)
+})
+
+afterEach((): void => {
+  restoreBlobUrlHost()
+  restorePdfViewerEnabled()
+  vi.restoreAllMocks()
+})
+
+/** @brief 简历 Render、Job、Artifact、Blob 与保存闭环 / Resume Render, Job, Artifact, Blob, and save lifecycle. */
 describe('WorkspaceApp Resume artifact', (): void => {
-  it('starts a PDF Render Job and displays the completed artifact', async (): Promise<void> => {
-    await setWorkspaceAppTestLocale('zh-SG')
+  it('resolves Job result_refs and previews only a validated Bearer-fetched Blob URL', async (): Promise<void> => {
+    /** @brief 当前测试的 Blob URL 宿主 / Blob-URL host for this test. */
+    const objectUrls = installBlobUrlHost()
 
     render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
     await screen.findByRole('heading', { name: 'Klee Chen' })
-
     fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
 
-    /** @brief 只允许被严格 sandbox 的 PDF 预览框 / PDF preview frame allowed only under a strict sandbox. */
-    const preview = await screen.findByTitle('简历 PDF 预览')
-    expect(preview).toHaveAttribute('src', 'about:blank#mock-resume-pdf')
+    expect(await screen.findByRole('progressbar', { name: 'PDF 生成进度' })).toBeInTheDocument()
+    /** @brief 只接收内存 Blob URL 的严格 sandbox 预览 / Strict sandbox preview receiving only an in-memory Blob URL. */
+    const preview = await screen.findByTitle('简历 PDF 预览', {}, { timeout: 4_000 })
+    expect(preview).toHaveAttribute('src', 'blob:resume-pdf-preview')
     expect(preview).toHaveAttribute('sandbox', '')
-    expect(screen.getByRole('button', { name: '下载 PDF' })).toBeInTheDocument()
+    expect(objectUrls.createObjectURL).toHaveBeenCalledTimes(1)
+    expect(objectUrls.createObjectURL.mock.calls[0]?.[0]).toBeInstanceOf(Blob)
+    expect(preview).not.toHaveAttribute('src', expect.stringContaining('/api/v2/'))
+    expect(screen.getByRole('button', { name: '下载预览 PDF' })).toBeEnabled()
   })
 
-  it('以相同命令身份确认结果未知的 PDF 生成请求', async (): Promise<void> => {
-    await setWorkspaceAppTestLocale('zh-SG')
-    /** @brief 当前测试独享的简历 Gateway / Resume Gateway owned by the current test. */
-    const resume = new InMemoryResumeGateway()
-    /** @brief 未被 spy 替换的 Render Job 启动实现 / Render-Job start implementation before spying. */
-    const startRenderJob = resume.startResumePdfRender.bind(resume)
-    /** @brief 可观测并首次返回结果未知的启动命令 / Observable start command whose first response has an unknown outcome. */
-    const startRender = vi
-      .spyOn(resume, 'startResumePdfRender')
+  it('offers an explicit download fallback when the browser has no inline PDF viewer', async (): Promise<void> => {
+    installBlobUrlHost()
+    setPdfViewerEnabled(false)
+
+    render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
+    await screen.findByRole('heading', { name: 'Klee Chen' })
+    fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
+
+    expect(
+      await screen.findByText('当前浏览器无法内嵌显示 PDF', {}, { timeout: 4_000 })
+    ).toBeInTheDocument()
+    expect(screen.queryByTitle('简历 PDF 预览')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '下载预览 PDF' })).toBeEnabled()
+  })
+
+  it('segments long Artifact expiry waits instead of overflowing the browser timer', async (): Promise<void> => {
+    installBlobUrlHost()
+    /** @brief Resume command 与 Operations 查询共享的状态 / State shared by Resume commands and Operations reads. */
+    const store = new InMemoryWorkspaceOperationsStore()
+    const resume = new InMemoryResumeGateway({ operationsStore: store })
+    const workspaceOperations = new InMemoryWorkspaceOperationsGateway({}, store)
+    /** @brief 未替换的 Artifact metadata 读取 / Original Artifact-metadata read. */
+    const getArtifact = workspaceOperations.getArtifact.bind(workspaceOperations)
+    /** @brief 超过单个浏览器 timer 上限的有效期 / Expiry beyond one browser timer's limit. */
+    const expiresAt = new Date(Date.now() + 2_147_483_647 + 60_000).toISOString()
+    vi.spyOn(workspaceOperations, 'getArtifact').mockImplementation(async (request) => {
+      /** @brief 带长有效期的 Artifact 权威 / Artifact authority carrying a long lifetime. */
+      const authority = await getArtifact(request)
+      return { ...authority, artifact: { ...authority.artifact, expiresAt } }
+    })
+    vi.spyOn(workspaceOperations, 'readArtifactContent').mockImplementation((request) => {
+      request.signal?.throwIfAborted()
+      return Promise.resolve(store.readArtifactContent(request.artifact.id))
+    })
+    render(
+      <WorkspaceApp
+        gateways={createTestGateways({ resume, workspaceOperations })}
+        initialPath="/resumes/res_mock_ai_platform/edit"
+      />
+    )
+    await screen.findByRole('heading', { name: 'Klee Chen' })
+    fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
+    await screen.findByTitle('简历 PDF 预览', {}, { timeout: 4_000 })
+
+    await act(
+      async (): Promise<void> =>
+        new Promise((resolve): void => {
+          globalThis.setTimeout(resolve, 20)
+        })
+    )
+    expect(screen.getByRole('button', { name: '下载预览 PDF' })).toBeEnabled()
+    expect(screen.queryByText('该 PDF 已过期，请重新生成。')).not.toBeInTheDocument()
+  })
+
+  it('reuses the exact Render command identity after an unknown start outcome', async (): Promise<void> => {
+    installBlobUrlHost()
+    /** @brief Resume command 与 Operations 查询共享的状态 / State shared by Resume commands and Operations reads. */
+    const store = new InMemoryWorkspaceOperationsStore()
+    /** @brief 当前测试的 Resume command adapter / Resume-command adapter for this test. */
+    const resume = new InMemoryResumeGateway({ operationsStore: store })
+    /** @brief 当前测试的 Workspace Operations adapter / Workspace Operations adapter for this test. */
+    const workspaceOperations = new InMemoryWorkspaceOperationsGateway({}, store)
+    /** @brief 未替换的 Render command / Original Render command. */
+    const startRender = resume.startResumeRender.bind(resume)
+    /** @brief 首次写已提交但响应丢失的观测器 / Observer whose first committed write loses its response. */
+    const start = vi
+      .spyOn(resume, 'startResumeRender')
       .mockImplementationOnce(async (input): Promise<never> => {
-        await startRenderJob(input)
-        throw new HttpCommandOutcomeUnknownError('network')
+        await startRender(input)
+        throw new ApiV2WriteOutcomeUnknownError('network')
       })
-      .mockImplementation(startRenderJob)
+      .mockImplementation(startRender)
 
     render(
       <WorkspaceApp
-        gateways={createTestGateways({ resume })}
+        gateways={createTestGateways({ resume, workspaceOperations })}
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
     await screen.findByRole('heading', { name: 'Klee Chen' })
     fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
 
-    /** @brief 对用户展示的安全结果未知提示 / Safe outcome-unknown notice shown to the user. */
-    const outcomeUnknown = await screen.findByRole('alert')
-    expect(outcomeUnknown).toHaveTextContent(/PDF/u)
-    expect(outcomeUnknown).toHaveTextContent(/无法确认|可能/u)
-    expect(outcomeUnknown).not.toHaveTextContent('预览生成失败，请重试')
-
-    /** @brief 首次提交的不可变命令身份 / Immutable command identity submitted the first time. */
-    const firstStart = startRender.mock.calls.at(0)?.[0]
-    if (firstStart === undefined) throw new Error('Expected the initial PDF Render command.')
-    expect(firstStart.commandId).toEqual(expect.any(String))
-
-    fireEvent.click(screen.getByRole('button', { name: '收起“预览”窗口' }))
-    expect(screen.queryByRole('region', { name: '语义内容预览' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '确认 PDF 生成结果' })).not.toBeInTheDocument()
-    expect(startRender).toHaveBeenCalledTimes(1)
-
-    fireEvent.click(screen.getByRole('button', { name: '展开“预览”窗口' }))
-    expect(screen.getByRole('button', { name: '确认 PDF 生成结果' })).toBeEnabled()
-    expect(screen.getByRole('alert')).toHaveTextContent(/无法确认|可能/u)
-    expect(startRender).toHaveBeenCalledTimes(1)
+    expect(await screen.findByRole('alert')).toHaveTextContent(/结果待确认|无法确认/u)
+    /** @brief 首次提交的冻结意图 / Frozen intent submitted first. */
+    const first = start.mock.calls[0]?.[0]
+    if (first === undefined) throw new Error('Expected the first Render command.')
 
     fireEvent.click(screen.getByRole('button', { name: '确认 PDF 生成结果' }))
+    await screen.findByTitle('简历 PDF 预览', {}, { timeout: 4_000 })
 
-    expect(await screen.findByTitle('简历 PDF 预览')).toHaveAttribute(
-      'src',
-      'about:blank#mock-resume-pdf'
-    )
-    expect(startRender).toHaveBeenCalledTimes(2)
-    /** @brief 确认操作重用的命令身份 / Command identity reused by the confirmation action. */
-    const confirmationStart = startRender.mock.calls.at(1)?.[0]
-    expect(confirmationStart).toMatchObject({
-      commandId: firstStart.commandId,
-      resumeId: firstStart.resumeId,
-      resumeRevision: firstStart.resumeRevision
+    /** @brief 安全确认重放的同一意图 / Same intent replayed for safe confirmation. */
+    const confirmation = start.mock.calls[1]?.[0]
+    expect(confirmation).toMatchObject({
+      commandId: first.commandId,
+      formats: ['pdf'],
+      mode: 'preview',
+      resumeId: first.resumeId,
+      resumeRevision: first.resumeRevision,
+      workspaceId: first.workspaceId
     })
   })
 
-  it('轮询暂时失败后只继续查询已知 PDF Render Job', async (): Promise<void> => {
-    await setWorkspaceAppTestLocale('zh-SG')
-    /** @brief 当前测试独享的简历 Gateway / Resume Gateway owned by the current test. */
-    const resume = new InMemoryResumeGateway()
-    /** @brief 未被 spy 替换的轮询实现 / Polling implementation before spying. */
-    const getRenderJob = resume.getResumeRenderJob.bind(resume)
-    /** @brief PDF Render Job 启动观测器 / PDF Render Job start observer. */
-    const startRender = vi.spyOn(resume, 'startResumePdfRender')
-    /** @brief 首次网络失败、后续恢复的轮询观测器 / Poll observer that fails once and then recovers. */
-    const getRender = vi
-      .spyOn(resume, 'getResumeRenderJob')
-      .mockRejectedValueOnce(new TypeError('private upstream URL must not reach the UI'))
-      .mockImplementation(getRenderJob)
-
-    render(
-      <WorkspaceApp
-        gateways={createTestGateways({ resume })}
-        initialPath="/resumes/res_mock_ai_platform/edit"
-      />
-    )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
-    fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
-
-    expect(await screen.findByRole('button', { name: '继续查询 PDF' })).toBeEnabled()
-    expect(screen.getByRole('alert')).not.toHaveTextContent('private upstream URL')
-    expect(startRender).toHaveBeenCalledTimes(1)
-    expect(getRender).toHaveBeenCalledTimes(1)
-    /** @brief 已由服务端确认的 Render Job ID / Render Job ID already confirmed by the service. */
-    const confirmedJobId = getRender.mock.calls.at(0)?.[0]
-
-    fireEvent.click(screen.getByRole('button', { name: '继续查询 PDF' }))
-
-    expect(await screen.findByTitle('简历 PDF 预览')).toHaveAttribute(
-      'src',
-      'about:blank#mock-resume-pdf'
-    )
-    expect(startRender).toHaveBeenCalledTimes(1)
-    expect(getRender).toHaveBeenCalledTimes(2)
-    expect(getRender.mock.calls.at(1)?.[0]).toBe(confirmedJobId)
-  })
-
-  it('aborts the old generation and never restores its PDF after an authoritative Resume edit', async (): Promise<void> => {
-    await setWorkspaceAppTestLocale('zh-SG')
-    /** @brief 当前测试独享的简历 Gateway / Resume Gateway owned by the current test. */
-    const resume = new InMemoryResumeGateway()
-    /** @brief Render Job 的测试类型 / Render Job type used by this test. */
-    type RenderJob = Awaited<ReturnType<InMemoryResumeGateway['getResumeRenderJob']>>
-    /** @brief 未被 spy 替换的轮询实现 / Polling implementation before spying. */
-    const getRenderJob = resume.getResumeRenderJob.bind(resume)
-    /** @brief 首轮生成的旧 revision 产物 / Old-revision artifact completed by the first render. */
-    let staleCompletedJob: RenderJob | undefined
-    /** @brief 第二轮旧 generation 轮询的兑现函数 / Resolver for the second old-generation poll. */
-    let resolveStalePoll: ((job: RenderJob) => void) | undefined
-    /** @brief 第二轮旧 generation 轮询的取消信号 / Abort signal for the second old-generation poll. */
-    let stalePollingSignal: AbortSignal | undefined
-    vi.spyOn(resume, 'getResumeRenderJob').mockImplementation(
-      async (jobId, signal): Promise<RenderJob> => {
-        if (staleCompletedJob === undefined) {
-          staleCompletedJob = await getRenderJob(jobId, signal)
-          return staleCompletedJob
-        }
-        stalePollingSignal = signal
-        return new Promise<RenderJob>((resolve): void => {
-          resolveStalePoll = resolve
-        })
-      }
-    )
-
-    render(
-      <WorkspaceApp
-        gateways={createTestGateways({ resume })}
-        initialPath="/resumes/res_mock_ai_platform/edit"
-      />
-    )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
-    fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
-    await screen.findByTitle('简历 PDF 预览')
-
-    fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
-    await vi.waitFor((): void => expect(stalePollingSignal).toBeDefined())
-    /** @brief 触发新权威 revision 的语义内容编辑框 / Semantic-content editor that creates a new authoritative revision. */
-    const content = screen.getByRole('textbox', { name: '语义内容' })
-    fireEvent.change(content, { target: { value: '新的权威简历内容' } })
-    fireEvent.blur(content)
-
-    await vi.waitFor((): void => {
-      expect(screen.getByText('版本 19')).toBeInTheDocument()
-      expect(stalePollingSignal?.aborted).toBe(true)
-    })
-    expect(screen.queryByTitle('简历 PDF 预览')).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '下载 PDF' })).not.toBeInTheDocument()
-
-    if (staleCompletedJob === undefined) throw new Error('Expected the first Render Job to finish.')
-    resolveStalePoll?.(staleCompletedJob)
-    await vi.waitFor((): void => {
-      expect(screen.queryByTitle('简历 PDF 预览')).not.toBeInTheDocument()
-      expect(screen.queryByRole('button', { name: '下载 PDF' })).not.toBeInTheDocument()
-    })
-  })
-
-  it('removes a completed PDF as soon as the Resume revision changes', async (): Promise<void> => {
-    await setWorkspaceAppTestLocale('zh-SG')
-
+  it('cancels the server Job instead of treating fetch abort as cancellation', async (): Promise<void> => {
+    installBlobUrlHost()
     render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
     await screen.findByRole('heading', { name: 'Klee Chen' })
     fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
-    await screen.findByTitle('简历 PDF 预览')
 
-    /** @brief 触发新 revision 的语义内容编辑框 / Semantic-content editor that triggers a new revision. */
-    const content = screen.getByRole('textbox', { name: '语义内容' })
-    fireEvent.change(content, { target: { value: '更新后的权威简历内容' } })
-    fireEvent.blur(content)
+    /** @brief 只有取得 Job identity 与强 ETag 后才出现的 cancellation / Cancellation available only after Job identity and strong ETag exist. */
+    const cancel = await screen.findByRole('button', { name: '取消生成' })
+    fireEvent.click(cancel)
 
-    expect(await screen.findByText('版本 19')).toBeInTheDocument()
+    expect(await screen.findByText('PDF 生成已取消。')).toHaveAttribute('role', 'status')
     expect(screen.queryByTitle('简历 PDF 预览')).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '下载 PDF' })).not.toBeInTheDocument()
   })
 
-  it('rejects a completed artifact whose Resume revision does not match the editor', async (): Promise<void> => {
-    await setWorkspaceAppTestLocale('zh-SG')
-    /** @brief 返回错误 artifact revision 的测试 Gateway / Test Gateway returning an artifact for the wrong revision. */
-    const resume = new InMemoryResumeGateway()
-    /** @brief 未被 spy 替换的轮询实现 / Polling implementation before spying. */
-    const getRenderJob = resume.getResumeRenderJob.bind(resume)
-    vi.spyOn(resume, 'getResumeRenderJob').mockImplementation(async (jobId, signal) => {
-      /** @brief 后端完成但 artifact 身份陈旧的 Render Job / Completed job whose artifact identity is stale. */
-      const completed = await getRenderJob(jobId, signal)
+  it.each([
+    {
+      createError: (): Error => new ApiV2WriteOutcomeUnknownError('network'),
+      label: 'an unknown write outcome'
+    },
+    {
+      createError: (): Error =>
+        new ApiV2ProblemError(
+          {
+            code: 'idempotency.in_progress',
+            detail: null,
+            errors: [],
+            extensions: null,
+            instance: null,
+            request_id: 'req_cancel_in_progress_12345678',
+            retryable: true,
+            status: 409,
+            title: 'Cancellation is still in progress',
+            type: 'https://api.hmalliances.org/problems/idempotency-in-progress'
+          },
+          null
+        ),
+      label: 'an idempotency.in_progress response'
+    }
+  ])(
+    'confirms cancellation with the same command and original ETag after $label',
+    async ({ createError }): Promise<void> => {
+      installBlobUrlHost()
+      /** @brief Resume command 与 Operations 查询共享的状态 / State shared by Resume commands and Operations reads. */
+      const store = new InMemoryWorkspaceOperationsStore()
+      /** @brief 当前测试的 Resume command adapter / Resume-command adapter for this test. */
+      const resume = new InMemoryResumeGateway({ operationsStore: store })
+      /** @brief 当前测试的 Workspace Operations adapter / Workspace Operations adapter for this test. */
+      const workspaceOperations = new InMemoryWorkspaceOperationsGateway({}, store)
+      /** @brief 未替换的服务端 cancellation / Original server-side cancellation. */
+      const cancelJob = workspaceOperations.cancelJob.bind(workspaceOperations)
+      /** @brief 首次结果不确定、确认时成功的 cancellation 观测器 / Cancellation observer uncertain first and successful on confirmation. */
+      const cancel = vi
+        .spyOn(workspaceOperations, 'cancelJob')
+        .mockRejectedValueOnce(createError())
+        .mockImplementation(cancelJob)
+
+      render(
+        <WorkspaceApp
+          gateways={createTestGateways({ resume, workspaceOperations })}
+          initialPath="/resumes/res_mock_ai_platform/edit"
+        />
+      )
+      await screen.findByRole('heading', { name: 'Klee Chen' })
+      fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
+      fireEvent.click(await screen.findByRole('button', { name: '取消生成' }))
+
+      /** @brief 首次提交并冻结的 cancellation 信封 / Cancellation envelope submitted and frozen first. */
+      const first = cancel.mock.calls[0]?.[0]
+      if (first === undefined) throw new Error('Expected the first cancellation command.')
+      fireEvent.click(await screen.findByRole('button', { name: '确认取消结果' }))
+
+      expect(await screen.findByText('PDF 生成已取消。')).toHaveAttribute('role', 'status')
+      expect(cancel).toHaveBeenCalledTimes(2)
+      /** @brief 安全确认使用的完整 cancellation 信封 / Complete cancellation envelope used by safe confirmation. */
+      const confirmation = cancel.mock.calls[1]?.[0]
+      expect(confirmation).toMatchObject({
+        commandId: first.commandId,
+        concurrencyToken: first.concurrencyToken,
+        jobId: first.jobId,
+        workspaceId: first.workspaceId
+      })
+    }
+  )
+
+  it('fails closed when an Artifact subject does not match the rendered Resume revision', async (): Promise<void> => {
+    installBlobUrlHost()
+    /** @brief Resume command 与 Operations 查询共享的状态 / State shared by Resume commands and Operations reads. */
+    const store = new InMemoryWorkspaceOperationsStore()
+    const resume = new InMemoryResumeGateway({ operationsStore: store })
+    const workspaceOperations = new InMemoryWorkspaceOperationsGateway({}, store)
+    /** @brief 未替换的 Artifact metadata 读取 / Original Artifact-metadata read. */
+    const getArtifact = workspaceOperations.getArtifact.bind(workspaceOperations)
+    vi.spyOn(workspaceOperations, 'getArtifact').mockImplementation(async (request) => {
+      /** @brief 被篡改为上一 revision 的 metadata / Metadata tampered to the previous revision. */
+      const authority = await getArtifact(request)
       return {
-        ...completed,
-        artifacts: completed.artifacts.map((artifact) => ({
-          ...artifact,
-          resumeRevision: artifact.resumeRevision - 1
-        }))
+        ...authority,
+        artifact: {
+          ...authority.artifact,
+          subject: {
+            ...authority.artifact.subject,
+            revision:
+              authority.artifact.subject.revision === null ||
+              authority.artifact.subject.revision === undefined
+                ? 1
+                : authority.artifact.subject.revision - 1
+          }
+        }
       }
     })
 
     render(
       <WorkspaceApp
-        gateways={createTestGateways({ resume })}
+        gateways={createTestGateways({ resume, workspaceOperations })}
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
     await screen.findByRole('heading', { name: 'Klee Chen' })
     fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
 
-    const alert = await screen.findByRole('alert')
-    expect(alert).toHaveTextContent('无法生成 PDF 预览')
-    expect(alert).toHaveTextContent('应用遇到未预期的问题')
+    expect(await screen.findByRole('alert', {}, { timeout: 4_000 })).toHaveTextContent(
+      '无法生成 PDF 预览'
+    )
     expect(screen.queryByTitle('简历 PDF 预览')).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '下载 PDF' })).not.toBeInTheDocument()
   })
 
-  it('does not offer a PDF operation unsupported by the selected backend template', async (): Promise<void> => {
-    await setWorkspaceAppTestLocale('zh-SG')
-    /** @brief 声明模板不支持 PDF 的测试 Gateway / Test Gateway whose templates do not support PDF. */
-    const resume = new InMemoryResumeGateway()
-    vi.spyOn(resume, 'listTemplateManifests').mockResolvedValue(
-      MOCK_TEMPLATE_MANIFESTS.map((template) => ({
-        ...template,
-        supportedOutputFormats: ['png']
-      }))
-    )
-    /** @brief PDF Render Job 启动观测器 / PDF Render Job start observer. */
-    const startRender = vi.spyOn(resume, 'startResumePdfRender')
+  it('clears preview progress and aria-busy when the PDF exceeds the preview ceiling', async (): Promise<void> => {
+    installBlobUrlHost()
+    /** @brief Resume command 与 Operations 查询共享的状态 / State shared by Resume commands and Operations reads. */
+    const store = new InMemoryWorkspaceOperationsStore()
+    const resume = new InMemoryResumeGateway({ operationsStore: store })
+    const workspaceOperations = new InMemoryWorkspaceOperationsGateway({}, store)
+    /** @brief 未替换的 Artifact metadata 读取 / Original Artifact-metadata read. */
+    const getArtifact = workspaceOperations.getArtifact.bind(workspaceOperations)
+    vi.spyOn(workspaceOperations, 'getArtifact').mockImplementation(async (request) => {
+      /** @brief 被声明为超过浏览器预览上限的 metadata / Metadata declared above the browser preview ceiling. */
+      const authority = await getArtifact(request)
+      return {
+        ...authority,
+        artifact: { ...authority.artifact, sizeBytes: 64 * 1024 * 1024 + 1 }
+      }
+    })
+    /** @brief 过大产物不得触发的内容读取 / Content read forbidden for an oversized artifact. */
+    const readArtifactContent = vi.spyOn(workspaceOperations, 'readArtifactContent')
 
     render(
       <WorkspaceApp
-        gateways={createTestGateways({ resume })}
+        gateways={createTestGateways({ resume, workspaceOperations })}
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
     await screen.findByRole('heading', { name: 'Klee Chen' })
+    fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
 
-    expect(screen.getByRole('button', { name: '生成 PDF 预览' })).toBeDisabled()
-    expect(screen.getByText('当前模板不支持 PDF 输出。')).toBeInTheDocument()
-    expect(startRender).not.toHaveBeenCalled()
+    expect(await screen.findByRole('alert', {}, { timeout: 4_000 })).toHaveTextContent('PDF 太大')
+    await vi.waitFor((): void => {
+      expect(
+        screen.queryByRole('progressbar', { name: '正在安全加载 PDF 预览' })
+      ).not.toBeInTheDocument()
+      expect(getPreviewBusySurface()).toHaveAttribute('aria-busy', 'false')
+    })
+    expect(readArtifactContent).not.toHaveBeenCalled()
   })
 
-  it('通过显式 Host port 保存 PDF，并在等待期间提供可访问状态', async (): Promise<void> => {
-    await setWorkspaceAppTestLocale('zh-SG')
-    /** @brief 测试控制的保存结果兑现函数 / Test-controlled save-result resolver. */
+  it('clears preview progress and aria-busy when the authenticated stream fails', async (): Promise<void> => {
+    installBlobUrlHost()
+    /** @brief Resume command 与 Operations 查询共享的状态 / State shared by Resume commands and Operations reads. */
+    const store = new InMemoryWorkspaceOperationsStore()
+    const resume = new InMemoryResumeGateway({ operationsStore: store })
+    const workspaceOperations = new InMemoryWorkspaceOperationsGateway({}, store)
+    /** @brief 未替换的受认证内容读取 / Original authenticated-content read. */
+    const readArtifactContent = workspaceOperations.readArtifactContent.bind(workspaceOperations)
+    vi.spyOn(workspaceOperations, 'readArtifactContent').mockImplementation(async (request) => {
+      /** @brief 保留权威 headers、长度与摘要约束的原始描述 / Original descriptor preserving authoritative headers, length, and digest constraints. */
+      const content = await readArtifactContent(request)
+      await content.body?.cancel()
+      /** @brief 发出一块后失败的受认证 stream / Authenticated stream failing after one chunk. */
+      const body = new ReadableStream<Uint8Array>({
+        start(controller): void {
+          controller.enqueue(new Uint8Array([1]))
+          controller.error(new Error('private upstream stream failure'))
+        }
+      })
+      return { ...content, body }
+    })
+
+    render(
+      <WorkspaceApp
+        gateways={createTestGateways({ resume, workspaceOperations })}
+        initialPath="/resumes/res_mock_ai_platform/edit"
+      />
+    )
+    await screen.findByRole('heading', { name: 'Klee Chen' })
+    fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
+
+    expect(await screen.findByRole('alert', {}, { timeout: 4_000 })).toHaveTextContent(
+      '无法生成 PDF 预览'
+    )
+    await vi.waitFor((): void => {
+      expect(
+        screen.queryByRole('progressbar', { name: '正在安全加载 PDF 预览' })
+      ).not.toBeInTheDocument()
+      expect(getPreviewBusySurface()).toHaveAttribute('aria-busy', 'false')
+    })
+    expect(screen.queryByText('private upstream stream failure')).not.toBeInTheDocument()
+    expect(screen.queryByTitle('简历 PDF 预览')).not.toBeInTheDocument()
+  })
+
+  it('passes both Workspace and Artifact identities to the host save boundary', async (): Promise<void> => {
+    installBlobUrlHost()
+    /** @brief 测试控制的保存结果 resolver / Test-controlled save-result resolver. */
     let resolveSave: ((result: SaveArtifactResult) => void) | undefined
-    /** @brief 保持 pending 直至测试兑现的保存调用 / Save call kept pending until the test resolves it. */
-    const saveArtifact = vi.fn(
-      (): Promise<SaveArtifactResult> =>
-        new Promise((resolve): void => {
+    /** @brief 保持 pending 以验证同步单通道的保存调用 / Save call kept pending to verify the synchronous single lane. */
+    const saveArtifact = vi.fn<(request: SaveArtifactRequest) => Promise<SaveArtifactResult>>(
+      (request): Promise<SaveArtifactResult> => {
+        void request
+        return new Promise((resolve): void => {
           resolveSave = resolve
         })
+      }
     )
-    /** @brief 当前测试显式注入的宿主保存端口 / Host save port explicitly injected by this test. */
-    const artifactSave: ArtifactSavePort = { saveArtifact }
+    /** @brief 当前测试的宿主保存端口 / Host save port for this test. */
+    const artifactSave: ArtifactSavePort = { maximumArtifactBytes: null, saveArtifact }
 
     render(
       <WorkspaceApp artifactSave={artifactSave} initialPath="/resumes/res_mock_ai_platform/edit" />
     )
     await screen.findByRole('heading', { name: 'Klee Chen' })
     fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
-    await screen.findByTitle('简历 PDF 预览')
+    await screen.findByTitle('简历 PDF 预览', {}, { timeout: 4_000 })
 
-    fireEvent.click(screen.getByRole('button', { name: '下载 PDF' }))
-
-    expect(screen.getByRole('button', { name: '正在保存 PDF…' })).toBeDisabled()
-    expect(saveArtifact).toHaveBeenCalledWith({
-      artifactId: 'artifact_mock_18',
-      suggestedFileName: 'Klee Chen Resume.pdf'
+    /** @brief 同一 React commit 内双击的保存按钮 / Save button double-clicked within one React commit. */
+    const saveButton = screen.getByRole('button', { name: '下载预览 PDF' })
+    act((): void => {
+      saveButton.click()
+      saveButton.click()
     })
+
+    expect(saveArtifact).toHaveBeenCalledTimes(1)
+    /** @brief 实际越过宿主边界的保存请求 / Save request that actually crossed the host boundary. */
+    const request = saveArtifact.mock.calls[0]?.[0]
+    expect(request?.artifactId).toMatch(/^artifact_/u)
+    expect(request?.suggestedFileName).toBe('Klee Chen Resume.pdf')
+    expect(request?.workspaceId).toBe('ws_mock_klee_career_lab')
     resolveSave?.({ status: 'saved' })
     expect(await screen.findByText('PDF 已保存。')).toHaveAttribute('aria-live', 'polite')
-    expect(screen.getByRole('button', { name: '下载 PDF' })).toBeEnabled()
   })
 
-  it('以 alert 告知宿主保存失败且不移除 iframe 预览', async (): Promise<void> => {
-    await setWorkspaceAppTestLocale('zh-SG')
-    /** @brief 返回失败的测试宿主端口 / Test host port returning a failure. */
-    const artifactSave: ArtifactSavePort = {
-      saveArtifact: vi.fn().mockRejectedValue(new Error('/Users/klee/private/resume.pdf: ENOSPC'))
-    }
-
-    render(
-      <WorkspaceApp artifactSave={artifactSave} initialPath="/resumes/res_mock_ai_platform/edit" />
-    )
+  it('revokes the Blob URL when the Resume preview leaves the page', async (): Promise<void> => {
+    /** @brief 当前测试的 Blob URL 宿主 / Blob-URL host for this test. */
+    const objectUrls = installBlobUrlHost()
+    /** @brief 当前挂载的应用视图 / Mounted application view. */
+    const view = render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
     await screen.findByRole('heading', { name: 'Klee Chen' })
     fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
-    await screen.findByTitle('简历 PDF 预览')
-    fireEvent.click(screen.getByRole('button', { name: '下载 PDF' }))
-
-    const alert = await screen.findByRole('alert')
-    expect(alert).toHaveTextContent('无法保存 PDF')
-    expect(alert).toHaveTextContent('应用遇到未预期的问题')
-    expect(screen.queryByText(/Users\/klee/u)).not.toBeInTheDocument()
-    expect(screen.getByTitle('简历 PDF 预览')).toHaveAttribute('src', 'about:blank#mock-resume-pdf')
-  })
-
-  it('准确播报浏览器只能确认下载已启动', async (): Promise<void> => {
-    await setWorkspaceAppTestLocale('zh-SG')
-    /** @brief 返回浏览器已启动状态的测试宿主端口 / Test host port returning the browser-started state. */
-    const artifactSave: ArtifactSavePort = {
-      saveArtifact: vi.fn().mockResolvedValue({ status: 'started' })
-    }
-
-    render(
-      <WorkspaceApp artifactSave={artifactSave} initialPath="/resumes/res_mock_ai_platform/edit" />
-    )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
-    fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
-    await screen.findByTitle('简历 PDF 预览')
-    fireEvent.click(screen.getByRole('button', { name: '下载 PDF' }))
-
-    expect(await screen.findByText('PDF 下载已开始。')).toHaveAttribute('aria-live', 'polite')
-  })
-
-  it('以 polite 状态告知用户原生保存已取消', async (): Promise<void> => {
-    await setWorkspaceAppTestLocale('zh-SG')
-    /** @brief 返回取消结果的测试宿主端口 / Test host port returning a cancellation result. */
-    const artifactSave: ArtifactSavePort = {
-      saveArtifact: vi.fn().mockResolvedValue({ status: 'cancelled' })
-    }
-
-    render(
-      <WorkspaceApp artifactSave={artifactSave} initialPath="/resumes/res_mock_ai_platform/edit" />
-    )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
-    fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
-    await screen.findByTitle('简历 PDF 预览')
-    fireEvent.click(screen.getByRole('button', { name: '下载 PDF' }))
-
-    expect(await screen.findByText('已取消保存。')).toHaveAttribute('aria-live', 'polite')
-  })
-
-  it('aborts PDF polling when the Resume page unmounts', async (): Promise<void> => {
-    await setWorkspaceAppTestLocale('zh-SG')
-    /** @brief 当前测试独享的简历 Gateway / Resume Gateway owned by the current test. */
-    const resume = new InMemoryResumeGateway()
-    /** @brief 轮询调用收到的取消信号 / Cancellation signal received by polling. */
-    let pollingSignal: AbortSignal | undefined
-    vi.spyOn(resume, 'getResumeRenderJob').mockImplementation((_jobId, signal): Promise<never> => {
-      pollingSignal = signal
-      return new Promise<never>(() => undefined)
-    })
-    /** @brief 当前简历页面渲染结果 / Current Resume-page render result. */
-    const view = render(
-      <WorkspaceApp
-        gateways={createTestGateways({ resume })}
-        initialPath="/resumes/res_mock_ai_platform/edit"
-      />
-    )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
-    fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
-    await vi.waitFor((): void => expect(pollingSignal).toBeDefined())
+    await screen.findByTitle('简历 PDF 预览', {}, { timeout: 4_000 })
 
     view.unmount()
 
-    expect(pollingSignal?.aborted).toBe(true)
+    expect(objectUrls.revokeObjectURL).toHaveBeenCalledTimes(1)
+    expect(objectUrls.revokeObjectURL).toHaveBeenCalledWith('blob:resume-pdf-preview')
   })
 })
