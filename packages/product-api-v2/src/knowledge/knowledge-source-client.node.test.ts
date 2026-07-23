@@ -296,15 +296,13 @@ describe('API v2 Workspace KnowledgeSource writes', (): void => {
 
   it('marks a 201 whose Location identifies another source as outcome unknown', async (): Promise<void> => {
     /** @brief 返回错配 Location 的创建端口 / Creation port returning a mismatched Location. */
-    const postJson = vi
-      .fn<KnowledgeSourceCreationHttpClient['postJson']>()
-      .mockResolvedValue(
-        createdResponse(knowledgeSource(), {
-          location:
-            `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}` +
-            '/knowledge-sources/knowledge_01K0OTHER0000000001'
-        })
-      )
+    const postJson = vi.fn<KnowledgeSourceCreationHttpClient['postJson']>().mockResolvedValue(
+      createdResponse(knowledgeSource(), {
+        location:
+          `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}` +
+          '/knowledge-sources/knowledge_01K0OTHER0000000001'
+      })
+    )
 
     await expect(
       createWorkspaceKnowledgeSource(
@@ -391,17 +389,15 @@ describe('API v2 Workspace KnowledgeSource writes', (): void => {
       agent_grants: [...visibility.agent_grants].reverse()
     }
     /** @brief 返回被重排策略的更新端口 / Update port returning the reordered policy. */
-    const patchJson = vi
-      .fn<KnowledgeSourceUpdateHttpClient['patchJson']>()
-      .mockResolvedValue(
-        updatedResponse(
-          knowledgeSource({
-            revision: 2,
-            updated_at: '2026-07-22T12:10:00Z',
-            visibility: returnedVisibility
-          })
-        )
+    const patchJson = vi.fn<KnowledgeSourceUpdateHttpClient['patchJson']>().mockResolvedValue(
+      updatedResponse(
+        knowledgeSource({
+          revision: 2,
+          updated_at: '2026-07-22T12:10:00Z',
+          visibility: returnedVisibility
+        })
       )
+    )
 
     await expect(
       updateWorkspaceKnowledgeSource(

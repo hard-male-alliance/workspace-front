@@ -169,26 +169,6 @@ export function classifyResourceFailure(error: unknown): ResourceFailure {
         ? { kind: 'invalid-request', referenceId: null, retryable: false }
         : { kind: 'invalid-response', referenceId: null, retryable: false }
     }
-    if (name === 'HttpProblemError' && typeof error.status === 'number') {
-      return classifyHttpStatus(
-        error.status,
-        typeof error.retryable === 'boolean' ? error.retryable : false,
-        readReferenceId(error.requestId)
-      )
-    }
-    if (name === 'HttpContractError') {
-      if (typeof error.status === 'number' && error.status >= 500) {
-        return { kind: 'service-unavailable', referenceId: null, retryable: true }
-      }
-      return {
-        kind: 'invalid-response',
-        referenceId: null,
-        retryable: typeof error.status !== 'number' || error.status < 400
-      }
-    }
-    if (name === 'HttpCommandOutcomeUnknownError') {
-      return { kind: 'outcome-unknown', referenceId: null, retryable: false }
-    }
     if (name.endsWith('CapabilityError')) {
       return { kind: 'capability-unavailable', referenceId: null, retryable: false }
     }

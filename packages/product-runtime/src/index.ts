@@ -1,7 +1,6 @@
 /** @file 产品运行时的 API v2 依赖装配 / API v2 dependency composition for product runtimes. */
 
 import type { AppGateways } from '@ai-job-workspace/app/application'
-import { HttpKnowledgeGateway } from '@ai-job-workspace/app/http'
 import {
   createApiV2Client,
   createApiV2PublicClient,
@@ -18,6 +17,7 @@ import {
   createApiV2WorkspaceGateway
 } from './api-v2-gateways'
 import { createApiV2InterviewGateway } from './interview-gateway'
+import { ApiV2KnowledgeGateway } from './knowledge-gateway'
 import { createApiV2ResumeReviewGateway } from './resume-review-gateway'
 
 export { createApiV2InterviewGateway } from './interview-gateway'
@@ -58,7 +58,7 @@ export function createProductGateways(options: ProductGatewayOptions): AppGatewa
   return {
     identity: createApiV2IdentityGateway(client),
     interview: createApiV2InterviewGateway(client),
-    knowledge: new HttpKnowledgeGateway(client),
+    knowledge: new ApiV2KnowledgeGateway(client),
     resume: createApiV2ResumeGateway(client, client, client),
     resumeReview: createApiV2ResumeReviewGateway(client, client, client),
     resumeCreation: createApiV2ResumeCreationGateway(client),

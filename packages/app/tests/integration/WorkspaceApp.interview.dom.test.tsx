@@ -7,7 +7,7 @@ import {
   DEMO_LIVE_INTERVIEW_SESSION,
   InMemoryInterviewGateway
 } from '@ai-job-workspace/app/testing'
-import { HttpCommandOutcomeUnknownError } from '@ai-job-workspace/app/http'
+import { ApiV2WriteOutcomeUnknownError } from '@ai-job-workspace/product-api-v2'
 import { asUiInterviewSessionCursor } from '../../src/contexts/interview'
 
 import {
@@ -145,7 +145,7 @@ describe('WorkspaceApp interview workflow', (): void => {
     })
     const createInterviewSession = vi
       .spyOn(interview, 'createInterviewSession')
-      .mockRejectedValueOnce(new HttpCommandOutcomeUnknownError('network'))
+      .mockRejectedValueOnce(new ApiV2WriteOutcomeUnknownError('network'))
       .mockResolvedValueOnce(authority)
 
     render(

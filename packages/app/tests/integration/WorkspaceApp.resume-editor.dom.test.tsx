@@ -1,6 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { HttpCommandOutcomeUnknownError, HttpProblemError } from '@ai-job-workspace/app/http'
 import { ResumeBatchConflictError } from '@ai-job-workspace/app/application'
 import { ApiV2ProblemError, ApiV2WriteOutcomeUnknownError } from '@ai-job-workspace/product-api-v2'
 import {
@@ -345,15 +344,21 @@ describe('WorkspaceApp Resume editor', (): void => {
         .mockResolvedValue(authoritative)
       /** @brief 被拒绝的陈旧写入 / Rejected stale write. */
       const update = vi.spyOn(resume, 'updateResumeSection').mockRejectedValue(
-        new HttpProblemError({
-          code: status === 412 ? 'resume.precondition_failed' : 'resume.conflict',
-          detail: 'The Resume ETag is stale.',
-          requestId: null,
-          retryable: true,
-          retryAfterMs: null,
-          status,
-          title: 'Resume changed elsewhere'
-        })
+        new ApiV2ProblemError(
+          {
+            code: status === 412 ? 'resume.precondition_failed' : 'resume.conflict',
+            detail: 'The Resume ETag is stale.',
+            errors: [],
+            extensions: null,
+            instance: null,
+            request_id: 'req_resume_conflict_12345678',
+            retryable: true,
+            status,
+            title: 'Resume changed elsewhere',
+            type: 'https://api.hmalliances.org/problems/resume-conflict'
+          },
+          null
+        )
       )
 
       render(
@@ -426,7 +431,7 @@ describe('WorkspaceApp Resume editor', (): void => {
       /** @brief 可观察的板块删除命令 / Observable section-delete command. */
       const remove = vi.spyOn(resume, 'deleteResumeSection')
       /** @brief 三类命令共享的首次未知结果 / First unknown outcome shared by all three commands. */
-      const unknownOutcome = new HttpCommandOutcomeUnknownError('network')
+      const unknownOutcome = new ApiV2WriteOutcomeUnknownError('network')
       /** @brief 成功确认后必须被页面采用的 Resume 标题 / Resume title the page must adopt after successful confirmation. */
       const confirmedTitle = `Confirmed ${mutation} projection`
       /** @brief 成功确认的公共权威投影 / Shared authoritative projection for a successful confirmation. */
@@ -614,7 +619,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     /** @brief 首次结果未知、确认重放成功的写端口 / Writer whose first outcome is unknown and whose confirming replay succeeds. */
     const update = vi
       .spyOn(resume, 'updateResumeSection')
-      .mockRejectedValueOnce(new HttpCommandOutcomeUnknownError('network'))
+      .mockRejectedValueOnce(new ApiV2WriteOutcomeUnknownError('network'))
       .mockImplementationOnce((input) =>
         Promise.resolve({
           ...initial,
@@ -770,7 +775,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     /** @brief 首次未知、确认时明确拒绝的字段写入 / Field write unknown first and definitively rejected during confirmation. */
     const update = vi
       .spyOn(resume, 'updateResumeSection')
-      .mockRejectedValueOnce(new HttpCommandOutcomeUnknownError('network'))
+      .mockRejectedValueOnce(new ApiV2WriteOutcomeUnknownError('network'))
       .mockRejectedValueOnce(
         new ApiV2ProblemError(
           {
@@ -1376,15 +1381,21 @@ describe('WorkspaceApp Resume editor', (): void => {
     const resume = new InMemoryResumeGateway()
     /** @brief 可观察的板块保存命令 / Observable section-save command. */
     const update = vi.spyOn(resume, 'updateResumeSection').mockRejectedValueOnce(
-      new HttpProblemError({
-        code: 'service.temporarily_unavailable',
-        detail: 'POST https://private.example/resumes failed',
-        requestId: null,
-        retryable: true,
-        retryAfterMs: 500,
-        status: 503,
-        title: 'Temporary backend overload'
-      })
+      new ApiV2ProblemError(
+        {
+          code: 'service.temporarily_unavailable',
+          detail: 'POST https://private.example/resumes failed',
+          errors: [],
+          extensions: null,
+          instance: null,
+          request_id: 'req_resume_unavailable_12345678',
+          retryable: true,
+          status: 503,
+          title: 'Temporary backend overload',
+          type: 'https://api.hmalliances.org/problems/service-unavailable'
+        },
+        500
+      )
     )
 
     render(

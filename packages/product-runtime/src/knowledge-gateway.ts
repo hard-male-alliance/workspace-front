@@ -1,4 +1,4 @@
-/** @file API v2 KnowledgeSource production Gateway / API v2 KnowledgeSource production gateway. */
+/** @file API v2 KnowledgeSource 生产防腐层 / Production anti-corruption layer for API v2 KnowledgeSource. */
 
 import {
   createWorkspaceKnowledgeSource,
@@ -14,26 +14,26 @@ import {
   type UpdateKnowledgeSourceRequest
 } from '@ai-job-workspace/product-api-v2'
 
-import type { KnowledgeGateway } from '../../application/gateway'
-import type {
-  UiCreateManualKnowledgeNoteCommand,
-  UiKnowledgeSourcePageRead,
-  UiKnowledgeSourceRead,
-  UiKnowledgeSourcePatch,
-  UiUpdateKnowledgeSourceCommand
-} from '../../application/commands'
 import {
+  asUiConcurrencyToken,
   asUiKnowledgeSourceCursor,
+  asUiOpaqueId,
+  cloneUiJsonValue,
+  type KnowledgeGateway,
+  type UiCreateManualKnowledgeNoteCommand,
+  type UiKnowledgeSourcePageRead,
+  type UiKnowledgeSourceRead,
+  type UiKnowledgeSourcePatch,
+  type UiUpdateKnowledgeSourceCommand,
+  type UiJsonObject,
   type UiKnowledgeProblem,
   type UiKnowledgeSource,
   type UiKnowledgeSourceAuthority,
   type UiKnowledgeSourcePage,
   type UiKnowledgeVisibilityPolicy,
+  type UiOpaqueId,
   type UiPublicKnowledgeSourceConfig
-} from '../../domain/models'
-import { asUiConcurrencyToken } from '../../../../shared-kernel/concurrency'
-import { asUiOpaqueId, type UiOpaqueId } from '../../../../shared-kernel/identity'
-import { cloneUiJsonValue, type UiJsonObject } from '../../../../shared-kernel/json'
+} from '@ai-job-workspace/app/application'
 
 /**
  * @brief 将已严格解码的 extensions 映射到 UI JSON / Map strictly decoded extensions into UI JSON.
@@ -205,10 +205,10 @@ function mapUpdateRequest(patch: UiKnowledgeSourcePatch): UpdateKnowledgeSourceR
 }
 
 /**
- * @brief v2-only KnowledgeSource HTTP Gateway / v2-only KnowledgeSource HTTP gateway.
+ * @brief API v2 KnowledgeSource 防腐层 / API v2 KnowledgeSource anti-corruption layer.
  * @note 所有 wire 解码、请求编码、租户路径校验与成功后不确定性均委托给 product-api-v2 / All wire decoding, request encoding, tenant-path validation, and post-success uncertainty are delegated to product-api-v2.
  */
-export class HttpKnowledgeGateway implements KnowledgeGateway {
+export class ApiV2KnowledgeGateway implements KnowledgeGateway {
   /** @brief 由产品组合根注入的完整 v2 HTTP client / Complete v2 HTTP client injected by the product composition root. */
   readonly #client: ApiV2HttpClient
 

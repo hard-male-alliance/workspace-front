@@ -312,15 +312,11 @@ export function classifyDiagnosticError(error: unknown): DiagnosticErrorKind {
       return 'network'
     }
     if (name === 'TimeoutError') return 'timeout'
-    if (name === 'HttpCommandOutcomeUnknownError' || name === 'ApiV2WriteOutcomeUnknownError') {
+    if (name === 'ApiV2WriteOutcomeUnknownError') {
       return 'outcome_unknown'
     }
-    if (name === 'HttpProblemError' || name === 'ApiV2ProblemError') return 'backend_problem'
-    if (
-      name === 'HttpContractError' ||
-      name === 'ApiV2ContractError' ||
-      name === 'ResumeTemplateCursorLoopError'
-    ) {
+    if (name === 'ApiV2ProblemError') return 'backend_problem'
+    if (name === 'ApiV2ContractError' || name === 'ResumeTemplateCursorLoopError') {
       return 'contract'
     }
   }

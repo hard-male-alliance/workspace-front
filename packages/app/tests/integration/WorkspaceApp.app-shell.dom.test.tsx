@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { InMemoryIdentityGateway, InMemoryWorkspaceGateway } from '@ai-job-workspace/app/testing'
-import { HttpProblemError } from '@ai-job-workspace/app/http'
+import { ApiV2ProblemError } from '@ai-job-workspace/product-api-v2'
 import { asUiWorkspaceCursor, asUiWorkspaceSlug } from '../../src/contexts/workspace'
 import { asUiOpaqueId } from '../../src/shared-kernel/identity'
 
@@ -375,18 +375,24 @@ describe('WorkspaceApp app shell', (): void => {
 
   it('turns a Workspace 401 into localized guidance without exposing ProblemDetails text', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('en-US')
-    /** @brief 返回真实 HTTP 身份失败语义的 Identity 端口 / Identity port returning real HTTP authentication-failure semantics. */
+    /** @brief 返回真实 API v2 身份失败语义的 Identity 端口 / Identity port returning real API v2 authentication-failure semantics. */
     const identity = {
       loadCurrentUser: vi.fn().mockRejectedValue(
-        new HttpProblemError({
-          code: 'auth.token_expired',
-          detail: 'private auth detail at https://internal.example.test/oidc',
-          requestId: 'req_auth_12345678',
-          retryable: false,
-          retryAfterMs: null,
-          status: 401,
-          title: 'private authentication title'
-        })
+        new ApiV2ProblemError(
+          {
+            code: 'auth.token_expired',
+            detail: 'private auth detail at https://internal.example.test/oidc',
+            errors: [],
+            extensions: null,
+            instance: null,
+            request_id: 'req_auth_12345678',
+            retryable: false,
+            status: 401,
+            title: 'private authentication title',
+            type: 'https://api.hmalliances.org/problems/token-expired'
+          },
+          null
+        )
       )
     }
 

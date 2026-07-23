@@ -1,6 +1,12 @@
 /** @file 前端诊断基础设施的行为测试 / Behaviour tests for frontend diagnostics infrastructure. */
 
 import { describe, expect, it, vi } from 'vitest'
+import {
+  ApiV2ContractError,
+  ApiV2NetworkError,
+  ApiV2ProblemError,
+  ApiV2WriteOutcomeUnknownError
+} from '@ai-job-workspace/product-api-v2'
 
 import {
   classifyDiagnosticError,
@@ -164,25 +170,43 @@ function requireFlush(sink: DiagnosticSink): () => Promise<void> {
   return sink.flush.bind(sink)
 }
 
+/**
+ * @brief 构造诊断分类使用的已验证 API v2 Problem / Construct a validated API v2 Problem for diagnostic classification.
+ * @return API v2 Problem 错误 / API v2 Problem error.
+ */
+function createDiagnosticProblem(): ApiV2ProblemError {
+  return new ApiV2ProblemError(
+    {
+      code: 'service.failed',
+      detail: null,
+      errors: [],
+      extensions: null,
+      instance: null,
+      request_id: 'req_diagnostic_12345678',
+      retryable: false,
+      status: 503,
+      title: 'private diagnostic title',
+      type: 'https://api.hmalliances.org/problems/service-failed'
+    },
+    null
+  )
+}
+
 describe('classifyDiagnosticError', (): void => {
   it('distinguishes a deadline from user-driven cancellation', (): void => {
     expect(classifyDiagnosticError(new DOMException('deadline exceeded', 'TimeoutError'))).toBe(
       'timeout'
     )
     expect(classifyDiagnosticError(new DOMException('navigation', 'AbortError'))).toBe('aborted')
-    expect(
-      classifyDiagnosticError({ diagnosticKind: 'network', name: 'HttpCommandOutcomeUnknownError' })
-    ).toBe('outcome_unknown')
-    expect(classifyDiagnosticError({ name: 'HttpCommandOutcomeUnknownError' })).toBe(
+    expect(classifyDiagnosticError(new ApiV2WriteOutcomeUnknownError('network'))).toBe(
       'outcome_unknown'
     )
-    expect(classifyDiagnosticError({ kind: 'timeout', name: 'ApiV2NetworkError' })).toBe('timeout')
-    expect(classifyDiagnosticError({ kind: 'aborted', name: 'ApiV2NetworkError' })).toBe('aborted')
-    expect(classifyDiagnosticError({ name: 'ApiV2WriteOutcomeUnknownError' })).toBe(
-      'outcome_unknown'
+    expect(classifyDiagnosticError(new ApiV2NetworkError('timeout'))).toBe('timeout')
+    expect(classifyDiagnosticError(new ApiV2NetworkError('aborted'))).toBe('aborted')
+    expect(classifyDiagnosticError(createDiagnosticProblem())).toBe('backend_problem')
+    expect(classifyDiagnosticError(new ApiV2ContractError('private contract error'))).toBe(
+      'contract'
     )
-    expect(classifyDiagnosticError({ name: 'ApiV2ProblemError' })).toBe('backend_problem')
-    expect(classifyDiagnosticError({ name: 'ApiV2ContractError' })).toBe('contract')
   })
 })
 

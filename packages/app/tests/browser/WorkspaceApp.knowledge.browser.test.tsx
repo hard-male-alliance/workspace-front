@@ -15,9 +15,7 @@ describe('WorkspaceApp Knowledge browser behaviour', (): void => {
     const screen = await renderBrowserWorkspace('/')
 
     await screen.getByRole('link', { name: '知识库', exact: true }).click()
-    await expect
-      .element(screen.getByRole('heading', { level: 1, name: '知识来源' }))
-      .toBeVisible()
+    await expect.element(screen.getByRole('heading', { level: 1, name: '知识来源' })).toBeVisible()
 
     /** @brief 只作用于已加载页的来源筛选框 / Source filter scoped to the loaded page. */
     const sourceFilter = screen.getByRole('searchbox', { name: '筛选已加载来源' })
@@ -26,9 +24,7 @@ describe('WorkspaceApp Knowledge browser behaviour', (): void => {
     await expect
       .element(screen.getByRole('heading', { name: 'portfolio-engineering' }))
       .toBeVisible()
-    await screen
-      .getByRole('link', { name: '查看 portfolio-engineering 的权威详情' })
-      .click()
+    await screen.getByRole('link', { name: '查看 portfolio-engineering 的权威详情' }).click()
 
     await expect
       .element(screen.getByRole('heading', { level: 1, name: 'portfolio-engineering' }))

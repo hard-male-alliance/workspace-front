@@ -11,11 +11,15 @@ import {
   type KnowledgeVisibilityPolicy
 } from '@ai-job-workspace/product-api-v2'
 
-import type { UiCreateManualKnowledgeNoteCommand } from '../../application/commands'
-import { asUiKnowledgeSourcePageLimit, type UiKnowledgeVisibilityPolicy } from '../../domain/models'
-import { asUiConcurrencyToken } from '../../../../shared-kernel/concurrency'
-import { asUiOpaqueId } from '../../../../shared-kernel/identity'
-import { HttpKnowledgeGateway } from './gateway'
+import {
+  asUiConcurrencyToken,
+  asUiKnowledgeSourcePageLimit,
+  asUiOpaqueId,
+  type UiCreateManualKnowledgeNoteCommand,
+  type UiKnowledgeVisibilityPolicy
+} from '@ai-job-workspace/app/application'
+
+import { ApiV2KnowledgeGateway } from './knowledge-gateway'
 
 /** @brief 测试 Workspace identity / Workspace identity used by tests. */
 const WORKSPACE_ID = 'workspace_01K0EXAMPLE0000001'
@@ -169,7 +173,7 @@ function createCommand(): UiCreateManualKnowledgeNoteCommand {
   }
 }
 
-describe('HttpKnowledgeGateway API v2 runtime boundary', (): void => {
+describe('ApiV2KnowledgeGateway API v2 runtime boundary', (): void => {
   it('maps one Workspace cursor page without flattening canonical lifecycle facts', async (): Promise<void> => {
     const getJson = vi.fn().mockResolvedValue(
       readResponse({
@@ -190,7 +194,7 @@ describe('HttpKnowledgeGateway API v2 runtime boundary', (): void => {
         page: { has_more: true, next_cursor: 'knowledge-source-next-cursor' }
       })
     )
-    const gateway = new HttpKnowledgeGateway({ getJson } as unknown as ApiV2HttpClient)
+    const gateway = new ApiV2KnowledgeGateway({ getJson } as unknown as ApiV2HttpClient)
     const signal = new AbortController().signal
 
     const page = await gateway.listKnowledgeSourcePage({
@@ -230,7 +234,7 @@ describe('HttpKnowledgeGateway API v2 runtime boundary', (): void => {
 
   it('returns a source only with its same-response strong ETag and fails closed cross-Workspace', async (): Promise<void> => {
     const strongGet = vi.fn().mockResolvedValue(readResponse(knowledgeSource()))
-    const strongGateway = new HttpKnowledgeGateway({
+    const strongGateway = new ApiV2KnowledgeGateway({
       getJson: strongGet
     } as unknown as ApiV2HttpClient)
 
@@ -245,7 +249,7 @@ describe('HttpKnowledgeGateway API v2 runtime boundary', (): void => {
       source: { id: SOURCE_ID, workspaceId: WORKSPACE_ID }
     })
 
-    const crossWorkspaceGateway = new HttpKnowledgeGateway({
+    const crossWorkspaceGateway = new ApiV2KnowledgeGateway({
       getJson: vi
         .fn()
         .mockResolvedValue(readResponse(knowledgeSource({ workspace_id: OTHER_WORKSPACE_ID })))
@@ -258,7 +262,7 @@ describe('HttpKnowledgeGateway API v2 runtime boundary', (): void => {
       })
     ).rejects.toBeInstanceOf(ApiV2ContractError)
 
-    const weakEtagGateway = new HttpKnowledgeGateway({
+    const weakEtagGateway = new ApiV2KnowledgeGateway({
       getJson: vi.fn().mockResolvedValue(
         readResponse(knowledgeSource(), {
           ETag: `W/${ENTITY_TAG}`,
@@ -288,7 +292,7 @@ describe('HttpKnowledgeGateway API v2 runtime boundary', (): void => {
           : createdResponse(knowledgeSource())
       )
     })
-    const gateway = new HttpKnowledgeGateway({ postJson } as unknown as ApiV2HttpClient)
+    const gateway = new ApiV2KnowledgeGateway({ postJson } as unknown as ApiV2HttpClient)
     const command = createCommand()
 
     await expect(gateway.createManualKnowledgeNote(command)).rejects.toMatchObject({
@@ -331,7 +335,7 @@ describe('HttpKnowledgeGateway API v2 runtime boundary', (): void => {
         })
       )
     )
-    const gateway = new HttpKnowledgeGateway({ patchJson } as unknown as ApiV2HttpClient)
+    const gateway = new ApiV2KnowledgeGateway({ patchJson } as unknown as ApiV2HttpClient)
     const concurrencyToken = asUiConcurrencyToken(ENTITY_TAG)
     const visibility = { ...uiVisibility(), sessionOverrideAllowed: true }
 

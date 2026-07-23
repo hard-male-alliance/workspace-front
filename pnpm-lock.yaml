@@ -156,9 +156,6 @@ importers:
       '@ai-job-workspace/platform':
         specifier: workspace:*
         version: link:../platform
-      '@ai-job-workspace/product-api-v2':
-        specifier: workspace:*
-        version: link:../product-api-v2
       i18next:
         specifier: ^26.3.6
         version: 26.3.6(typescript@6.0.3)
@@ -177,6 +174,10 @@ importers:
       react-router-dom:
         specifier: ^7.18.1
         version: 7.18.1(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+    devDependencies:
+      '@ai-job-workspace/product-api-v2':
+        specifier: workspace:*
+        version: link:../product-api-v2
 
   packages/platform: {}
 

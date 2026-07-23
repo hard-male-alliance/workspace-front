@@ -7,14 +7,12 @@
     ".": "./src/index.ts",
     "./application": "./src/application.ts",
     "./diagnostics": "./src/diagnostics.ts",
-    "./http": "./src/http.ts",
     "./testing": "./src/testing.ts",
     "./i18n": "./src/i18n/index.ts",
     "./ui": "./src/ui/index.ts"
   },
   "dependencies": {
     "@ai-job-workspace/platform": "workspace:*",
-    "@ai-job-workspace/product-api-v2": "workspace:*",
     "i18next": "^26.3.6",
     "lucide-react": "^1.24.0",
     "react-i18next": "^17.0.9",
@@ -23,5 +21,8 @@
   "peerDependencies": {
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@ai-job-workspace/product-api-v2": "workspace:*"
   }
 }
