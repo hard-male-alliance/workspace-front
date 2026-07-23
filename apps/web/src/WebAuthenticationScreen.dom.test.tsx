@@ -45,4 +45,28 @@ describe('WebAuthenticationScreen', (): void => {
     expect(onAuthorize).toHaveBeenCalledWith('signup')
     expect(await screen.findByRole('alert')).toHaveTextContent('Start again')
   })
+
+  it('keeps retry actions available when the OAuth service cannot be reached', async (): Promise<void> => {
+    /** @brief 脱敏的 discovery 网络失败 / Sanitized discovery network failure. */
+    const networkFailure = Object.assign(new Error('socket closed'), {
+      kind: 'network',
+      name: 'ApiV2NetworkError'
+    })
+    /** @brief 连续失败的授权动作 / Repeatedly failing authorization action. */
+    const onAuthorize = vi.fn((): Promise<void> => Promise.reject(networkFailure))
+    /** @brief 用户交互驱动 / User interaction driver. */
+    const user = userEvent.setup()
+
+    render(<WebAuthenticationScreen locale="zh-CN" onAuthorize={onAuthorize} />)
+
+    await user.click(screen.getByRole('button', { name: '登录' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('身份服务暂时无法连接')
+    expect(screen.getByRole('button', { name: '登录' })).toBeEnabled()
+
+    await user.click(screen.getByRole('button', { name: '创建账户' }))
+
+    expect(onAuthorize).toHaveBeenNthCalledWith(1, 'login')
+    expect(onAuthorize).toHaveBeenNthCalledWith(2, 'signup')
+  })
 })

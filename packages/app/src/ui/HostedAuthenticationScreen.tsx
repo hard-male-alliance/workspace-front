@@ -22,7 +22,27 @@ export interface HostedAuthenticationScreenProps {
 type AuthorizationNavigationState =
   | { readonly kind: 'idle' }
   | { readonly kind: 'loading'; readonly screenHint: HostedIdentityScreenHint }
-  | { readonly kind: 'error' }
+  | { readonly detail: HostedAuthenticationVisibleFailure; readonly kind: 'error' }
+
+/** @brief 登录页可显示的低基数失败类型 / Low-cardinality failures visible on the authentication screen. */
+type HostedAuthenticationVisibleFailure = HostedAuthenticationFailureReason | 'service-unreachable'
+
+/**
+ * @brief 将不可信授权错误折叠为安全可展示类别 / Collapse an untrusted authorization error into a safe display category.
+ * @param error 授权准备或导航失败 / Authorization preparation or navigation failure.
+ * @return 安全的低基数失败类型 / Safe low-cardinality failure type.
+ */
+function classifyHostedAuthorizationFailure(error: unknown): HostedAuthenticationVisibleFailure {
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'name' in error &&
+    error.name === 'ApiV2NetworkError'
+  ) {
+    return 'service-unreachable'
+  }
+  return 'failed'
+}
 
 /**
  * @brief 呈现不处理凭证的共享 hosted identity 入口 / Present shared hosted-identity entry points that never handle credentials.
@@ -48,15 +68,15 @@ export function HostedAuthenticationScreen({
     setNavigation({ kind: 'loading', screenHint })
     try {
       await onAuthorize(screenHint)
-    } catch {
-      setNavigation({ kind: 'error' })
+    } catch (error: unknown) {
+      setNavigation({ detail: classifyHostedAuthorizationFailure(error), kind: 'error' })
     }
   }
 
   /** @brief 是否正在离开当前页面 / Whether navigation away from this page is in progress. */
   const isLoading = navigation.kind === 'loading'
   /** @brief 是否需要呈现可重试错误 / Whether a retryable error should be presented. */
-  const visibleFailure = navigation.kind === 'error' ? ('failed' as const) : (failureReason ?? null)
+  const visibleFailure = navigation.kind === 'error' ? navigation.detail : (failureReason ?? null)
   /** @brief 宿主是否明确禁用持久登录 / Whether the host explicitly disables persistent sign-in. */
   const isPersistentLoginUnsupported = visibleFailure === 'persistent-login-unsupported'
 
@@ -92,9 +112,13 @@ export function HostedAuthenticationScreen({
                     ? isChinese
                       ? '授权已取消。你可以随时重新开始。'
                       : 'Authorization was cancelled. You can start again at any time.'
-                    : isChinese
-                      ? '授权未完成或已过期。请重新开始。'
-                      : 'Authorization was not completed or has expired. Start again.'}
+                    : visibleFailure === 'service-unreachable'
+                      ? isChinese
+                        ? '身份服务暂时无法连接。请确认 OAuth 服务网络入口可用后重试。'
+                        : 'The identity service cannot be reached right now. Confirm the OAuth service network entry is available, then try again.'
+                      : isChinese
+                        ? '授权未完成或已过期。请重新开始。'
+                        : 'Authorization was not completed or has expired. Start again.'}
             </span>
           </div>
         ) : null}
