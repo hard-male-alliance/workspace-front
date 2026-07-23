@@ -30,7 +30,7 @@
     "check:artifacts": "node scripts/check-production-artifacts.mjs",
     "check:contracts": "node scripts/check-contracts.mjs",
     "check:architecture": "node scripts/check-architecture.mjs",
-    "test": "vitest run",
+    "test": "pnpm test:node && pnpm test:dom && pnpm test:browser",
     "test:node": "vitest run --project node",
     "test:dom": "vitest run --project dom",
     "test:browser": "vitest run --project browser",
