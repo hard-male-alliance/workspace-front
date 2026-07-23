@@ -22,6 +22,7 @@ export const DIAGNOSTIC_ROUTES = [
   'resume.creation',
   'resume.editor',
   'resume.entry',
+  'resume.output',
   'resume.review',
   'resume.template_settings',
   'unknown',
@@ -68,6 +69,7 @@ export type DiagnosticResourceName =
   | 'resume.creation'
   | 'resume.editor'
   | 'resume.entry'
+  | 'resume.output'
   | 'resume.review'
   | 'resume.template_settings'
   | 'workspace.session'
@@ -80,6 +82,7 @@ export type DiagnosticCommandOperation =
   | 'resume.authority_reload'
   | 'resume.create'
   | 'resume.pdf_render'
+  | 'resume.render'
   | 'resume.proposal_decision'
   | 'resume.restore'
   | 'resume.section_delete'

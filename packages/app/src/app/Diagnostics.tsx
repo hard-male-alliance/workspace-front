@@ -201,6 +201,7 @@ function getDiagnosticRoute(pathname: string): DiagnosticRoute {
   if (pathname === '/resumes') return 'resume.entry'
   if (pathname === '/resumes/new') return 'resume.creation'
   if (pathname.endsWith('/edit')) return 'resume.editor'
+  if (pathname.endsWith('/export')) return 'resume.output'
   if (pathname.endsWith('/review')) return 'resume.review'
   if (pathname.endsWith('/template')) return 'resume.template_settings'
   if (pathname === '/interviews') return 'interview.history'

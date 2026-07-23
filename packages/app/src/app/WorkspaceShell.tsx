@@ -130,6 +130,10 @@ function getBreadcrumbKey(pathname: string): string {
     return 'breadcrumbs.templateSettings'
   }
 
+  if (pathname.includes('/export')) {
+    return 'breadcrumbs.resumeOutput'
+  }
+
   if (pathname === '/resumes/new') {
     return 'breadcrumbs.resumeCreation'
   }

@@ -4,6 +4,7 @@ import {
   Bot,
   ChevronDown,
   ChevronUp,
+  Download,
   GripVertical,
   History,
   Send,
@@ -1587,6 +1588,17 @@ export function ResumeWorkspace({
           <History aria-hidden="true" size={15} />
           {t('resume.review.shortTitle', { defaultValue: '版本与建议' })}
         </Link>
+        <Link
+          aria-disabled={isWriteLocked}
+          className="aw-tab"
+          onClick={(event): void => {
+            if (isWriteLocked) event.preventDefault()
+          }}
+          to={`/resumes/${editor.resume.id}/export`}
+        >
+          <Download aria-hidden="true" size={15} />
+          {t('resume.output.shortTitle', { defaultValue: '生成与导出' })}
+        </Link>
         <button className="aw-tab" onClick={(): void => setMobileAssistantOpen(true)} type="button">
           {t('resume.assistant', { defaultValue: '简历助手' })}
         </button>
@@ -1616,6 +1628,17 @@ export function ResumeWorkspace({
             onToggle={(): void => togglePane('preview')}
             trailing={
               <span className="aw-resume-workspace-links">
+                <Link
+                  aria-disabled={isWriteLocked}
+                  className="aw-template-settings-link"
+                  onClick={(event): void => {
+                    if (isWriteLocked) event.preventDefault()
+                  }}
+                  to={`/resumes/${editor.resume.id}/export`}
+                >
+                  <Download aria-hidden="true" size={15} />
+                  <span>{t('resume.output.shortTitle', { defaultValue: '生成与导出' })}</span>
+                </Link>
                 <Link
                   className="aw-template-settings-link"
                   to={`/resumes/${editor.resume.id}/review?tab=proposals`}

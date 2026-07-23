@@ -12,6 +12,7 @@
 @import './resume/creation.css';
 @import './resume/editor.css';
 @import './resume/review.css';
+@import './resume/output.css';
 @import './shared-ui/domain-layouts.css';
 @import './resume/templates.css';
 @import './interview/session.css';

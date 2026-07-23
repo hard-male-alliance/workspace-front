@@ -141,5 +141,6 @@ export type { ResumeBatchConflict, ResumeBatchConflictRecovery } from './applica
 export { ResumeCreationPage } from './presentation/ResumeCreationPage'
 export { ResumeEditorPage } from './presentation/ResumeEditorPage'
 export { ResumeListPage } from './presentation/ResumeListPage'
+export { ResumeOutputPage } from './presentation/ResumeOutputPage'
 export { ResumeReviewPage } from './presentation/ResumeReviewPage'
 export { TemplateSettingsPage } from './presentation/TemplateSettingsPage'
