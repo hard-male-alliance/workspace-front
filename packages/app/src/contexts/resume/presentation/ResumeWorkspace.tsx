@@ -4,7 +4,9 @@ import {
   Bot,
   ChevronDown,
   ChevronUp,
+  Download,
   GripVertical,
+  History,
   Send,
   Settings2,
   Sparkles,
@@ -16,29 +18,39 @@ import type { KeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { runDiagnosticCommand, useDiagnostics } from '../../../app/Diagnostics'
-import { useArtifactSave } from '../../../app/Host'
 import { ResourceErrorState, ResourceFailureMessage } from '../../../app/ResourceErrorState'
+import { useUnsavedChanges } from '../../../app/UnsavedChanges'
 import { classifyResourceFailure } from '../../../app/resource-errors'
-import { sanitizePdfFileName } from '@ai-job-workspace/platform'
 import { createUiCommandId, type UiCommandId } from '../../../shared-kernel/command'
+import { nextDeadlineTimerDelayMilliseconds } from '../../../shared-kernel/polling'
 import {
+  getResumeBatchConflict,
+  getResumeCommandRetryAfterMilliseconds,
   getResumeConflictStatus,
-  isResumeOperationRejected,
+  getResumeIdempotencyConflict,
+  isResumeCommandDefinitivelyRejected,
+  isResumeUnreplayableContractResponse,
+  ResumeBatchConflictError,
   type ResumeConflictStatus
 } from '../application/errors'
 import type { ResumeGateway } from '../application/gateway'
+import type { ResumeTemplateCatalogPort } from '../application/resume-creation'
+import { loadPinnedResumeTemplate } from '../application/template-catalog'
 import {
-  getTemplateIdentity,
-  loadTemplateCatalogWithPinnedVersion
-} from '../application/template-catalog'
+  getUiResumeSectionTextViolation,
+  replaceUiResumeRichTextText,
+  type UiResumeEditorModel,
+  type UiResumeSection,
+  type UiResumeSectionId
+} from '../domain/document'
 import type {
-  UiResumeEditorModel,
-  UiResumePdfArtifact,
-  UiResumeRenderJob,
-  UiResumeSection,
-  UiResumeSectionId,
+  UiResumeSectionDeleteInput,
+  UiResumeSectionsReorderInput,
+  UiResumeSectionUpdateInput,
   UiTemplateManifest
 } from '../domain/models'
+import { ResumePreviewPanel } from './ResumePreviewPanel'
+import { selectResumePlainText } from './resume-document-selectors'
 
 /** @brief 桌面简历工作台窗口 / Desktop resume-workspace pane. */
 type ResumePane = 'assistant' | 'editor' | 'preview'
@@ -48,21 +60,44 @@ type MobileResumePane = 'edit' | 'preview'
 
 /** @brief 尚未由服务端确认的板块草稿 / Section draft not yet confirmed by the server. */
 interface ResumeSectionDraft {
-  /** @brief 草稿正文 / Draft body. */
-  readonly content: string
-  /** @brief 草稿标题 / Draft title. */
-  readonly title: string
+  /** @brief section 被并发删除后仍用于辨认草稿的标签 / Label retained to identify a draft after concurrent section deletion. */
+  readonly sectionLabel: string
+  /** @brief 用户确实编辑过的草稿正文 / Draft body explicitly edited by the user. */
+  readonly content?: string
+  /** @brief 用户确实编辑过的草稿标题 / Draft title explicitly edited by the user. */
+  readonly title?: string
 }
 
 /** @brief 板块保存失败及其恢复目标 / Section-save failure and its recovery target. */
-interface ResumeSectionSaveFailure {
-  /** @brief 未向用户直接展示的技术错误 / Technical error not displayed directly to the user. */
-  readonly error: unknown
-  /** @brief 需要重新保存的板块 / Section that needs to be saved again. */
-  readonly sectionId: UiResumeSectionId
-  /** @brief 失败的显式字段修改 / Explicit field change that failed. */
-  readonly field: 'title' | 'content'
-}
+type ResumeSectionSaveFailure =
+  | {
+      /** @brief 服务端已确认整个 batch 未应用，并已返回最新权威 / The service confirmed the whole batch was not applied and returned latest authority. */
+      readonly kind: 'batch-conflict'
+      /** @brief 需要用户基于最新权威重新确认的板块 / Section requiring user reconfirmation against latest authority. */
+      readonly sectionId: UiResumeSectionId
+      /** @brief 未应用的显式字段 / Explicit field that was not applied. */
+      readonly field: 'title' | 'content'
+    }
+  | {
+      /** @brief 已在本地识别的 Schema 边界违反 / Schema-boundary violation identified locally. */
+      readonly kind: 'validation'
+      /** @brief 稳定本地违反 code / Stable local violation code. */
+      readonly code: NonNullable<ReturnType<typeof getUiResumeSectionTextViolation>>
+      /** @brief 需要修正的板块 / Section that must be corrected. */
+      readonly sectionId: UiResumeSectionId
+      /** @brief 无效的显式字段 / Explicit field that is invalid. */
+      readonly field: 'title' | 'content'
+    }
+  | {
+      /** @brief 端口请求失败 / Port request failure. */
+      readonly kind: 'request'
+      /** @brief 未向用户直接展示的技术错误 / Technical error not displayed directly to the user. */
+      readonly error: unknown
+      /** @brief 需要重新保存的板块 / Section that needs to be saved again. */
+      readonly sectionId: UiResumeSectionId
+      /** @brief 失败的显式字段修改 / Explicit field change that failed. */
+      readonly field: 'title' | 'content'
+    }
 
 /** @brief 板块结构操作的安全失败状态 / Safe failure state for a section-structure operation. */
 interface ResumeStructureFailure {
@@ -72,7 +107,24 @@ interface ResumeStructureFailure {
   readonly title: string
 }
 
-/** @brief 必须先通过权威读取恢复的简历写状态 / Resume-write state requiring an authoritative read before recovery. */
+/** @brief 一次可原样确认的 Resume command envelope / Resume-command envelope confirmable verbatim. */
+interface ResumeCommandAttempt<TCommand extends { readonly commandId: UiCommandId }> {
+  /** @brief 区分新意图与原命令重试的规范指纹 / Canonical fingerprint distinguishing a new intent from a retry. */
+  readonly fingerprint: string
+  /** @brief 冻结 authority、payload 与 command identity 的完整应用命令 / Complete application command freezing authority, payload, and command identity. */
+  readonly command: TCommand
+}
+
+/** @brief 字段编辑 command envelope / Field-edit command envelope. */
+type ResumeSectionCommandAttempt = ResumeCommandAttempt<UiResumeSectionUpdateInput>
+
+/** @brief 排序 command envelope / Reorder-command envelope. */
+type ResumeReorderCommandAttempt = ResumeCommandAttempt<UiResumeSectionsReorderInput>
+
+/** @brief 删除 command envelope / Delete-command envelope. */
+type ResumeDeleteCommandAttempt = ResumeCommandAttempt<UiResumeSectionDeleteInput>
+
+/** @brief 必须确认原命令或重新读取权威后才能继续写入的恢复状态 / Recovery state requiring exact command confirmation or an authoritative read before further writes. */
 type ResumeAuthorityRecovery =
   | {
       /** @brief 乐观并发冲突 / Optimistic-concurrency conflict. */
@@ -83,9 +135,25 @@ type ResumeAuthorityRecovery =
   | {
       /** @brief 服务端是否提交命令无法确认 / Whether the service committed the command cannot be determined. */
       readonly kind: 'outcome-unknown'
+      /** @brief 原样重放冻结 command envelope 的确认动作 / Confirmation action replaying the frozen command envelope verbatim. */
+      readonly confirm: () => Promise<void>
+      /** @brief 明确放弃旧 command identity、但保留用户草稿 / Explicitly abandon the old command identity while retaining user drafts. */
+      readonly abandon: () => void
+      /** @brief Retry-After 生效时允许下一次确认的时刻 / Earliest next-confirmation time while Retry-After applies. */
+      readonly confirmNotBefore: number | null
     }
   | {
-      /** @brief 已确认批次包含拒绝操作，可能需要吸收其他操作结果 / A confirmed batch contained a rejected operation and may require reconciling other results. */
+      /** @brief 原冻结命令已经终结，只能读取权威状态 / The original frozen command is terminal and only an authoritative read can recover. */
+      readonly kind: 'authority-required'
+      /** @brief 需要权威读取的稳定原因 / Stable reason why an authoritative read is required. */
+      readonly reason:
+        | 'abandoned-confirmation'
+        | 'idempotency-key-reused'
+        | 'invalid-response'
+        | 'terminal-rejection'
+    }
+  | {
+      /** @brief 已确认 batch 未应用，且页面已经吸收同一结果中的最新权威 / A confirmed batch was not applied and the page already adopted authority from the same result. */
       readonly kind: 'rejected'
     }
 
@@ -100,6 +168,10 @@ interface RunResumeMutation {
   <TResult>(mutation: () => Promise<TResult>): Promise<TResult | null>
 }
 
+/** @brief Resume mutation 错误对页面状态机的处置 / Disposition of a Resume-mutation error in the page state machine. */
+type ResumeMutationErrorDisposition =
+  'authority-conflict' | 'batch-conflict' | 'discard-command' | 'outcome-unknown' | null
+
 /** @brief 窗口顺序 / Stable pane order. */
 const RESUME_PANES: readonly ResumePane[] = ['assistant', 'editor', 'preview']
 
@@ -110,37 +182,43 @@ const INITIAL_PANE_SIZES: Readonly<Record<ResumePane, number>> = {
   preview: 1
 }
 
-/** @brief 获取板块可编辑纯文本 / Get editable plain text for a section. */
-function getSectionContent(section: UiResumeSection): string {
-  return section.contentPreview ?? section.items.flatMap((item) => item.highlights).join('\n')
+/**
+ * @brief 为新意图冻结 command envelope，为普通安全重试复用它 / Freeze a command envelope for a new intent and reuse it for an ordinary safe retry.
+ * @template TCommand 携带稳定 command identity 的应用命令 / Application command carrying a stable command identity.
+ * @param current 当前尚未确认的 command attempt / Current unconfirmed command attempt.
+ * @param fingerprint 由权威快照与完整用户意图构成的指纹 / Fingerprint composed from the authority snapshot and complete user intent.
+ * @param createCommand 使用新 identity 冻结完整命令的工厂 / Factory freezing the complete command with a new identity.
+ * @return 可直接提交的稳定 attempt / Stable attempt ready for submission.
+ */
+function resumeCommandAttempt<TCommand extends { readonly commandId: UiCommandId }>(
+  current: ResumeCommandAttempt<TCommand> | null,
+  fingerprint: string,
+  createCommand: (commandId: UiCommandId) => TCommand
+): ResumeCommandAttempt<TCommand> {
+  if (current?.fingerprint === fingerprint) return current
+  /** @brief 新用户意图的稳定 command identity / Stable command identity for the new user intent. */
+  const commandId = createUiCommandId()
+  return { command: createCommand(commandId), fingerprint }
 }
 
-/** @brief 纸张中的语义板块 / Semantic section rendered on the paper preview. */
-function ResumePaperSection({ section }: { readonly section: UiResumeSection }): React.JSX.Element {
+/**
+ * @brief 判断冻结命令是否已不能安全重放 / Determine whether a frozen command can no longer be replayed safely.
+ * @param error 写操作错误 / Write-operation error.
+ * @return 必须丢弃命令信封并恢复权威状态时为 true / True when the command envelope must be discarded and authority recovered.
+ */
+function mustDiscardResumeCommand(error: unknown): boolean {
   return (
-    <section className="aw-paper-section">
-      <h3>{section.title || section.kind}</h3>
-      {section.contentPreview !== null && section.contentPreview.length > 0 ? (
-        <p>{section.contentPreview}</p>
-      ) : null}
-      {section.items.map((item) => (
-        <div className="aw-paper-entry" key={item.id}>
-          <div className="aw-paper-entry-title">
-            <span>{item.title}</span>
-            {item.dateLabel !== null ? <span>{item.dateLabel}</span> : null}
-          </div>
-          {item.subtitle !== null ? <p>{item.subtitle}</p> : null}
-          {item.highlights.length > 0 ? (
-            <ul>
-              {item.highlights.map((highlight) => (
-                <li key={highlight}>{highlight}</li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-      ))}
-    </section>
+    getResumeConflictStatus(error) !== null ||
+    error instanceof ResumeBatchConflictError ||
+    getResumeIdempotencyConflict(error) === 'key-reused' ||
+    isResumeCommandDefinitivelyRejected(error) ||
+    isResumeUnreplayableContractResponse(error)
   )
+}
+
+/** @brief 获取板块可编辑纯文本 / Get editable plain text for a section. */
+function getSectionContent(section: UiResumeSection): string {
+  return selectResumePlainText(section.content)
 }
 
 /**
@@ -155,28 +233,6 @@ function createResumePreviewIdentity(editor: UiResumeEditorModel): string {
     editor.resume.template.templateId,
     editor.resume.template.templateVersion
   ])
-}
-
-/**
- * @brief 核对 Render Job 是否属于当前简历 revision / Check whether a Render Job belongs to the current Resume revision.
- * @param job 待核对的 Render Job / Render Job to inspect.
- * @param editor 当前简历编辑器 / Current Resume editor.
- * @return 身份与 revision 均匹配时为 true / True when both identity and revision match.
- */
-function isRenderJobCurrent(job: UiResumeRenderJob, editor: UiResumeEditorModel): boolean {
-  return job.resumeId === editor.resume.id && job.resumeRevision === editor.resume.revision
-}
-
-/**
- * @brief 核对 PDF 产物是否属于当前简历 revision / Check whether a PDF artifact belongs to the current Resume revision.
- * @param artifact 待核对的 PDF 产物 / PDF artifact to inspect.
- * @param editor 当前简历编辑器 / Current Resume editor.
- * @return 身份与 revision 均匹配时为 true / True when both identity and revision match.
- */
-function isPdfArtifactCurrent(artifact: UiResumePdfArtifact, editor: UiResumeEditorModel): boolean {
-  return (
-    artifact.resumeId === editor.resume.id && artifact.resumeRevision === editor.resume.revision
-  )
 }
 
 /** @brief 标题栏中的窗口开关 / Pane toggle inside the fixed window title bar. */
@@ -357,7 +413,11 @@ function ResumeSectionsEditor({
   readonly gateway: ResumeGateway
   readonly isWriteLocked: boolean
   readonly onEditorChange: (editor: UiResumeEditorModel) => void
-  readonly onMutationError: (error: unknown) => boolean
+  readonly onMutationError: (
+    error: unknown,
+    confirmUnknownOutcome: () => Promise<void>,
+    abandonUnknownOutcome: () => void
+  ) => ResumeMutationErrorDisposition
   readonly runMutation: RunResumeMutation
 }): React.JSX.Element {
   const { t } = useTranslation()
@@ -368,34 +428,31 @@ function ResumeSectionsEditor({
   const [deleteCandidate, setDeleteCandidate] = useState<UiResumeSectionId | null>(null)
   const [draggedSectionId, setDraggedSectionId] = useState<UiResumeSectionId | null>(null)
   /** @brief 仅存在于浏览器内、尚未被后端确认的板块草稿 / Browser-local section drafts not yet confirmed by the backend. */
-  const [drafts, setDrafts] = useState<Readonly<Record<string, ResumeSectionDraft>>>({})
+  const [drafts, setDrafts] = useState<ReadonlyMap<UiResumeSectionId, ResumeSectionDraft>>(
+    () => new Map()
+  )
   /** @brief 当前正在保存的板块 / Section currently being persisted. */
   const [savingSectionId, setSavingSectionId] = useState<UiResumeSectionId | null>(null)
   /** @brief 最近一次板块保存失败 / Latest section-save failure. */
   const [saveFailure, setSaveFailure] = useState<ResumeSectionSaveFailure | null>(null)
   /** @brief 结构操作的安全失败状态 / Safe structural-operation failure state. */
   const [structureFailure, setStructureFailure] = useState<ResumeStructureFailure | null>(null)
+  /** @brief 尚未被服务端确认的字段编辑 command / Field-edit command not yet confirmed by the service. */
+  const sectionCommandAttemptRef = useRef<ResumeSectionCommandAttempt | null>(null)
+  /** @brief 尚未被服务端确认的排序 command / Reorder command not yet confirmed by the service. */
+  const reorderCommandAttemptRef = useRef<ResumeReorderCommandAttempt | null>(null)
+  /** @brief 尚未被服务端确认的删除 command / Delete command not yet confirmed by the service. */
+  const deleteCommandAttemptRef = useRef<ResumeDeleteCommandAttempt | null>(null)
 
-  useEffect((): void => {
-    setDrafts((current) => {
-      /** @brief 仍未被最新权威投影确认的草稿 / Drafts still unconfirmed by the latest authoritative projection. */
-      const remaining: Record<string, ResumeSectionDraft> = {}
-      /** @brief 是否有草稿已由权威数据确认或失效 / Whether any draft was confirmed or invalidated by authority. */
-      let changed = false
-      for (const [sectionId, draft] of Object.entries(current)) {
-        const section = editor.resume.sections.find((item) => item.id === sectionId)
-        if (
-          section !== undefined &&
-          (draft.title !== section.title || draft.content !== getSectionContent(section))
-        ) {
-          remaining[sectionId] = draft
-        } else {
-          changed = true
-        }
-      }
-      return changed ? remaining : current
-    })
-  }, [editor])
+  useUnsavedChanges(
+    `resume.section-drafts:${editor.resume.id}`,
+    drafts.size > 0 || savingSectionId !== null
+  )
+
+  /** @brief 服务端已删除对应 section、但仍须交还用户的本地草稿 / Local drafts whose sections were removed by the server but must still be returned to the user. */
+  const orphanedDrafts = [...drafts].filter(
+    ([sectionId]) => !editor.resume.sections.some((section) => section.id === sectionId)
+  )
 
   const updateLocalSection = (
     sectionId: UiResumeSectionId,
@@ -408,19 +465,122 @@ function ResumeSectionsEditor({
     if (section === undefined) return
     setSaveFailure(null)
     setDrafts((current) => {
-      /** @brief 已有草稿或从权威投影初始化的草稿 / Existing draft or a draft initialized from the authoritative projection. */
-      const draft = current[sectionId] ?? {
-        content: getSectionContent(section),
-        title: section.title
-      }
-      return {
-        ...current,
-        [sectionId]: {
-          ...draft,
-          [field]: value
-        }
-      }
+      /** @brief 只含用户明确编辑字段的已有草稿 / Existing draft containing only explicitly edited fields. */
+      const draft = current.get(sectionId) ?? { sectionLabel: section.title || section.kind }
+      /** @brief 包含本次本地编辑的新草稿 map / New draft map containing this local edit. */
+      const next = new Map(current)
+      next.set(sectionId, { ...draft, [field]: value })
+      return next
     })
+  }
+
+  /**
+   * @brief 吸收已确认的字段命令，同时只删除服务端真正确认的草稿字段 / Adopt a confirmed field command while removing only the draft field actually confirmed by the server.
+   * @param next 命令返回的新权威投影 / New authoritative projection returned by the command.
+   * @param sectionId 已修改板块 / Modified section.
+   * @param field 已确认字段 / Confirmed field.
+   * @return 无返回值 / No return value.
+   */
+  const acceptSectionCommand = (
+    next: UiResumeEditorModel,
+    sectionId: UiResumeSectionId,
+    field: 'title' | 'content'
+  ): void => {
+    onEditorChange(next)
+    setSaveFailure(null)
+    setStructureFailure(null)
+    setDrafts((current) => {
+      /** @brief 回包成功响应中的权威板块 / Authoritative section returned in the successful response. */
+      const confirmedSection = next.resume.sections.find((item) => item.id === sectionId)
+      /** @brief 响应到达时的最新本地草稿 / Latest local draft when the response arrives. */
+      const currentDraft = current.get(sectionId)
+      if (confirmedSection === undefined || currentDraft === undefined) return current
+      /** @brief 删除已确认字段、并吸收恰好等于新权威的其他显式意图 / Remove the confirmed field and absorb other explicit intents already equal to new authority. */
+      const reconciled: { content?: string; sectionLabel: string; title?: string } = {
+        ...currentDraft
+      }
+      delete reconciled[field]
+      if (reconciled.title === confirmedSection.title) delete reconciled.title
+      if (reconciled.content === getSectionContent(confirmedSection)) delete reconciled.content
+      /** @brief 只保留仍未确认字段的草稿 map / Draft map retaining only fields that remain unconfirmed. */
+      const remaining = new Map(current)
+      if (reconciled.title === undefined && reconciled.content === undefined) {
+        remaining.delete(sectionId)
+      } else remaining.set(sectionId, reconciled)
+      return remaining
+    })
+  }
+
+  /**
+   * @brief 发送冻结的字段命令并维护其可重放生命周期 / Dispatch a frozen field command and maintain its replay lifecycle.
+   * @param attempt 完整冻结的命令信封 / Fully frozen command envelope.
+   * @return 服务端确认的新权威投影 / New authoritative projection confirmed by the server.
+   */
+  const dispatchSectionCommand = async (
+    attempt: ResumeSectionCommandAttempt
+  ): Promise<UiResumeEditorModel> => {
+    try {
+      const next = await runDiagnosticCommand(
+        diagnostics,
+        { operation: 'resume.section_update', scope: 'resume' },
+        () => gateway.updateResumeSection(attempt.command)
+      )
+      if (sectionCommandAttemptRef.current === attempt) sectionCommandAttemptRef.current = null
+      return next
+    } catch (error: unknown) {
+      if (mustDiscardResumeCommand(error) && sectionCommandAttemptRef.current === attempt) {
+        sectionCommandAttemptRef.current = null
+      }
+      throw error
+    }
+  }
+
+  /**
+   * @brief 发送冻结的排序命令并维护其可重放生命周期 / Dispatch a frozen reorder command and maintain its replay lifecycle.
+   * @param attempt 完整冻结的命令信封 / Fully frozen command envelope.
+   * @return 服务端确认的新权威投影 / New authoritative projection confirmed by the server.
+   */
+  const dispatchReorderCommand = async (
+    attempt: ResumeReorderCommandAttempt
+  ): Promise<UiResumeEditorModel> => {
+    try {
+      const next = await runDiagnosticCommand(
+        diagnostics,
+        { operation: 'resume.section_reorder', scope: 'resume' },
+        () => gateway.reorderResumeSections(attempt.command)
+      )
+      if (reorderCommandAttemptRef.current === attempt) reorderCommandAttemptRef.current = null
+      return next
+    } catch (error: unknown) {
+      if (mustDiscardResumeCommand(error) && reorderCommandAttemptRef.current === attempt) {
+        reorderCommandAttemptRef.current = null
+      }
+      throw error
+    }
+  }
+
+  /**
+   * @brief 发送冻结的删除命令并维护其可重放生命周期 / Dispatch a frozen delete command and maintain its replay lifecycle.
+   * @param attempt 完整冻结的命令信封 / Fully frozen command envelope.
+   * @return 服务端确认的新权威投影 / New authoritative projection confirmed by the server.
+   */
+  const dispatchDeleteCommand = async (
+    attempt: ResumeDeleteCommandAttempt
+  ): Promise<UiResumeEditorModel> => {
+    try {
+      const next = await runDiagnosticCommand(
+        diagnostics,
+        { operation: 'resume.section_delete', scope: 'resume' },
+        () => gateway.deleteResumeSection(attempt.command)
+      )
+      if (deleteCommandAttemptRef.current === attempt) deleteCommandAttemptRef.current = null
+      return next
+    } catch (error: unknown) {
+      if (mustDiscardResumeCommand(error) && deleteCommandAttemptRef.current === attempt) {
+        deleteCommandAttemptRef.current = null
+      }
+      throw error
+    }
   }
 
   const persistSection = async (
@@ -428,55 +588,101 @@ function ResumeSectionsEditor({
     field: 'title' | 'content'
   ): Promise<void> => {
     /** @brief 本次需要提交的草稿快照 / Draft snapshot to submit in this attempt. */
-    const draft = drafts[section.id]
+    const draft = drafts.get(section.id)
     if (draft === undefined || savingSectionId !== null || isWriteLocked) return
+    /** @brief 用户对当前字段的显式意图 / User's explicit intent for the current field. */
+    const draftValue = draft[field]
+    if (draftValue === undefined) return
     /** @brief 当前权威字段值 / Current authoritative value for the selected field. */
     const authoritativeValue = field === 'title' ? section.title : getSectionContent(section)
-    if (draft[field] === authoritativeValue) return
+    if (draftValue === authoritativeValue) {
+      setDrafts((current) => {
+        /** @brief 已与权威相等后无需再提交的草稿 / Draft no longer requiring submission after matching authority. */
+        const currentDraft = current.get(section.id)
+        if (currentDraft === undefined) return current
+        /** @brief 删除当前已满足字段后的稀疏草稿 / Sparse draft after removing the already-satisfied field. */
+        const remainingDraft: { content?: string; sectionLabel: string; title?: string } = {
+          ...currentDraft
+        }
+        delete remainingDraft[field]
+        /** @brief 保留其他显式字段意图的草稿集合 / Draft collection retaining other explicit field intents. */
+        const remaining = new Map(current)
+        if (remainingDraft.title === undefined && remainingDraft.content === undefined) {
+          remaining.delete(section.id)
+        } else remaining.set(section.id, remainingDraft)
+        return remaining
+      })
+      return
+    }
+    /** @brief 与冻结 Schema 一致的本地文本边界违反 / Local text-boundary violation aligned with the frozen Schema. */
+    const violation = getUiResumeSectionTextViolation(field, draftValue)
+    if (violation !== null) {
+      setSaveFailure({ code: violation, field, kind: 'validation', sectionId: section.id })
+      return
+    }
+    /** @brief 正文操作提交的完整 RichText；标题操作不构造正文 / Complete RichText submitted by a content operation; absent for a title operation. */
+    const contentValue =
+      field === 'content' ? replaceUiResumeRichTextText(section.content, draftValue) : undefined
+    /** @brief 提交的完整字段值 / Complete field value being submitted. */
+    const fieldValue = contentValue ?? draftValue
+    /** @brief 同一权威快照和字段值的稳定指纹 / Stable fingerprint for the same authority snapshot and field value. */
+    const commandFingerprint = JSON.stringify([
+      'section-update',
+      editor.resume.workspaceId,
+      editor.resume.id,
+      editor.resume.revision,
+      editor.concurrencyToken,
+      section.id,
+      field,
+      fieldValue
+    ])
+    /** @brief 新意图或安全重试复用的 command attempt / Command attempt created for a new intent or reused by a safe retry. */
+    const commandAttempt = resumeCommandAttempt(
+      sectionCommandAttemptRef.current,
+      commandFingerprint,
+      (commandId): UiResumeSectionUpdateInput => ({
+        baseRevision: editor.resume.revision,
+        commandId,
+        concurrencyToken: editor.concurrencyToken,
+        ...(contentValue === undefined ? { title: draftValue } : { content: contentValue }),
+        resumeId: editor.resume.id,
+        sectionId: section.id,
+        workspaceId: editor.resume.workspaceId
+      })
+    )
+    sectionCommandAttemptRef.current = commandAttempt
     setSavingSectionId(section.id)
     setSaveFailure(null)
     try {
-      const next = await runMutation(() =>
-        runDiagnosticCommand(
-          diagnostics,
-          { operation: 'resume.section_update', scope: 'resume' },
-          () =>
-            gateway.updateResumeSection({
-              baseRevision: editor.resume.revision,
-              resumeId: editor.resume.id,
-              sectionId: section.id,
-              [field]: draft[field]
-            })
-        )
-      )
+      const next = await runMutation(() => dispatchSectionCommand(commandAttempt))
       if (next === null) return
-      onEditorChange(next)
-      setStructureFailure(null)
-      setDrafts((current) => {
-        /** @brief 回包成功响应中的权威板块 / Authoritative section returned in the successful response. */
-        const confirmedSection = next.resume.sections.find((item) => item.id === section.id)
-        /** @brief 响应到达时的最新本地草稿 / Latest local draft when the response arrives. */
-        const currentDraft = current[section.id]
-        if (confirmedSection === undefined || currentDraft === undefined) return current
-        /** @brief 仅吸收本次已确认字段的草稿 / Draft with only the confirmed field absorbed. */
-        const reconciled: ResumeSectionDraft = {
-          ...currentDraft,
-          [field]: field === 'title' ? confirmedSection.title : getSectionContent(confirmedSection)
-        }
-        if (
-          reconciled.title !== confirmedSection.title ||
-          reconciled.content !== getSectionContent(confirmedSection)
-        ) {
-          return { ...current, [section.id]: reconciled }
-        }
-        /** @brief 全部获确认后保留的其他草稿 / Other drafts retained after every field is confirmed. */
-        const { [section.id]: _confirmed, ...remaining } = current
-        void _confirmed
-        return remaining
-      })
+      acceptSectionCommand(next, section.id, field)
     } catch (reason: unknown) {
-      if (onMutationError(reason)) return
-      setSaveFailure({ error: reason, field, sectionId: section.id })
+      /** @brief 不经新权威重构而原样重放本命令的确认动作 / Confirmation action replaying this command verbatim without rebuilding it from newer authority. */
+      const confirmUnknownOutcome = async (): Promise<void> => {
+        const next = await dispatchSectionCommand(commandAttempt)
+        acceptSectionCommand(next, section.id, field)
+      }
+      /** @brief 放弃旧命令身份但保留字段草稿 / Abandon the old command identity while retaining the field draft. */
+      const abandonUnknownOutcome = (): void => {
+        if (sectionCommandAttemptRef.current === commandAttempt) {
+          sectionCommandAttemptRef.current = null
+        }
+      }
+      /** @brief 根状态机对本次失败的处置 / Root-state disposition for this failure. */
+      const disposition = onMutationError(reason, confirmUnknownOutcome, abandonUnknownOutcome)
+      if (disposition === 'batch-conflict') {
+        setSaveFailure({ field, kind: 'batch-conflict', sectionId: section.id })
+        return
+      }
+      if (
+        disposition === 'authority-conflict' ||
+        disposition === 'discard-command' ||
+        disposition === 'outcome-unknown'
+      ) {
+        return
+      }
+      setSaveFailure({ error: reason, field, kind: 'request', sectionId: section.id })
     } finally {
       setSavingSectionId(null)
     }
@@ -484,24 +690,52 @@ function ResumeSectionsEditor({
 
   const reorder = async (orderedIds: readonly UiResumeSectionId[]): Promise<void> => {
     if (isWriteLocked) return
+    /** @brief 完整目标顺序与权威快照的稳定指纹 / Stable fingerprint of the complete target order and authority snapshot. */
+    const commandFingerprint = JSON.stringify([
+      'section-reorder',
+      editor.resume.workspaceId,
+      editor.resume.id,
+      editor.resume.revision,
+      editor.concurrencyToken,
+      orderedIds
+    ])
+    /** @brief 新排序意图或安全重试的 command attempt / Command attempt for a new reorder intent or its safe retry. */
+    const commandAttempt = resumeCommandAttempt(
+      reorderCommandAttemptRef.current,
+      commandFingerprint,
+      (commandId): UiResumeSectionsReorderInput => ({
+        baseRevision: editor.resume.revision,
+        commandId,
+        concurrencyToken: editor.concurrencyToken,
+        resumeId: editor.resume.id,
+        orderedSectionIds: orderedIds,
+        workspaceId: editor.resume.workspaceId
+      })
+    )
+    reorderCommandAttemptRef.current = commandAttempt
     try {
-      const next = await runMutation(() =>
-        runDiagnosticCommand(
-          diagnostics,
-          { operation: 'resume.section_reorder', scope: 'resume' },
-          () =>
-            gateway.reorderResumeSections({
-              baseRevision: editor.resume.revision,
-              resumeId: editor.resume.id,
-              orderedSectionIds: orderedIds
-            })
-        )
-      )
+      const next = await runMutation(() => dispatchReorderCommand(commandAttempt))
       if (next === null) return
       onEditorChange(next)
       setStructureFailure(null)
     } catch (reason: unknown) {
-      if (onMutationError(reason)) return
+      /** @brief 原样重放本排序命令的确认动作 / Confirmation action replaying this reorder command verbatim. */
+      const confirmUnknownOutcome = async (): Promise<void> => {
+        const next = await dispatchReorderCommand(commandAttempt)
+        onEditorChange(next)
+        setStructureFailure(null)
+      }
+      /** @brief 放弃旧排序命令身份 / Abandon the old reorder-command identity. */
+      const abandonUnknownOutcome = (): void => {
+        if (reorderCommandAttemptRef.current === commandAttempt) {
+          reorderCommandAttemptRef.current = null
+        }
+      }
+      /** @brief 根状态机对排序失败的处置 / Root-state disposition for the reorder failure. */
+      const disposition = onMutationError(reason, confirmUnknownOutcome, abandonUnknownOutcome)
+      if (disposition !== null) {
+        return
+      }
       setStructureFailure({
         error: reason,
         title: t('resume.workspace.reorderError', { defaultValue: '无法调整板块顺序。' })
@@ -531,26 +765,56 @@ function ResumeSectionsEditor({
       setDeleteCandidate(sectionId)
       return
     }
+    /** @brief 删除目标与权威快照的稳定指纹 / Stable fingerprint of the delete target and authority snapshot. */
+    const commandFingerprint = JSON.stringify([
+      'section-delete',
+      editor.resume.workspaceId,
+      editor.resume.id,
+      editor.resume.revision,
+      editor.concurrencyToken,
+      sectionId
+    ])
+    /** @brief 新删除意图或安全重试的 command attempt / Command attempt for a new delete intent or its safe retry. */
+    const commandAttempt = resumeCommandAttempt(
+      deleteCommandAttemptRef.current,
+      commandFingerprint,
+      (commandId): UiResumeSectionDeleteInput => ({
+        baseRevision: editor.resume.revision,
+        commandId,
+        concurrencyToken: editor.concurrencyToken,
+        resumeId: editor.resume.id,
+        sectionId,
+        workspaceId: editor.resume.workspaceId
+      })
+    )
+    deleteCommandAttemptRef.current = commandAttempt
     try {
-      const next = await runMutation(() =>
-        runDiagnosticCommand(
-          diagnostics,
-          { operation: 'resume.section_delete', scope: 'resume' },
-          () =>
-            gateway.deleteResumeSection({
-              baseRevision: editor.resume.revision,
-              resumeId: editor.resume.id,
-              sectionId
-            })
-        )
-      )
+      const next = await runMutation(() => dispatchDeleteCommand(commandAttempt))
       if (next === null) return
       onEditorChange(next)
       setStructureFailure(null)
       setFocusedSectionId(next.resume.sections.at(0)?.id ?? null)
       setDeleteCandidate(null)
     } catch (reason: unknown) {
-      if (onMutationError(reason)) return
+      /** @brief 原样重放本删除命令的确认动作 / Confirmation action replaying this delete command verbatim. */
+      const confirmUnknownOutcome = async (): Promise<void> => {
+        const next = await dispatchDeleteCommand(commandAttempt)
+        onEditorChange(next)
+        setStructureFailure(null)
+        setFocusedSectionId(next.resume.sections.at(0)?.id ?? null)
+        setDeleteCandidate(null)
+      }
+      /** @brief 放弃旧删除命令身份 / Abandon the old delete-command identity. */
+      const abandonUnknownOutcome = (): void => {
+        if (deleteCommandAttemptRef.current === commandAttempt) {
+          deleteCommandAttemptRef.current = null
+        }
+      }
+      /** @brief 根状态机对删除失败的处置 / Root-state disposition for the delete failure. */
+      const disposition = onMutationError(reason, confirmUnknownOutcome, abandonUnknownOutcome)
+      if (disposition !== null) {
+        return
+      }
       setStructureFailure({
         error: reason,
         title: t('resume.workspace.deleteError', { defaultValue: '无法删除这个板块。' })
@@ -571,6 +835,22 @@ function ResumeSectionsEditor({
     setDraggedSectionId(null)
     void reorder(orderedIds)
   }
+
+  /** @brief 本地 Schema 边界违反的可访问消息 / Accessible message for a local Schema-boundary violation. */
+  const validationMessage =
+    saveFailure?.kind === 'validation'
+      ? {
+          'content-too-long': t('resume.editor.contentTooLong', {
+            defaultValue: '语义正文不能超过 20,000 个 Unicode 字符。'
+          }),
+          'title-required': t('resume.editor.titleRequired', {
+            defaultValue: '区段标题不能为空。'
+          }),
+          'title-too-long': t('resume.editor.titleTooLong', {
+            defaultValue: '区段标题不能超过 120 个 Unicode 字符。'
+          })
+        }[saveFailure.code]
+      : null
 
   return (
     <section aria-label={t('resume.workspace.editor', { defaultValue: '内容编辑' })}>
@@ -594,7 +874,86 @@ function ResumeSectionsEditor({
           <ResourceFailureMessage error={structureFailure.error} />
         </div>
       ) : null}
-      {saveFailure !== null ? (
+      {orphanedDrafts.length === 0 ? null : (
+        <section className="aw-inline-error" role="alert">
+          <strong>
+            {t('resume.workspace.orphanedDraftTitle', {
+              defaultValue: '服务端已删除板块；你的本地草稿仍保留。'
+            })}
+          </strong>
+          <p>
+            {t('resume.workspace.orphanedDraftDescription', {
+              defaultValue: '请复制需要的文字；只有你明确丢弃后，本页才会删除这份本地草稿。'
+            })}
+          </p>
+          {orphanedDrafts.map(([sectionId, draft]) => (
+            <article key={sectionId}>
+              <label>
+                {t('resume.workspace.orphanedDraftSectionTitle', {
+                  defaultValue: '已删除板块的标题'
+                })}
+                <input className="aw-input" readOnly value={draft.title ?? draft.sectionLabel} />
+              </label>
+              <label>
+                {t('resume.workspace.orphanedDraftSectionContent', {
+                  defaultValue: '已删除板块的正文'
+                })}
+                <textarea className="aw-textarea" readOnly value={draft.content ?? ''} />
+              </label>
+              <button
+                className="aw-quiet-button"
+                onClick={(): void => {
+                  setDrafts((current) => {
+                    /** @brief 用户明确丢弃后留下的其他草稿 / Other drafts retained after explicit discard. */
+                    const remaining = new Map(current)
+                    remaining.delete(sectionId)
+                    return remaining
+                  })
+                }}
+                type="button"
+              >
+                {t('resume.workspace.discardOrphanedDraft', {
+                  defaultValue: '丢弃这份本地草稿'
+                })}
+              </button>
+            </article>
+          ))}
+        </section>
+      )}
+      {saveFailure?.kind === 'validation' ? (
+        <div className="aw-inline-error" role="alert">
+          <strong>{validationMessage}</strong>
+        </div>
+      ) : saveFailure?.kind === 'batch-conflict' ? (
+        <div className="aw-inline-error" role="alert">
+          <strong>
+            {t('resume.workspace.batchConflictNotApplied', {
+              defaultValue: '服务端未应用这次修改。'
+            })}
+          </strong>{' '}
+          <span>
+            {t('resume.workspace.batchConflictReview', {
+              defaultValue: '已加载最新版本；请检查保留的草稿，再重新确认保存。'
+            })}
+          </span>{' '}
+          <button
+            className="aw-quiet-button"
+            disabled={isWriteLocked}
+            onClick={(): void => {
+              /** @brief 最新权威中仍存在的冲突板块 / Conflicting section still present in latest authority. */
+              const section = editor.resume.sections.find(
+                (item) => item.id === saveFailure.sectionId
+              )
+              if (section !== undefined) void persistSection(section, saveFailure.field)
+            }}
+            type="button"
+          >
+            {t('resume.workspace.reviewAndSaveAgain', {
+              defaultValue: '检查后重新保存'
+            })}
+          </button>
+        </div>
+      ) : saveFailure !== null ? (
         <ResourceErrorState
           error={saveFailure.error}
           onRetry={(): void => {
@@ -611,7 +970,7 @@ function ResumeSectionsEditor({
         {editor.resume.sections.map((section, index) => {
           const isFocused = section.id === focusedSectionId
           /** @brief 当前板块的未保存草稿 / Unsaved draft for the current section. */
-          const draft = drafts[section.id]
+          const draft = drafts.get(section.id)
           /** @brief 输入框展示的标题 / Title displayed in the input. */
           const sectionTitle = draft?.title ?? section.title
           /** @brief 输入框展示的正文 / Body displayed in the input. */
@@ -693,6 +1052,13 @@ function ResumeSectionsEditor({
                   <label>
                     <span>{t('resume.editor.sectionTitle', { defaultValue: '区段标题' })}</span>
                     <input
+                      aria-invalid={
+                        saveFailure?.kind === 'validation' &&
+                        saveFailure.sectionId === section.id &&
+                        saveFailure.field === 'title'
+                          ? true
+                          : undefined
+                      }
                       className="aw-text-input"
                       disabled={isWriteLocked || isSaving}
                       onBlur={(): void => {
@@ -714,6 +1080,13 @@ function ResumeSectionsEditor({
                         aria-label={t('resume.editor.semanticContent', {
                           defaultValue: '语义内容'
                         })}
+                        aria-invalid={
+                          saveFailure?.kind === 'validation' &&
+                          saveFailure.sectionId === section.id &&
+                          saveFailure.field === 'content'
+                            ? true
+                            : undefined
+                        }
                         className="aw-section-textarea"
                         disabled={isWriteLocked || isSaving}
                         onBlur={(): void => {
@@ -727,6 +1100,14 @@ function ResumeSectionsEditor({
                         }
                         value={sectionContent}
                       />
+                      {section.content !== null && section.content.marks.length > 0 ? (
+                        <p className="aw-muted-copy">
+                          {t('resume.editor.richTextPreservation', {
+                            defaultValue:
+                              '未修改文本的格式会保留；触及已格式化文本时，对应格式和链接会移除。'
+                          })}
+                        </p>
+                      ) : null}
                     </div>
                   </label>
                 </div>
@@ -747,342 +1128,16 @@ function ResumeSectionsEditor({
   )
 }
 
-/** @brief PDF 视觉预览窗口 / PDF visual-preview pane. */
-function ResumePreviewPanel({
-  editor,
-  generation,
-  gateway,
-  isWriteLocked,
-  onAuthorityConflict,
-  pdfSupported
-}: {
-  readonly editor: UiResumeEditorModel
-  readonly generation: string
-  readonly gateway: ResumeGateway
-  /** @brief 文档权威状态未恢复时禁止创建新 Job / Prevent new Job creation until document authority is recovered. */
-  readonly isWriteLocked: boolean
-  /** @brief 将并发冲突提升到 Resume 聚合恢复状态 / Promote a concurrency conflict to Resume aggregate recovery. */
-  readonly onAuthorityConflict: (status: ResumeConflictStatus) => void
-  readonly pdfSupported: boolean
-}): React.JSX.Element {
-  const { t } = useTranslation()
-  const diagnostics = useDiagnostics()
-  const artifactSave = useArtifactSave()
-  const [artifact, setArtifact] = useState<UiResumePdfArtifact | null>(null)
-  const [job, setJob] = useState<UiResumeRenderJob | null>(null)
-  /** @brief 最近一次 Render Job 启动或轮询错误 / Latest Render Job start or polling error. */
-  const [error, setError] = useState<unknown>(null)
-  const [isRendering, setRendering] = useState(false)
-  /** @brief 启动响应得到确认前必须复用的命令身份 / Command identity that must be reused until the start response is confirmed. */
-  const [startCommandId, setStartCommandId] = useState<UiCommandId | null>(null)
-  /** @brief PDF 产物是否正在由宿主保存 / Whether the PDF artifact is being saved by the host. */
-  const [isSaving, setSaving] = useState(false)
-  /** @brief 产物保存的可访问状态 / Accessible artifact-save status. */
-  const [saveStatus, setSaveStatus] = useState<string | null>(null)
-  /** @brief 产物保存失败 / Artifact-save failure. */
-  const [saveError, setSaveError] = useState<unknown>(null)
-  const renderAbortRef = useRef<AbortController | null>(null)
-  /** @brief 当前仍允许提交异步结果的预览代际 / Preview generation still allowed to commit async results. */
-  const activeGenerationRef = useRef<string | null>(generation)
-  /** @brief Render 失败的安全页面语义 / Safe page semantics of the Render failure. */
-  const renderFailure = error === null ? null : classifyResourceFailure(error)
-  /** @brief 是否可继续查询已经获得身份的 Job / Whether a Job whose identity is known can be polled again. */
-  const canResumePolling =
-    error !== null && job !== null && ['queued', 'running'].includes(job.status)
-  /** @brief 是否必须用同一幂等键确认 Job 创建结果 / Whether Job creation must be confirmed with the same idempotency key. */
-  const mustConfirmStart = renderFailure?.kind === 'outcome-unknown' && startCommandId !== null
-  /** @brief 产物保存结果是否无法确认 / Whether the artifact-save outcome cannot be confirmed. */
-  const saveOutcomeUnknown =
-    saveError !== null && classifyResourceFailure(saveError).kind === 'outcome-unknown'
-
-  useEffect((): (() => void) => {
-    activeGenerationRef.current = generation
-    return (): void => {
-      if (activeGenerationRef.current === generation) activeGenerationRef.current = null
-      renderAbortRef.current?.abort()
-    }
-  }, [generation])
-
-  /**
-   * @brief 判断异步操作是否仍可提交到当前预览代际 / Test whether an async operation may still commit to the current preview generation.
-   * @param expectedGeneration 操作启动时的代际 / Generation captured when the operation started.
-   * @param signal 可选取消信号 / Optional abort signal.
-   * @return 组件仍挂载、代际未变化且未取消时为 true / True while mounted, current, and not aborted.
-   */
-  const canCommitGeneration = (expectedGeneration: string, signal?: AbortSignal): boolean =>
-    activeGenerationRef.current === expectedGeneration && signal?.aborted !== true
-
-  const waitForNextPoll = (signal: AbortSignal): Promise<void> =>
-    new Promise((resolve, reject): void => {
-      const timer = window.setTimeout(resolve, 1000)
-      signal.addEventListener(
-        'abort',
-        (): void => {
-          window.clearTimeout(timer)
-          reject(new DOMException('PDF polling was aborted.', 'AbortError'))
-        },
-        { once: true }
-      )
-    })
-
-  const renderPdf = async (): Promise<void> => {
-    if (isRendering || isWriteLocked || !pdfSupported) return
-    renderAbortRef.current?.abort()
-    const controller = new AbortController()
-    /** @brief 本次渲染绑定的预览代际 / Preview generation captured for this render. */
-    const expectedGeneration = generation
-    renderAbortRef.current = controller
-    setRendering(true)
-    setError(null)
-    /** @brief 本次是继续读取已知 Job，而不是创建另一个 Job / This attempt resumes a known Job instead of creating another Job. */
-    const resumeKnownJob = canResumePolling
-    /** @brief 一次用户生成意图内稳定的 command identity / Stable command identity within one user render intent. */
-    const commandId = startCommandId ?? createUiCommandId()
-    if (!resumeKnownJob && startCommandId === null) setStartCommandId(commandId)
-    try {
-      await runDiagnosticCommand(
-        diagnostics,
-        { operation: 'resume.pdf_render', scope: 'resume' },
-        async (): Promise<void> => {
-          let current =
-            resumeKnownJob && job !== null
-              ? job
-              : await gateway.startResumePdfRender({
-                  commandId,
-                  resumeId: editor.resume.id,
-                  resumeRevision: editor.resume.revision,
-                  signal: controller.signal
-                })
-          if (!canCommitGeneration(expectedGeneration, controller.signal)) return
-          if (!resumeKnownJob) setStartCommandId(null)
-          if (!isRenderJobCurrent(current, editor)) {
-            throw new Error('Resume PDF Render Job belongs to a different Resume generation.')
-          }
-          setJob(current)
-          for (
-            let attempt = 0;
-            attempt < 60 && ['queued', 'running'].includes(current.status);
-            attempt += 1
-          ) {
-            current = await gateway.getResumeRenderJob(current.id, controller.signal)
-            if (!canCommitGeneration(expectedGeneration, controller.signal)) return
-            if (!isRenderJobCurrent(current, editor)) {
-              throw new Error('Resume PDF Render Job belongs to a different Resume generation.')
-            }
-            setJob(current)
-            if (['queued', 'running'].includes(current.status)) {
-              await waitForNextPoll(controller.signal)
-            }
-          }
-          if (current.status !== 'succeeded') {
-            throw new Error('Resume PDF rendering did not complete successfully.')
-          }
-          const completedArtifact = current.artifacts.at(0)
-          if (completedArtifact === undefined) {
-            throw new Error('Resume PDF rendering completed without a PDF artifact.')
-          }
-          if (!isPdfArtifactCurrent(completedArtifact, editor)) {
-            throw new Error('Resume PDF artifact belongs to a different Resume generation.')
-          }
-          if (!canCommitGeneration(expectedGeneration, controller.signal)) return
-          setArtifact(completedArtifact)
-        }
-      )
-    } catch (reason: unknown) {
-      if (canCommitGeneration(expectedGeneration, controller.signal)) {
-        /** @brief PDF 生成返回的权威并发冲突 / Authoritative concurrency conflict returned by PDF generation. */
-        const conflictStatus = getResumeConflictStatus(reason)
-        if (conflictStatus !== null) {
-          setStartCommandId(null)
-          onAuthorityConflict(conflictStatus)
-          return
-        }
-        setError(reason)
-        if (classifyResourceFailure(reason).kind !== 'outcome-unknown') {
-          setStartCommandId(null)
-        }
-      }
-    } finally {
-      if (canCommitGeneration(expectedGeneration, controller.signal)) {
-        if (renderAbortRef.current === controller) renderAbortRef.current = null
-        setRendering(false)
-      }
-    }
-  }
-
-  /**
-   * @brief 请求当前宿主保存已生成的 PDF / Ask the current host to save the generated PDF.
-   * @return 保存流程结束后的 Promise / Promise fulfilled after the save flow ends.
-   */
-  const savePdf = async (): Promise<void> => {
-    if (artifact === null || isSaving || !isPdfArtifactCurrent(artifact, editor)) return
-
-    /** @brief 本次保存绑定的预览代际 / Preview generation captured for this save. */
-    const expectedGeneration = generation
-    /** @brief 本次保存使用的不可变产物快照 / Immutable artifact snapshot used by this save. */
-    const artifactToSave = artifact
-    setSaving(true)
-    setSaveError(null)
-    setSaveStatus(null)
-    try {
-      /** @brief 宿主返回的保存判别结果 / Discriminated save result returned by the host. */
-      const result = await artifactSave.saveArtifact({
-        artifactId: artifactToSave.id,
-        suggestedFileName: sanitizePdfFileName(`${editor.resume.profile.fullName} Resume`)
-      })
-      if (!canCommitGeneration(expectedGeneration)) return
-      if (result.status === 'saved') {
-        setSaveStatus(t('resume.workspace.pdfSaved', { defaultValue: 'PDF 已保存。' }))
-      } else if (result.status === 'started') {
-        setSaveStatus(
-          t('resume.workspace.pdfDownloadStarted', { defaultValue: 'PDF 下载已开始。' })
-        )
-      } else {
-        setSaveStatus(t('resume.workspace.pdfSaveCancelled', { defaultValue: '已取消保存。' }))
-      }
-    } catch (error: unknown) {
-      if (canCommitGeneration(expectedGeneration)) {
-        setSaveError(error)
-      }
-    } finally {
-      if (canCommitGeneration(expectedGeneration)) setSaving(false)
-    }
-  }
-
-  return (
-    <section
-      aria-label={
-        artifact === null
-          ? t('resume.workspace.semanticPreviewRegion', {
-              defaultValue: '语义内容预览（非最终排版）'
-            })
-          : t('resume.workspace.pdfPreviewRegion', { defaultValue: 'PDF 预览' })
-      }
-    >
-      <div className="aw-inline-actions">
-        <button
-          className="aw-primary-button"
-          disabled={isRendering || isWriteLocked || !pdfSupported}
-          onClick={(): void => {
-            void renderPdf()
-          }}
-          type="button"
-        >
-          {isRendering
-            ? t('resume.workspace.renderingPdf', { defaultValue: '正在生成 PDF…' })
-            : mustConfirmStart
-              ? t('resume.workspace.confirmPdfRender', {
-                  defaultValue: '确认 PDF 生成结果'
-                })
-              : canResumePolling
-                ? t('resume.workspace.resumePdfPolling', {
-                    defaultValue: '继续查询 PDF'
-                  })
-                : t('resume.workspace.renderPdf', { defaultValue: '生成 PDF 预览' })}
-        </button>
-        {!pdfSupported ? (
-          <span className="aw-muted-copy">
-            {t('resume.workspace.pdfUnsupported', {
-              defaultValue: '当前模板不支持 PDF 输出。'
-            })}
-          </span>
-        ) : null}
-        {artifact === null ? (
-          <span className="aw-muted-copy">
-            {t('resume.workspace.semanticPreviewNotice', {
-              defaultValue: '当前为语义内容预览，不代表最终模板排版。'
-            })}
-          </span>
-        ) : null}
-        {job?.progressPercent !== null && job?.progressPercent !== undefined ? (
-          <span aria-live="polite">{Math.round(job.progressPercent)}%</span>
-        ) : null}
-        {artifact !== null ? (
-          <button
-            className="aw-quiet-button"
-            disabled={isSaving || saveOutcomeUnknown}
-            onClick={(): void => {
-              void savePdf()
-            }}
-            type="button"
-          >
-            {isSaving
-              ? t('resume.workspace.savingPdf', { defaultValue: '正在保存 PDF…' })
-              : t('resume.workspace.downloadPdf', { defaultValue: '下载 PDF' })}
-          </button>
-        ) : null}
-      </div>
-      {saveStatus !== null ? (
-        <span aria-live="polite" className="aw-sr-only">
-          {saveStatus}
-        </span>
-      ) : null}
-      {saveError !== null ? (
-        <div className="aw-inline-error" role="alert">
-          <strong>
-            {saveOutcomeUnknown
-              ? t('resume.workspace.pdfSaveOutcomeUnknown', {
-                  defaultValue: 'PDF 保存结果待确认。请先检查下载记录或目标文件。'
-                })
-              : t('resume.workspace.pdfSaveError', { defaultValue: '无法保存 PDF' })}
-          </strong>{' '}
-          <ResourceFailureMessage error={saveError} />
-        </div>
-      ) : null}
-      {error !== null ? (
-        <div className="aw-inline-error" role="alert">
-          <strong>
-            {mustConfirmStart
-              ? t('resume.workspace.renderOutcomeUnknown', {
-                  defaultValue: 'PDF 生成结果待确认。'
-                })
-              : t('resume.workspace.renderError', { defaultValue: '无法生成 PDF 预览' })}
-          </strong>{' '}
-          <ResourceFailureMessage error={error} />
-        </div>
-      ) : null}
-      <div className="aw-editor-scroll aw-editor-preview">
-        {artifact !== null ? (
-          <iframe
-            className="aw-paper"
-            sandbox=""
-            src={artifact.contentUrl}
-            title={t('resume.workspace.pdfFrameTitle', { defaultValue: '简历 PDF 预览' })}
-          />
-        ) : (
-          <article
-            aria-label={t('resume.semanticPreviewAria', { defaultValue: '简历语义预览' })}
-            className="aw-paper"
-          >
-            <header className="aw-paper-header">
-              <h2 className="aw-paper-name">{editor.resume.profile.fullName}</h2>
-              {editor.resume.profile.headline !== null ? (
-                <p className="aw-paper-role">{editor.resume.profile.headline}</p>
-              ) : null}
-              <p className="aw-paper-contact">
-                {editor.resume.profile.contacts.map((contact) => contact.value).join(' · ')}
-              </p>
-            </header>
-            {editor.resume.sections
-              .filter((section) => section.visible)
-              .map((section) => (
-                <ResumePaperSection key={section.id} section={section} />
-              ))}
-          </article>
-        )}
-      </div>
-    </section>
-  )
-}
-
 /** @brief 已加载的三窗口简历工作台 / Loaded three-window resume workspace. */
 export function ResumeWorkspace({
   initialEditor,
   gateway,
+  templateCatalog,
   templates
 }: {
   readonly initialEditor: UiResumeEditorModel
   readonly gateway: ResumeGateway
+  readonly templateCatalog: ResumeTemplateCatalogPort
   readonly templates: readonly UiTemplateManifest[]
 }): React.JSX.Element {
   const { t } = useTranslation()
@@ -1100,14 +1155,16 @@ export function ResumeWorkspace({
   const [authorityRecovery, setAuthorityRecovery] = useState<ResumeAuthorityRecovery | null>(null)
   /** @brief React 提交期间向全部 Resume 写控件广播的执行状态 / In-flight state broadcast to every Resume write control during React commits. */
   const [isMutatingResume, setMutatingResume] = useState(false)
+  /** @brief 用于兑现 Retry-After 后重新启用确认动作的时钟 / Clock used to re-enable confirmation after Retry-After. */
+  const [confirmationClock, setConfirmationClock] = useState(0)
   /** @brief 在同一事件循环内也能原子拒绝第二个写意图 / Atomic guard rejecting a second write intent within the same event loop. */
   const mutationInFlightRef = useRef(false)
   const [isReloadingAuthority, setReloadingAuthority] = useState(false)
-  /** @brief 权威简历重新读取错误 / Authoritative Resume reload error. */
-  const [authorityReloadError, setAuthorityReloadError] = useState<unknown>(null)
+  /** @brief 当前权威重读独占的取消控制器 / Abort controller exclusively owned by the current authority reload. */
+  const authorityReloadControllerRef = useRef<AbortController | null>(null)
+  /** @brief 当前聚合恢复动作的安全错误 / Safe error from the current aggregate-recovery action. */
+  const [authorityRecoveryError, setAuthorityRecoveryError] = useState<unknown>(null)
   const [authorityReloadRevision, setAuthorityReloadRevision] = useState(0)
-  /** @brief 仅在并发冲突后重置本地编辑草稿的序号 / Sequence that resets local editor drafts only after a concurrency conflict. */
-  const [editorResetRevision, setEditorResetRevision] = useState(0)
   const [mobilePane, setMobilePane] = useState<MobileResumePane>('preview')
   const [mobileAssistantOpen, setMobileAssistantOpen] = useState(false)
 
@@ -1124,6 +1181,40 @@ export function ResumeWorkspace({
   const previewGeneration = `${authorityReloadRevision}:${createResumePreviewIdentity(editor)}`
   /** @brief 是否必须完成权威读取后才能继续修改简历 / Whether an authoritative read is required before further Resume writes. */
   const isWriteLocked = authorityRecovery !== null || isMutatingResume
+  useUnsavedChanges(
+    `resume.aggregate-command:${editor.resume.id}`,
+    authorityRecovery !== null || isMutatingResume || isReloadingAuthority
+  )
+  /** @brief 服务端 Retry-After 是否仍阻止确认同一命令 / Whether server Retry-After still blocks confirmation of the same command. */
+  const isConfirmationCoolingDown =
+    authorityRecovery?.kind === 'outcome-unknown' &&
+    authorityRecovery.confirmNotBefore !== null &&
+    confirmationClock < authorityRecovery.confirmNotBefore
+
+  useEffect(
+    (): (() => void) => (): void => {
+      authorityReloadControllerRef.current?.abort(
+        new DOMException('Resume workspace unmounted.', 'AbortError')
+      )
+      authorityReloadControllerRef.current = null
+    },
+    []
+  )
+
+  useEffect((): (() => void) | undefined => {
+    if (
+      authorityRecovery?.kind !== 'outcome-unknown' ||
+      authorityRecovery.confirmNotBefore === null
+    ) {
+      return undefined
+    }
+    /** @brief 受宿主上限约束的下一段恢复等待 / Next recovery wait segment bounded by the host limit. */
+    const delayMilliseconds = nextDeadlineTimerDelayMilliseconds(authorityRecovery.confirmNotBefore)
+    if (delayMilliseconds === null) return undefined
+    /** @brief 受浏览器定时器上限约束的恢复定时器 / Recovery timer bounded by the browser timer limit. */
+    const timer = window.setTimeout((): void => setConfirmationClock(Date.now()), delayMilliseconds)
+    return (): void => window.clearTimeout(timer)
+  }, [authorityRecovery, confirmationClock])
 
   /**
    * @brief 在页面唯一 Resume mutation lane 中执行用户意图 / Run a user intent in the page's sole Resume mutation lane.
@@ -1145,29 +1236,106 @@ export function ResumeWorkspace({
     }
   }
 
-  const handleMutationError = (error: unknown): boolean => {
+  /**
+   * @brief 把 section command 错误提升为 Resume 聚合恢复状态 / Promote a section-command error into Resume aggregate recovery state.
+   * @param error 应用端口返回的错误 / Error returned by the application port.
+   * @param confirmUnknownOutcome 原样确认同一冻结命令的动作 / Action confirming the same frozen command verbatim.
+   * @param abandonUnknownOutcome 放弃旧命令身份但保留草稿的动作 / Action abandoning the old command identity while retaining drafts.
+   * @return 子编辑器用于保留或丢弃局部状态的处置 / Disposition used by the child editor to retain or discard local state.
+   */
+  const handleMutationError = (
+    error: unknown,
+    confirmUnknownOutcome: () => Promise<void>,
+    abandonUnknownOutcome: () => void
+  ): ResumeMutationErrorDisposition => {
+    /** @brief 与 Resume revision 无关的 API v2 幂等状态 / API v2 idempotency state unrelated to the Resume revision. */
+    const idempotencyConflict = getResumeIdempotencyConflict(error)
+    if (idempotencyConflict === 'in-progress') {
+      /** @brief API v2 已验证的重试延迟 / Retry delay validated by API v2. */
+      const retryAfterMilliseconds = getResumeCommandRetryAfterMilliseconds(error)
+      /** @brief 当前错误被处理的单调页面时刻 / Page time at which the current error is handled. */
+      const now = Date.now()
+      setConfirmationClock(now)
+      setAuthorityRecovery({
+        abandon: abandonUnknownOutcome,
+        confirm: confirmUnknownOutcome,
+        confirmNotBefore: retryAfterMilliseconds === null ? null : now + retryAfterMilliseconds,
+        kind: 'outcome-unknown'
+      })
+      return 'outcome-unknown'
+    }
+    if (idempotencyConflict === 'key-reused') {
+      setAuthorityRecovery({ kind: 'authority-required', reason: 'idempotency-key-reused' })
+      return 'discard-command'
+    }
+    if (isResumeUnreplayableContractResponse(error)) {
+      abandonUnknownOutcome()
+      setAuthorityRecovery({ kind: 'authority-required', reason: 'invalid-response' })
+      return 'discard-command'
+    }
     const status = getResumeConflictStatus(error)
     if (status !== null) {
       setAuthorityRecovery({ kind: 'conflict', status })
-      return true
+      return 'authority-conflict'
     }
     if (classifyResourceFailure(error).kind === 'outcome-unknown') {
-      setAuthorityRecovery({ kind: 'outcome-unknown' })
-      return true
+      setConfirmationClock(Date.now())
+      setAuthorityRecovery({
+        abandon: abandonUnknownOutcome,
+        confirm: confirmUnknownOutcome,
+        confirmNotBefore: null,
+        kind: 'outcome-unknown'
+      })
+      return 'outcome-unknown'
     }
-    if (isResumeOperationRejected(error)) {
+    /** @brief 合法 200 conflict 已携带可立即吸收的完整权威 / Valid 200 conflict carrying complete authority ready for immediate adoption. */
+    const batchConflict = getResumeBatchConflict(error)
+    if (batchConflict !== null) {
+      setEditor(batchConflict.authoritativeEditor)
       setAuthorityRecovery({ kind: 'rejected' })
-      return true
+      return 'batch-conflict'
     }
-    return false
+    return null
+  }
+
+  /**
+   * @brief 在页面级 mutation lane 中原样确认未知结果的命令 / Confirm an unknown command outcome verbatim in the page-level mutation lane.
+   * @return 命令完成或新的恢复状态建立后结束 / Resolves after the command completes or a new recovery state is established.
+   */
+  const confirmUnknownResumeCommand = async (): Promise<void> => {
+    /** @brief 仅本次确认捕获的冻结恢复状态 / Frozen recovery state captured for this confirmation only. */
+    const recovery = authorityRecovery
+    if (recovery?.kind !== 'outcome-unknown' || mutationInFlightRef.current) return
+    mutationInFlightRef.current = true
+    setMutatingResume(true)
+    setAuthorityRecoveryError(null)
+    try {
+      await recovery.confirm()
+      setAuthorityRecovery((current) => (current === recovery ? null : current))
+    } catch (error: unknown) {
+      /** @brief 重放错误对聚合恢复状态机的处置 / Aggregate recovery disposition for the replay error. */
+      const disposition = handleMutationError(error, recovery.confirm, recovery.abandon)
+      /** @brief 服务端是否已明确终结原命令 / Whether the server definitively terminated the original command. */
+      const terminalRejection = isResumeCommandDefinitivelyRejected(error)
+      if (disposition === null && terminalRejection) {
+        setAuthorityRecovery({ kind: 'authority-required', reason: 'terminal-rejection' })
+      }
+      if (disposition === null && !terminalRejection) {
+        setAuthorityRecoveryError(error)
+      }
+    } finally {
+      mutationInFlightRef.current = false
+      setMutatingResume(false)
+    }
   }
 
   const reloadAuthoritativeWorkspace = async (): Promise<void> => {
-    if (isReloadingAuthority) return
-    /** @brief 发起读取时需要恢复的写失败类别 / Write-failure category being recovered by this read. */
-    const recoveryKind = authorityRecovery?.kind
+    if (authorityReloadControllerRef.current !== null) return
+    /** @brief 本次权威重读独占的取消控制器 / Abort controller exclusively owned by this authority reload. */
+    const controller = new AbortController()
+    authorityReloadControllerRef.current = controller
     setReloadingAuthority(true)
-    setAuthorityReloadError(null)
+    setAuthorityRecoveryError(null)
     try {
       const { nextEditor, nextTemplates } = await runDiagnosticCommand(
         diagnostics,
@@ -1175,28 +1343,50 @@ export function ResumeWorkspace({
         async () => {
           const nextEditor = await gateway.getResumeEditor(
             editor.resume.workspaceId,
-            editor.resume.id
+            editor.resume.id,
+            controller.signal
           )
-          const nextTemplates = await loadTemplateCatalogWithPinnedVersion(
-            gateway,
-            nextEditor.resume.locale,
-            nextEditor.resume.template
+          controller.signal.throwIfAborted()
+          const pinnedTemplate = await loadPinnedResumeTemplate(
+            templateCatalog,
+            nextEditor.resume.template,
+            controller.signal
           )
-          return { nextEditor, nextTemplates }
+          controller.signal.throwIfAborted()
+          return { nextEditor, nextTemplates: [pinnedTemplate] }
         }
       )
+      controller.signal.throwIfAborted()
       setEditor(nextEditor)
       setAvailableTemplates(nextTemplates)
       setAuthorityReloadRevision((current) => current + 1)
-      if (recoveryKind === 'conflict') {
-        setEditorResetRevision((current) => current + 1)
-      }
       setAuthorityRecovery(null)
     } catch (error: unknown) {
-      setAuthorityReloadError(error)
+      if (controller.signal.aborted) return
+      setAuthorityRecoveryError(error)
     } finally {
-      setReloadingAuthority(false)
+      if (authorityReloadControllerRef.current === controller) {
+        authorityReloadControllerRef.current = null
+      }
+      if (!controller.signal.aborted) setReloadingAuthority(false)
     }
+  }
+
+  /**
+   * @brief 放弃无法确认的旧命令并改用权威读取恢复 / Abandon an unconfirmable old command and recover through an authoritative read.
+   * @return 无返回值 / No return value.
+   */
+  const abandonUnknownCommandAndReload = (): void => {
+    if (
+      authorityRecovery?.kind !== 'outcome-unknown' ||
+      isReloadingAuthority ||
+      mutationInFlightRef.current
+    ) {
+      return
+    }
+    authorityRecovery.abandon()
+    setAuthorityRecovery({ kind: 'authority-required', reason: 'abandoned-confirmation' })
+    void reloadAuthoritativeWorkspace()
   }
 
   const togglePane = (pane: ResumePane): void => {
@@ -1219,7 +1409,7 @@ export function ResumeWorkspace({
         editor={editor}
         gateway={gateway}
         isWriteLocked={isWriteLocked}
-        key={editorResetRevision}
+        key={editor.resume.id}
         onEditorChange={setEditor}
         onMutationError={handleMutationError}
         runMutation={runResumeMutation}
@@ -1229,12 +1419,8 @@ export function ResumeWorkspace({
       <ResumePreviewPanel
         editor={editor}
         generation={previewGeneration}
-        gateway={gateway}
         isWriteLocked={isWriteLocked}
         key={previewGeneration}
-        onAuthorityConflict={(status): void => {
-          setAuthorityRecovery({ kind: 'conflict', status })
-        }}
         pdfSupported={selectedTemplate?.supportedOutputFormats.includes('pdf') === true}
       />
     )
@@ -1250,32 +1436,116 @@ export function ResumeWorkspace({
                 ? t('resume.workspace.conflictTitle')
                 : authorityRecovery.kind === 'rejected'
                   ? t('resume.workspace.operationRejectedTitle')
-                  : t('resume.workspace.outcomeUnknownTitle')}
+                  : authorityRecovery.kind === 'authority-required'
+                    ? authorityRecovery.reason === 'abandoned-confirmation'
+                      ? t('resume.workspace.authorityReadRequiredTitle', {
+                          defaultValue: '需要读取服务器版本'
+                        })
+                      : authorityRecovery.reason === 'invalid-response'
+                        ? t('resume.workspace.invalidResponseTitle', {
+                            defaultValue: '服务端响应无法确认'
+                          })
+                        : authorityRecovery.reason === 'idempotency-key-reused'
+                          ? t('resume.workspace.idempotencyKeyReusedTitle', {
+                              defaultValue: '命令标识发生冲突'
+                            })
+                          : t('resume.workspace.commandRejectedTitle', {
+                              defaultValue: '原操作已被拒绝'
+                            })
+                    : t('resume.workspace.outcomeUnknownTitle')}
             </strong>
             <p>
               {authorityRecovery.kind === 'conflict'
                 ? t('resume.workspace.conflictDescription')
                 : authorityRecovery.kind === 'rejected'
                   ? t('resume.workspace.operationRejectedDescription')
-                  : t('resume.workspace.outcomeUnknownDescription')}
+                  : authorityRecovery.kind === 'authority-required'
+                    ? authorityRecovery.reason === 'abandoned-confirmation'
+                      ? t('resume.workspace.abandonedConfirmationDescription', {
+                          defaultValue:
+                            '已放弃旧命令标识。必须完成权威读取，才能基于保留的草稿创建新操作。'
+                        })
+                      : authorityRecovery.reason === 'invalid-response'
+                        ? t('resume.workspace.outcomeContractDescription', {
+                            defaultValue:
+                              '服务端成功响应不符合 API v2 契约。请重新读取权威版本；不要重放会返回同一坏响应的命令。'
+                          })
+                        : authorityRecovery.reason === 'idempotency-key-reused'
+                          ? t('resume.workspace.idempotencyKeyReusedDescription', {
+                              defaultValue:
+                                '服务端拒绝了重复用于不同意图的命令标识。请重新读取权威版本，再创建新操作。'
+                            })
+                          : t('resume.workspace.commandRejectedDescription', {
+                              defaultValue:
+                                '服务端已明确拒绝原命令。请重新读取权威版本，再检查保留的本地草稿。'
+                            })
+                    : t('resume.workspace.outcomeUnknownDescription')}
             </p>
           </div>
           <button
             className="aw-quiet-button"
-            disabled={isReloadingAuthority}
+            disabled={
+              authorityRecovery.kind === 'outcome-unknown'
+                ? isMutatingResume || isReloadingAuthority || isConfirmationCoolingDown
+                : authorityRecovery.kind !== 'rejected' && isReloadingAuthority
+            }
             onClick={(): void => {
+              if (authorityRecovery.kind === 'rejected') {
+                setAuthorityRecovery(null)
+                return
+              }
+              if (authorityRecovery.kind === 'outcome-unknown') {
+                void confirmUnknownResumeCommand()
+                return
+              }
               void reloadAuthoritativeWorkspace()
             }}
             type="button"
           >
-            {isReloadingAuthority
-              ? t('resume.workspace.reloadingAuthority')
-              : t('resume.workspace.reloadAuthority')}
+            {authorityRecovery.kind === 'rejected'
+              ? t('resume.workspace.continueWithLatestAuthority', {
+                  defaultValue: '基于最新版本继续'
+                })
+              : authorityRecovery.kind === 'outcome-unknown'
+                ? isMutatingResume
+                  ? t('resume.workspace.confirmingCommand', {
+                      defaultValue: '正在确认同一命令…'
+                    })
+                  : isConfirmationCoolingDown
+                    ? t('resume.workspace.waitingToConfirm', {
+                        defaultValue: '等待服务端允许重试…'
+                      })
+                    : t('resume.workspace.confirmCommand', {
+                        defaultValue: '确认上次操作结果'
+                      })
+                : isReloadingAuthority
+                  ? t('resume.workspace.reloadingAuthority')
+                  : t('resume.workspace.reloadAuthority')}
           </button>
-          {authorityReloadError !== null ? (
+          {authorityRecovery.kind === 'outcome-unknown' ? (
+            <button
+              className="aw-quiet-button"
+              disabled={isMutatingResume || isReloadingAuthority}
+              onClick={abandonUnknownCommandAndReload}
+              type="button"
+            >
+              {isReloadingAuthority
+                ? t('resume.workspace.reloadingAuthority')
+                : t('resume.workspace.readAuthorityInstead', {
+                    defaultValue: '放弃确认并读取服务器版本'
+                  })}
+            </button>
+          ) : null}
+          {authorityRecoveryError !== null ? (
             <span>
-              <strong>{t('resume.workspace.reloadAuthorityError')}</strong>{' '}
-              <ResourceFailureMessage error={authorityReloadError} />
+              <strong>
+                {authorityRecovery.kind === 'outcome-unknown'
+                  ? t('resume.workspace.confirmCommandError', {
+                      defaultValue: '仍无法确认上次操作结果。'
+                    })
+                  : t('resume.workspace.reloadAuthorityError')}
+              </strong>{' '}
+              <ResourceFailureMessage error={authorityRecoveryError} />
             </span>
           ) : null}
         </div>
@@ -1300,6 +1570,35 @@ export function ResumeWorkspace({
         >
           {t('resume.preview', { defaultValue: '预览' })}
         </button>
+        <Link
+          aria-disabled={isWriteLocked}
+          aria-label={t('resume.workspace.openTemplateSettings', {
+            defaultValue: '打开模板与样式设置'
+          })}
+          className="aw-tab"
+          onClick={(event): void => {
+            if (isWriteLocked) event.preventDefault()
+          }}
+          to={`/resumes/${editor.resume.id}/template`}
+        >
+          <Settings2 aria-hidden="true" size={15} />
+          {t('resume.templateSettings', { defaultValue: '模板设置' })}
+        </Link>
+        <Link className="aw-tab" to={`/resumes/${editor.resume.id}/review?tab=proposals`}>
+          <History aria-hidden="true" size={15} />
+          {t('resume.review.shortTitle', { defaultValue: '版本与建议' })}
+        </Link>
+        <Link
+          aria-disabled={isWriteLocked}
+          className="aw-tab"
+          onClick={(event): void => {
+            if (isWriteLocked) event.preventDefault()
+          }}
+          to={`/resumes/${editor.resume.id}/export`}
+        >
+          <Download aria-hidden="true" size={15} />
+          {t('resume.output.shortTitle', { defaultValue: '生成与导出' })}
+        </Link>
         <button className="aw-tab" onClick={(): void => setMobileAssistantOpen(true)} type="button">
           {t('resume.assistant', { defaultValue: '简历助手' })}
         </button>
@@ -1328,52 +1627,44 @@ export function ResumeWorkspace({
             label={t('resume.workspace.previewWindow', { defaultValue: '预览' })}
             onToggle={(): void => togglePane('preview')}
             trailing={
-              <>
-                <label className="aw-template-quick-select">
-                  <span className="aw-sr-only">
-                    {t('resume.workspace.quickTemplate', { defaultValue: '快速切换简历模板' })}
-                  </span>
-                  <select
-                    aria-describedby="resume-template-migration-unavailable"
-                    aria-label={t('resume.workspace.quickTemplate', {
-                      defaultValue: '快速切换简历模板'
-                    })}
-                    disabled
-                    title={t('resume.workspace.templateMigrationUnavailable', {
-                      defaultValue: '模板切换暂不可用；你仍可调整当前模板的版式设置。'
-                    })}
-                    value={getTemplateIdentity(editor.resume.template)}
-                  >
-                    {availableTemplates.map((template) => (
-                      <option
-                        key={getTemplateIdentity(template)}
-                        value={getTemplateIdentity(template)}
-                      >
-                        {template.name}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="aw-muted-copy" id="resume-template-migration-unavailable">
-                    {t('resume.workspace.templateMigrationUnavailable', {
-                      defaultValue: '模板切换暂不可用；你仍可调整当前模板的版式设置。'
-                    })}
-                  </span>
-                </label>
-                <span className="aw-current-template" aria-live="polite">
-                  {selectedTemplate?.name ?? ''}
-                </span>
+              <span className="aw-resume-workspace-links">
                 <Link
                   aria-disabled={isWriteLocked}
-                  aria-label={t('resume.templateSettings', { defaultValue: '模板设置' })}
-                  className="aw-icon-button"
+                  className="aw-template-settings-link"
+                  onClick={(event): void => {
+                    if (isWriteLocked) event.preventDefault()
+                  }}
+                  to={`/resumes/${editor.resume.id}/export`}
+                >
+                  <Download aria-hidden="true" size={15} />
+                  <span>{t('resume.output.shortTitle', { defaultValue: '生成与导出' })}</span>
+                </Link>
+                <Link
+                  className="aw-template-settings-link"
+                  to={`/resumes/${editor.resume.id}/review?tab=proposals`}
+                >
+                  <History aria-hidden="true" size={15} />
+                  <span>{t('resume.review.shortTitle', { defaultValue: '版本与建议' })}</span>
+                </Link>
+                <Link
+                  aria-disabled={isWriteLocked}
+                  aria-label={t('resume.workspace.openTemplateSettings', {
+                    defaultValue: '打开模板与样式设置'
+                  })}
+                  className="aw-template-settings-link"
                   onClick={(event): void => {
                     if (isWriteLocked) event.preventDefault()
                   }}
                   to={`/resumes/${editor.resume.id}/template`}
                 >
                   <Settings2 aria-hidden="true" size={15} />
+                  <span>
+                    {selectedTemplate === undefined
+                      ? t('resume.templateSettings', { defaultValue: '模板设置' })
+                      : `${selectedTemplate.name} · v${selectedTemplate.version}`}
+                  </span>
                 </Link>
-              </>
+              </span>
             }
           />
         </div>

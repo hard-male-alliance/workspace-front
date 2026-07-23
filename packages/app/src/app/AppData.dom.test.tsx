@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { createDiagnostics } from '../infrastructure/observability'
 import { useAsyncResource } from './AppData'
@@ -103,7 +103,7 @@ describe('useAsyncResource', (): void => {
       }: {
         readonly load: () => Promise<string>
         readonly resourceKey: string
-      }) => useAsyncResource('knowledge.visibility', load, resourceKey),
+      }) => useAsyncResource('knowledge.source', load, resourceKey),
       {
         initialProps: { load: loadA, resourceKey: 'source-a' },
         wrapper: AsyncResourceTestProvider
@@ -125,5 +125,41 @@ describe('useAsyncResource', (): void => {
     })
 
     expect(result.current).toMatchObject({ data: 'authoritative-b', status: 'ready' })
+  })
+
+  it('aborts the stale request when the domain resource key changes', async (): Promise<void> => {
+    /** @brief 每次加载收到的取消信号 / Abort signals received by each load. */
+    const signals: AbortSignal[] = []
+    /** @brief 永不自行完成的可取消加载器 / Abortable loader that never settles by itself. */
+    const load = vi.fn((signal: AbortSignal): Promise<string> => {
+      signals.push(signal)
+      return new Promise<string>((_resolve, reject): void => {
+        signal.addEventListener(
+          'abort',
+          (): void => {
+            /** @brief AbortSignal 提供的取消原因 / Cancellation reason supplied by AbortSignal. */
+            const reason: unknown = signal.reason
+            reject(reason instanceof Error ? reason : new DOMException('Aborted.', 'AbortError'))
+          },
+          { once: true }
+        )
+      })
+    })
+    /** @brief 被测 Hook 重渲染控制器 / Rerender controller for the Hook under test. */
+    const { rerender } = renderHook(
+      ({ resourceKey }: { readonly resourceKey: string }) =>
+        useAsyncResource('resume.editor', load, resourceKey),
+      {
+        initialProps: { resourceKey: 'resume-a' },
+        wrapper: AsyncResourceTestProvider
+      }
+    )
+
+    await waitFor((): void => expect(load).toHaveBeenCalledTimes(1))
+    rerender({ resourceKey: 'resume-b' })
+
+    await waitFor((): void => expect(load).toHaveBeenCalledTimes(2))
+    expect(signals[0]?.aborted).toBe(true)
+    expect(signals[1]?.aborted).toBe(false)
   })
 })

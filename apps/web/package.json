@@ -11,6 +11,7 @@
   "dependencies": {
     "@ai-job-workspace/app": "workspace:*",
     "@ai-job-workspace/platform": "workspace:*",
+    "@ai-job-workspace/product-api-v2": "workspace:*",
     "@ai-job-workspace/product-runtime": "workspace:*",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"

@@ -1,11 +1,24 @@
 .aw-template-list {
   display: grid;
   gap: 10px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.aw-template-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
 }
 
 .aw-template-card {
   display: grid;
-  grid-template-columns: 86px minmax(0, 1fr) auto;
+  position: relative;
+  grid-template-columns: auto 112px minmax(0, 1fr);
   align-items: center;
   gap: 11px;
   padding: 12px;
@@ -20,16 +33,64 @@
   box-shadow: var(--ui-focus-ring);
 }
 
+.aw-template-card:hover {
+  border-color: var(--ui-color-border-strong);
+}
+
+.aw-template-card:focus-within {
+  border-color: var(--ui-color-accent);
+  box-shadow: var(--ui-focus-ring);
+}
+
+.aw-template-card > input[type='radio'] {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: var(--ui-color-accent);
+}
+
+.aw-template-card-copy {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+}
+
+.aw-template-card-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .aw-template-thumbnail {
-  position: relative;
-  min-height: 180px;
+  display: flex;
+  min-height: 150px;
+  align-items: center;
+  justify-content: center;
   overflow: hidden;
   border: 1px solid #dfd6cc;
   background: #faf7f2;
 }
 
 .aw-template-card .aw-template-thumbnail {
-  min-height: 108px;
+  min-height: 136px;
+}
+
+.aw-template-thumbnail > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: inherit;
+  object-fit: contain;
+}
+
+.aw-template-thumbnail--empty {
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px;
+  color: var(--ui-color-ink-muted);
+  font-size: 11px;
+  text-align: center;
 }
 
 .aw-template-fit {
@@ -42,7 +103,12 @@
 
 .aw-template-preview {
   min-height: 240px;
+  max-height: 420px;
   border-radius: var(--ui-radius-sm);
+}
+
+.aw-template-load-more {
+  margin-top: 12px;
 }
 
 .aw-template-empty {
@@ -72,53 +138,6 @@
   line-height: 1.55;
 }
 
-.aw-template-thumbnail::before,
-.aw-template-thumbnail::after {
-  position: absolute;
-  left: 13%;
-  right: 13%;
-  height: 4px;
-  border-radius: 4px;
-  background: #bba797;
-  content: '';
-}
-
-.aw-template-thumbnail::before {
-  top: 16%;
-  box-shadow:
-    0 15px 0 #ded3c8,
-    0 30px 0 #ded3c8,
-    0 45px 0 #ded3c8;
-}
-
-.aw-template-thumbnail::after {
-  top: 60%;
-  box-shadow:
-    0 13px 0 #ded3c8,
-    0 26px 0 #ded3c8;
-}
-
-.aw-template-thumbnail--sidebar::before {
-  right: 40%;
-}
-
-.aw-template-thumbnail--sidebar::after {
-  right: 40%;
-}
-
-.aw-template-thumbnail--sidebar {
-  border-left: 48px solid #eee2d7;
-}
-
-.aw-template-thumbnail--compact::before {
-  top: 12%;
-  box-shadow:
-    0 11px 0 #ded3c8,
-    0 22px 0 #ded3c8,
-    0 33px 0 #ded3c8,
-    0 44px 0 #ded3c8;
-}
-
 .aw-settings-card {
   display: grid;
   gap: 17px;
@@ -132,6 +151,191 @@
   padding: 0;
   border: 0;
   gap: 17px;
+}
+
+.aw-template-setting-group > legend {
+  margin-bottom: 12px;
+  color: var(--ui-color-ink);
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.aw-native-radio-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.aw-native-radio-group .aw-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.aw-native-radio-group input {
+  margin: 0;
+  accent-color: var(--ui-color-accent);
+}
+
+.aw-template-style-panel {
+  margin-top: 18px;
+}
+
+.aw-template-setting-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.aw-template-field {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+  color: var(--ui-color-ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.aw-template-field > .aw-select,
+.aw-template-field > .aw-text-input {
+  width: 100%;
+}
+
+.aw-template-measurement,
+.aw-template-palette-field {
+  display: grid;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  gap: 7px;
+}
+
+.aw-template-measurement > legend,
+.aw-template-palette-field > legend {
+  padding: 0;
+  color: var(--ui-color-ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.aw-template-measurement-fields,
+.aw-template-palette-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(84px, 0.55fr);
+  gap: 7px;
+}
+
+.aw-section-layout-list {
+  display: grid;
+  gap: 12px;
+}
+
+.aw-section-layout-card {
+  display: grid;
+  min-width: 0;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--ui-color-border);
+  border-radius: var(--ui-radius-sm);
+  gap: 12px;
+}
+
+.aw-section-layout-card > legend {
+  padding: 0 5px;
+  color: var(--ui-color-ink);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.aw-template-field--checkbox {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  align-self: end;
+  min-height: 38px;
+}
+
+.aw-template-field--checkbox > input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: var(--ui-color-accent);
+}
+
+.aw-template-setting-action {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.aw-template-recovery {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.aw-template-recovery p {
+  margin: 4px 0 0;
+}
+
+.aw-template-apply-bar {
+  position: sticky;
+  z-index: 4;
+  bottom: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 18px;
+  padding: 15px 18px;
+  border-color: var(--ui-color-border-strong);
+  box-shadow: 0 8px 30px rgb(30 27 23 / 12%);
+}
+
+.aw-template-apply-bar p {
+  margin: 4px 0 0;
+}
+
+@media (max-width: 900px) {
+  .aw-template-setting-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .aw-template-section-heading,
+  .aw-template-recovery,
+  .aw-template-apply-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .aw-template-card {
+    grid-template-columns: auto 82px minmax(0, 1fr);
+  }
+
+  .aw-template-card .aw-template-thumbnail {
+    min-height: 104px;
+  }
+
+  .aw-template-setting-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .aw-setting-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .aw-template-setting-action {
+    justify-content: flex-start;
+  }
 }
 
 .aw-setting-row {

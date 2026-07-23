@@ -15,7 +15,8 @@ export interface InMemoryGatewayOptions {
 }
 
 /** @brief 内存 adapter 错误码 / In-memory adapter error code. */
-export type InMemoryGatewayErrorCode = 'memory.unavailable' | 'memory.not_found' | 'memory.conflict'
+export type InMemoryGatewayErrorCode =
+  'memory.unavailable' | 'memory.not_found' | 'memory.conflict' | 'memory.idempotency_key_reused'
 
 /** @brief 内存 adapter 的确定性错误 / Deterministic in-memory adapter error. */
 export class InMemoryGatewayError extends Error {

@@ -18,10 +18,15 @@ describe('WorkspaceApp Resume browser behaviour', (): void => {
     await screen.getByRole('link', { name: '继续编辑简历' }).click()
 
     await expect.element(screen.getByRole('heading', { name: 'Klee Chen' })).toBeVisible()
+    /** @brief API v2 模板与语义样式产品入口 / Product entry for API v2 Template and semantic style. */
+    const templateSettings = screen.getByRole('link', { name: '打开模板与样式设置' })
+    await expect.element(templateSettings).toBeVisible()
+    await templateSettings.click()
+    await expect.element(screen.getByRole('heading', { name: '模板与版式' })).toBeVisible()
+    await screen.getByRole('link', { name: '返回' }).click()
+    await expect.element(screen.getByRole('heading', { name: 'Klee Chen' })).toBeVisible()
+
     if (window.matchMedia('(max-width: 900px)').matches) {
-      await expect
-        .element(screen.getByRole('combobox', { name: '快速切换简历模板' }))
-        .not.toBeInTheDocument()
       await screen.getByRole('button', { name: '内容', exact: true }).click()
       await expect.element(screen.getByRole('region', { name: '内容编辑' })).toBeVisible()
 
@@ -32,12 +37,6 @@ describe('WorkspaceApp Resume browser behaviour', (): void => {
       return
     }
     await expect.element(screen.getByRole('heading', { name: '内容编辑' })).toBeVisible()
-    /** @brief 桌面端未冻结迁移契约下只读的模板选择器 / Desktop template selector kept read-only while migration is not frozen. */
-    const template = screen.getByRole('combobox', { name: '快速切换简历模板' })
-    await expect.element(template).toBeDisabled()
-    await expect
-      .element(screen.getByText('模板切换功能正在准备中。你仍可编辑当前模板的版式设置。'))
-      .toBeVisible()
 
     /** @brief 桌面端直接可见的语义内容编辑器 / Semantic-content editor directly visible on desktop. */
     const semanticContent = screen.getByRole('textbox', { name: '语义内容' })

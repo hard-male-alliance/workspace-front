@@ -1,12 +1,18 @@
 import { useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams } from 'react-router-dom'
-import { useAsyncResource, useResumeGateway, useWorkspaceSession } from '../../../app/AppData'
+import {
+  useAsyncResource,
+  useResumeGateway,
+  useResumeTemplateCatalog,
+  useWorkspaceSession
+} from '../../../app/AppData'
 import { ResourceErrorState } from '../../../app/ResourceErrorState'
 import { asUiOpaqueId } from '../../../shared-kernel/identity'
 import { LoadingState } from '../../../ui'
-import type { UiResumeEditorModel, UiTemplateManifest } from '../domain/models'
-import { loadTemplateCatalogWithPinnedVersion } from '../application/template-catalog'
+import type { UiResumeEditorModel } from '../domain/document'
+import type { UiTemplateManifest } from '../domain/models'
+import { loadPinnedResumeTemplate } from '../application/template-catalog'
 import { ResumeWorkspace } from './ResumeWorkspace'
 
 /** @brief 简历工作台加载结果 / Loaded resume-workspace resources. */
@@ -25,26 +31,34 @@ export function ResumeEditorPage(): React.JSX.Element {
   const { t } = useTranslation()
   const { resumeId } = useParams()
   const resume = useResumeGateway()
+  const templateCatalog = useResumeTemplateCatalog()
   const { getCurrentWorkspace } = useWorkspaceSession()
   const requestedResumeId = useMemo(() => asUiOpaqueId<'resume'>(resumeId ?? ''), [resumeId])
 
-  const loadWorkspace = useCallback(async (): Promise<ResumeWorkspaceResources> => {
-    if (resumeId === undefined) {
-      throw new Error('A resume identifier is required to open the editor.')
-    }
+  const loadWorkspace = useCallback(
+    async (signal: AbortSignal): Promise<ResumeWorkspaceResources> => {
+      signal.throwIfAborted()
+      if (resumeId === undefined) {
+        throw new Error('A resume identifier is required to open the editor.')
+      }
 
-    const workspace = await getCurrentWorkspace()
-    if (workspace === undefined) {
-      throw new Error('A Workspace selection is required to open a Resume.')
-    }
-    const editor = await resume.getResumeEditor(workspace.id, requestedResumeId)
-    const templates = await loadTemplateCatalogWithPinnedVersion(
-      resume,
-      editor.resume.locale,
-      editor.resume.template
-    )
-    return { editor, templates }
-  }, [getCurrentWorkspace, requestedResumeId, resume, resumeId])
+      const workspace = await getCurrentWorkspace()
+      signal.throwIfAborted()
+      if (workspace === undefined) {
+        throw new Error('A Workspace selection is required to open a Resume.')
+      }
+      const editor = await resume.getResumeEditor(workspace.id, requestedResumeId, signal)
+      signal.throwIfAborted()
+      const pinnedTemplate = await loadPinnedResumeTemplate(
+        templateCatalog,
+        editor.resume.template,
+        signal
+      )
+      signal.throwIfAborted()
+      return { editor, templates: [pinnedTemplate] }
+    },
+    [getCurrentWorkspace, requestedResumeId, resume, resumeId, templateCatalog]
+  )
   const workspace = useAsyncResource('resume.editor', loadWorkspace, requestedResumeId)
 
   if (workspace.status === 'loading') {
@@ -72,6 +86,7 @@ export function ResumeEditorPage(): React.JSX.Element {
       gateway={resume}
       initialEditor={workspace.data.editor}
       key={requestedResumeId}
+      templateCatalog={templateCatalog}
       templates={workspace.data.templates}
     />
   )

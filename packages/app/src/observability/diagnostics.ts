@@ -17,10 +17,13 @@ export const DIAGNOSTIC_ROUTES = [
   'interview.room',
   'interview.setup',
   'interview.summary',
+  'knowledge.source',
   'knowledge.sources',
-  'knowledge.visibility',
+  'resume.creation',
   'resume.editor',
   'resume.entry',
+  'resume.output',
+  'resume.review',
   'resume.template_settings',
   'unknown',
   'workspace.home'
@@ -44,11 +47,13 @@ export type DiagnosticHttpOperation =
   | 'knowledge.source.read'
   | 'knowledge.source.update'
   | 'resume.document.list'
+  | 'resume.document.create'
   | 'resume.document.read'
   | 'resume.operation.apply'
   | 'resume.render_job.create'
   | 'resume.render_job.read'
   | 'resume.template.list'
+  | 'resume.template.read'
   | 'workspace.list'
   | 'workspace.me.read'
   | 'unknown'
@@ -59,10 +64,13 @@ export type DiagnosticResourceName =
   | 'interview.runtime'
   | 'interview.setup'
   | 'interview.summary'
+  | 'knowledge.source'
   | 'knowledge.sources'
-  | 'knowledge.visibility'
+  | 'resume.creation'
   | 'resume.editor'
   | 'resume.entry'
+  | 'resume.output'
+  | 'resume.review'
   | 'resume.template_settings'
   | 'workspace.session'
   | 'workspace.home'
@@ -72,7 +80,11 @@ export type DiagnosticCommandOperation =
   | 'interview.answer_submit'
   | 'interview.create'
   | 'resume.authority_reload'
+  | 'resume.create'
   | 'resume.pdf_render'
+  | 'resume.render'
+  | 'resume.proposal_decision'
+  | 'resume.restore'
   | 'resume.section_delete'
   | 'resume.section_reorder'
   | 'resume.section_update'
@@ -294,12 +306,19 @@ export function classifyDiagnosticError(error: unknown): DiagnosticErrorKind {
 
   if (typeof error === 'object' && error !== null && 'name' in error) {
     const name = error.name
+    if (name === 'ApiV2NetworkError' && 'kind' in error) {
+      if (error.kind === 'aborted') return 'aborted'
+      if (error.kind === 'timeout') return 'timeout'
+      return 'network'
+    }
     if (name === 'TimeoutError') return 'timeout'
-    if (name === 'HttpCommandOutcomeUnknownError') {
+    if (name === 'ApiV2WriteOutcomeUnknownError') {
       return 'outcome_unknown'
     }
-    if (name === 'HttpProblemError') return 'backend_problem'
-    if (name === 'HttpContractError') return 'contract'
+    if (name === 'ApiV2ProblemError') return 'backend_problem'
+    if (name === 'ApiV2ContractError' || name === 'ResumeTemplateCursorLoopError') {
+      return 'contract'
+    }
   }
 
   if (error instanceof TypeError) return 'network'

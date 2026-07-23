@@ -1,6 +1,6 @@
 /** @file Resume 聚合写操作的单通道协调器 / Single-lane coordinator for Resume aggregate mutations. */
 
-import type { UiResumeId } from '../domain/models'
+import type { UiResumeId } from '../domain/document'
 
 /**
  * @brief 同一 Resume 已有写操作尚未完成 / A write for the same Resume is still in flight.

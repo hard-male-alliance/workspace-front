@@ -33,7 +33,15 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         '@ai-job-workspace/app': path.resolve(directory, '../../packages/app/src'),
-        '@ai-job-workspace/platform': path.resolve(directory, '../../packages/platform/src')
+        '@ai-job-workspace/platform': path.resolve(directory, '../../packages/platform/src'),
+        '@ai-job-workspace/product-api-v2': path.resolve(
+          directory,
+          '../../packages/product-api-v2/src'
+        ),
+        '@ai-job-workspace/product-runtime': path.resolve(
+          directory,
+          '../../packages/product-runtime/src'
+        )
       }
     },
     server: {

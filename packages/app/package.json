@@ -7,7 +7,6 @@
     ".": "./src/index.ts",
     "./application": "./src/application.ts",
     "./diagnostics": "./src/diagnostics.ts",
-    "./http": "./src/http.ts",
     "./testing": "./src/testing.ts",
     "./i18n": "./src/i18n/index.ts",
     "./ui": "./src/ui/index.ts"
@@ -22,5 +21,8 @@
   "peerDependencies": {
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@ai-job-workspace/product-api-v2": "workspace:*"
   }
 }

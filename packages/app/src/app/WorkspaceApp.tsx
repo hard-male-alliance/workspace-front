@@ -1,6 +1,12 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { BrowserRouter, MemoryRouter, Navigate, Route, Routes } from 'react-router-dom'
+import {
+  createBrowserRouter,
+  createMemoryRouter,
+  Navigate,
+  Outlet,
+  RouterProvider
+} from 'react-router-dom'
 import type { ArtifactSavePort, RuntimeInfo } from '@ai-job-workspace/platform'
 import { AppDataProvider } from './AppData'
 import type { AppGateways } from '../application'
@@ -14,8 +20,9 @@ import { WorkspaceShell } from './WorkspaceShell'
 import { HostProvider } from './Host'
 import type { Diagnostics } from '../observability'
 import { appI18n, appI18nReady } from '../i18n'
-import { WorkspaceHomePage } from '../contexts/workspace'
+import { WorkspaceHomePage } from './home/WorkspaceHomePage'
 import { LoadingState } from '../ui'
+import { UnsavedChangesProvider } from './UnsavedChanges'
 import '../styles/app.css'
 
 /** @brief 简历限界上下文的异步路由组件 / Async route component for the Resume bounded context. */
@@ -111,8 +118,105 @@ export interface WorkspaceAppProps {
   readonly diagnostics: Diagnostics
   /** @brief 由宿主组合根确认的运行时信息 / Runtime information confirmed by the host composition root. */
   readonly runtimeInfo: RuntimeInfo
+  /** @brief 可选宿主登出能力；提供时由共享 shell 呈现产品入口 / Optional host sign-out capability; the shared shell presents it when provided. */
+  readonly onSignOut?: (() => Promise<void>) | undefined
   /** @brief 测试或嵌入场景中的初始路径 / Initial path for tests or embedding. */
   readonly initialPath?: string
+}
+
+/** @brief 应用依赖提供器属性 / Application dependency-provider properties. */
+type WorkspaceApplicationProvidersProps = Pick<
+  WorkspaceAppProps,
+  'artifactSave' | 'diagnostics' | 'gateways'
+>
+
+/**
+ * @brief 在 Data Router 内组装全局依赖与未保存更改边界 / Compose global dependencies and the unsaved-change boundary inside the Data Router.
+ * @param props 组合根依赖 / Composition-root dependencies.
+ * @return 包裹当前匹配路由的应用提供器树 / Application-provider tree wrapping the matched route.
+ */
+function WorkspaceApplicationProviders({
+  artifactSave,
+  diagnostics,
+  gateways
+}: WorkspaceApplicationProvidersProps): React.JSX.Element {
+  return (
+    <DiagnosticsProvider diagnostics={diagnostics}>
+      <DiagnosticsBoundary>
+        <DiagnosticsRuntimeObserver />
+        <I18nBootstrap>
+          <HostProvider artifactSave={artifactSave}>
+            <AppDataProvider gateways={gateways}>
+              <UnsavedChangesProvider>
+                <DiagnosticsRouteObserver />
+                <Outlet />
+              </UnsavedChangesProvider>
+            </AppDataProvider>
+          </HostProvider>
+        </I18nBootstrap>
+      </DiagnosticsBoundary>
+    </DiagnosticsProvider>
+  )
+}
+
+/** @brief 工作区应用 Data Router / Workspace-application Data Router. */
+type WorkspaceRouter = ReturnType<typeof createBrowserRouter>
+
+/**
+ * @brief 根据宿主环境创建唯一 Data Router / Create the single Data Router for the host environment.
+ * @param props 不可变的宿主组合根属性 / Immutable host composition-root properties.
+ * @return 浏览器 history 路由，或带显式初始路径的内存路由 / Browser-history router, or a memory router with an explicit initial path.
+ */
+function createWorkspaceRouter(props: WorkspaceAppProps): WorkspaceRouter {
+  /** @brief 与宿主依赖一起固定的路由对象 / Route objects fixed together with host dependencies. */
+  const routes = [
+    {
+      element: (
+        <WorkspaceApplicationProviders
+          artifactSave={props.artifactSave}
+          diagnostics={props.diagnostics}
+          gateways={props.gateways}
+        />
+      ),
+      children: [
+        {
+          element: <WorkspaceShell onSignOut={props.onSignOut} runtimeInfo={props.runtimeInfo} />,
+          children: [
+            { element: <WorkspaceHomePage />, index: true },
+            {
+              element: (
+                <RouteLoadingBoundary>
+                  <ResumeRoutes />
+                </RouteLoadingBoundary>
+              ),
+              path: 'resumes/*'
+            },
+            {
+              element: (
+                <RouteLoadingBoundary>
+                  <InterviewRoutes />
+                </RouteLoadingBoundary>
+              ),
+              path: 'interviews/*'
+            },
+            {
+              element: (
+                <RouteLoadingBoundary>
+                  <KnowledgeRoutes />
+                </RouteLoadingBoundary>
+              ),
+              path: 'knowledge/*'
+            }
+          ]
+        },
+        { element: <Navigate replace to="/" />, path: '*' }
+      ]
+    }
+  ]
+
+  return props.initialPath === undefined
+    ? createBrowserRouter(routes)
+    : createMemoryRouter(routes, { initialEntries: [props.initialPath] })
 }
 
 /**
@@ -121,62 +225,8 @@ export interface WorkspaceAppProps {
  * @return 完整的路由化 React 产品界面 / Complete routed React product UI.
  * @note Electron renderer 不直接访问 Node.js；所有平台能力需经窄 bridge 另行注入。
  */
-export function WorkspaceApp({
-  artifactSave,
-  diagnostics,
-  gateways,
-  initialPath,
-  runtimeInfo
-}: WorkspaceAppProps): React.JSX.Element {
-  /** @brief 不依赖具体 router 的应用树 / Application tree independent of a concrete router. */
-  const application = (
-    <DiagnosticsProvider diagnostics={diagnostics}>
-      <DiagnosticsBoundary>
-        <DiagnosticsRuntimeObserver />
-        <I18nBootstrap>
-          <HostProvider artifactSave={artifactSave}>
-            <AppDataProvider gateways={gateways}>
-              <DiagnosticsRouteObserver />
-              <Routes>
-                <Route element={<WorkspaceShell runtimeInfo={runtimeInfo} />}>
-                  <Route element={<WorkspaceHomePage />} path="/" />
-                  <Route
-                    element={
-                      <RouteLoadingBoundary>
-                        <ResumeRoutes />
-                      </RouteLoadingBoundary>
-                    }
-                    path="/resumes/*"
-                  />
-                  <Route
-                    element={
-                      <RouteLoadingBoundary>
-                        <InterviewRoutes />
-                      </RouteLoadingBoundary>
-                    }
-                    path="/interviews/*"
-                  />
-                  <Route
-                    element={
-                      <RouteLoadingBoundary>
-                        <KnowledgeRoutes />
-                      </RouteLoadingBoundary>
-                    }
-                    path="/knowledge/*"
-                  />
-                </Route>
-                <Route element={<Navigate replace to="/" />} path="*" />
-              </Routes>
-            </AppDataProvider>
-          </HostProvider>
-        </I18nBootstrap>
-      </DiagnosticsBoundary>
-    </DiagnosticsProvider>
-  )
-
-  if (initialPath !== undefined) {
-    return <MemoryRouter initialEntries={[initialPath]}>{application}</MemoryRouter>
-  }
-
-  return <BrowserRouter>{application}</BrowserRouter>
+export function WorkspaceApp(props: WorkspaceAppProps): React.JSX.Element {
+  /** @brief 应用生命周期内唯一的 Data Router / The single Data Router for this application lifecycle. */
+  const [router] = useState<WorkspaceRouter>(() => createWorkspaceRouter(props))
+  return <RouterProvider router={router} />
 }

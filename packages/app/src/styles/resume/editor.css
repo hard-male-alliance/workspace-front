@@ -162,6 +162,49 @@
   font-family: Georgia, 'Times New Roman', serif;
 }
 
+.aw-pdf-preview-stage {
+  position: relative;
+  width: min(100%, 620px);
+  min-height: 790px;
+}
+
+.aw-pdf-preview-frame {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+}
+
+.aw-pdf-preview-loading {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: var(--ui-color-surface);
+  color: var(--ui-color-ink-muted);
+  text-align: center;
+}
+
+.aw-pdf-preview-fallback {
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+
+.aw-pdf-preview-fallback strong {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 18px;
+}
+
+.aw-pdf-preview-fallback p {
+  max-width: 40ch;
+  color: var(--ui-color-ink-muted);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  line-height: 1.6;
+}
+
 .aw-paper-header {
   padding-bottom: 14px;
   border-bottom: 2px solid #7d4a32;

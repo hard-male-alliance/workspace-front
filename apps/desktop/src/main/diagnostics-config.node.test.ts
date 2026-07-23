@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { API_V2_PRODUCTION_ORIGIN, createApiV2PublicClient } from '@ai-job-workspace/product-api-v2'
 
 import {
   createProductionContentSecurityPolicy,
@@ -86,12 +87,12 @@ describe('createProductionContentSecurityPolicy', (): void => {
       AI_JOB_WORKSPACE_DIAGNOSTICS_PORT: '8443'
     })
     /** @brief 生产 renderer 使用的 CSP / CSP used by the production renderer. */
-    const policy = createProductionContentSecurityPolicy(configuration, 'https://api.example.test')
+    const policy = createProductionContentSecurityPolicy(configuration)
 
     expect(policy).toContain(
-      "connect-src 'self' https://api.example.test https://diagnostics.example.test:8443;"
+      `connect-src 'self' ${API_V2_PRODUCTION_ORIGIN} https://diagnostics.example.test:8443;`
     )
-    expect(policy).toContain('frame-src https://api.example.test;')
+    expect(policy).toContain("frame-src 'self' blob:;")
     expect(policy).not.toContain('frame-src https://diagnostics.example.test:8443')
     expect(policy).toContain("object-src 'none';")
     expect(policy).not.toContain('/api/v1/frontend-diagnostics/batches')
@@ -100,28 +101,45 @@ describe('createProductionContentSecurityPolicy', (): void => {
 
   it('未配置诊断服务时只允许 self 与产品 API origin', (): void => {
     /** @brief 未配置诊断服务时的 CSP / CSP when no diagnostics service is configured. */
-    const policy = createProductionContentSecurityPolicy(
-      { kind: 'disabled' },
-      'https://api.example.test'
-    )
+    const policy = createProductionContentSecurityPolicy({ kind: 'disabled' })
 
-    expect(policy).toContain("connect-src 'self' https://api.example.test;")
-    expect(policy).toContain('frame-src https://api.example.test;')
+    expect(policy).toContain(`connect-src 'self' ${API_V2_PRODUCTION_ORIGIN};`)
+    expect(policy).toContain("frame-src 'self' blob:;")
     expect(policy).not.toContain('*')
   })
 
   it('产品与诊断共用 origin 时不重复放宽 CSP', (): void => {
     /** @brief 共用后端 origin 的 CSP / CSP with a shared backend origin. */
-    const policy = createProductionContentSecurityPolicy(
-      {
-        endpoint: 'https://api.example.test/api/v1/frontend-diagnostics/batches',
-        kind: 'enabled',
-        origin: 'https://api.example.test'
-      },
-      'https://api.example.test'
-    )
+    const policy = createProductionContentSecurityPolicy({
+      endpoint: `${API_V2_PRODUCTION_ORIGIN}/api/v1/frontend-diagnostics/batches`,
+      kind: 'enabled',
+      origin: API_V2_PRODUCTION_ORIGIN
+    })
 
-    expect(policy).toContain("connect-src 'self' https://api.example.test;")
-    expect(policy).not.toContain('https://api.example.test https://api.example.test')
+    expect(policy).toContain(`connect-src 'self' ${API_V2_PRODUCTION_ORIGIN};`)
+    expect(policy).not.toContain(`${API_V2_PRODUCTION_ORIGIN} ${API_V2_PRODUCTION_ORIGIN}`)
+  })
+
+  it('CSP 产品 origin 与 production transport 实际请求 origin 完全相同', async (): Promise<void> => {
+    /** @brief 捕获生产 transport URL 的网络替身 / Network substitute capturing the production transport URL. */
+    const fetchImpl = vi.fn<typeof fetch>().mockRejectedValue(new Error('stop after URL capture'))
+    /** @brief 使用默认 production profile 的公开 client / Public client using the default production profile. */
+    const client = createApiV2PublicClient({
+      createRequestId: (): string => 'req_desktop_csp_12345678',
+      fetchImpl
+    })
+    await client.getJson('/resume-templates').catch(() => undefined)
+    /** @brief transport 实际请求 URL / URL actually requested by the transport. */
+    const requestedUrl = fetchImpl.mock.calls[0]?.[0]
+    if (typeof requestedUrl !== 'string') throw new Error('Production transport did not run.')
+    /** @brief production transport 的实际 origin / Actual origin of the production transport. */
+    const transportOrigin = new URL(requestedUrl).origin
+    /** @brief Desktop production CSP / Desktop production CSP. */
+    const policy = createProductionContentSecurityPolicy({ kind: 'disabled' })
+
+    expect(transportOrigin).toBe(API_V2_PRODUCTION_ORIGIN)
+    expect(policy).toContain(`connect-src 'self' ${transportOrigin};`)
+    expect(policy).toContain("frame-src 'self' blob:;")
+    expect(policy).not.toContain(`frame-src ${transportOrigin};`)
   })
 })
