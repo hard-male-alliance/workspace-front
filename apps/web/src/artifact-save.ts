@@ -7,8 +7,10 @@ import {
   type UiWorkspaceId
 } from '@ai-job-workspace/app/application'
 import {
-  sanitizePdfFileName,
+  resolveResumeArtifactSaveFormat,
+  resumeArtifactSaveFormatForFileName,
   type ArtifactSavePort,
+  type ResumeArtifactSaveFormat,
   type SaveArtifactRequest,
   type SaveArtifactResult
 } from '@ai-job-workspace/platform'
@@ -92,20 +94,25 @@ export interface WebArtifactSaveOptions {
 }
 
 /**
- * @brief 校验建议文件名仍满足 PDF 保存边界 / Validate that the suggested filename still satisfies the PDF-save boundary.
+ * @brief 校验建议文件名并解析用户请求格式 / Validate the suggested filename and resolve the user-requested format.
  * @param request 宿主保存请求 / Host save request.
- * @return 已验证的文件名 / Validated filename.
+ * @return 已验证文件名与唯一格式 / Validated filename and sole format.
  */
-function validatedPdfFileName(request: SaveArtifactRequest): string {
+function validatedArtifactSaveIntent(request: SaveArtifactRequest): {
+  readonly fileName: string
+  readonly format: ResumeArtifactSaveFormat
+} {
   /** @brief 从品牌类型边界重新读取的运行时字符串 / Runtime string reread across the branded-type boundary. */
   const fileName: string = request.suggestedFileName
-  if (sanitizePdfFileName(fileName) !== fileName) {
+  /** @brief 文件名声明的唯一保存格式 / Sole save format declared by the filename. */
+  const format = resumeArtifactSaveFormatForFileName(fileName)
+  if (format === null) {
     throw new WebArtifactSaveError(
       'artifact-not-downloadable',
-      'The suggested Artifact filename is not a safe PDF filename.'
+      'The suggested Artifact filename is unsafe or has an unsupported format.'
     )
   }
-  return fileName
+  return { fileName, format }
 }
 
 /** @brief 供 Workspace Operations 使用的语义化身份 / Semantic identities used by Workspace Operations. */
@@ -208,7 +215,7 @@ async function collectArtifactBytes(
 /**
  * @brief 使用临时 Blob URL 启动浏览器下载 / Start a browser download with a temporary Blob URL.
  * @param blob 已完整验证的内存 Blob / Fully validated in-memory Blob.
- * @param fileName 安全 PDF 文件名 / Safe PDF filename.
+ * @param fileName 格式感知安全文件名 / Format-aware safe filename.
  * @param webDocument 创建并挂载临时锚点的 Document 端口 / Document port used to create and attach a temporary anchor.
  * @param objectUrls Blob URL 生命周期端口 / Blob URL lifecycle port.
  * @param schedule 延迟撤销调度器 / Delayed revocation scheduler.
@@ -292,7 +299,7 @@ export interface WebArtifactSaveService extends ArtifactSavePort {
 }
 
 /**
- * @brief 创建只下载权威 API v2 PDF Artifact 的 Web 保存服务 / Create a Web save service that downloads only authoritative API v2 PDF Artifacts.
+ * @brief 创建只下载权威 API v2 Resume Artifact 的 Web 保存服务 / Create a Web save service that downloads only authoritative API v2 Resume Artifacts.
  * @param options Workspace Operations 与可测试的浏览器宿主依赖 / Workspace Operations and testable browser-host dependencies.
  * @return 不向 DOM 暴露认证 URL 或 token 且可静止的保存服务 / Quiesceable save service exposing no authenticated URL or token to the DOM.
  */
@@ -327,8 +334,8 @@ export function createWebArtifactSave(options: WebArtifactSaveOptions): WebArtif
     abortController: AbortController
   ): Promise<SaveArtifactResult> => {
     abortController.signal.throwIfAborted()
-    /** @brief 在访问网络前重新核验的 PDF 文件名 / PDF filename revalidated before network access. */
-    const fileName = validatedPdfFileName(request)
+    /** @brief 在访问网络前重新核验的文件名与请求格式 / Filename and requested format revalidated before network access. */
+    const intent = validatedArtifactSaveIntent(request)
     /** @brief 从宿主请求提升的领域身份 / Domain identities refined from the host request. */
     const identity = artifactIdentity(request)
 
@@ -346,25 +353,24 @@ export function createWebArtifactSave(options: WebArtifactSaveOptions): WebArtif
           'The authoritative Artifact identity differs from the save request.'
         )
       }
-      if (
-        artifact.kind !== 'resume_pdf' ||
-        artifact.mediaType.toLowerCase() !== 'application/pdf'
-      ) {
+      /** @brief 权威 kind 与 MIME 共同解析出的闭合格式 / Closed format jointly resolved from authoritative kind and MIME. */
+      const format = resolveResumeArtifactSaveFormat(artifact.kind, artifact.mediaType)
+      if (format === null || format.kind !== intent.format.kind) {
         throw new WebArtifactSaveError(
           'artifact-not-downloadable',
-          'The requested Artifact is not a downloadable Resume PDF.'
+          'The requested Artifact kind, media type, and filename format do not match.'
         )
       }
       if (artifact.sizeBytes > WEB_ARTIFACT_BLOB_MAX_BYTES) {
         throw new WebArtifactSaveError(
           'artifact-too-large',
-          'The Resume PDF exceeds the Web in-memory download limit.'
+          'The Resume Artifact exceeds the Web in-memory download limit.'
         )
       }
       if (artifact.expiresAt !== null && Date.parse(artifact.expiresAt) <= Date.now()) {
         throw new WebArtifactSaveError(
           'artifact-not-downloadable',
-          'The requested Resume PDF has expired.'
+          'The requested Resume Artifact has expired.'
         )
       }
 
@@ -394,8 +400,8 @@ export function createWebArtifactSave(options: WebArtifactSaveOptions): WebArtif
       /** @brief 读到 EOF 并完成下层 SHA-256 校验的字节块 / Byte chunks read through EOF, completing lower-layer SHA-256 validation. */
       const chunks = await collectArtifactBytes(content.body, content.byteLength, abortController)
       abortController.signal.throwIfAborted()
-      /** @brief 只含已完整验证 PDF 字节的内存 Blob / In-memory Blob containing only fully validated PDF bytes. */
-      const blob = new Blob(chunks, { type: 'application/pdf' })
+      /** @brief 只含已完整验证 Resume Artifact 字节的内存 Blob / In-memory Blob containing only fully validated Resume Artifact bytes. */
+      const blob = new Blob(chunks, { type: format.mediaType })
       abortController.signal.throwIfAborted()
       for (const previous of blobLeases) previous.dispose()
       blobLeases.clear()
@@ -403,7 +409,7 @@ export function createWebArtifactSave(options: WebArtifactSaveOptions): WebArtif
       const lease: WebDownloadLease = { dispose: (): void => undefined, disposed: false }
       lease.dispose = startBlobDownload(
         blob,
-        fileName,
+        intent.fileName,
         webDocument,
         objectUrls,
         schedule,

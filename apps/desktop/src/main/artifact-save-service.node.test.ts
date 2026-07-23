@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { sanitizePdfFileName } from '@ai-job-workspace/platform'
+import { sanitizeArtifactFileName, sanitizePdfFileName } from '@ai-job-workspace/platform'
 import {
   ApiV2AuthenticationRequiredError,
   ApiV2ContractError,
@@ -72,7 +72,10 @@ function pdfArtifact(overrides: Partial<Artifact> = {}): Artifact {
  * @param chunks 流式字节块 / Streamed byte chunks.
  * @return API v2 完整 content / Complete API v2 content.
  */
-function completeContent(chunks: readonly Uint8Array[]): CompleteArtifactContent {
+function completeContent(
+  chunks: readonly Uint8Array[],
+  mediaType = 'application/pdf'
+): CompleteArtifactContent {
   /** @brief 所有 chunk 的总字节数 / Total bytes across all chunks. */
   const expectedByteLength = chunks.reduce((total, chunk) => total + chunk.byteLength, 0)
   return {
@@ -88,7 +91,7 @@ function completeContent(chunks: readonly Uint8Array[]): CompleteArtifactContent
     expectedByteLength,
     expectedSha256: 'a'.repeat(64),
     kind: 'complete',
-    mediaType: 'application/pdf',
+    mediaType,
     requestId: 'request_01JEXAMPLE',
     status: 200
   }
@@ -97,12 +100,16 @@ function completeContent(chunks: readonly Uint8Array[]): CompleteArtifactContent
 /**
  * @brief 创建 Artifact API mock / Create an Artifact API mock.
  * @param content 完整 content / Complete content.
+ * @param overrides 权威 metadata 字段覆盖 / Authoritative metadata field overrides.
  * @return 可观察 API / Observable API.
  */
-function artifactApi(content: CompleteArtifactContent): NativeArtifactApi {
+function artifactApi(
+  content: CompleteArtifactContent,
+  overrides: Partial<Artifact> = {}
+): NativeArtifactApi {
   return {
     readArtifact: vi.fn(() =>
-      Promise.resolve(pdfArtifact({ size_bytes: content.expectedByteLength }))
+      Promise.resolve(pdfArtifact({ size_bytes: content.expectedByteLength, ...overrides }))
     ),
     readCompleteContent: vi.fn(() => Promise.resolve(content))
   }
@@ -123,7 +130,7 @@ describe('NativeArtifactSaveService', (): void => {
     const targetPath = join(directory, 'Klee Resume.pdf')
     /** @brief 原生目标选择器 / Native destination selector. */
     const dialog: NativeArtifactSaveDialog = {
-      choosePdfDestination: vi.fn(() =>
+      chooseArtifactDestination: vi.fn(() =>
         Promise.resolve({ cancelled: false as const, filePath: targetPath })
       )
     }
@@ -148,6 +155,53 @@ describe('NativeArtifactSaveService', (): void => {
     expect(await readdir(directory)).toEqual(['Klee Resume.pdf'])
   })
 
+  it.each([
+    ['resume_json' as const, 'application/json', '.json', new Uint8Array([0x7b, 0x7d])],
+    [
+      'resume_docx' as const,
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      '.docx',
+      new Uint8Array([0x50, 0x4b])
+    ]
+  ])('流式保存闭合格式 %s / %s / %s', async (kind, mediaType, extension, bytes): Promise<void> => {
+    /** @brief 当前格式的保存目录 / Save directory for the current format. */
+    const directory = await createTemporaryDirectory()
+    /** @brief 当前格式的目标路径 / Destination path for the current format. */
+    const targetPath = join(directory, `Klee Resume${extension}`)
+    /** @brief 与当前格式一致的 content / Content matching the current format. */
+    const content = completeContent([bytes], mediaType)
+    /** @brief 捕获格式感知参数的原生对话框 / Native dialog capturing format-aware arguments. */
+    const chooseArtifactDestination = vi.fn<NativeArtifactSaveDialog['chooseArtifactDestination']>(
+      () => Promise.resolve({ cancelled: false as const, filePath: targetPath })
+    )
+    /** @brief 当前格式的待测服务 / Service under test for the current format. */
+    const service = new NativeArtifactSaveService({
+      artifactApi: artifactApi(content, {
+        kind,
+        media_type: mediaType,
+        page_count: null
+      }),
+      authentication: unusedAuthentication,
+      createUuid: () => '00000000-0000-4000-8000-000000000009',
+      dialog: { chooseArtifactDestination }
+    })
+    /** @brief 与当前 kind 匹配的安全建议文件名 / Safe suggested filename matching the current kind. */
+    const suggestedFileName = sanitizeArtifactFileName('Klee Resume.pdf', kind)
+
+    await expect(
+      service.saveArtifact({
+        artifactId: ARTIFACT_ID,
+        suggestedFileName,
+        workspaceId: WORKSPACE_ID
+      })
+    ).resolves.toEqual({ status: 'saved' })
+    expect([...(await readFile(targetPath))]).toEqual([...bytes])
+    expect(chooseArtifactDestination).toHaveBeenCalledWith(
+      suggestedFileName,
+      expect.objectContaining({ extension, kind, mediaType })
+    )
+  })
+
   it('用户取消时不请求大 content stream', async (): Promise<void> => {
     /** @brief 不应调用的 content reader / Content reader that must not run. */
     const readCompleteContent = vi.fn<NativeArtifactApi['readCompleteContent']>()
@@ -158,7 +212,7 @@ describe('NativeArtifactSaveService', (): void => {
     }
     /** @brief 立即取消的原生对话框 / Native dialog cancelled immediately. */
     const dialog: NativeArtifactSaveDialog = {
-      choosePdfDestination: (): Promise<{ readonly cancelled: true }> =>
+      chooseArtifactDestination: (): Promise<{ readonly cancelled: true }> =>
         Promise.resolve({ cancelled: true })
     }
     /** @brief 待测服务 / Service under test. */
@@ -199,7 +253,7 @@ describe('NativeArtifactSaveService', (): void => {
       authentication: unusedAuthentication,
       createUuid: () => '00000000-0000-4000-8000-000000000002',
       dialog: {
-        choosePdfDestination: () =>
+        chooseArtifactDestination: () =>
           Promise.resolve({ cancelled: false as const, filePath: targetPath })
       }
     })
@@ -215,22 +269,20 @@ describe('NativeArtifactSaveService', (): void => {
     expect(await readdir(directory)).toEqual(['existing.pdf'])
   })
 
-  it('在显示对话框前失败关闭非 PDF metadata', async (): Promise<void> => {
+  it('在显示对话框前失败关闭 kind、MIME 与扩展名错配', async (): Promise<void> => {
     /** @brief 不应显示的对话框 / Dialog that must not be shown. */
-    const choosePdfDestination = vi.fn<NativeArtifactSaveDialog['choosePdfDestination']>()
-    /** @brief 返回非 PDF 的 API / API returning a non-PDF Artifact. */
+    const chooseArtifactDestination = vi.fn<NativeArtifactSaveDialog['chooseArtifactDestination']>()
+    /** @brief 返回 kind/MIME 错配的 API / API returning a kind/MIME mismatch. */
     const api: NativeArtifactApi = {
       readArtifact: (): Promise<Artifact> =>
-        Promise.resolve(
-          pdfArtifact({ kind: 'resume_docx', media_type: 'application/vnd.openxmlformats' })
-        ),
+        Promise.resolve(pdfArtifact({ kind: 'resume_docx', media_type: 'application/pdf' })),
       readCompleteContent: vi.fn()
     }
     /** @brief 待测服务 / Service under test. */
     const service = new NativeArtifactSaveService({
       artifactApi: api,
       authentication: unusedAuthentication,
-      dialog: { choosePdfDestination }
+      dialog: { chooseArtifactDestination }
     })
 
     await expect(
@@ -240,7 +292,78 @@ describe('NativeArtifactSaveService', (): void => {
         workspaceId: WORKSPACE_ID
       })
     ).rejects.toBeInstanceOf(ApiV2ContractError)
-    expect(choosePdfDestination).not.toHaveBeenCalled()
+    expect(chooseArtifactDestination).not.toHaveBeenCalled()
+  })
+
+  it('在显示对话框前拒绝权威格式与建议扩展名交叉错配', async (): Promise<void> => {
+    /** @brief 扩展名错配时不得显示的对话框 / Dialog that must not be shown for an extension mismatch. */
+    const chooseArtifactDestination = vi.fn<NativeArtifactSaveDialog['chooseArtifactDestination']>()
+    /** @brief 权威 JSON Artifact API / Authoritative JSON Artifact API. */
+    const api: NativeArtifactApi = {
+      readArtifact: (): Promise<Artifact> =>
+        Promise.resolve(
+          pdfArtifact({ kind: 'resume_json', media_type: 'application/json', page_count: null })
+        ),
+      readCompleteContent: vi.fn()
+    }
+    /** @brief 待测保存服务 / Save service under test. */
+    const service = new NativeArtifactSaveService({
+      artifactApi: api,
+      authentication: unusedAuthentication,
+      dialog: { chooseArtifactDestination }
+    })
+
+    await expect(
+      service.saveArtifact({
+        artifactId: ARTIFACT_ID,
+        suggestedFileName: sanitizePdfFileName('resume'),
+        workspaceId: WORKSPACE_ID
+      })
+    ).rejects.toBeInstanceOf(ApiV2ContractError)
+    expect(chooseArtifactDestination).not.toHaveBeenCalled()
+    expect(api.readCompleteContent).not.toHaveBeenCalled()
+  })
+
+  it('内容 MIME 与已核验 JSON metadata 不一致时取消 stream 且不创建文件', async (): Promise<void> => {
+    /** @brief 保存目录与不得创建的目标 / Save directory and destination that must not be created. */
+    const directory = await createTemporaryDirectory()
+    const targetPath = join(directory, 'resume.json')
+    /** @brief 错配 descriptor 被拒绝时是否取消 stream / Whether the stream was cancelled when its mismatched descriptor was rejected. */
+    let contentCancelled = false
+    /** @brief 错误声明 PDF MIME 的空内容 / Empty content incorrectly declaring the PDF MIME. */
+    const content: CompleteArtifactContent = {
+      ...completeContent([], 'application/pdf'),
+      body: new ReadableStream<Uint8Array>({
+        cancel(): void {
+          contentCancelled = true
+        }
+      })
+    }
+    /** @brief 权威 JSON metadata 与错误 PDF content 的 API / API with authoritative JSON metadata and erroneous PDF content. */
+    const api = artifactApi(content, {
+      kind: 'resume_json',
+      media_type: 'application/json',
+      page_count: null
+    })
+    /** @brief 待测保存服务 / Save service under test. */
+    const service = new NativeArtifactSaveService({
+      artifactApi: api,
+      authentication: unusedAuthentication,
+      dialog: {
+        chooseArtifactDestination: () =>
+          Promise.resolve({ cancelled: false as const, filePath: targetPath })
+      }
+    })
+
+    await expect(
+      service.saveArtifact({
+        artifactId: ARTIFACT_ID,
+        suggestedFileName: sanitizeArtifactFileName('resume', 'resume_json'),
+        workspaceId: WORKSPACE_ID
+      })
+    ).rejects.toBeInstanceOf(ApiV2ContractError)
+    expect(contentCancelled).toBe(true)
+    expect(await readdir(directory)).toEqual([])
   })
 
   it('对话框返回后 metadata 漂移时拒绝打开 content stream', async (): Promise<void> => {
@@ -268,15 +391,17 @@ describe('NativeArtifactSaveService', (): void => {
     /** @brief metadata 漂移后不得调用的 content reader / Content reader that must not run after metadata drift. */
     const readCompleteContent = vi.fn<NativeArtifactApi['readCompleteContent']>()
     /** @brief 在两次 metadata 读取之间完成的原生对话框 / Native dialog completing between metadata reads. */
-    const choosePdfDestination = vi.fn<NativeArtifactSaveDialog['choosePdfDestination']>(() => {
-      operations.push('dialog')
-      return Promise.resolve({ cancelled: false as const, filePath: targetPath })
-    })
+    const chooseArtifactDestination = vi.fn<NativeArtifactSaveDialog['chooseArtifactDestination']>(
+      () => {
+        operations.push('dialog')
+        return Promise.resolve({ cancelled: false as const, filePath: targetPath })
+      }
+    )
     /** @brief 待测保存服务 / Save service under test. */
     const service = new NativeArtifactSaveService({
       artifactApi: { readArtifact, readCompleteContent },
       authentication: unusedAuthentication,
-      dialog: { choosePdfDestination }
+      dialog: { chooseArtifactDestination }
     })
 
     await expect(
@@ -309,7 +434,7 @@ describe('NativeArtifactSaveService', (): void => {
     const service = new NativeArtifactSaveService({
       artifactApi: api,
       authentication: unusedAuthentication,
-      dialog: { choosePdfDestination: vi.fn() }
+      dialog: { chooseArtifactDestination: vi.fn() }
     })
     /** @brief 活跃保存 / Active save. */
     const save = service.saveArtifact({

@@ -3,7 +3,11 @@ import {
   asUiOpaqueId,
   type UiWorkspaceId
 } from '@ai-job-workspace/app/application'
-import { sanitizePdfFileName, type SafePdfFileName } from '@ai-job-workspace/platform'
+import {
+  sanitizeArtifactFileName,
+  sanitizePdfFileName,
+  type SafeArtifactFileName
+} from '@ai-job-workspace/platform'
 import { describe, expect, it, vi } from 'vitest'
 import {
   createWebArtifactSave,
@@ -72,7 +76,8 @@ function artifactAuthority(
  */
 function artifactContent(
   body: ReadableStream<Uint8Array> | null,
-  byteLength = 4
+  byteLength = 4,
+  mediaType = 'application/pdf'
 ): Awaited<ReturnType<TestWorkspaceOperations['readArtifactContent']>> {
   return {
     acceptsByteRanges: true,
@@ -80,7 +85,7 @@ function artifactContent(
     byteLength,
     disposition: 'attachment',
     entityTag: CONTENT_ETAG,
-    mediaType: 'application/pdf',
+    mediaType,
     requestId: 'request_content_web_download'
   }
 }
@@ -259,7 +264,54 @@ describe('createWebArtifactSave in the Node runtime', (): void => {
     expect(readArtifactContent).not.toHaveBeenCalled()
   })
 
-  it('fails closed on a non-PDF Artifact before reading protected content', async (): Promise<void> => {
+  it.each([
+    [
+      'resume_json' as const,
+      'application/json',
+      sanitizeArtifactFileName('Klee Resume.pdf', 'resume_json')
+    ],
+    [
+      'resume_docx' as const,
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      sanitizeArtifactFileName('Klee Resume.json', 'resume_docx')
+    ]
+  ])(
+    'downloads a validated %s Artifact using its authoritative MIME',
+    async (kind, mediaType, suggestedFileName): Promise<void> => {
+      /** @brief 当前格式的测试字节 / Test bytes for the current format. */
+      const bytes = new Uint8Array([1, 2, 3, 4])
+      /** @brief 当前格式的权威 metadata / Authoritative metadata for the current format. */
+      const getArtifact = vi.fn<TestWorkspaceOperations['getArtifact']>(() =>
+        Promise.resolve(artifactAuthority({ kind, mediaType }))
+      )
+      /** @brief 与 metadata 格式一致的内容读取 / Content read matching the metadata format. */
+      const readArtifactContent = vi.fn<TestWorkspaceOperations['readArtifactContent']>(() =>
+        Promise.resolve(
+          artifactContent(
+            new ReadableStream<Uint8Array>({
+              start(controller): void {
+                controller.enqueue(bytes)
+                controller.close()
+              }
+            }),
+            bytes.byteLength,
+            mediaType
+          )
+        )
+      )
+      /** @brief 捕获 Blob 的浏览器端口 / Browser ports capturing the Blob. */
+      const browser = testBrowserPorts()
+      /** @brief 被测保存端口 / Save port under test. */
+      const save = testSavePort({ getArtifact, readArtifactContent }, browser)
+
+      await expect(
+        save.saveArtifact({ artifactId: ARTIFACT_ID, suggestedFileName, workspaceId: WORKSPACE_ID })
+      ).resolves.toEqual({ status: 'started' })
+      expect(browser.blobs[0]).toMatchObject({ size: bytes.byteLength, type: mediaType })
+    }
+  )
+
+  it('fails closed when the filename format differs from authoritative metadata', async (): Promise<void> => {
     /** @brief metadata 读取 mock / Metadata-read mock. */
     const getArtifact = vi.fn<TestWorkspaceOperations['getArtifact']>(() =>
       Promise.resolve(artifactAuthority({ kind: 'resume_json', mediaType: 'application/json' }))
@@ -277,6 +329,63 @@ describe('createWebArtifactSave in the Node runtime', (): void => {
       })
     ).rejects.toMatchObject({ code: 'artifact-not-downloadable' })
     expect(readArtifactContent).not.toHaveBeenCalled()
+  })
+
+  it('fails closed when a supported kind carries another supported MIME', async (): Promise<void> => {
+    /** @brief kind 与 MIME 交叉错配的 metadata / Metadata with a cross-format kind/MIME mismatch. */
+    const getArtifact = vi.fn<TestWorkspaceOperations['getArtifact']>(() =>
+      Promise.resolve(artifactAuthority({ kind: 'resume_json', mediaType: 'application/pdf' }))
+    )
+    /** @brief metadata 错配时不得读取的内容 / Content that must not be read after a metadata mismatch. */
+    const readArtifactContent = vi.fn<TestWorkspaceOperations['readArtifactContent']>()
+    /** @brief 被测保存端口 / Save port under test. */
+    const save = testSavePort({ getArtifact, readArtifactContent }, testBrowserPorts())
+
+    await expect(
+      save.saveArtifact({
+        artifactId: ARTIFACT_ID,
+        suggestedFileName: sanitizeArtifactFileName('resume', 'resume_json'),
+        workspaceId: WORKSPACE_ID
+      })
+    ).rejects.toMatchObject({ code: 'artifact-not-downloadable' })
+    expect(readArtifactContent).not.toHaveBeenCalled()
+  })
+
+  it('cancels content when its MIME differs from the validated JSON metadata', async (): Promise<void> => {
+    /** @brief descriptor 错配时是否取消内容流 / Whether the content stream was cancelled after a descriptor mismatch. */
+    let contentCancelled = false
+    /** @brief 权威 JSON metadata / Authoritative JSON metadata. */
+    const getArtifact = vi.fn<TestWorkspaceOperations['getArtifact']>(() =>
+      Promise.resolve(artifactAuthority({ kind: 'resume_json', mediaType: 'application/json' }))
+    )
+    /** @brief 错误声明 PDF MIME 的内容读取 / Content read incorrectly declaring the PDF MIME. */
+    const readArtifactContent = vi.fn<TestWorkspaceOperations['readArtifactContent']>(() =>
+      Promise.resolve(
+        artifactContent(
+          new ReadableStream<Uint8Array>({
+            cancel(): void {
+              contentCancelled = true
+            }
+          }),
+          4,
+          'application/pdf'
+        )
+      )
+    )
+    /** @brief 不应创建 Blob 的浏览器端口 / Browser ports that must not create a Blob. */
+    const browser = testBrowserPorts()
+    /** @brief 被测保存端口 / Save port under test. */
+    const save = testSavePort({ getArtifact, readArtifactContent }, browser)
+
+    await expect(
+      save.saveArtifact({
+        artifactId: ARTIFACT_ID,
+        suggestedFileName: sanitizeArtifactFileName('resume', 'resume_json'),
+        workspaceId: WORKSPACE_ID
+      })
+    ).rejects.toMatchObject({ code: 'artifact-content-mismatch' })
+    expect(contentCancelled).toBe(true)
+    expect(browser.blobs).toHaveLength(0)
   })
 
   it('cancels the reader and aborts transport when streamed bytes exceed metadata', async (): Promise<void> => {
@@ -327,7 +436,7 @@ describe('createWebArtifactSave in the Node runtime', (): void => {
     await expect(
       save.saveArtifact({
         artifactId: ARTIFACT_ID,
-        suggestedFileName: '../secret.pdf' as SafePdfFileName,
+        suggestedFileName: '../secret.pdf' as SafeArtifactFileName,
         workspaceId: WORKSPACE_ID
       })
     ).rejects.toMatchObject({ code: 'artifact-not-downloadable' })

@@ -62,13 +62,18 @@ const validRequest = {
 }
 
 describe('parseNativeArtifactSaveRequest', (): void => {
-  it('复制并冻结恰好三个允许字段', (): void => {
-    /** @brief 解析结果 / Parsed result. */
-    const parsed = parseNativeArtifactSaveRequest(validRequest)
-    expect(parsed).toEqual(validRequest)
-    expect(parsed).not.toBe(validRequest)
-    expect(Object.isFrozen(parsed)).toBe(true)
-  })
+  it.each(['Klee Resume.pdf', 'Klee Resume.json', 'Klee Resume.docx'])(
+    '复制并冻结使用受支持扩展名 %s 的恰好三个允许字段',
+    (suggestedFileName): void => {
+      /** @brief 当前格式的合法请求 / Valid request for the current format. */
+      const request = { ...validRequest, suggestedFileName }
+      /** @brief 解析结果 / Parsed result. */
+      const parsed = parseNativeArtifactSaveRequest(request)
+      expect(parsed).toEqual(request)
+      expect(parsed).not.toBe(request)
+      expect(Object.isFrozen(parsed)).toBe(true)
+    }
+  )
 
   it.each([
     null,
@@ -78,7 +83,9 @@ describe('parseNativeArtifactSaveRequest', (): void => {
     { ...validRequest, workspaceId: '../escape' },
     { ...validRequest, artifactId: 'short' },
     { ...validRequest, suggestedFileName: '../escape.pdf' },
-    { ...validRequest, suggestedFileName: 'resume.docx' }
+    { ...validRequest, suggestedFileName: '../escape.docx' },
+    { ...validRequest, suggestedFileName: 'resume.exe' },
+    { ...validRequest, suggestedFileName: 'resume.pdf ' }
   ])('拒绝非封闭请求 %#', (candidate): void => {
     expect(() => parseNativeArtifactSaveRequest(candidate)).toThrow(/Rejected invalid Artifact/u)
   })

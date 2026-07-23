@@ -151,11 +151,12 @@ async function initializeDesktopApplication(): Promise<void> {
     authentication: artifactAuthentication,
     dialog: {
       /**
-       * @brief 用可信主窗口显示原生 PDF 保存对话框 / Show a native PDF save dialog owned by the trusted main window.
+       * @brief 用可信主窗口显示格式感知原生保存对话框 / Show a format-aware native save dialog owned by the trusted main window.
        * @param suggestedFileName 已净化建议文件名 / Sanitized suggested filename.
+       * @param format 已核验的 Resume Artifact 格式 / Validated Resume Artifact format.
        * @return 取消或 main-only 绝对目标路径 / Cancellation or a main-only absolute destination path.
        */
-      async choosePdfDestination(suggestedFileName) {
+      async chooseArtifactDestination(suggestedFileName, format) {
         /** @brief 发起保存时仍存活的可信主窗口 / Trusted main window still alive when save starts. */
         const owner = mainWindow
         if (owner === null || owner.isDestroyed()) {
@@ -164,7 +165,7 @@ async function initializeDesktopApplication(): Promise<void> {
         /** @brief Electron 原生保存选择 / Electron native save selection. */
         const selection = await dialog.showSaveDialog(owner, {
           defaultPath: join(app.getPath('downloads'), suggestedFileName),
-          filters: [{ extensions: ['pdf'], name: 'PDF' }],
+          filters: [{ extensions: [format.extension.slice(1)], name: format.dialogLabel }],
           properties: ['createDirectory', 'showOverwriteConfirmation']
         })
         return selection.canceled || selection.filePath === undefined

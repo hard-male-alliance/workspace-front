@@ -5,11 +5,15 @@ import { open, rename, rm, type FileHandle } from 'node:fs/promises'
 import { dirname, isAbsolute, join } from 'node:path'
 import type {
   ArtifactSavePort,
-  SafePdfFileName,
+  ResumeArtifactSaveFormat,
+  SafeArtifactFileName,
   SaveArtifactRequest,
   SaveArtifactResult
 } from '@ai-job-workspace/platform'
-import { sanitizePdfFileName } from '@ai-job-workspace/platform'
+import {
+  resolveResumeArtifactSaveFormat,
+  resumeArtifactSaveFormatForFileName
+} from '@ai-job-workspace/platform'
 import {
   ApiV2AuthenticationRequiredError,
   ApiV2ContractError,
@@ -37,12 +41,14 @@ export type NativeArtifactSaveDialogResult =
 /** @brief 原生保存对话框的最小宿主端口 / Minimal host port for the native save dialog. */
 export interface NativeArtifactSaveDialog {
   /**
-   * @brief 让用户选择 PDF 目标位置 / Let the user choose a destination for a PDF.
+   * @brief 让用户选择 Resume Artifact 目标位置 / Let the user choose a destination for a Resume Artifact.
    * @param suggestedFileName 已净化的建议文件名 / Sanitized suggested filename.
+   * @param format 已由 kind、MIME 与扩展名共同核验的闭合格式 / Closed format jointly validated from kind, MIME, and extension.
    * @return 取消或仅在 main 可见的目标路径 / Cancellation or a destination path visible only in main.
    */
-  readonly choosePdfDestination: (
-    suggestedFileName: SafePdfFileName
+  readonly chooseArtifactDestination: (
+    suggestedFileName: SafeArtifactFileName,
+    format: ResumeArtifactSaveFormat
   ) => Promise<NativeArtifactSaveDialogResult>
 }
 
@@ -339,7 +345,7 @@ export class NativeArtifactSaveService implements ArtifactSavePort {
   }
 
   /**
-   * @brief 保存一个由 main 重新解析的 PDF Artifact / Save one PDF Artifact re-resolved by main.
+   * @brief 保存一个由 main 重新解析的 Resume Artifact / Save one Resume Artifact re-resolved by main.
    * @param request 仅含 Workspace/Artifact ID 与安全文件名 / Request containing only Workspace/Artifact IDs and a safe filename.
    * @return 保存或用户取消终态 / Saved or user-cancelled terminal state.
    */
@@ -374,7 +380,7 @@ export class NativeArtifactSaveService implements ArtifactSavePort {
   }
 
   /**
-   * @brief 执行一次权威 PDF 保存 / Perform one authoritative PDF save.
+   * @brief 执行一次权威 Resume Artifact 保存 / Perform one authoritative Resume Artifact save.
    * @param request 封闭 renderer 请求 / Closed renderer request.
    * @param signal 本次保存取消信号 / Cancellation signal for this save.
    * @return 保存或取消终态 / Saved or cancelled terminal state.
@@ -389,11 +395,15 @@ export class NativeArtifactSaveService implements ArtifactSavePort {
     const artifactId = request.artifactId
     /** @brief 跨品牌边界后重新验证的建议文件名 / Suggested filename revalidated after crossing the branded boundary. */
     const suggestedFileNameCandidate: string = request.suggestedFileName
-    if (sanitizePdfFileName(suggestedFileNameCandidate) !== suggestedFileNameCandidate) {
-      throw new ApiV2ContractError('The native Artifact filename is not a safe PDF filename.')
+    /** @brief 建议文件名声明的唯一目标格式 / Sole target format declared by the suggested filename. */
+    const requestedFormat = resumeArtifactSaveFormatForFileName(suggestedFileNameCandidate)
+    if (requestedFormat === null) {
+      throw new ApiV2ContractError(
+        'The native Artifact filename is unsafe or has an unsupported format.'
+      )
     }
-    /** @brief 已重新验证的安全 PDF 文件名 / Revalidated safe PDF filename. */
-    const suggestedFileName = suggestedFileNameCandidate as SafePdfFileName
+    /** @brief 已重新验证的格式感知安全文件名 / Revalidated format-aware safe filename. */
+    const suggestedFileName = suggestedFileNameCandidate as SafeArtifactFileName
     /** @brief main 从 API v2 重新读取的权威 metadata / Authoritative metadata reread by main from API v2. */
     const artifact = await this.artifactApi.readArtifact(workspaceId, artifactId, signal)
     if (artifact.workspace_id !== workspaceId || artifact.id !== artifactId) {
@@ -401,14 +411,18 @@ export class NativeArtifactSaveService implements ArtifactSavePort {
         'The authoritative Artifact identity differs from the native save request.'
       )
     }
-    if (artifact.kind !== 'resume_pdf' || artifact.media_type.toLowerCase() !== 'application/pdf') {
-      throw new ApiV2ContractError('The selected Artifact is not a Resume PDF.')
+    /** @brief 权威 kind 与 MIME 共同解析出的闭合格式 / Closed format jointly resolved from authoritative kind and MIME. */
+    const format = resolveResumeArtifactSaveFormat(artifact.kind, artifact.media_type)
+    if (format === null || format.kind !== requestedFormat.kind) {
+      throw new ApiV2ContractError(
+        'The selected Artifact kind, media type, and filename format do not match.'
+      )
     }
     signal.throwIfAborted()
     /** @brief 只在 main 可见的原生目标选择 / Native destination selection visible only in main. */
     /** @brief 即使 OS 对话框本身不可取消，退出/登出也不等待它 / Even if the OS dialog itself is not cancellable, shutdown and sign-out do not wait for it. */
     const selection = await observeWithSignal(
-      this.dialog.choosePdfDestination(suggestedFileName),
+      this.dialog.chooseArtifactDestination(suggestedFileName, format),
       signal
     )
     if (selection.cancelled) return Object.freeze({ status: 'cancelled' })
@@ -432,12 +446,12 @@ export class NativeArtifactSaveService implements ArtifactSavePort {
     /** @brief 带 Bearer 且持续进行长度/hash 验证的完整流 / Complete Bearer-authenticated stream under length/hash validation. */
     const content = await this.artifactApi.readCompleteContent(currentArtifact, signal)
     if (
-      content.mediaType.toLowerCase() !== 'application/pdf' ||
+      content.mediaType.toLowerCase() !== format.mediaType ||
       content.expectedByteLength !== artifact.size_bytes
     ) {
       await content.body?.cancel().catch(() => undefined)
       throw new ApiV2ContractError(
-        'The Artifact content descriptor differs from its authoritative PDF metadata.'
+        'The Artifact content descriptor differs from its authoritative format metadata.'
       )
     }
     /** @brief 与目标同目录、完整 fsync 的临时文件 / Same-directory temporary file after complete fsync. */

@@ -3,9 +3,9 @@
 import { ipcMain } from 'electron'
 import {
   DESKTOP_ARTIFACT_SAVE_CHANNEL,
-  sanitizePdfFileName,
+  resumeArtifactSaveFormatForFileName,
   type ArtifactSavePort,
-  type SafePdfFileName,
+  type SafeArtifactFileName,
   type SaveArtifactRequest
 } from '@ai-job-workspace/platform'
 
@@ -66,13 +66,13 @@ export function parseNativeArtifactSaveRequest(value: unknown): SaveArtifactRequ
     typeof artifactId !== 'string' ||
     !OPAQUE_ID_PATTERN.test(artifactId) ||
     typeof suggestedFileName !== 'string' ||
-    sanitizePdfFileName(suggestedFileName) !== suggestedFileName
+    resumeArtifactSaveFormatForFileName(suggestedFileName) === null
   ) {
     throw new Error('Rejected invalid Artifact save request values.')
   }
   return Object.freeze({
     artifactId,
-    suggestedFileName: suggestedFileName as SafePdfFileName,
+    suggestedFileName: suggestedFileName as SafeArtifactFileName,
     workspaceId
   })
 }
