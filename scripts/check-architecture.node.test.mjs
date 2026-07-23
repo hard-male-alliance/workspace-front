@@ -1,4 +1,4 @@
-/** @file 架构适应度门禁 Node fixture 测试 / Node fixture tests for the architecture fitness gate. */
+/** @file Node fixture tests for the architecture fitness gate. */
 
 import { spawnSync } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -10,13 +10,13 @@ import { describe, expect, it } from 'vitest'
 
 import { checkArchitecture } from './check-architecture.mjs'
 
-/** @brief 当前测试脚本目录 / Directory containing this test script. */
+/** @brief Directory containing this test script. */
 const testDirectory = path.dirname(fileURLToPath(import.meta.url))
 
-/** @brief 被测 CLI 脚本绝对路径 / Absolute path of the CLI under test. */
+/** @brief Absolute path of the CLI under test. */
 const architectureScript = path.join(testDirectory, 'check-architecture.mjs')
 
-/** @brief fixture 默认使用的测试 project 清单 / Default test-project manifest used by fixtures. */
+/** @brief fixture Default test-project manifest used by fixtures. */
 const fixtureTestProjects = JSON.stringify({
   browser: [{ extensions: ['ts', 'tsx'], roots: ['packages/app/tests/browser'] }],
   dom: [{ extensions: ['ts', 'tsx'], roots: ['apps', 'packages'] }],
@@ -27,20 +27,20 @@ const fixtureTestProjects = JSON.stringify({
 })
 
 /**
- * @brief 在独立临时仓库中执行 fixture / Run a fixture in an isolated temporary repository.
- * @param {Record<string, string>} files 相对路径到源码的映射 / Map of relative paths to source text.
- * @param {(rootDir: string) => Promise<void>} assertion fixture 断言 / Fixture assertion.
- * @return {Promise<void>} 完成 Promise / Completion promise.
+ * @brief Run a fixture in an isolated temporary repository.
+ * @param {Record<string, string>} files Map of relative paths to source text.
+ * @param {(rootDir: string) => Promise<void>} assertion fixture Fixture assertion.
+ * @return {Promise<void>} Completion promise.
  */
 async function withFixture(files, assertion) {
-  /** @brief 由系统临时目录安全创建的 fixture 根 / Fixture root safely created under the system temp directory. */
+  /** @brief Fixture root safely created under the system temp directory. */
   const rootDir = await mkdtemp(path.join(tmpdir(), 'workspace-architecture-gate-'))
 
   try {
-    /** @brief 包含默认 project 清单的完整 fixture / Complete fixture including the default project manifest. */
+    /** @brief Complete fixture including the default project manifest. */
     const fixtureFiles = { 'test-projects.json': fixtureTestProjects, ...files }
     for (const [relativePath, text] of Object.entries(fixtureFiles)) {
-      /** @brief 当前 fixture 文件绝对路径 / Absolute path of the current fixture file. */
+      /** @brief Absolute path of the current fixture file. */
       const absolutePath = path.join(rootDir, relativePath)
       await mkdir(path.dirname(absolutePath), { recursive: true })
       await writeFile(absolutePath, text, 'utf8')
@@ -52,10 +52,10 @@ async function withFixture(files, assertion) {
 }
 
 /**
- * @brief 按规则标识筛选违规 / Select violations by rule identifier.
- * @param {{rule: string}[]} violations 全部违规 / All violations.
- * @param {string} rule 规则标识 / Rule identifier.
- * @return {{rule: string}[]} 命中的违规 / Matching violations.
+ * @brief Select violations by rule identifier.
+ * @param {{rule: string}[]} violations All violations.
+ * @param {string} rule Rule identifier.
+ * @return {{rule: string}[]} Matching violations.
  */
 function violationsFor(violations, rule) {
   return violations.filter((violation) => violation.rule === rule)
@@ -75,7 +75,7 @@ describe('checkArchitecture', () => {
       }
     )
   })
-  it('接受运行时、context 公开入口、层次和生产组合均合法的仓库', async () => {
+  it('accepts a valid runtime, context entry, layer, and production composition fixture', async () => {
     await withFixture(
       {
         'apps/desktop/src/main/index.ts':
@@ -116,14 +116,14 @@ describe('checkArchitecture', () => {
           "import { expect, it } from 'vitest'\nit('works', () => expect(true).toBe(true))\n"
       },
       async (rootDir) => {
-        /** @brief 合法 fixture 的检查结果 / Check result for the valid fixture. */
+        /** @brief Check result for the valid fixture. */
         const result = await checkArchitecture({ rootDir })
         expect(result.violations).toEqual([])
       }
     )
   })
 
-  it('拒绝旧测试名和同时带多个运行时标记的测试名', async () => {
+  it('rejects legacy test names and names with multiple runtime markers', async () => {
     await withFixture(
       {
         'tests/legacy.test.ts': 'export {}\n',
@@ -131,9 +131,9 @@ describe('checkArchitecture', () => {
         'tests/valid.node.test.ts': 'export {}\n'
       },
       async (rootDir) => {
-        /** @brief 测试后缀 fixture 的检查结果 / Check result for the test-suffix fixture. */
+        /** @brief Check result for the test-suffix fixture. */
         const result = await checkArchitecture({ rootDir })
-        /** @brief 测试后缀违规 / Test-suffix violations. */
+        /** @brief Test-suffix violations. */
         const violations = violationsFor(result.violations, 'test-project-suffix')
         expect(violations.map((violation) => violation.file)).toEqual([
           'tests/legacy.test.ts',
@@ -143,7 +143,7 @@ describe('checkArchitecture', () => {
     )
   })
 
-  it('拒绝后缀合法但未被实际 Vitest project 收集的测试', async () => {
+  it('rejects suffix-valid tests not collected by the matching Vitest project', async () => {
     await withFixture(
       {
         'apps/web/src/missed.browser.test.tsx': 'export {}\n',
@@ -151,9 +151,9 @@ describe('checkArchitecture', () => {
         'scripts/covered.node.test.mjs': 'export {}\n'
       },
       async (rootDir) => {
-        /** @brief project 收集 fixture 的检查结果 / Check result for the project-collection fixture. */
+        /** @brief project Check result for the project-collection fixture. */
         const result = await checkArchitecture({ rootDir })
-        /** @brief 未被 project 收集的测试违规 / Tests not collected by any project. */
+        /** @brief Tests not collected by any project. */
         const violations = violationsFor(result.violations, 'test-project-assignment')
         expect(violations.map((violation) => violation.file)).toEqual([
           'apps/web/src/missed.browser.test.tsx',
@@ -163,7 +163,7 @@ describe('checkArchitecture', () => {
     )
   })
 
-  it('要求 Electron main/preload 测试只使用 Node，并把 Browser 测试限制在显式目录', async () => {
+  it('requires Electron main and preload tests to use Node and browser tests to stay in explicit roots', async () => {
     await withFixture(
       {
         'apps/desktop/src/main/window.dom.test.ts': 'export {}\n',
@@ -174,7 +174,7 @@ describe('checkArchitecture', () => {
         'packages/app/tests/browser/workflow.browser.test.tsx': 'export {}\n'
       },
       async (rootDir) => {
-        /** @brief 测试运行时目录违规 / Test runtime-location violations. */
+        /** @brief Test runtime-location violations. */
         const result = await checkArchitecture({ rootDir })
         expect(
           violationsFor(result.violations, 'test-runtime-location').map(
@@ -189,7 +189,7 @@ describe('checkArchitecture', () => {
     )
   })
 
-  it('要求完整 WorkspaceApp DOM 测试集中在 package integration 目录', async () => {
+  it('requires full WorkspaceApp DOM tests to live in the package integration directory', async () => {
     await withFixture(
       {
         'packages/app/src/app/WorkspaceApp.tsx': 'export const WorkspaceApp = () => null\n',
@@ -199,7 +199,7 @@ describe('checkArchitecture', () => {
           "import { WorkspaceApp } from '../../src/app/WorkspaceApp'\nvoid WorkspaceApp\n"
       },
       async (rootDir) => {
-        /** @brief 完整应用 DOM 测试放置结果 / Full-app DOM-test placement result. */
+        /** @brief Full-app DOM-test placement result. */
         const result = await checkArchitecture({ rootDir })
         expect(
           violationsFor(result.violations, 'workspace-app-dom-test-placement').map(
@@ -210,7 +210,7 @@ describe('checkArchitecture', () => {
     )
   })
 
-  it('隔离 renderer、shared app、main/preload 与 platform 的运行时依赖', async () => {
+  it('isolates renderer, shared app, main/preload, and platform runtime dependencies', async () => {
     await withFixture(
       {
         'apps/desktop/src/main/bad.ts':
@@ -224,7 +224,7 @@ describe('checkArchitecture', () => {
           "import React from 'react'\nimport { app } from 'electron'\nimport fs from 'fs'\nvoid React\nvoid app\nvoid fs\n"
       },
       async (rootDir) => {
-        /** @brief 运行时隔离 fixture 的检查结果 / Check result for the runtime-isolation fixture. */
+        /** @brief Check result for the runtime-isolation fixture. */
         const result = await checkArchitecture({ rootDir })
         expect(violationsFor(result.violations, 'renderer-shared-runtime')).toHaveLength(4)
         expect(violationsFor(result.violations, 'desktop-main-preload-runtime')).toHaveLength(3)
@@ -233,7 +233,7 @@ describe('checkArchitecture', () => {
     )
   })
 
-  it('禁止共用 renderer TypeScript 程序中的生产源码扩展宿主全局类型', async () => {
+  it('rejects production source host-global augmentation in shared renderer TypeScript programs', async () => {
     await withFixture(
       {
         'apps/desktop/src/renderer/src/host-window.d.ts': [
@@ -259,9 +259,9 @@ describe('checkArchitecture', () => {
         ].join('\n')
       },
       async (rootDir) => {
-        /** @brief 宿主全局扩展违规 / Host-global augmentation violations. */
+        /** @brief Host-global augmentation violations. */
         const result = await checkArchitecture({ rootDir })
-        /** @brief renderer 程序全部生产根的全局扩展都应被拒绝 / Global augmentations from every renderer-program production root must be rejected. */
+        /** @brief renderer Global augmentations from every renderer-program production root must be rejected. */
         const violations = violationsFor(result.violations, 'renderer-program-ambient-augmentation')
         expect(violations.map((violation) => violation.file)).toEqual([
           'apps/desktop/src/renderer/src/host-window.d.ts',
@@ -274,7 +274,7 @@ describe('checkArchitecture', () => {
     )
   })
 
-  it('阻断 context domain/application 外向依赖与 presentation adapter 依赖', async () => {
+  it('blocks context domain/application outbound dependencies and presentation adapter dependencies', async () => {
     await withFixture(
       {
         'packages/app/src/contexts/resume/adapter/repository.ts': 'export const repository = {}\n',
@@ -287,7 +287,7 @@ describe('checkArchitecture', () => {
           "import { storage } from '../infrastructure/storage'\nexport const Page = storage\n"
       },
       async (rootDir) => {
-        /** @brief context 层 fixture 的检查结果 / Check result for the context-layer fixture. */
+        /** @brief context Check result for the context-layer fixture. */
         const result = await checkArchitecture({ rootDir })
         expect(
           violationsFor(result.violations, 'context-domain-application-dependency')
@@ -297,7 +297,7 @@ describe('checkArchitecture', () => {
     )
   })
 
-  it('阻断 presentation 直接消费其它 context gateway 或命名查询', async () => {
+  it('blocks presentation from directly consuming other context gateways or named queries', async () => {
     await withFixture(
       {
         'packages/app/src/app/AppData.tsx':
@@ -308,9 +308,9 @@ describe('checkArchitecture', () => {
           "import { useKnowledgeGateway, useResumeGateway, useWorkspaceHomeQuery } from '../../../app/AppData'\nvoid useKnowledgeGateway\nvoid useResumeGateway\nvoid useWorkspaceHomeQuery\n"
       },
       async (rootDir) => {
-        /** @brief presentation 端口所有权 fixture 的检查结果 / Check result for presentation-port ownership. */
+        /** @brief presentation Check result for presentation-port ownership. */
         const result = await checkArchitecture({ rootDir })
-        /** @brief 跨上下文端口违规 / Cross-context port violations. */
+        /** @brief Cross-context port violations. */
         const violations = violationsFor(result.violations, 'presentation-cross-context-port')
         expect(violations).toHaveLength(3)
         expect(violations.map((violation) => violation.file)).toEqual([
@@ -322,7 +322,7 @@ describe('checkArchitecture', () => {
     )
   })
 
-  it('阻断 domain/application 浏览器环境全局，同时允许局部绑定与同名属性', async () => {
+  it('blocks browser ambient globals in domain/application while allowing local bindings and same-name properties', async () => {
     await withFixture(
       {
         'packages/app/src/contexts/resume/application/browser.ts': [
@@ -349,9 +349,9 @@ describe('checkArchitecture', () => {
         ].join('\n')
       },
       async (rootDir) => {
-        /** @brief 浏览器环境全局 fixture 的检查结果 / Check result for the browser-ambient-global fixture. */
+        /** @brief Check result for the browser-ambient-global fixture. */
         const result = await checkArchitecture({ rootDir })
-        /** @brief 浏览器环境全局违规 / Browser ambient-global violations. */
+        /** @brief Browser ambient-global violations. */
         const violations = violationsFor(result.violations, 'context-browser-ambient-global')
         expect(violations).toHaveLength(11)
         expect(
@@ -364,7 +364,7 @@ describe('checkArchitecture', () => {
     )
   })
 
-  it('只允许 context 外部消费者引用目标 context 根 index', async () => {
+  it('only allows external context consumers to import the target context root index', async () => {
     await withFixture(
       {
         'packages/app/src/application.ts':
@@ -380,9 +380,9 @@ describe('checkArchitecture', () => {
           "import { ResumePage } from '../../resume'\nimport type { Resume } from '../../resume/domain/model'\nvoid ResumePage\nvoid 0 as unknown as Resume\n"
       },
       async (rootDir) => {
-        /** @brief context 公开入口 fixture 的检查结果 / Check result for the context-public-entry fixture. */
+        /** @brief context Check result for the context-public-entry fixture. */
         const result = await checkArchitecture({ rootDir })
-        /** @brief 深层 context 导入违规 / Deep context-import violations. */
+        /** @brief Deep context-import violations. */
         const violations = violationsFor(result.violations, 'cross-context-deep-import')
         expect(violations).toHaveLength(2)
         expect(
@@ -392,7 +392,7 @@ describe('checkArchitecture', () => {
     )
   })
 
-  it('禁止生产组合使用 testing、demo 或内存数据 adapter，但允许测试支撑源码', async () => {
+  it('blocks production composition from testing, demo, or memory data adapters while allowing test support source', async () => {
     await withFixture(
       {
         'apps/desktop/src/renderer/main.ts':
@@ -409,9 +409,9 @@ describe('checkArchitecture', () => {
         'packages/app/src/demo/content.ts': 'export const demo = {}\n'
       },
       async (rootDir) => {
-        /** @brief 生产装配 fixture 的检查结果 / Check result for the production-composition fixture. */
+        /** @brief Check result for the production-composition fixture. */
         const result = await checkArchitecture({ rootDir })
-        /** @brief 被拒绝的生产源文件 / Production source files rejected by the rule. */
+        /** @brief Production source files rejected by the rule. */
         const violatingFiles = violationsFor(result.violations, 'production-testing-composition')
           .map((violation) => violation.file)
           .sort()
@@ -426,7 +426,7 @@ describe('checkArchitecture', () => {
     )
   })
 
-  it('禁止生产组合经由 context barrel 传递抵达内存数据 adapter', async () => {
+  it('blocks production composition from reaching memory data adapters through context barrels', async () => {
     await withFixture(
       {
         'apps/web/src/main.ts': "import '../../../packages/app/src/contexts/resume/index'\n",
@@ -437,9 +437,9 @@ describe('checkArchitecture', () => {
           'export const gateway = {}\n'
       },
       async (rootDir) => {
-        /** @brief 传递生产数据依赖 fixture 的检查结果 / Check result for the transitive production-data dependency fixture. */
+        /** @brief Check result for the transitive production-data dependency fixture. */
         const result = await checkArchitecture({ rootDir })
-        /** @brief 被拒绝的传递生产数据依赖 / Rejected transitive production-data dependency. */
+        /** @brief Rejected transitive production-data dependency. */
         const violations = violationsFor(result.violations, 'production-testing-composition')
         expect(violations).toHaveLength(1)
         expect(violations[0]?.file).toBe('packages/app/src/contexts/resume/composition.ts')
@@ -450,7 +450,7 @@ describe('checkArchitecture', () => {
     )
   })
 
-  it('禁止生产 UI 暴露非生产数据文案，同时允许模拟面试术语并排除测试与 memory', async () => {
+  it('blocks non-production copy in production UI while excluding mock interview terms, tests, and memory data', async () => {
     await withFixture(
       {
         'apps/desktop/src/renderer/src/main.tsx': [
@@ -459,22 +459,22 @@ describe('checkArchitecture', () => {
         ].join('\n'),
         'apps/web/src/main.ts': [
           '// Historical note: fall back to demo data.',
-          "export const interview = '模拟面试'"
+          "export const interview = '\u6a21\u62df\u9762\u8bd5'"
         ].join('\n'),
         'docs/history.ts': "export const oldCopy = 'Showing mock data'\n",
         'packages/app/src/contexts/knowledge/infrastructure/memory/data.ts':
-          "export const placeholder = '演示数据'\n",
+          "export const placeholder = '\u6f14\u793a\u6570\u636e'\n",
         'packages/app/src/contexts/resume/presentation/ResumePage.tsx':
-          'export const ResumePage = () => <p>当前显示占位数据</p>\n',
+          'export const ResumePage = () => <p>\u5f53\u524d\u663e\u793a\u5360\u4f4d\u6570\u636e</p>\n',
         'packages/app/src/i18n/resources.ts':
           "export const resources = { status: 'Fallback data is active' }\n",
         'packages/app/src/testing.ts': "export const copy = 'Mock data'\n",
         'packages/app/src/ui/copy.node.test.ts': "export const copy = 'Fake data'\n"
       },
       async (rootDir) => {
-        /** @brief 生产 UI 非生产文案 fixture 的检查结果 / Check result for production UI non-production copy. */
+        /** @brief Check result for production UI non-production copy. */
         const result = await checkArchitecture({ rootDir })
-        /** @brief 生产 UI 非生产文案违规 / Production UI non-production copy violations. */
+        /** @brief Production UI non-production copy violations. */
         const violations = violationsFor(result.violations, 'production-ui-placeholder-copy')
         expect(violations.map((violation) => violation.file)).toEqual([
           'apps/desktop/src/renderer/src/main.tsx',
@@ -485,7 +485,7 @@ describe('checkArchitecture', () => {
     )
   })
 
-  it('只允许生产源码导入 workspace package 明确公开的 exports 子路径', async () => {
+  it('only allows production source to import explicit public workspace package export paths', async () => {
     await withFixture(
       {
         'apps/web/src/main.ts': [
@@ -506,9 +506,9 @@ describe('checkArchitecture', () => {
         'packages/library/src/public.ts': 'export const publicValue = true\n'
       },
       async (rootDir) => {
-        /** @brief workspace exports fixture 的检查结果 / Check result for the workspace-exports fixture. */
+        /** @brief workspace exports fixture Check result for the workspace-exports fixture. */
         const result = await checkArchitecture({ rootDir })
-        /** @brief 未公开 workspace 导入违规 / Non-public workspace-import violations. */
+        /** @brief Non-public workspace-import violations. */
         const violations = violationsFor(result.violations, 'workspace-package-public-export')
         expect(violations).toHaveLength(2)
         expect(violations.map((violation) => violation.line)).toEqual([3, 4])
@@ -518,7 +518,7 @@ describe('checkArchitecture', () => {
     )
   })
 
-  it('通过 import、re-export 和动态 import 发现生产依赖环', async () => {
+  it('discovers production dependency cycles through import, re-export, and dynamic import', async () => {
     await withFixture(
       {
         'packages/app/src/a.ts': "import './b'\nexport const a = 1\n",
@@ -526,9 +526,9 @@ describe('checkArchitecture', () => {
         'packages/app/src/c.ts': "void import('./a')\nexport const c = 1\n"
       },
       async (rootDir) => {
-        /** @brief 环依赖 fixture 的检查结果 / Check result for the dependency-cycle fixture. */
+        /** @brief Check result for the dependency-cycle fixture. */
         const result = await checkArchitecture({ rootDir })
-        /** @brief 生产依赖环违规 / Production-cycle violations. */
+        /** @brief Production-cycle violations. */
         const violations = violationsFor(result.violations, 'production-dependency-cycle')
         expect(violations).toHaveLength(1)
         expect(violations[0].message).toContain(
@@ -538,7 +538,7 @@ describe('checkArchitecture', () => {
     )
   })
 
-  it('通过已解析的 workspace package 裸导入发现跨 package 依赖环', async () => {
+  it('discovers cross-package cycles through resolved workspace package bare imports', async () => {
     await withFixture(
       {
         'packages/alpha/package.json': JSON.stringify({
@@ -555,9 +555,9 @@ describe('checkArchitecture', () => {
           "import { alpha } from '@fixture/alpha'\nexport const beta = alpha\n"
       },
       async (rootDir) => {
-        /** @brief 跨 package 环 fixture 的检查结果 / Check result for the cross-package-cycle fixture. */
+        /** @brief Check result for the cross-package-cycle fixture. */
         const result = await checkArchitecture({ rootDir })
-        /** @brief 跨 package 生产依赖环违规 / Cross-package production-cycle violations. */
+        /** @brief Cross-package production-cycle violations. */
         const violations = violationsFor(result.violations, 'production-dependency-cycle')
         expect(violations).toHaveLength(1)
         expect(violations[0].message).toContain(
@@ -567,20 +567,20 @@ describe('checkArchitecture', () => {
     )
   })
 
-  it('CLI 对架构违规返回 1，对运行错误返回 2', async () => {
+  it('returns 1 for architecture violations and 2 for operational errors in the CLI', async () => {
     await withFixture(
       {
         'tests/legacy.test.ts': 'export {}\n'
       },
       async (rootDir) => {
-        /** @brief 含架构违规的独立 CLI 进程 / Isolated CLI process with an architecture violation. */
+        /** @brief Isolated CLI process with an architecture violation. */
         const violationRun = spawnSync(process.execPath, [architectureScript, '--root', rootDir], {
           encoding: 'utf8'
         })
         expect(violationRun.status).toBe(1)
         expect(violationRun.stderr).toContain('[test-project-suffix] tests/legacy.test.ts:1:1')
 
-        /** @brief 根目录缺失的独立 CLI 进程 / Isolated CLI process with a missing root directory. */
+        /** @brief Isolated CLI process with a missing root directory. */
         const operationalErrorRun = spawnSync(
           process.execPath,
           [architectureScript, '--root', path.join(rootDir, 'missing')],

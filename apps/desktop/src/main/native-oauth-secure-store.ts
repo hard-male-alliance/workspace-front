@@ -34,6 +34,41 @@ export interface NativeSafeStoragePort {
   readonly isAsyncEncryptionAvailable: () => Promise<boolean>
 }
 
+/** @brief POSIX metadata access used by the secure-storage ownership policy. */
+export interface NativePosixMetadataPort {
+  /** @brief Current POSIX user ID, or undefined when the runtime cannot prove it. */
+  readonly currentUserId: () => number | undefined
+  /** @brief Owner UID from file metadata. */
+  readonly ownerUserId: (metadata: Stats) => number
+  /** @brief POSIX permission bits from file metadata. */
+  readonly permissions: (metadata: Stats) => number
+}
+
+/** @brief Real process-backed POSIX metadata policy used in production. */
+const nativePosixMetadata: NativePosixMetadataPort = Object.freeze({
+  currentUserId: () => (typeof process.getuid === 'function' ? process.getuid() : undefined),
+  ownerUserId: (metadata: Stats) => metadata.uid,
+  permissions: (metadata: Stats) => metadata.mode
+})
+
+/** @brief Directory durability operation used after same-directory file entry changes. */
+export interface NativeDirectorySyncPort {
+  /** @brief Persist directory-entry metadata for a controlled directory. */
+  readonly sync: (directoryPath: string) => Promise<void>
+}
+
+/** @brief Real directory fsync implementation used in production. */
+const nativeDirectorySync: NativeDirectorySyncPort = Object.freeze({
+  sync: async (directoryPath: string) => {
+    const directory = await open(directoryPath, constants.O_RDONLY | (constants.O_DIRECTORY ?? 0))
+    try {
+      await directory.sync()
+    } finally {
+      await directory.close()
+    }
+  }
+})
+
 /** @brief Electron secure grant store 构造选项 / Construction options for the Electron secure grant store. */
 export interface ElectronNativeRefreshGrantStoreOptions {
   /** @brief Electron app userData 目录 / Electron app userData directory. */
@@ -42,6 +77,10 @@ export interface ElectronNativeRefreshGrantStoreOptions {
   readonly safeStorage: NativeSafeStoragePort
   /** @brief 当前 Node 平台；测试可替换 / Current Node platform, replaceable in tests. */
   readonly platform?: NodeJS.Platform | undefined
+  /** @brief POSIX metadata policy; production defaults to process and Stats metadata. */
+  readonly posixMetadata?: NativePosixMetadataPort | undefined
+  /** @brief Directory durability policy; production defaults to directory fsync. */
+  readonly directorySync?: NativeDirectorySyncPort | undefined
 }
 
 /** @brief Native secure storage 不可用的低基数原因 / Low-cardinality reason for unavailable native secure storage. */
@@ -281,6 +320,10 @@ export class ElectronNativeRefreshGrantStore implements NativeRefreshGrantStore 
   private readonly safeStorage: NativeSafeStoragePort
   /** @brief 当前平台 / Current platform. */
   private readonly platform: NodeJS.Platform
+  /** @brief POSIX ownership and permission metadata policy. */
+  private readonly posixMetadata: NativePosixMetadataPort
+  /** @brief Directory-entry durability policy. */
+  private readonly directorySync: NativeDirectorySyncPort
   /** @brief Electron 创建且已解析的 userData 根目录 / Electron-created, resolved userData root directory. */
   private readonly userDataDirectory: string
   /** @brief 固定密文路径 / Fixed ciphertext path. */
@@ -297,6 +340,8 @@ export class ElectronNativeRefreshGrantStore implements NativeRefreshGrantStore 
   constructor(options: ElectronNativeRefreshGrantStoreOptions) {
     this.safeStorage = options.safeStorage
     this.platform = options.platform ?? process.platform
+    this.posixMetadata = options.posixMetadata ?? nativePosixMetadata
+    this.directorySync = options.directorySync ?? nativeDirectorySync
     if (!path.isAbsolute(options.userDataDirectory)) {
       throw new TypeError('The native OAuth userData directory must be absolute.')
     }
@@ -346,14 +391,15 @@ export class ElectronNativeRefreshGrantStore implements NativeRefreshGrantStore 
     }
     if (this.platform === 'win32') return
     /** @brief 当前 POSIX 用户 ID；不支持时为 undefined / Current POSIX user ID, or undefined when unsupported. */
-    const currentUserId = typeof process.getuid === 'function' ? process.getuid() : undefined
-    if (currentUserId === undefined || metadata.uid !== currentUserId) {
+    const currentUserId = this.posixMetadata.currentUserId()
+    if (currentUserId === undefined || this.posixMetadata.ownerUserId(metadata) !== currentUserId) {
       throw new NativeSecureStorageCorruptError()
     }
     /** @brief 非 owner 权限位 / Permission bits available to group and others. */
-    const nonOwnerPermissions = metadata.mode & 0o077
+    const mode = this.posixMetadata.permissions(metadata)
+    const nonOwnerPermissions = mode & 0o077
     if (
-      (expectedType === 'directory' && (metadata.mode & 0o022) !== 0) ||
+      (expectedType === 'directory' && (mode & 0o022) !== 0) ||
       (expectedType === 'file' && nonOwnerPermissions !== 0)
     ) {
       throw new NativeSecureStorageCorruptError()
@@ -393,7 +439,7 @@ export class ElectronNativeRefreshGrantStore implements NativeRefreshGrantStore 
     /** @brief 创建或加固后的目录元数据 / Directory metadata after creation or hardening. */
     const hardened = await lstat(this.directory)
     this.assertSafeMetadata(hardened, 'directory')
-    if (this.platform !== 'win32' && (hardened.mode & 0o777) !== 0o700) {
+    if (this.platform !== 'win32' && (this.posixMetadata.permissions(hardened) & 0o777) !== 0o700) {
       throw new NativeSecureStorageCorruptError()
     }
     return true
@@ -438,13 +484,7 @@ export class ElectronNativeRefreshGrantStore implements NativeRefreshGrantStore 
    */
   private async syncDirectory(): Promise<void> {
     if (this.platform === 'win32') return
-    /** @brief 专用目录 handle / Dedicated-directory handle. */
-    const directory = await open(this.directory, constants.O_RDONLY | (constants.O_DIRECTORY ?? 0))
-    try {
-      await directory.sync()
-    } finally {
-      await directory.close()
-    }
+    await this.directorySync.sync(this.directory)
   }
 
   /**

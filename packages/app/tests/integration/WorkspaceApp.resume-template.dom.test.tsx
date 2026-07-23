@@ -532,9 +532,12 @@ describe('WorkspaceApp Resume Template product', (): void => {
     /** @brief 未被 spy 包装的真实 API v2 内存命令 / Original API v2 memory command outside the spy. */
     const applyOriginal = resume.updateResumeTemplateAndStyle.bind(resume)
     /** @brief 首次 in-progress，冷却后原样确认成功 / First in-progress response followed by exact confirmation after cooldown. */
+    const retryAfterMilliseconds = 250
     const apply = vi
       .spyOn(resume, 'updateResumeTemplateAndStyle')
-      .mockRejectedValueOnce(new ApiV2ProblemError(createProblem('idempotency.in_progress'), 40))
+      .mockRejectedValueOnce(
+        new ApiV2ProblemError(createProblem('idempotency.in_progress'), retryAfterMilliseconds)
+      )
       .mockImplementation(applyOriginal)
 
     renderTemplatePage(resume)

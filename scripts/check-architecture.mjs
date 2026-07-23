@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 /** @file 可执行前端架构适应度门禁 / Executable frontend architecture fitness gate. */
 
 import { builtinModules } from 'node:module'

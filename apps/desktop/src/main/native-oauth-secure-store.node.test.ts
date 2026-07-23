@@ -1,4 +1,5 @@
 import { chmod, lstat, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import type { Stats } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
@@ -11,6 +12,8 @@ import {
 import {
   ElectronNativeRefreshGrantStore,
   NativeSecureStorageUnavailableError,
+  type NativeDirectorySyncPort,
+  type NativePosixMetadataPort,
   type NativeSafeStoragePort
 } from './native-oauth-secure-store'
 import type { NativeStoredRefreshGrant } from './native-oauth-session'
@@ -21,6 +24,24 @@ const temporaryDirectories: string[] = []
 /** @brief CI 上用于测试可持久 provider 路径的平台 / Platform used to exercise persistent-provider paths in CI. */
 const persistentTestPlatform: NodeJS.Platform =
   process.platform === 'linux' ? 'darwin' : process.platform
+
+/** @brief Deterministic POSIX metadata used only when Windows hosts exercise POSIX platform paths. */
+const windowsPosixMetadata: NativePosixMetadataPort | undefined =
+  process.platform === 'win32'
+    ? Object.freeze({
+        currentUserId: () => 0,
+        ownerUserId: () => 0,
+        permissions: (metadata: Stats) => (metadata.isDirectory() ? 0o700 : 0o600)
+      })
+    : undefined
+
+/** @brief Deterministic directory durability used only for Windows-hosted POSIX simulations. */
+const windowsDirectorySync: NativeDirectorySyncPort | undefined =
+  process.platform === 'win32'
+    ? Object.freeze({
+        sync: () => Promise.resolve()
+      })
+    : undefined
 
 afterEach(async (): Promise<void> => {
   await Promise.all(
@@ -144,7 +165,9 @@ describe('ElectronNativeRefreshGrantStore', (): void => {
       Object.assign(safeStorage, { getSelectedStorageBackend: synchronousBackend })
       /** @brief 待测 store / Store under test. */
       const store = new ElectronNativeRefreshGrantStore({
+        directorySync: windowsDirectorySync,
         platform: 'linux',
+        posixMetadata: windowsPosixMetadata,
         safeStorage,
         userDataDirectory: await createUserDataDirectory()
       })
@@ -168,7 +191,9 @@ describe('ElectronNativeRefreshGrantStore', (): void => {
     await writeFile(recordPath, Buffer.from('v10legacy-ciphertext'), { mode: 0o600 })
     /** @brief Linux 待测 store / Linux store under test. */
     const store = new ElectronNativeRefreshGrantStore({
+      directorySync: windowsDirectorySync,
       platform: 'linux',
+      posixMetadata: windowsPosixMetadata,
       safeStorage: new TestSafeStorage(),
       userDataDirectory
     })
@@ -184,7 +209,9 @@ describe('ElectronNativeRefreshGrantStore', (): void => {
     const safeStorage = new TestSafeStorage()
     /** @brief 待测 store / Store under test. */
     const store = new ElectronNativeRefreshGrantStore({
+      directorySync: windowsDirectorySync,
       platform: 'darwin',
+      posixMetadata: windowsPosixMetadata,
       safeStorage,
       userDataDirectory: await createUserDataDirectory()
     })
@@ -203,7 +230,9 @@ describe('ElectronNativeRefreshGrantStore', (): void => {
     const safeStorage = new TestSafeStorage()
     /** @brief 待测 store / Store under test. */
     const store = new ElectronNativeRefreshGrantStore({
+      directorySync: windowsDirectorySync,
       platform: 'darwin',
+      posixMetadata: windowsPosixMetadata,
       safeStorage,
       userDataDirectory: await createUserDataDirectory()
     })
@@ -222,7 +251,9 @@ describe('ElectronNativeRefreshGrantStore', (): void => {
     const safeStorage = new TestSafeStorage()
     /** @brief 待测 store / Store under test. */
     const store = new ElectronNativeRefreshGrantStore({
+      directorySync: windowsDirectorySync,
       platform: 'darwin',
+      posixMetadata: windowsPosixMetadata,
       safeStorage,
       userDataDirectory: await createUserDataDirectory()
     })
@@ -239,7 +270,9 @@ describe('ElectronNativeRefreshGrantStore', (): void => {
     const safeStorage = new TestSafeStorage()
     /** @brief 待测 store / Store under test. */
     const store = new ElectronNativeRefreshGrantStore({
+      directorySync: windowsDirectorySync,
       platform: 'darwin',
+      posixMetadata: windowsPosixMetadata,
       safeStorage,
       userDataDirectory: await createUserDataDirectory()
     })
