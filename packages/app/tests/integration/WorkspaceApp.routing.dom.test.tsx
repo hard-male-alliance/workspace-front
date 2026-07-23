@@ -18,8 +18,7 @@ installWorkspaceAppTestCleanup()
 /** @brief 待验收路由与标题 / Acceptance routes and headings. */
 const routeCases: readonly { readonly path: string; readonly heading: string }[] = [
   { path: '/resumes/res_mock_ai_platform/template', heading: '模板与版式' },
-  { path: '/interviews/int_mock_system_design', heading: '模拟面试进行中' },
-  { path: '/interviews/int_mock_system_design/summary', heading: '面试分析' },
+  { path: '/interviews/int_mock_system_design', heading: 'AI Platform Engineer' },
   { path: '/knowledge', heading: '知识来源' },
   { path: '/knowledge/new', heading: '新建手工笔记来源' },
   { path: `/knowledge/${MOCK_GIT_KNOWLEDGE_SOURCE_ID}`, heading: 'portfolio-engineering' },
@@ -63,27 +62,33 @@ describe('WorkspaceApp routing', (): void => {
 
       render(<WorkspaceApp initialPath={`/knowledge/${sourceId}`} />)
       expect(
-        await screen.findByRole('link', { name: '编辑名称与策略' }, {
-          timeout: routeCompositionTimeout
-        })
-      ).toBeInTheDocument()
-    }
-  )
-
-  it.each(['/resumes/unknown/path', '/interviews/unknown/path', '/knowledge/unknown/path'])(
-    '将域内未知路由 %s 退回工作区首页',
-    async (initialPath): Promise<void> => {
-      await setWorkspaceAppTestLocale('zh-SG')
-
-      render(<WorkspaceApp initialPath={initialPath} />)
-
-      expect(
         await screen.findByRole(
-          'heading',
-          { name: '今日工作台' },
-          { timeout: routeCompositionTimeout }
+          'link',
+          { name: '编辑名称与策略' },
+          {
+            timeout: routeCompositionTimeout
+          }
         )
       ).toBeInTheDocument()
     }
   )
+
+  it.each([
+    '/resumes/unknown/path',
+    '/interviews/unknown/path',
+    '/interviews/int_mock_system_design/summary',
+    '/knowledge/unknown/path'
+  ])('将域内未知路由 %s 退回工作区首页', async (initialPath): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+
+    render(<WorkspaceApp initialPath={initialPath} />)
+
+    expect(
+      await screen.findByRole(
+        'heading',
+        { name: '今日工作台' },
+        { timeout: routeCompositionTimeout }
+      )
+    ).toBeInTheDocument()
+  })
 })

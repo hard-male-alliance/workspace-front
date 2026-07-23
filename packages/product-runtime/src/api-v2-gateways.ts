@@ -319,34 +319,6 @@ export function mapWorkspaceArtifactPage(
 }
 
 /**
- * @brief API v2 尚未接入某项产品能力 / A product capability has not yet been connected to API v2.
- * @note 该错误只表示前端 ACL 缺口，绝不触发 v1 或内存回退 / This error represents only a frontend ACL gap and never triggers v1 or in-memory fallback.
- */
-export class ApiV2CapabilityUnavailableError extends Error {
-  /** @brief 尚未接入的稳定能力名称 / Stable name of the unavailable capability. */
-  readonly capability: string
-
-  /**
-   * @brief 构造显式能力缺口错误 / Construct an explicit capability-gap error.
-   * @param capability 尚未接入的稳定能力名称 / Stable name of the unavailable capability.
-   */
-  constructor(capability: string) {
-    super(`API v2 capability ${capability} is not connected by the frontend runtime.`)
-    this.name = 'ApiV2CapabilityUnavailableError'
-    this.capability = capability
-  }
-}
-
-/**
- * @brief 构造永不回退的未接入异步操作 / Construct an unavailable async operation that never falls back.
- * @param capability 尚未接入的稳定能力名称 / Stable name of the unavailable capability.
- * @return 每次调用都拒绝的操作 / Operation that rejects on every invocation.
- */
-function unavailableOperation(capability: string): () => Promise<never> {
-  return (): Promise<never> => Promise.reject(new ApiV2CapabilityUnavailableError(capability))
-}
-
-/**
  * @brief 把 CurrentUser DTO 映射为 Identity 领域投影 / Map a CurrentUser DTO into the Identity domain projection.
  * @param source 已由 API v2 decoder 验证的 DTO / DTO validated by the API v2 decoder.
  * @return 不泄漏传输字段命名的当前用户 / Current user without transport-field naming leakage.
@@ -1575,22 +1547,5 @@ export function createApiV2ResumeTemplateCatalog(
       })
       return mapResumeTemplatePage(page)
     }
-  }
-}
-
-/**
- * @brief 创建尚未接入 API v2 的 Interview 端口 / Create the Interview port not yet connected to API v2.
- * @return 所有操作都显式失败且不回退的端口 / Port whose operations fail explicitly without fallback.
- */
-export function createUnavailableInterviewGateway(): AppGateways['interview'] {
-  return {
-    createInterview: unavailableOperation('interview-sessions.create'),
-    endInterview: unavailableOperation('interview-sessions.end'),
-    getInterviewRuntime: unavailableOperation('interview-sessions.read'),
-    getInterviewSetup: unavailableOperation('interview-scenarios.setup'),
-    getInterviewSummary: unavailableOperation('interview-reports.read'),
-    listCompletedInterviews: unavailableOperation('interview-sessions.list-completed'),
-    listInterviewScenarios: unavailableOperation('interview-scenarios.list'),
-    submitInterviewAnswer: unavailableOperation('interview-sessions.submit-answer')
   }
 }

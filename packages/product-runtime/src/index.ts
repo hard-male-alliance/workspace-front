@@ -15,12 +15,12 @@ import {
   createApiV2ResumeGateway,
   createApiV2ResumeTemplateCatalog,
   createApiV2WorkspaceOperationsGateway,
-  createApiV2WorkspaceGateway,
-  createUnavailableInterviewGateway
+  createApiV2WorkspaceGateway
 } from './api-v2-gateways'
+import { createApiV2InterviewGateway } from './interview-gateway'
 import { createApiV2ResumeReviewGateway } from './resume-review-gateway'
 
-export { ApiV2CapabilityUnavailableError } from './api-v2-gateways'
+export { createApiV2InterviewGateway } from './interview-gateway'
 
 /** @brief 产品宿主向 v2-only 组合根声明的能力 / Capabilities declared by a product host to the v2-only composition root. */
 export interface ProductGatewayOptions {
@@ -36,7 +36,7 @@ export interface ProductGatewayOptions {
  * @brief 创建正式产品宿主共用的 API v2 Gateway 集合 / Create the API v2 gateway set shared by production product hosts.
  * @param options 内存认证生命周期、界面语言与显式 transport profile / In-memory authentication lifecycle, UI language, and explicit transport profile.
  * @return Web 与 Electron 共用的 v2-only 业务依赖 / v2-only business dependencies shared by Web and Electron.
- * @note 未接入的 v2 能力显式失败；该组合根没有 v1 或内存数据回退 / Unconnected v2 capabilities fail explicitly; this composition root has no v1 or in-memory-data fallback.
+ * @note 该组合根没有 v1、不可用占位符或内存数据回退 / This composition root has no v1, unavailable placeholder, or in-memory-data fallback.
  */
 export function createProductGateways(options: ProductGatewayOptions): AppGateways {
   /** @brief 固定 origin 且逐请求读取 Bearer token 的 API v2 客户端 / API v2 client with a fixed origin and per-request Bearer-token reads. */
@@ -57,7 +57,7 @@ export function createProductGateways(options: ProductGatewayOptions): AppGatewa
 
   return {
     identity: createApiV2IdentityGateway(client),
-    interview: createUnavailableInterviewGateway(),
+    interview: createApiV2InterviewGateway(client),
     knowledge: new HttpKnowledgeGateway(client),
     resume: createApiV2ResumeGateway(client, client, client),
     resumeReview: createApiV2ResumeReviewGateway(client, client, client),

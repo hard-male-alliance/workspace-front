@@ -166,7 +166,7 @@ describe('WorkspaceApp unsaved changes', (): void => {
 
     fireEvent.click(knowledgeLink)
     fireEvent.click(await screen.findByRole('button', { name: '放弃更改并继续' }))
-    expect(await screen.findByRole('heading', { name: '个人记忆与知识库' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: '知识来源' })).toBeInTheDocument()
   })
 
   it('does not intercept navigation when every source is clean', async (): Promise<void> => {
@@ -177,7 +177,7 @@ describe('WorkspaceApp unsaved changes', (): void => {
     fireEvent.click(screen.getByRole('link', { name: '知识库' }))
 
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
-    expect(await screen.findByRole('heading', { name: '个人记忆与知识库' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: '知识来源' })).toBeInTheDocument()
   })
 
   it('confirms a Workspace switch before replacing the route subtree', async (): Promise<void> => {

@@ -1,26 +1,13 @@
 /** @file 跨限界上下文的只读应用查询与反腐层 / Cross-context read application queries and anti-corruption layer. */
 
 import type { AppGateways } from '../application'
-import type {
-  UiInterviewReport,
-  UiInterviewSessionDetails,
-  UiInterviewSessionId,
-  UiInterviewSetupModel,
-  UiKnowledgeSource,
-  UiResumeSummary,
-  UiWorkspaceId
-} from '../published-language'
+import type { UiResumeSummary } from '../published-language'
 import type { WorkspaceSession } from './session/workspace-session'
 
 /** @brief 当前 Workspace 会话返回的已选访问权威 / Selected access authority returned by the current session. */
 type CurrentWorkspaceAccess = NonNullable<
   Awaited<ReturnType<WorkspaceSession['getAccess']>>['currentWorkspaceAccess']
 >
-
-/** @brief Interview 跨上下文投影一次只读取一页 KnowledgeSource / Interview cross-context projections read one KnowledgeSource page at a time. */
-const INTERVIEW_KNOWLEDGE_SOURCE_PAGE_LIMIT = 200 as Parameters<
-  AppGateways['knowledge']['listKnowledgeSourcePage']
->[0]['limit']
 
 /** @brief 首页一次读取采用 API v2 集合上限 / A home-page read uses the API v2 collection maximum. */
 const HOME_RESUME_PAGE_LIMIT = 200 as Parameters<
@@ -60,30 +47,6 @@ export interface WorkspaceHomeQueryResult {
   readonly resumeSummary: UiResumeSummary | null
 }
 
-/** @brief Interview 配置页所需的跨上下文只读投影 / Cross-context read projection required by Interview setup. */
-export interface InterviewSetupQueryResult {
-  /** @brief 当前工作区 ID / Current workspace ID. */
-  readonly workspaceId: UiWorkspaceId
-  /** @brief Interview 自有配置模型 / Interview-owned setup model. */
-  readonly setup: UiInterviewSetupModel
-  /** @brief 当前已加载 KnowledgeSource 页发布给 Interview 的来源投影 / Knowledge-source projections from the loaded page published to Interview. */
-  readonly knowledgeSources: readonly UiKnowledgeSource[]
-  /** @brief 是否还有未加载的 KnowledgeSource / Whether more KnowledgeSources remain unloaded. */
-  readonly hasMoreKnowledgeSources: boolean
-}
-
-/** @brief Interview 总结页所需的跨上下文只读投影 / Cross-context read projection required by Interview summary. */
-export interface InterviewSummaryQueryResult {
-  /** @brief Interview 自有报告 / Interview-owned report. */
-  readonly report: UiInterviewReport
-  /** @brief 可由 REST 权威资源还原的会话详情 / Session details reconstructed from authoritative REST resources. */
-  readonly details: UiInterviewSessionDetails
-  /** @brief 当前已加载 KnowledgeSource 页发布给 Interview 的来源投影 / Knowledge-source projections from the loaded page published to Interview. */
-  readonly knowledgeSources: readonly UiKnowledgeSource[]
-  /** @brief 是否还有未加载的 KnowledgeSource / Whether more KnowledgeSources remain unloaded. */
-  readonly hasMoreKnowledgeSources: boolean
-}
-
 /** @brief Workspace 首页应用查询 / Workspace-home application query. */
 export interface WorkspaceHomeQuery {
   /**
@@ -94,38 +57,10 @@ export interface WorkspaceHomeQuery {
   readonly load: (signal: AbortSignal) => Promise<WorkspaceHomeQueryResult>
 }
 
-/** @brief Interview 配置应用查询 / Interview-setup application query. */
-export interface InterviewSetupQuery {
-  /**
-   * @brief 加载配置与可选知识来源 / Load setup and selectable knowledge sources.
-   * @param signal 可选页面资源取消信号 / Optional page-resource cancellation signal.
-   * @return 配置与一页 KnowledgeSource / Setup and one KnowledgeSource page.
-   */
-  readonly load: (signal?: AbortSignal) => Promise<InterviewSetupQueryResult>
-}
-
-/** @brief Interview 总结应用查询 / Interview-summary application query. */
-export interface InterviewSummaryQuery {
-  /**
-   * @brief 加载总结与本次会话资料投影 / Load a summary and its session-material projection.
-   * @param sessionId Interview 会话 ID / Interview session ID.
-   * @param signal 可选页面资源取消信号 / Optional page-resource cancellation signal.
-   * @return 聚合后的总结投影 / Aggregated summary projection.
-   */
-  readonly load: (
-    sessionId: UiInterviewSessionId,
-    signal?: AbortSignal
-  ) => Promise<InterviewSummaryQueryResult>
-}
-
 /** @brief 仅向页面暴露的命名应用查询集合 / Named application queries exposed to pages. */
 export interface AppQueries {
   /** @brief Workspace 首页查询 / Workspace-home query. */
   readonly workspaceHome: WorkspaceHomeQuery
-  /** @brief Interview 配置查询 / Interview-setup query. */
-  readonly interviewSetup: InterviewSetupQuery
-  /** @brief Interview 总结查询 / Interview-summary query. */
-  readonly interviewSummary: InterviewSummaryQuery
 }
 
 /**
@@ -207,57 +142,5 @@ export function createAppQueries(
     }
   }
 
-  /** @brief Interview 配置聚合查询 / Interview-setup aggregate query. */
-  const interviewSetup: InterviewSetupQuery = {
-    async load(signal = new AbortController().signal): Promise<InterviewSetupQueryResult> {
-      /** @brief 当前显式选择的 WorkspaceAccess / Explicitly selected current WorkspaceAccess. */
-      const currentWorkspaceAccess = (await workspaceSession.getAccess()).currentWorkspaceAccess
-      if (currentWorkspaceAccess === undefined) {
-        throw new Error('No workspace is available for interview setup.')
-      }
-
-      /** @brief 当前授权路径中的 Workspace ID / Workspace ID in the current authorization path. */
-      const workspaceId = currentWorkspaceAccess.workspace.id
-      const [setup, knowledgeSourcePage] = await Promise.all([
-        gateways.interview.getInterviewSetup(workspaceId),
-        gateways.knowledge.listKnowledgeSourcePage({
-          cursor: null,
-          limit: INTERVIEW_KNOWLEDGE_SOURCE_PAGE_LIMIT,
-          signal,
-          workspaceId
-        })
-      ])
-      return {
-        hasMoreKnowledgeSources: knowledgeSourcePage.hasMore,
-        knowledgeSources: knowledgeSourcePage.items,
-        setup,
-        workspaceId
-      }
-    }
-  }
-
-  /** @brief Interview 总结聚合查询 / Interview-summary aggregate query. */
-  const interviewSummary: InterviewSummaryQuery = {
-    async load(
-      sessionId,
-      signal = new AbortController().signal
-    ): Promise<InterviewSummaryQueryResult> {
-      const { details, report } = await gateways.interview.getInterviewSummary(sessionId)
-      /** @brief 本次会话可用的 Knowledge 来源首页 / First KnowledgeSource page available to this session. */
-      const knowledgeSourcePage = await gateways.knowledge.listKnowledgeSourcePage({
-        cursor: null,
-        limit: INTERVIEW_KNOWLEDGE_SOURCE_PAGE_LIMIT,
-        signal,
-        workspaceId: details.session.workspaceId
-      })
-      return {
-        details,
-        hasMoreKnowledgeSources: knowledgeSourcePage.hasMore,
-        knowledgeSources: knowledgeSourcePage.items,
-        report
-      }
-    }
-  }
-
-  return { interviewSetup, interviewSummary, workspaceHome }
+  return { workspaceHome }
 }

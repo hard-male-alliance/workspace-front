@@ -20,6 +20,17 @@ export { asUiOpaqueId } from './shared-kernel/identity'
 export type { UiKnowledgeSourceId, UiOpaqueId, UiWorkspaceId } from './shared-kernel/identity'
 export type { UiResourceReference } from './shared-kernel/resource-reference'
 export type { UiContentLocale } from './shared-kernel/locale'
+export {
+  asUiInterviewPageLimit,
+  asUiInterviewScenarioCursor,
+  asUiInterviewSessionCursor,
+  asUiInterviewTranscriptCursor,
+  asUiInterviewType,
+  UI_INTERVIEW_PAGE_LIMIT_MAX
+} from './contexts/interview/domain/models'
+export type * from './contexts/interview/domain/models'
+export type * from './contexts/interview/application/gateway'
+export type * from './contexts/interview/application/requests'
 export { cloneUiJsonValue, uiJsonValuesEqual } from './shared-kernel/json'
 export {
   asUiEmailAddress,

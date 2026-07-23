@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   asUiConcurrencyToken,
+  asUiInterviewPageLimit,
   asUiKnowledgeSourcePageLimit,
   asUiOpaqueId,
   asUiResumePageLimit,
@@ -122,6 +123,42 @@ const KNOWLEDGE_SOURCE = {
     sensitivity: 'confidential',
     session_override_allowed: false
   },
+  workspace_id: WORKSPACE_ACCESS.workspace.id
+} as const
+
+/** @brief InterviewScenario 的 API v2 测试载荷 / API v2 test payload for an InterviewScenario. */
+const INTERVIEW_SCENARIO = {
+  allow_barge_in: true,
+  allow_followups: true,
+  created_at: '2026-07-22T12:00:00Z',
+  description: 'Systems reasoning.',
+  difficulty: 'advanced',
+  duration_minutes: 45,
+  focus_areas: ['consensus'],
+  id: 'scenario_01K0EXAMPLE00000001',
+  interview_type: 'technical_system_design',
+  locale: 'zh-CN',
+  name: 'Systems',
+  revision: 1,
+  rubric: {
+    dimensions: [
+      {
+        description: 'Reasoning quality.',
+        dimension_id: 'dimension_01K0EXAMPLE0000001',
+        name: 'Reasoning',
+        observable_indicators: [],
+        scoring_scale: { maximum: 100, minimum: 0 },
+        weight: 1
+      }
+    ],
+    name: 'Systems rubric',
+    overall_scale: { maximum: 100, minimum: 0 },
+    rubric_id: 'rubric_01K0EXAMPLE0000000001',
+    rubric_version: '2026-07'
+  },
+  status: 'active',
+  target_question_count: 8,
+  updated_at: '2026-07-22T12:00:00Z',
   workspace_id: WORKSPACE_ACCESS.workspace.id
 } as const
 
@@ -609,20 +646,75 @@ describe('createProductGateways', (): void => {
     })
   })
 
-  it('对尚未接入的 Interview 能力显式失败且不创建 v1 fallback', async (): Promise<void> => {
+  it('把 InterviewScenario 列表直接装配到认证 API v2 client', async (): Promise<void> => {
+    /** @brief fetch 观察记录 / Observation captured from fetch. */
+    let observation:
+      | {
+          readonly authorization: string | null
+          readonly signal: AbortSignal | null | undefined
+          readonly url: string
+        }
+      | undefined
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        /** @brief 当前请求头 / Current request headers. */
+        const headers = new Headers(init?.headers)
+        observation = {
+          authorization: headers.get('Authorization'),
+          signal: init?.signal,
+          url: typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+        }
+        /** @brief 客户端请求 ID / Client request ID. */
+        const requestId = headers.get('X-Request-Id')
+        if (requestId === null) throw new Error('The test request omitted X-Request-Id.')
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              items: [INTERVIEW_SCENARIO],
+              page: { has_more: false, next_cursor: null }
+            }),
+            {
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Request-Id': requestId
+              }
+            }
+          )
+        )
+      })
+    )
     /** @brief v2-only 产品网关 / v2-only product gateways. */
     const gateways = createProductGateways({
       authentication: authenticationPort((): string => ACCESS_TOKEN),
       locale: 'zh-CN'
     })
+    /** @brief 调用方取消信号 / Caller cancellation signal. */
+    const signal = new AbortController().signal
 
     await expect(
-      gateways.interview.listInterviewScenarios(
-        asUiOpaqueId<'workspace'>('ws_01K0EXAMPLE00000000000001')
-      )
-    ).rejects.toMatchObject({
-      capability: 'interview-scenarios.list',
-      name: 'ApiV2CapabilityUnavailableError'
+      gateways.interview.listInterviewScenarioPage({
+        cursor: null,
+        limit: asUiInterviewPageLimit(50),
+        signal,
+        workspaceId: asUiOpaqueId<'workspace'>(WORKSPACE_ACCESS.workspace.id)
+      })
+    ).resolves.toMatchObject({
+      hasMore: false,
+      items: [
+        {
+          id: INTERVIEW_SCENARIO.id,
+          interviewType: INTERVIEW_SCENARIO.interview_type,
+          name: INTERVIEW_SCENARIO.name,
+          workspaceId: WORKSPACE_ACCESS.workspace.id
+        }
+      ],
+      nextCursor: null
+    })
+    expect(observation).toMatchObject({
+      authorization: `Bearer ${ACCESS_TOKEN}`,
+      signal,
+      url: `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ACCESS.workspace.id}/interview-scenarios?limit=50`
     })
   })
 })

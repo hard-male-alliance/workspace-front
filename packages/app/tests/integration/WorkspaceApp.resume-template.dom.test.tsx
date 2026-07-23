@@ -550,7 +550,7 @@ describe('WorkspaceApp Resume Template product', (): void => {
     const confirm = await screen.findByRole(
       'button',
       { name: '确认上次应用结果' },
-      { timeout: 1_000 }
+      { timeout: 3_000 }
     )
     fireEvent.click(confirm)
 

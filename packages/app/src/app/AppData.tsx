@@ -10,6 +10,11 @@ import type { DiagnosticResourceName } from '../observability'
 import { useDiagnostics } from './Diagnostics'
 import { createAppProcesses, type AppProcesses } from './AppProcesses'
 import { createAppQueries, type AppQueries } from './AppQueries'
+import {
+  createInterviewReportProcess,
+  type InterviewReportProcess,
+  type InterviewReportRecoveryStorage
+} from './InterviewReportProcess'
 import { createWorkspaceSession, type WorkspaceSession } from './session/workspace-session'
 
 /** @brief Resume gateway 依赖注入上下文 / Resume-gateway dependency-injection context. */
@@ -26,6 +31,9 @@ const ResumeTemplateCatalogContext = createContext<AppGateways['resumeTemplates'
 
 /** @brief Interview gateway 依赖注入上下文 / Interview-gateway dependency-injection context. */
 const InterviewGatewayContext = createContext<AppGateways['interview'] | null>(null)
+
+/** @brief 可恢复 Interview Report 产品流程上下文 / Recoverable Interview Report product-process context. */
+const InterviewReportProcessContext = createContext<InterviewReportProcess | null>(null)
 
 /** @brief Knowledge gateway 依赖注入上下文 / Knowledge-gateway dependency-injection context. */
 const KnowledgeGatewayContext = createContext<AppGateways['knowledge'] | null>(null)
@@ -75,6 +83,36 @@ export function AppDataProvider({ children, gateways }: AppDataProviderProps): R
     () => createKnowledgeManualNoteCreationProcess(gateways.knowledge),
     [gateways.knowledge]
   )
+  /** @brief 当前宿主可用的 sessionStorage 兼容恢复端口 / SessionStorage-compatible recovery port available in the current host. */
+  const interviewReportStorage = useMemo<InterviewReportRecoveryStorage>(() => {
+    try {
+      if (typeof globalThis.sessionStorage !== 'undefined') return globalThis.sessionStorage
+    } catch {
+      // 受限宿主会使用仅限本进程生命周期的恢复记录。
+      // Restricted hosts use recovery records limited to this process lifetime.
+    }
+    /** @brief 无 DOM 宿主中的进程内恢复记录 / Process-local recovery records in a host without DOM storage. */
+    const records = new Map<string, string>()
+    return {
+      getItem: (key): string | null => records.get(key) ?? null,
+      removeItem: (key): void => {
+        records.delete(key)
+      },
+      setItem: (key, value): void => {
+        records.set(key, value)
+      }
+    }
+  }, [])
+  /** @brief 跨页面保留幂等 identity 与已知 Job 的 Report 流程 / Report process retaining idempotency identity and known Job across pages. */
+  const interviewReportProcess = useMemo(
+    () =>
+      createInterviewReportProcess({
+        interview: gateways.interview,
+        storage: interviewReportStorage,
+        workspaceOperations: gateways.workspaceOperations
+      }),
+    [gateways.interview, gateways.workspaceOperations, interviewReportStorage]
+  )
 
   return (
     <AppProcessesContext.Provider value={appProcesses}>
@@ -84,15 +122,17 @@ export function AppDataProvider({ children, gateways }: AppDataProviderProps): R
             <ResumeCreationContext.Provider value={gateways.resumeCreation}>
               <ResumeTemplateCatalogContext.Provider value={gateways.resumeTemplates}>
                 <InterviewGatewayContext.Provider value={gateways.interview}>
-                  <KnowledgeGatewayContext.Provider value={gateways.knowledge}>
-                    <KnowledgeManualNoteCreationContext.Provider
-                      value={knowledgeManualNoteCreation}
-                    >
-                      <WorkspaceSessionContext.Provider value={workspaceSession}>
-                        {children}
-                      </WorkspaceSessionContext.Provider>
-                    </KnowledgeManualNoteCreationContext.Provider>
-                  </KnowledgeGatewayContext.Provider>
+                  <InterviewReportProcessContext.Provider value={interviewReportProcess}>
+                    <KnowledgeGatewayContext.Provider value={gateways.knowledge}>
+                      <KnowledgeManualNoteCreationContext.Provider
+                        value={knowledgeManualNoteCreation}
+                      >
+                        <WorkspaceSessionContext.Provider value={workspaceSession}>
+                          {children}
+                        </WorkspaceSessionContext.Provider>
+                      </KnowledgeManualNoteCreationContext.Provider>
+                    </KnowledgeGatewayContext.Provider>
+                  </InterviewReportProcessContext.Provider>
                 </InterviewGatewayContext.Provider>
               </ResumeTemplateCatalogContext.Provider>
             </ResumeCreationContext.Provider>
@@ -136,28 +176,6 @@ export function useWorkspaceHomeQuery(): AppQueries['workspaceHome'] {
   const queries = useContext(AppQueriesContext)
   if (queries === null) throw new Error('Workspace pages require AppDataProvider.')
   return queries.workspaceHome
-}
-
-/**
- * @brief 读取 Interview 配置命名查询 / Read the named Interview-setup query.
- * @return 隔离页面与 Knowledge gateway 的应用查询 / Application query isolating the page from the Knowledge gateway.
- */
-export function useInterviewSetupQuery(): AppQueries['interviewSetup'] {
-  /** @brief 当前应用查询集合 / Current application-query collection. */
-  const queries = useContext(AppQueriesContext)
-  if (queries === null) throw new Error('Interview pages require AppDataProvider.')
-  return queries.interviewSetup
-}
-
-/**
- * @brief 读取 Interview 总结命名查询 / Read the named Interview-summary query.
- * @return 隔离页面与 Knowledge gateway 的应用查询 / Application query isolating the page from the Knowledge gateway.
- */
-export function useInterviewSummaryQuery(): AppQueries['interviewSummary'] {
-  /** @brief 当前应用查询集合 / Current application-query collection. */
-  const queries = useContext(AppQueriesContext)
-  if (queries === null) throw new Error('Interview pages require AppDataProvider.')
-  return queries.interviewSummary
 }
 
 /**
@@ -220,6 +238,18 @@ export function useInterviewGateway(): AppGateways['interview'] {
 
   if (gateway === null) throw new Error('Interview pages require AppDataProvider.')
   return gateway
+}
+
+/**
+ * @brief 读取可恢复的 Interview Report 产品流程 / Read the recoverable Interview Report product process.
+ * @return 跨 Interview 与通用 Job 的命名流程 / Named process spanning Interview and generic Jobs.
+ * @throws 未被 AppDataProvider 包裹时抛出 / Throws when not wrapped by AppDataProvider.
+ */
+export function useInterviewReportProcess(): InterviewReportProcess {
+  /** @brief 当前 Report 流程 / Current Report process. */
+  const process = useContext(InterviewReportProcessContext)
+  if (process === null) throw new Error('Interview Report generation requires AppDataProvider.')
+  return process
 }
 
 /**

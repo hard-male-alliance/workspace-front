@@ -297,6 +297,137 @@ export type {
   ResumeRenderFormat,
   ResumeRenderMode
 } from './resume/job-commands'
+export {
+  encodeCreateInterviewScenarioRequest,
+  encodeUpdateInterviewScenarioRequest,
+  parseInterviewRubric,
+  parseInterviewScenario,
+  parseInterviewScenarioList,
+  parseScoreScale
+} from './interview/scenario'
+export type {
+  CreateInterviewScenarioRequest,
+  InterviewDifficulty,
+  InterviewRubric,
+  InterviewScenario,
+  InterviewScenarioInput,
+  InterviewScenarioStatus,
+  RubricDimension,
+  ScoreScale,
+  UpdateInterviewScenarioRequest
+} from './interview/scenario'
+export {
+  createWorkspaceInterviewScenario,
+  getWorkspaceInterviewScenario,
+  listWorkspaceInterviewScenarioPage,
+  updateWorkspaceInterviewScenario
+} from './interview/scenario-client'
+export type {
+  CreatedInterviewScenarioRepresentation,
+  CreateWorkspaceInterviewScenarioCommand,
+  InterviewScenarioCreationHttpClient,
+  InterviewScenarioPageRequest,
+  InterviewScenarioReadRequest,
+  InterviewScenarioRepresentation,
+  InterviewScenarioUpdateHttpClient,
+  UpdateWorkspaceInterviewScenarioCommand
+} from './interview/scenario-client'
+export {
+  encodeCreateInterviewSessionRequest,
+  encodeCreateRealtimeConnectionRequest,
+  encodeEndInterviewSessionRequest,
+  parseInterviewAvatarPreferences,
+  parseInterviewJobTarget,
+  parseInterviewMediaPreferences,
+  parseInterviewSession,
+  parseInterviewSessionList,
+  parseInterviewTranscriptPage,
+  parseInterviewTranscriptSegment,
+  parseRealtimeConnection,
+  parseRecordingConsent
+} from './interview/session'
+export type {
+  CreateInterviewSessionRequest,
+  CreateRealtimeConnectionRequest,
+  EndInterviewSessionRequest,
+  InterviewAvatarOutputMode,
+  InterviewAvatarPreferences,
+  InterviewEndReason,
+  InterviewFallbackTransport,
+  InterviewIceServer,
+  InterviewJobTarget,
+  InterviewMediaPreferences,
+  InterviewRealtimeTransport,
+  InterviewSession,
+  InterviewSessionStatus,
+  InterviewTranscriptSegment,
+  InterviewTranscriptSpeaker,
+  RealtimeConnection,
+  RecordingConsent
+} from './interview/session'
+export {
+  createWorkspaceInterviewRealtimeConnection,
+  createWorkspaceInterviewSession,
+  endWorkspaceInterviewSession,
+  getWorkspaceInterviewSession,
+  listWorkspaceInterviewSessionPage,
+  listWorkspaceInterviewTranscriptPage
+} from './interview/session-client'
+export type {
+  CreatedInterviewSessionRepresentation,
+  CreateWorkspaceInterviewRealtimeConnectionCommand,
+  CreateWorkspaceInterviewSessionCommand,
+  EndWorkspaceInterviewSessionCommand,
+  InterviewEndRequestHttpClient,
+  InterviewRealtimeConnectionHttpClient,
+  InterviewSessionCreationHttpClient,
+  InterviewSessionPageRequest,
+  InterviewSessionReadRequest,
+  InterviewSessionRepresentation,
+  InterviewTranscriptPageRequest,
+  RealtimeConnectionRepresentation
+} from './interview/session-client'
+export {
+  encodeCreateInterviewReportJobRequest,
+  parseInterviewEvidence,
+  parseInterviewReport,
+  parseInterviewRichText
+} from './interview/report'
+export type {
+  CreateInterviewReportJobRequest,
+  InterviewActionPlanItem,
+  InterviewActionPlanPriority,
+  InterviewCommunicationMetrics,
+  InterviewEvidence,
+  InterviewReport,
+  InterviewRichText,
+  InterviewRubricScore
+} from './interview/report'
+export {
+  createWorkspaceInterviewReportJob,
+  getWorkspaceInterviewReport
+} from './interview/report-client'
+export type {
+  CreateWorkspaceInterviewReportJobCommand,
+  InterviewReportJobHttpClient,
+  InterviewReportReadRequest,
+  InterviewReportRepresentation
+} from './interview/report-client'
+export {
+  parseInferenceIntent,
+  parseKnowledgeSelection,
+  parseVersionedReference
+} from './interview/wire'
+export type {
+  InferenceCostTier,
+  InferenceDataRegion,
+  InferenceIntent,
+  InferenceQualityTier,
+  KnowledgeSelection,
+  KnowledgeSelectionMode,
+  KnowledgeVersionPin,
+  VersionedReference
+} from './interview/wire'
 export { listWorkspaceAccessPage, parseWorkspaceList } from './workspace/workspace-access'
 export type {
   Workspace,

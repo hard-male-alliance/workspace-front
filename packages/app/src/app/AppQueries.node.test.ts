@@ -1,8 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import type { AppGateways } from '../application'
-import { asUiKnowledgeSourceCursor } from '../contexts/knowledge'
-import { asUiOpaqueId } from '../shared-kernel/identity'
 import {
   InMemoryIdentityGateway,
   InMemoryInterviewGateway,
@@ -42,10 +40,8 @@ describe('createAppQueries', (): void => {
   it('仅以已接通的 v2 能力构造 Workspace 首页', async (): Promise<void> => {
     /** @brief 当前测试 gateway / Gateways used by this test. */
     const gateways = createGateways()
-    /** @brief Interview 历史调用观察 / Interview-history call observation. */
-    const listCompletedInterviews = vi
-      .spyOn(gateways.interview, 'listCompletedInterviews')
-      .mockRejectedValue(new Error('Interview capability is not connected.'))
+    /** @brief Interview Session 集合调用观察 / Interview Session collection-call observation. */
+    const listInterviewSessionPage = vi.spyOn(gateways.interview, 'listInterviewSessionPage')
     /** @brief Resume 摘要页调用观察 / Resume-summary page call observation. */
     const listResumeSummariesPage = vi.spyOn(gateways.resume, 'listResumeSummariesPage')
     /** @brief KnowledgeSource 单页调用观察 / KnowledgeSource page-call observation. */
@@ -70,7 +66,7 @@ describe('createAppQueries', (): void => {
     )
     expect(loadCurrentUser).toHaveBeenCalledTimes(1)
     expect(listWorkspaceAccessPage).toHaveBeenCalledTimes(1)
-    expect(listCompletedInterviews).not.toHaveBeenCalled()
+    expect(listInterviewSessionPage).not.toHaveBeenCalled()
     expect(listResumeSummariesPage).toHaveBeenCalledTimes(1)
     expect(listResumeSummariesPage).toHaveBeenCalledWith(
       expect.objectContaining({ cursor: null, limit: 200 })
@@ -78,69 +74,31 @@ describe('createAppQueries', (): void => {
     expect(listKnowledgeSourcePage).not.toHaveBeenCalled()
   })
 
-  it('Interview 投影只读取 KnowledgeSource 首页并公开未加载状态', async (): Promise<void> => {
-    /** @brief 当前测试 gateway / Gateways used by this test. */
-    const gateways = createGateways()
-    /** @brief 强制返回后续 cursor 的单页调用观察 / One-page call forced to return a continuation cursor. */
-    const listKnowledgeSourcePage = vi
-      .spyOn(gateways.knowledge, 'listKnowledgeSourcePage')
-      .mockResolvedValue({
-        hasMore: true,
-        items: [],
-        nextCursor: asUiKnowledgeSourceCursor('knowledge_cursor_second_page')
-      })
-    /** @brief 页面资源取消信号 / Page-resource cancellation signal. */
-    const signal = new AbortController().signal
-    /** @brief Interview 配置投影 / Interview setup projection. */
-    const result = await createAppQueries(
-      gateways,
-      createWorkspaceSession(gateways.identity, gateways.workspace)
-    ).interviewSetup.load(signal)
-
-    expect(result).toMatchObject({
-      hasMoreKnowledgeSources: true,
-      knowledgeSources: []
-    })
-    expect(listKnowledgeSourcePage).toHaveBeenCalledTimes(1)
-    expect(listKnowledgeSourcePage).toHaveBeenCalledWith({
-      cursor: null,
-      limit: 200,
-      signal,
-      workspaceId: result.workspaceId
-    })
-  })
-
-  it('在应用层聚合公开投影并复用单一工作区会话', async (): Promise<void> => {
+  it('复用单一工作区会话且不跨上下文读取 Interview 或 Knowledge', async (): Promise<void> => {
     /** @brief 当前测试 gateway / Gateways used by this test. */
     const gateways = createGateways()
     /** @brief Identity 读取观察 / Observation of Identity reads. */
     const loadCurrentUser = vi.spyOn(gateways.identity, 'loadCurrentUser')
     /** @brief Workspace 列表读取观察 / Observation of Workspace-list reads. */
     const listWorkspaceAccessPage = vi.spyOn(gateways.workspace, 'listWorkspaceAccessPage')
-    /** @brief realtime runtime 不应被报告页查询 / Realtime runtime must not be requested by the report query. */
-    const getInterviewRuntime = vi.spyOn(gateways.interview, 'getInterviewRuntime')
+    /** @brief Interview 与 Knowledge 不属于首页投影 / Interview and Knowledge do not belong to the home projection. */
+    const listInterviewSessionPage = vi.spyOn(gateways.interview, 'listInterviewSessionPage')
+    const listKnowledgeSourcePage = vi.spyOn(gateways.knowledge, 'listKnowledgeSourcePage')
     /** @brief 当前应用会话 / Current application session. */
     const session = createWorkspaceSession(gateways.identity, gateways.workspace)
     /** @brief 被测命名查询 / Named queries under test. */
     const queries = createAppQueries(gateways, session)
 
-    const [access, home, setup, summary] = await Promise.all([
+    const [access, home] = await Promise.all([
       session.getAccess(),
-      queries.workspaceHome.load(new AbortController().signal),
-      queries.interviewSetup.load(),
-      queries.interviewSummary.load(asUiOpaqueId<'interview-session'>('int_mock_system_design'))
+      queries.workspaceHome.load(new AbortController().signal)
     ])
 
     expect(access.currentUser.displayName).toBe('Klee')
     expect(access.currentWorkspaceAccess?.workspace.id).toBe(home.home.workspaceAccess.workspace.id)
     expect(home.resumeSummary?.id).toBe('res_mock_ai_platform')
-    expect(setup.workspaceId).toBe(home.home.workspaceAccess.workspace.id)
-    expect(setup.knowledgeSources.length).toBeGreaterThan(0)
-    expect(setup.hasMoreKnowledgeSources).toBe(false)
-    expect(summary.details.session.id).toBe('int_mock_system_design')
-    expect(summary.knowledgeSources.length).toBeGreaterThan(0)
-    expect(summary.hasMoreKnowledgeSources).toBe(false)
-    expect(getInterviewRuntime).not.toHaveBeenCalled()
+    expect(listInterviewSessionPage).not.toHaveBeenCalled()
+    expect(listKnowledgeSourcePage).not.toHaveBeenCalled()
     expect(loadCurrentUser).toHaveBeenCalledTimes(1)
     expect(listWorkspaceAccessPage).toHaveBeenCalledTimes(1)
   })
@@ -156,6 +114,5 @@ describe('createAppQueries', (): void => {
     await expect(queries.workspaceHome.load(new AbortController().signal)).rejects.toThrow(
       'No workspace is available'
     )
-    await expect(queries.interviewSetup.load()).rejects.toThrow('No workspace is available')
   })
 })
