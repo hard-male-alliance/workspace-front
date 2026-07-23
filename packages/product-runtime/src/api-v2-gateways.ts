@@ -1594,15 +1594,3 @@ export function createUnavailableInterviewGateway(): AppGateways['interview'] {
     submitInterviewAnswer: unavailableOperation('interview-sessions.submit-answer')
   }
 }
-
-/**
- * @brief 创建尚未接入 API v2 的 Knowledge 端口 / Create the Knowledge port not yet connected to API v2.
- * @return 所有操作都显式失败且不回退的端口 / Port whose operations fail explicitly without fallback.
- */
-export function createUnavailableKnowledgeGateway(): AppGateways['knowledge'] {
-  return {
-    getKnowledgeVisibility: unavailableOperation('knowledge.visibility.read'),
-    listKnowledgeSources: unavailableOperation('knowledge-sources.list'),
-    updateKnowledgeVisibility: unavailableOperation('knowledge.visibility.update')
-  }
-}

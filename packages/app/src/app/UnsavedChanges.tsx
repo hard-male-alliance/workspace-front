@@ -1,6 +1,6 @@
 /** @file 应用级未保存更改登记表 / Application-level unsaved-change registry. */
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
 /** @brief 未保存更改登记函数 / Unsaved-change registration function. */
@@ -10,6 +10,8 @@ type RegisterUnsavedChanges = (source: string) => () => void
 interface UnsavedChangesContextValue {
   /** @brief 当前是否存在任意未保存来源 / Whether any unsaved source is currently active. */
   readonly isDirty: boolean
+  /** @brief 同步读取登记表的即时状态 / Read the registry's current state synchronously. */
+  readonly isDirtyNow: () => boolean
   /** @brief 登记一个活动来源并返回它的独立取消函数 / Register one active source and return its independent disposer. */
   readonly register: RegisterUnsavedChanges
 }
@@ -31,10 +33,10 @@ export interface UnsavedChangesProviderProps {
 export function UnsavedChangesProvider({
   children
 }: UnsavedChangesProviderProps): React.JSX.Element {
-  /** @brief 以唯一登记标识隔离的活动来源 / Active sources isolated by unique registration identities. */
-  const [activeRegistrations, setActiveRegistrations] = useState<ReadonlySet<symbol>>(
-    () => new Set()
-  )
+  /** @brief 以唯一标识隔离且可同步读取的活动来源 / Active sources isolated by identity and readable synchronously. */
+  const activeRegistrations = useRef<Set<symbol>>(new Set())
+  /** @brief 投影到 React 的活动登记数量 / Active-registration count projected into React. */
+  const [registrationCount, setRegistrationCount] = useState(0)
   /** @brief 登记一个来源且仅允许对应 disposer 移除它 / Register one source and allow only its disposer to remove it. */
   const register = useCallback<RegisterUnsavedChanges>((source) => {
     /** @brief 本次登记的不透明标识 / Opaque identity for this registration. */
@@ -42,25 +44,23 @@ export function UnsavedChangesProvider({
     /** @brief disposer 是否已经执行 / Whether the disposer already ran. */
     let disposed = false
 
-    setActiveRegistrations((current) => new Set(current).add(registration))
+    activeRegistrations.current.add(registration)
+    setRegistrationCount((current) => current + 1)
     return (): void => {
       if (disposed) return
       disposed = true
-      setActiveRegistrations((current) => {
-        if (!current.has(registration)) return current
-        /** @brief 移除当前登记后的新集合 / New set after removing this registration. */
-        const next = new Set(current)
-        next.delete(registration)
-        return next
-      })
+      if (!activeRegistrations.current.delete(registration)) return
+      setRegistrationCount((current) => Math.max(0, current - 1))
     }
   }, [])
+  /** @brief 不依赖 React 提交时序的即时 dirty 读取 / Immediate dirty read independent of React commit timing. */
+  const isDirtyNow = useCallback((): boolean => activeRegistrations.current.size > 0, [])
   /** @brief 聚合后的应用级 dirty 信号 / Aggregated application-level dirty signal. */
-  const isDirty = activeRegistrations.size > 0
+  const isDirty = registrationCount > 0
   /** @brief 仅在聚合状态改变时更新的上下文值 / Context value updated only when aggregate state changes. */
   const value = useMemo<UnsavedChangesContextValue>(
-    () => ({ isDirty, register }),
-    [isDirty, register]
+    () => ({ isDirty, isDirtyNow, register }),
+    [isDirty, isDirtyNow, register]
   )
 
   useEffect((): (() => void) | undefined => {
@@ -114,4 +114,16 @@ export function useHasUnsavedChanges(): boolean {
   const registry = useContext(UnsavedChangesContext)
   if (registry === null) throw new Error('Unsaved changes require UnsavedChangesProvider.')
   return registry.isDirty
+}
+
+/**
+ * @brief 读取导航判定时的即时未保存状态 / Read the current unsaved state at navigation-decision time.
+ * @return 稳定且同步查询活动登记表的函数 / Stable function synchronously querying active registrations.
+ * @note 成功保存后的同一提交周期内也会返回最新值，避免误拦截产品导航 / Returns the latest value in the same commit after a successful save, avoiding false product-navigation blocks.
+ */
+export function useHasUnsavedChangesNow(): () => boolean {
+  /** @brief 当前未保存更改登记表 / Current unsaved-change registry. */
+  const registry = useContext(UnsavedChangesContext)
+  if (registry === null) throw new Error('Unsaved changes require UnsavedChangesProvider.')
+  return registry.isDirtyNow
 }

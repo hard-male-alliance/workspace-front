@@ -214,6 +214,7 @@ export function classifyResourceFailure(error: unknown): ResourceFailure {
 export function requiresAuthorityReload(error: unknown): boolean {
   if (error instanceof ConfirmedCommandConflictError) return false
   if (isCommandIdempotencyConflict(error)) return false
+  if (isRecord(error) && error.name === 'ApiV2WriteOutcomeUnknownError') return true
   /** @brief 已脱敏的通用失败类别 / Sanitized general failure category. */
   const failure = classifyResourceFailure(error)
   if (failure.kind === 'conflict' || failure.kind === 'outcome-unknown') return true

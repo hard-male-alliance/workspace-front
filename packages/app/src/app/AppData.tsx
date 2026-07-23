@@ -1,6 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { AppGateways } from '../application'
+import {
+  createKnowledgeManualNoteCreationProcess,
+  type AppGateways,
+  type KnowledgeManualNoteCreationProcess
+} from '../application'
 import { classifyDiagnosticError } from '../observability'
 import type { DiagnosticResourceName } from '../observability'
 import { useDiagnostics } from './Diagnostics'
@@ -25,6 +29,11 @@ const InterviewGatewayContext = createContext<AppGateways['interview'] | null>(n
 
 /** @brief Knowledge gateway 依赖注入上下文 / Knowledge-gateway dependency-injection context. */
 const KnowledgeGatewayContext = createContext<AppGateways['knowledge'] | null>(null)
+
+/** @brief 手工笔记创建恢复流程上下文 / Manual-note creation-recovery process context. */
+const KnowledgeManualNoteCreationContext = createContext<KnowledgeManualNoteCreationProcess | null>(
+  null
+)
 
 /** @brief 当前工作区会话上下文 / Current-workspace session context. */
 const WorkspaceSessionContext = createContext<WorkspaceSession | null>(null)
@@ -61,6 +70,11 @@ export function AppDataProvider({ children, gateways }: AppDataProviderProps): R
   )
   /** @brief 将跨上下文写入与异步观察收敛在应用层的命名流程 / Named processes containing cross-context writes and asynchronous observation in the application layer. */
   const appProcesses = useMemo(() => createAppProcesses(gateways), [gateways])
+  /** @brief 在 provider 生命周期内保存冻结正文与幂等 identity 的 Knowledge 创建流程 / Knowledge creation process retaining the frozen body and idempotency identity for the provider lifecycle. */
+  const knowledgeManualNoteCreation = useMemo(
+    () => createKnowledgeManualNoteCreationProcess(gateways.knowledge),
+    [gateways.knowledge]
+  )
 
   return (
     <AppProcessesContext.Provider value={appProcesses}>
@@ -71,9 +85,13 @@ export function AppDataProvider({ children, gateways }: AppDataProviderProps): R
               <ResumeTemplateCatalogContext.Provider value={gateways.resumeTemplates}>
                 <InterviewGatewayContext.Provider value={gateways.interview}>
                   <KnowledgeGatewayContext.Provider value={gateways.knowledge}>
-                    <WorkspaceSessionContext.Provider value={workspaceSession}>
-                      {children}
-                    </WorkspaceSessionContext.Provider>
+                    <KnowledgeManualNoteCreationContext.Provider
+                      value={knowledgeManualNoteCreation}
+                    >
+                      <WorkspaceSessionContext.Provider value={workspaceSession}>
+                        {children}
+                      </WorkspaceSessionContext.Provider>
+                    </KnowledgeManualNoteCreationContext.Provider>
                   </KnowledgeGatewayContext.Provider>
                 </InterviewGatewayContext.Provider>
               </ResumeTemplateCatalogContext.Provider>
@@ -215,6 +233,18 @@ export function useKnowledgeGateway(): AppGateways['knowledge'] {
 
   if (gateway === null) throw new Error('Knowledge pages require AppDataProvider.')
   return gateway
+}
+
+/**
+ * @brief 读取手工笔记 KnowledgeSource 创建恢复流程 / Read the manual-note KnowledgeSource creation-recovery process.
+ * @return 在页面卸载后仍保留冻结命令的进程内流程 / In-process flow retaining the frozen command after page unmount.
+ * @throws 未被 AppDataProvider 包裹时抛出错误 / Throws when not wrapped by AppDataProvider.
+ */
+export function useKnowledgeManualNoteCreation(): KnowledgeManualNoteCreationProcess {
+  /** @brief 当前 Knowledge 创建流程 / Current Knowledge creation process. */
+  const process = useContext(KnowledgeManualNoteCreationContext)
+  if (process === null) throw new Error('Knowledge creation requires AppDataProvider.')
+  return process
 }
 
 /**

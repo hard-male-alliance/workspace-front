@@ -20,6 +20,8 @@
   min-width: min(420px, 100%);
   align-items: center;
   gap: 9px;
+  padding: 2px 4px;
+  border-radius: var(--ui-radius-sm);
   color: var(--ui-color-ink-muted);
 }
 
@@ -34,6 +36,9 @@
 }
 
 .aw-search-field:focus-within {
+  outline: 2px solid var(--ui-color-accent);
+  outline-offset: 2px;
+  box-shadow: var(--ui-focus-ring);
   color: var(--ui-color-accent);
 }
 
@@ -48,9 +53,9 @@
   background: var(--ui-color-surface);
 }
 
-.aw-source-card--selected {
+.aw-source-card:focus-within {
   border-color: var(--ui-color-accent);
-  background: var(--ui-color-accent-subtle);
+  box-shadow: var(--ui-focus-ring);
 }
 
 .aw-source-detail-button {
@@ -78,45 +83,9 @@
   font-size: 11px;
 }
 
-.aw-source-detail {
-  position: sticky;
-  top: 84px;
-  align-self: start;
-}
-
-.aw-source-detail-name {
-  margin: 14px 0 4px;
-  color: var(--ui-color-ink);
-  font-size: 16px;
-  font-weight: 720;
-}
-
-.aw-source-detail-stats {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 14px;
-}
-
-.aw-source-detail-stats span {
-  display: grid;
-  gap: 2px;
-  padding: 10px;
-  border: 1px solid var(--ui-color-border);
-  border-radius: var(--ui-radius-sm);
-  color: var(--ui-color-ink-muted);
-  font-size: 10px;
-}
-
-.aw-source-detail-stats strong {
-  color: var(--ui-color-ink);
-  font-size: 17px;
-}
-
-.aw-source-detail-boundary {
-  margin-top: 18px;
-  padding-top: 18px;
-  border-top: 1px solid var(--ui-color-border);
+.aw-knowledge-section-heading {
+  justify-content: space-between;
+  gap: var(--ui-space-4);
 }
 
 .aw-visibility-grid {
@@ -164,6 +133,7 @@
 .aw-policy-matrix {
   overflow: auto;
   padding: 3px 0;
+  overscroll-behavior-inline: contain;
 }
 
 .aw-policy-table {
@@ -185,21 +155,335 @@
   text-align: left;
 }
 
-.aw-check {
-  display: inline-grid;
-  width: 18px;
-  height: 18px;
-  place-items: center;
-  border: 1px solid var(--ui-color-border-strong);
-  border-radius: 5px;
-  background: var(--ui-color-accent-subtle);
-  color: var(--ui-color-accent-subtle-foreground);
-  font-size: 12px;
-  font-weight: 800;
+.aw-policy-table td,
+.aw-visibility-grid dd {
+  overflow-wrap: anywhere;
 }
 
-.aw-check--off {
-  border-color: var(--ui-color-border);
+.aw-visibility-grid dd {
+  min-width: 0;
+  text-align: end;
+}
+
+.aw-knowledge-create-form,
+.aw-knowledge-edit-form {
+  display: grid;
+  width: min(100%, 1040px);
+  min-width: 0;
+  gap: var(--ui-space-4);
+}
+
+.aw-visibility-form {
+  display: grid;
+  min-width: 0;
+  gap: var(--ui-space-4);
+  margin-top: var(--ui-space-5);
+}
+
+.aw-visibility-form .aw-editor-grid,
+.aw-knowledge-create-form > .aw-card .aw-editor-grid {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--ui-space-4);
+}
+
+.aw-visibility-form .aw-editor-grid--single,
+.aw-knowledge-create-form > .aw-card .aw-editor-grid--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.aw-knowledge-create-form .aw-editor-field,
+.aw-knowledge-edit-form .aw-editor-field,
+.aw-visibility-form .aw-editor-field {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+  margin: 0;
+  color: var(--ui-color-ink-muted);
+  font-size: var(--ui-text-xs);
+  font-weight: 680;
+  line-height: var(--ui-leading-normal);
+}
+
+.aw-knowledge-create-form .aw-editor-field > input,
+.aw-knowledge-create-form .aw-editor-field > select,
+.aw-knowledge-create-form .aw-editor-field > textarea,
+.aw-knowledge-edit-form .aw-editor-field > input,
+.aw-knowledge-edit-form .aw-editor-field > select,
+.aw-knowledge-edit-form .aw-editor-field > textarea,
+.aw-visibility-form .aw-editor-field > input,
+.aw-visibility-form .aw-editor-field > select,
+.aw-visibility-form .aw-editor-field > textarea {
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 11px;
+  border: 1px solid var(--ui-color-border);
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-color-surface-raised);
+  color: var(--ui-color-ink);
+  font-size: var(--ui-text-sm);
+  font-weight: 450;
+  line-height: var(--ui-leading-normal);
+  transition:
+    border-color var(--ui-transition-fast),
+    background var(--ui-transition-fast),
+    box-shadow var(--ui-transition-fast);
+}
+
+.aw-knowledge-create-form .aw-editor-field > textarea,
+.aw-knowledge-edit-form .aw-editor-field > textarea {
+  min-height: 240px;
+  resize: vertical;
+}
+
+.aw-knowledge-create-form .aw-editor-field > input:focus-visible,
+.aw-knowledge-create-form .aw-editor-field > select:focus-visible,
+.aw-knowledge-create-form .aw-editor-field > textarea:focus-visible,
+.aw-knowledge-edit-form .aw-editor-field > input:focus-visible,
+.aw-knowledge-edit-form .aw-editor-field > select:focus-visible,
+.aw-knowledge-edit-form .aw-editor-field > textarea:focus-visible,
+.aw-visibility-form .aw-editor-field > input:focus-visible,
+.aw-visibility-form .aw-editor-field > select:focus-visible,
+.aw-visibility-form .aw-editor-field > textarea:focus-visible {
+  border-color: var(--ui-color-accent);
   background: var(--ui-color-surface);
-  color: transparent;
+  box-shadow: var(--ui-focus-ring);
+}
+
+.aw-knowledge-create-form .aw-editor-field > input:disabled,
+.aw-knowledge-create-form .aw-editor-field > select:disabled,
+.aw-knowledge-create-form .aw-editor-field > textarea:disabled,
+.aw-knowledge-edit-form .aw-editor-field > input:disabled,
+.aw-knowledge-edit-form .aw-editor-field > select:disabled,
+.aw-knowledge-edit-form .aw-editor-field > textarea:disabled,
+.aw-visibility-form .aw-editor-field > input:disabled,
+.aw-visibility-form .aw-editor-field > select:disabled,
+.aw-visibility-form .aw-editor-field > textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.aw-knowledge-create-form .aw-editor-field > small,
+.aw-knowledge-edit-form .aw-editor-field > small,
+.aw-visibility-form .aw-editor-field > small {
+  color: var(--ui-color-ink-subtle);
+  font-size: var(--ui-text-xs);
+  font-weight: 450;
+  line-height: var(--ui-leading-normal);
+}
+
+.aw-policy-fieldset,
+.aw-policy-operations {
+  min-width: 0;
+  margin: 0;
+  padding: var(--ui-space-4);
+  border: 1px solid var(--ui-color-border);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-color-surface-muted);
+}
+
+.aw-policy-fieldset > legend,
+.aw-policy-operations > legend {
+  max-width: 100%;
+  padding: 0 var(--ui-space-2);
+  color: var(--ui-color-ink);
+  font-size: var(--ui-text-sm);
+  font-weight: 720;
+  line-height: var(--ui-leading-normal);
+}
+
+.aw-checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: var(--ui-space-2);
+}
+
+.aw-checkbox-label {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 40px;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border: 1px solid var(--ui-color-border);
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-color-surface);
+  color: var(--ui-color-ink-muted);
+  cursor: pointer;
+  font-size: var(--ui-text-xs);
+  font-weight: 560;
+  line-height: var(--ui-leading-normal);
+  transition:
+    border-color var(--ui-transition-fast),
+    background var(--ui-transition-fast),
+    box-shadow var(--ui-transition-fast);
+}
+
+.aw-checkbox-label:focus-within {
+  border-color: var(--ui-color-accent);
+  background: var(--ui-color-accent-subtle);
+  box-shadow: var(--ui-focus-ring);
+  color: var(--ui-color-accent-subtle-foreground);
+}
+
+.aw-checkbox-label > input[type='checkbox'] {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  margin: 0;
+  accent-color: var(--ui-color-accent);
+}
+
+.aw-checkbox-label > input[type='checkbox']:focus-visible {
+  outline-offset: 3px;
+}
+
+.aw-checkbox-label:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.aw-policy-rule-list {
+  display: grid;
+  gap: var(--ui-space-3);
+}
+
+.aw-policy-rule {
+  display: grid;
+  min-width: 0;
+  gap: var(--ui-space-4);
+  padding: var(--ui-space-4);
+  border: 1px solid var(--ui-color-border-strong);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-color-surface);
+}
+
+.aw-policy-rule:focus-within {
+  border-color: var(--ui-color-accent);
+}
+
+.aw-policy-operations {
+  background: var(--ui-color-surface-muted);
+}
+
+.aw-policy-remove {
+  justify-self: end;
+}
+
+.aw-form-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  padding-top: var(--ui-space-1);
+}
+
+.aw-recovery-card {
+  display: grid;
+  width: min(100%, 1040px);
+  min-width: 0;
+  gap: var(--ui-space-3);
+  margin-bottom: var(--ui-space-4);
+  border-color: var(--ui-color-warning);
+  background: var(--ui-color-warning-subtle);
+}
+
+.aw-recovery-card > .aw-inline-actions {
+  flex-wrap: wrap;
+}
+
+.aw-recovery-card > .aw-inline-actions:first-child {
+  align-items: flex-start;
+}
+
+.aw-inline-warning {
+  margin: var(--ui-space-3) 0;
+  padding: 10px 12px;
+  border: 1px solid var(--ui-color-warning);
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-color-warning-subtle);
+  color: var(--ui-color-warning);
+  font-size: var(--ui-text-xs);
+  line-height: var(--ui-leading-normal);
+  overflow-wrap: anywhere;
+}
+
+.aw-recovery-card .aw-inline-warning,
+.aw-recovery-card > .aw-inline-error,
+.aw-knowledge-create-form > .aw-inline-error,
+.aw-knowledge-edit-form > .aw-inline-error {
+  margin: 0;
+}
+
+.aw-knowledge-create-form > .aw-card > .aw-inline-actions:first-child,
+.aw-knowledge-edit-form > .aw-card > .aw-inline-actions:first-child {
+  align-items: flex-start;
+}
+
+.aw-knowledge-create-form button:disabled,
+.aw-knowledge-edit-form button:disabled,
+.aw-visibility-form button:disabled,
+.aw-recovery-card button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+  transform: none;
+}
+
+@media (max-width: 900px) {
+  .aw-visibility-form .aw-editor-grid,
+  .aw-knowledge-create-form > .aw-card .aw-editor-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 620px) {
+  .aw-knowledge-create-form,
+  .aw-knowledge-edit-form,
+  .aw-visibility-form,
+  .aw-recovery-card {
+    gap: var(--ui-space-3);
+  }
+
+  .aw-knowledge-create-form > .aw-card,
+  .aw-knowledge-edit-form > .aw-card,
+  .aw-recovery-card {
+    padding: var(--ui-space-4);
+  }
+
+  .aw-policy-fieldset,
+  .aw-policy-operations,
+  .aw-policy-rule {
+    padding: var(--ui-space-3);
+  }
+
+  .aw-checkbox-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .aw-knowledge-create-form .aw-editor-field > input,
+  .aw-knowledge-create-form .aw-editor-field > select,
+  .aw-knowledge-create-form .aw-editor-field > textarea,
+  .aw-knowledge-edit-form .aw-editor-field > input,
+  .aw-knowledge-edit-form .aw-editor-field > select,
+  .aw-knowledge-edit-form .aw-editor-field > textarea,
+  .aw-visibility-form .aw-editor-field > input,
+  .aw-visibility-form .aw-editor-field > select,
+  .aw-visibility-form .aw-editor-field > textarea {
+    font-size: var(--ui-text-base);
+  }
+
+  .aw-form-actions,
+  .aw-recovery-card > .aw-inline-actions,
+  .aw-recovery-card .aw-inline-warning .aw-inline-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .aw-form-actions > .aw-primary-button,
+  .aw-form-actions > .aw-quiet-button,
+  .aw-recovery-card > .aw-primary-button,
+  .aw-recovery-card > .aw-inline-actions > button,
+  .aw-recovery-card .aw-inline-warning .aw-inline-actions > button,
+  .aw-policy-remove {
+    width: 100%;
+  }
 }

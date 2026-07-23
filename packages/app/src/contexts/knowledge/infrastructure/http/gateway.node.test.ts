@@ -1,402 +1,381 @@
+/** @file API v2 KnowledgeSource Gateway 运行时测试 / Runtime tests for the API v2 KnowledgeSource gateway. */
+
 import { describe, expect, it, vi } from 'vitest'
 
-import { createHttpClient } from '../../../../infrastructure/http/http-client'
+import {
+  ApiV2ContractError,
+  type ApiV2CreatedResourceResponse,
+  type ApiV2HttpClient,
+  type ApiV2JsonResponse,
+  type ApiV2UpdatedWriteJsonResponse,
+  type KnowledgeVisibilityPolicy
+} from '@ai-job-workspace/product-api-v2'
+
+import type { UiCreateManualKnowledgeNoteCommand } from '../../application/commands'
+import { asUiKnowledgeSourcePageLimit, type UiKnowledgeVisibilityPolicy } from '../../domain/models'
+import { asUiConcurrencyToken } from '../../../../shared-kernel/concurrency'
+import { asUiOpaqueId } from '../../../../shared-kernel/identity'
 import { HttpKnowledgeGateway } from './gateway'
 
-/** @brief 读取指定 JSON 请求体 / Read a JSON request body at the given call index. */
-function fetchBody(fetchImpl: ReturnType<typeof vi.fn<typeof fetch>>, callIndex: number): string {
-  /** @brief 请求体 / Request body. */
-  const body = fetchImpl.mock.calls[callIndex]?.[1]?.body
-  if (typeof body !== 'string') throw new Error('Expected a string request body.')
-  return body
-}
+/** @brief 测试 Workspace identity / Workspace identity used by tests. */
+const WORKSPACE_ID = 'workspace_01K0EXAMPLE0000001'
 
-function fetchUrl(fetchImpl: ReturnType<typeof vi.fn<typeof fetch>>, callIndex: number): string {
-  const input = fetchImpl.mock.calls[callIndex]?.[0]
-  if (typeof input === 'string') return input
-  if (input instanceof URL) return input.toString()
-  if (input instanceof Request) return input.url
-  throw new Error('Expected a fetch request URL.')
-}
+/** @brief 另一 Workspace identity / Another Workspace identity. */
+const OTHER_WORKSPACE_ID = 'workspace_01K0OTHER0000000001'
 
-function knowledgeSource(id: string, workspaceId = 'ws_example'): Record<string, unknown> {
+/** @brief 测试来源 identity / KnowledgeSource identity used by tests. */
+const SOURCE_ID = 'knowledge_01K0EXAMPLE00000001'
+
+/** @brief 响应 request identity / Response request identity. */
+const REQUEST_ID = 'request_knowledge_source_123456'
+
+/** @brief 当前强 ETag / Current strong ETag. */
+const ENTITY_TAG = '"knowledge-source-revision-1"'
+
+/** @brief 下一强 ETag / Next strong ETag. */
+const NEXT_ENTITY_TAG = '"knowledge-source-revision-2"'
+
+/** @brief 新资源规范 Location / Canonical Location of the created source. */
+const SOURCE_LOCATION =
+  `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}` +
+  `/knowledge-sources/${SOURCE_ID}`
+
+/** @brief 构造 canonical 可见性策略 / Build a canonical visibility policy. */
+function apiVisibility(): KnowledgeVisibilityPolicy {
   return {
-    config: { resume_id: 'res_example', revision_mode: 'latest', source_type: 'resume' },
-    created_at: '2026-07-19T00:00:00Z',
-    enabled: true,
-    extensions: {},
-    id,
-    ingestion: {
-      active_job_id: null,
-      chunk_count: 3,
-      document_count: 1,
-      indexed_version_id: 'ksv_example',
-      last_error: null,
-      last_success_at: '2026-07-19T00:01:00Z',
-      status: 'ready'
-    },
-    name: id,
-    revision: 1,
-    source_type: 'resume',
-    sync_schedule: null,
-    updated_at: '2026-07-19T00:01:00Z',
-    visibility: {
-      agent_grants: [
-        {
-          agent_scope: 'resume_assistant',
-          allowed_operations: ['retrieve'],
-          effect: 'allow'
-        }
-      ],
-      allow_external_model_processing: false,
-      allowed_model_regions: ['cn'],
-      default_effect: 'deny',
-      policy_version: 1,
-      retention_days: null,
-      sensitivity: 'confidential',
-      session_override_allowed: false
-    },
-    workspace_id: workspaceId
+    agent_grants: [
+      {
+        agent_scope: 'interview_agent',
+        allowed_operations: ['retrieve', 'quote', 'summarize'],
+        effect: 'allow'
+      }
+    ],
+    allow_external_model_processing: false,
+    allowed_model_regions: ['cn'],
+    default_effect: 'deny',
+    policy_version: 1,
+    retention_days: 365,
+    sensitivity: 'confidential',
+    session_override_allowed: false
   }
 }
 
-describe('HttpKnowledgeGateway', (): void => {
-  it('maps formal KnowledgeSource pages without sending browser identity headers', async (): Promise<void> => {
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
-      Response.json({
-        items: [knowledgeSource('ks_example'), knowledgeSource('ks_other', 'ws_other')],
-        page: { has_more: false, next_cursor: null, total_estimate: 2 }
+/** @brief 构造领域可见性策略 / Build a domain visibility policy. */
+function uiVisibility(): UiKnowledgeVisibilityPolicy {
+  return {
+    agentGrants: [
+      {
+        agentScope: 'interview_agent',
+        allowedOperations: ['retrieve', 'quote', 'summarize'],
+        effect: 'allow'
+      }
+    ],
+    allowExternalModelProcessing: false,
+    allowedModelRegions: ['cn'],
+    defaultEffect: 'deny',
+    policyVersion: 1,
+    retentionDays: 365,
+    sensitivity: 'confidential',
+    sessionOverrideAllowed: false
+  }
+}
+
+/**
+ * @brief 构造合法 KnowledgeSource JSON / Build valid KnowledgeSource JSON.
+ * @param overrides 当前测试覆盖 / Overrides for the current test.
+ * @return 尚待 canonical codec 解码的 JSON / JSON awaiting canonical codec decoding.
+ */
+function knowledgeSource(
+  overrides: Readonly<Record<string, unknown>> = {}
+): Readonly<Record<string, unknown>> {
+  return {
+    created_at: '2026-07-22T12:00:00Z',
+    current_version_id: null,
+    enabled: true,
+    id: SOURCE_ID,
+    ingestion: {
+      chunk_count: 0,
+      document_count: 0,
+      last_problem: null,
+      last_success_at: null,
+      status: 'not_started'
+    },
+    name: 'Distributed systems interview notes',
+    public_config: {},
+    revision: 1,
+    source_type: 'manual_note',
+    updated_at: '2026-07-22T12:00:00Z',
+    visibility: apiVisibility(),
+    workspace_id: WORKSPACE_ID,
+    ...overrides
+  }
+}
+
+/**
+ * @brief 构造读取响应 / Build a read response.
+ * @param data 待领域解码 body / Body awaiting domain decoding.
+ * @param headers 响应头 / Response headers.
+ * @return API v2 JSON response / API v2 JSON response.
+ */
+function readResponse(
+  data: unknown,
+  headers: HeadersInit = { ETag: ENTITY_TAG, 'X-Request-Id': REQUEST_ID }
+): ApiV2JsonResponse {
+  return { data, headers: new Headers(headers), status: 200 }
+}
+
+/**
+ * @brief 构造 201 创建响应 / Build a 201 creation response.
+ * @param data 待领域解码 body / Body awaiting domain decoding.
+ * @return 带强 ETag 与 Location 的响应 / Response carrying a strong ETag and Location.
+ */
+function createdResponse(data: unknown): ApiV2CreatedResourceResponse {
+  return {
+    data,
+    metadata: {
+      entityTag: ENTITY_TAG,
+      location: SOURCE_LOCATION,
+      requestId: REQUEST_ID
+    },
+    status: 201
+  }
+}
+
+/**
+ * @brief 构造 200 更新响应 / Build a 200 update response.
+ * @param data 待领域解码 body / Body awaiting domain decoding.
+ * @return 带下一强 ETag 的响应 / Response carrying the next strong ETag.
+ */
+function updatedResponse(data: unknown): ApiV2UpdatedWriteJsonResponse {
+  return {
+    data,
+    metadata: {
+      entityTag: NEXT_ENTITY_TAG,
+      location: null,
+      requestId: REQUEST_ID
+    },
+    status: 200
+  }
+}
+
+/** @brief 构造稳定手工笔记命令 / Build a stable manual-note command. */
+function createCommand(): UiCreateManualKnowledgeNoteCommand {
+  return {
+    commandId: asUiOpaqueId<'command'>('command_knowledge_source_000001'),
+    content: 'Consensus separates safety from liveness.',
+    name: 'Distributed systems interview notes',
+    visibility: uiVisibility(),
+    workspaceId: asUiOpaqueId<'workspace'>(WORKSPACE_ID)
+  }
+}
+
+describe('HttpKnowledgeGateway API v2 runtime boundary', (): void => {
+  it('maps one Workspace cursor page without flattening canonical lifecycle facts', async (): Promise<void> => {
+    const getJson = vi.fn().mockResolvedValue(
+      readResponse({
+        items: [
+          knowledgeSource({
+            current_version_id: 'knowledge_version_01K0EXAMPLE001',
+            ingestion: {
+              chunk_count: 8,
+              document_count: 2,
+              last_problem: null,
+              last_success_at: '2026-07-22T12:30:00Z',
+              status: 'deleting'
+            },
+            public_config: { clone_url: 'https://example.com/repo.git', ref: null },
+            source_type: 'git_repository'
+          })
+        ],
+        page: { has_more: true, next_cursor: 'knowledge-source-next-cursor' }
       })
     )
-    const gateway = new HttpKnowledgeGateway(
-      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
-    )
+    const gateway = new HttpKnowledgeGateway({ getJson } as unknown as ApiV2HttpClient)
+    const signal = new AbortController().signal
 
-    const sources = await gateway.listKnowledgeSources('ws_example' as never)
+    const page = await gateway.listKnowledgeSourcePage({
+      cursor: null,
+      limit: asUiKnowledgeSourcePageLimit(25),
+      signal,
+      workspaceId: asUiOpaqueId<'workspace'>(WORKSPACE_ID)
+    })
 
-    expect(sources).toHaveLength(1)
-    expect(sources[0]).toMatchObject({ id: 'ks_example', ingestionStatus: 'ready' })
-    expect(fetchImpl.mock.calls[0]?.[1]).not.toHaveProperty('headers.X-Mock-Workspace-Id')
-    expect(fetchImpl.mock.calls[0]?.[1]).not.toHaveProperty('headers.X-AIWS-Workspace-Id')
-  })
-
-  it('rejects a KnowledgeSource read whose response belongs to another source', async (): Promise<void> => {
-    /** @brief 返回其他知识来源的网络替身 / Network double returning another KnowledgeSource. */
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response(JSON.stringify(knowledgeSource('ks_other')), {
-        headers: { 'Content-Type': 'application/json', ETag: '"knowledge-other"' },
-        status: 200
-      })
-    )
-    /** @brief 被测 Knowledge Gateway / Knowledge Gateway under test. */
-    const gateway = new HttpKnowledgeGateway(
-      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
-    )
-
-    await expect(gateway.getKnowledgeVisibility('ks_example' as never)).rejects.toMatchObject({
-      name: 'HttpContractError',
-      status: 200
+    expect(getJson).toHaveBeenCalledWith(`/workspaces/${WORKSPACE_ID}/knowledge-sources`, {
+      expectedStatus: 200,
+      maxResponseBytes: 4 * 1024 * 1024,
+      query: { cursor: null, limit: 25 },
+      signal
+    })
+    expect(page).toMatchObject({
+      hasMore: true,
+      items: [
+        {
+          currentVersionId: 'knowledge_version_01K0EXAMPLE001',
+          ingestion: {
+            chunkCount: 8,
+            documentCount: 2,
+            status: 'deleting'
+          },
+          publicConfig: {
+            cloneUrl: 'https://example.com/repo.git',
+            ref: null
+          },
+          sourceType: 'git_repository',
+          workspaceId: WORKSPACE_ID
+        }
+      ],
+      nextCursor: 'knowledge-source-next-cursor'
     })
   })
 
-  it('never pairs a stale policy body with the ETag from a newer read', async (): Promise<void> => {
-    /** @brief 用户开始编辑的初始策略 / Initial policy the user began editing. */
-    const initialSource = knowledgeSource('ks_example')
-    /** @brief 另一管理员已经更新的权威策略 / Authoritative policy already updated by another administrator. */
-    const newerSource = {
-      ...initialSource,
-      revision: 2,
-      visibility: {
-        ...(initialSource.visibility as Readonly<Record<string, unknown>>),
-        allow_external_model_processing: true,
-        policy_version: 2
-      }
-    }
-    /** @brief 依次返回两个快照并拒绝旧条件令牌的网络替身 / Network double returning two snapshots and rejecting the old conditional token. */
-    const fetchImpl = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(initialSource), {
-          headers: { 'Content-Type': 'application/json', ETag: '"knowledge-1"' }
-        })
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(newerSource), {
-          headers: { 'Content-Type': 'application/json', ETag: '"knowledge-2"' }
-        })
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            code: 'knowledge.precondition_failed',
-            detail: null,
-            retryable: false,
-            status: 412,
-            title: 'Knowledge policy changed',
-            type: 'about:blank'
-          }),
-          {
-            headers: { 'Content-Type': 'application/problem+json' },
-            status: 412
-          }
-        )
-      )
-    /** @brief 被测 Knowledge gateway / Knowledge gateway under test. */
-    const gateway = new HttpKnowledgeGateway(
-      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
-    )
-    /** @brief 用户持有的初始权威模型 / Initial authoritative model held by the user. */
-    const initial = await gateway.getKnowledgeVisibility('ks_example' as never)
-    await gateway.getKnowledgeVisibility(initial.source.id)
+  it('returns a source only with its same-response strong ETag and fails closed cross-Workspace', async (): Promise<void> => {
+    const strongGet = vi.fn().mockResolvedValue(readResponse(knowledgeSource()))
+    const strongGateway = new HttpKnowledgeGateway({
+      getJson: strongGet
+    } as unknown as ApiV2HttpClient)
 
     await expect(
-      gateway.updateKnowledgeVisibility({
-        concurrencyToken: initial.concurrencyToken,
-        sourceId: initial.source.id,
-        visibility: initial.source.visibility
+      strongGateway.getKnowledgeSource({
+        signal: new AbortController().signal,
+        sourceId: asUiOpaqueId<'knowledge-source'>(SOURCE_ID),
+        workspaceId: asUiOpaqueId<'workspace'>(WORKSPACE_ID)
       })
-    ).rejects.toMatchObject({ name: 'HttpProblemError', status: 412 })
-    expect(fetchImpl).toHaveBeenCalledTimes(3)
-    expect(fetchImpl.mock.calls[2]?.[1]).toMatchObject({
-      headers: { 'If-Match': '"knowledge-1"' },
-      method: 'PATCH'
+    ).resolves.toMatchObject({
+      concurrencyToken: ENTITY_TAG,
+      source: { id: SOURCE_ID, workspaceId: WORKSPACE_ID }
+    })
+
+    const crossWorkspaceGateway = new HttpKnowledgeGateway({
+      getJson: vi
+        .fn()
+        .mockResolvedValue(readResponse(knowledgeSource({ workspace_id: OTHER_WORKSPACE_ID })))
+    } as unknown as ApiV2HttpClient)
+    await expect(
+      crossWorkspaceGateway.getKnowledgeSource({
+        signal: new AbortController().signal,
+        sourceId: asUiOpaqueId<'knowledge-source'>(SOURCE_ID),
+        workspaceId: asUiOpaqueId<'workspace'>(WORKSPACE_ID)
+      })
+    ).rejects.toBeInstanceOf(ApiV2ContractError)
+
+    const weakEtagGateway = new HttpKnowledgeGateway({
+      getJson: vi.fn().mockResolvedValue(
+        readResponse(knowledgeSource(), {
+          ETag: `W/${ENTITY_TAG}`,
+          'X-Request-Id': REQUEST_ID
+        })
+      )
+    } as unknown as ApiV2HttpClient)
+    await expect(
+      weakEtagGateway.getKnowledgeSource({
+        signal: new AbortController().signal,
+        sourceId: asUiOpaqueId<'knowledge-source'>(SOURCE_ID),
+        workspaceId: asUiOpaqueId<'workspace'>(WORKSPACE_ID)
+      })
+    ).rejects.toBeInstanceOf(ApiV2ContractError)
+  })
+
+  it('preserves an unknown create command for byte-equivalent exact replay', async (): Promise<void> => {
+    let attempt = 0
+    const postJson = vi.fn((path: string, body: unknown, options: unknown): Promise<unknown> => {
+      void path
+      void body
+      void options
+      attempt += 1
+      return Promise.resolve(
+        attempt === 1
+          ? createdResponse(knowledgeSource({ name: 'A response violating the submitted command' }))
+          : createdResponse(knowledgeSource())
+      )
+    })
+    const gateway = new HttpKnowledgeGateway({ postJson } as unknown as ApiV2HttpClient)
+    const command = createCommand()
+
+    await expect(gateway.createManualKnowledgeNote(command)).rejects.toMatchObject({
+      kind: 'contract',
+      name: 'ApiV2WriteOutcomeUnknownError',
+      status: 201
+    })
+    await expect(gateway.createManualKnowledgeNote(command)).resolves.toMatchObject({
+      concurrencyToken: ENTITY_TAG,
+      source: {
+        name: command.name,
+        sourceType: 'manual_note',
+        workspaceId: command.workspaceId
+      }
+    })
+
+    expect(postJson).toHaveBeenCalledTimes(2)
+    const firstCall = postJson.mock.calls[0]!
+    const replayCall = postJson.mock.calls[1]!
+    expect(firstCall[0]).toBe(`/workspaces/${WORKSPACE_ID}/knowledge-sources`)
+    expect(firstCall[0]).toBe(replayCall[0])
+    expect(firstCall[1]).toEqual(replayCall[1])
+    expect(firstCall[2]).toEqual(replayCall[2])
+    expect(firstCall[2]).toMatchObject({
+      idempotencyKey: command.commandId,
+      successKind: 'created-resource'
     })
   })
 
-  it.each(['*', 'W/"knowledge-1"', '"knowledge-1", "knowledge-2"'])(
-    'rejects an ETag that cannot provide strong single-resource concurrency: %s',
-    async (etag): Promise<void> => {
-      /** @brief 返回非法并发令牌的网络替身 / Network double returning an invalid concurrency token. */
-      const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
-        new Response(JSON.stringify(knowledgeSource('ks_example')), {
-          headers: { 'Content-Type': 'application/json', ETag: etag }
+  it('uses the authoritative strong ETag for a complete name-and-visibility update', async (): Promise<void> => {
+    const patchJson = vi.fn().mockResolvedValue(
+      updatedResponse(
+        knowledgeSource({
+          name: 'Renamed note',
+          revision: 2,
+          visibility: {
+            ...apiVisibility(),
+            session_override_allowed: true
+          }
         })
       )
-      /** @brief 被测 Knowledge gateway / Knowledge gateway under test. */
-      const gateway = new HttpKnowledgeGateway(
-        createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
-      )
-
-      await expect(gateway.getKnowledgeVisibility('ks_example' as never)).rejects.toMatchObject({
-        name: 'HttpContractError'
-      })
-      expect(fetchImpl).toHaveBeenCalledTimes(1)
-    }
-  )
-
-  it('persists visibility through conditional Merge Patch and returns the authoritative policy', async (): Promise<void> => {
-    /** @brief 初次读取的来源 DTO / Source DTO returned by the initial read. */
-    const initialSource = knowledgeSource('ks_example')
-    /** @brief 服务端确认更新后的来源 DTO / Source DTO confirmed by the backend after the update. */
-    const updatedSource = {
-      ...initialSource,
-      revision: 2,
-      visibility: {
-        ...(initialSource.visibility as Record<string, unknown>),
-        allow_external_model_processing: true,
-        policy_version: 2,
-        session_override_allowed: true
-      }
-    }
-    /** @brief 依次响应读取和更新的网络替身 / Network double responding to the read and update in order. */
-    const fetchImpl = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(initialSource), {
-          headers: { 'Content-Type': 'application/json', ETag: '"knowledge-1"' },
-          status: 200
-        })
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(updatedSource), {
-          headers: { 'Content-Type': 'application/json', ETag: '"knowledge-2"' },
-          status: 200
-        })
-      )
-    /** @brief 被测 Knowledge gateway / Knowledge gateway under test. */
-    const gateway = new HttpKnowledgeGateway(
-      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
     )
-    /** @brief 初次读取并获得 ETag 的页面模型 / Initial page model whose read obtains the ETag. */
-    const initial = await gateway.getKnowledgeVisibility('ks_example' as never)
+    const gateway = new HttpKnowledgeGateway({ patchJson } as unknown as ApiV2HttpClient)
+    const concurrencyToken = asUiConcurrencyToken(ENTITY_TAG)
+    const visibility = { ...uiVisibility(), sessionOverrideAllowed: true }
 
-    const updated = await gateway.updateKnowledgeVisibility({
-      concurrencyToken: initial.concurrencyToken,
-      sourceId: initial.source.id,
-      visibility: {
-        ...initial.source.visibility,
-        allowExternalModelProcessing: true,
-        policyVersion: 2,
-        sessionOverrideAllowed: true
-      }
+    const authority = await gateway.updateKnowledgeSource({
+      concurrencyToken,
+      patch: { name: 'Renamed note', visibility },
+      sourceId: asUiOpaqueId<'knowledge-source'>(SOURCE_ID),
+      workspaceId: asUiOpaqueId<'workspace'>(WORKSPACE_ID)
     })
 
-    expect(fetchUrl(fetchImpl, 1)).toBe('http://127.0.0.1:8000/api/v1/knowledge-sources/ks_example')
-    expect(fetchImpl.mock.calls[1]?.[1]).toMatchObject({
-      headers: {
-        'Content-Type': 'application/merge-patch+json',
-        'If-Match': '"knowledge-1"'
+    expect(patchJson).toHaveBeenCalledWith(
+      `/workspaces/${WORKSPACE_ID}/knowledge-sources/${SOURCE_ID}`,
+      {
+        name: 'Renamed note',
+        visibility: {
+          agent_grants: [
+            {
+              agent_scope: 'interview_agent',
+              allowed_operations: ['retrieve', 'quote', 'summarize'],
+              effect: 'allow'
+            }
+          ],
+          allow_external_model_processing: false,
+          allowed_model_regions: ['cn'],
+          default_effect: 'deny',
+          policy_version: 1,
+          retention_days: 365,
+          sensitivity: 'confidential',
+          session_override_allowed: true
+        }
       },
-      method: 'PATCH'
-    })
-    expect(JSON.parse(fetchBody(fetchImpl, 1))).toMatchObject({
-      visibility: {
-        allow_external_model_processing: true,
-        policy_version: 2,
-        session_override_allowed: true
+      {
+        ifMatch: ENTITY_TAG,
+        maxRequestBytes: 256 * 1024,
+        maxResponseBytes: 1024 * 1024
       }
-    })
-    expect(updated.source).toMatchObject({
-      id: 'ks_example',
-      visibility: {
-        allowExternalModelProcessing: true,
-        policyVersion: 2,
-        sessionOverrideAllowed: true
-      }
-    })
-  })
-
-  it('round-trips a future Agent-scope code without sending the UI unknown marker', async (): Promise<void> => {
-    /** @brief 基础知识来源 / Base knowledge source. */
-    const base = knowledgeSource('ks_example')
-    /** @brief 含未来 Agent scope 的权威来源 / Authoritative source containing a future Agent scope. */
-    const futureSource = {
-      ...base,
-      visibility: {
-        ...(base.visibility as Record<string, unknown>),
-        agent_grants: [
-          {
-            agent_scope: 'research_agent',
-            allowed_operations: ['retrieve'],
-            effect: 'allow'
-          }
-        ]
-      }
-    }
-    /** @brief 依次完成读取与 PATCH 的网络替身 / Network double completing the read and PATCH. */
-    const fetchImpl = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(futureSource), {
-          headers: { 'Content-Type': 'application/json', ETag: '"knowledge-1"' }
-        })
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ ...futureSource, revision: 2 }), {
-          headers: { 'Content-Type': 'application/json', ETag: '"knowledge-2"' }
-        })
-      )
-    /** @brief 被测 Knowledge gateway / Knowledge gateway under test. */
-    const gateway = new HttpKnowledgeGateway(
-      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
     )
-    /** @brief 带安全未知展示值和原始 code 的模型 / Model carrying a safe unknown display value and original code. */
-    const model = await gateway.getKnowledgeVisibility('ks_example' as never)
-
-    await gateway.updateKnowledgeVisibility({
-      concurrencyToken: model.concurrencyToken,
-      sourceId: model.source.id,
-      visibility: model.source.visibility
-    })
-
-    expect(JSON.parse(fetchBody(fetchImpl, 1))).toMatchObject({
-      visibility: { agent_grants: [{ agent_scope: 'research_agent' }] }
-    })
-    expect(fetchBody(fetchImpl, 1)).not.toContain('unknown:research_agent')
-  })
-
-  it('reloads an authoritative token before writing after an unknown PATCH outcome', async (): Promise<void> => {
-    /** @brief 初次与重载时返回的权威来源 / Authoritative source returned initially and during reload. */
-    const source = knowledgeSource('ks_example')
-    /** @brief 更新成功后的来源 / Source returned after the successful update. */
-    const updatedSource = {
-      ...source,
-      revision: 2,
-      visibility: {
-        ...(source.visibility as Readonly<Record<string, unknown>>),
-        policy_version: 2
+    expect(authority).toMatchObject({
+      concurrencyToken: NEXT_ENTITY_TAG,
+      source: {
+        name: 'Renamed note',
+        revision: 2,
+        visibility: { sessionOverrideAllowed: true }
       }
-    }
-    /** @brief 依次模拟读取、断线、权威重载和成功更新 / Network double simulating read, disconnect, authority reload, and successful update. */
-    const fetchImpl = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(source), {
-          headers: { 'Content-Type': 'application/json', ETag: '"knowledge-1"' }
-        })
-      )
-      .mockRejectedValueOnce(new TypeError('private connection failure'))
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(source), {
-          headers: { 'Content-Type': 'application/json', ETag: '"knowledge-1"' }
-        })
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(updatedSource), {
-          headers: { 'Content-Type': 'application/json', ETag: '"knowledge-2"' }
-        })
-      )
-    /** @brief 被测 Knowledge gateway / Knowledge gateway under test. */
-    const gateway = new HttpKnowledgeGateway(
-      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
-    )
-    /** @brief 初次读取的 UI 模型 / UI model returned by the initial read. */
-    const initial = await gateway.getKnowledgeVisibility('ks_example' as never)
-    /** @brief 首次结果未知的用户意图 / User intent whose first outcome is unknown. */
-    const input = {
-      concurrencyToken: initial.concurrencyToken,
-      sourceId: initial.source.id,
-      visibility: initial.source.visibility
-    }
-
-    await expect(gateway.updateKnowledgeVisibility(input)).rejects.toMatchObject({
-      name: 'HttpCommandOutcomeUnknownError'
-    })
-    const authoritative = await gateway.getKnowledgeVisibility(input.sourceId)
-    await expect(
-      gateway.updateKnowledgeVisibility({
-        ...input,
-        concurrencyToken: authoritative.concurrencyToken,
-        visibility: authoritative.source.visibility
-      })
-    ).resolves.toMatchObject({ source: { id: 'ks_example', visibility: { policyVersion: 2 } } })
-
-    expect(fetchUrl(fetchImpl, 2)).toBe('http://127.0.0.1:8000/api/v1/knowledge-sources/ks_example')
-    expect(fetchImpl).toHaveBeenCalledTimes(4)
-  })
-
-  it('marks a successful PATCH response for another source as outcome unknown', async (): Promise<void> => {
-    /** @brief 初次目标来源 / Initial target source. */
-    const source = knowledgeSource('ks_example')
-    /** @brief 返回另一个来源的成功 PATCH 网络替身 / Network double returning another source from a successful PATCH. */
-    const fetchImpl = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(source), {
-          headers: { 'Content-Type': 'application/json', ETag: '"knowledge-1"' }
-        })
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(knowledgeSource('ks_other')), {
-          headers: { 'Content-Type': 'application/json', ETag: '"knowledge-2"' }
-        })
-      )
-    /** @brief 被测 Knowledge gateway / Knowledge gateway under test. */
-    const gateway = new HttpKnowledgeGateway(
-      createHttpClient({ baseUrl: 'http://127.0.0.1:8000', fetchImpl })
-    )
-    /** @brief 初次读取的 UI 模型 / UI model returned by the initial read. */
-    const initial = await gateway.getKnowledgeVisibility('ks_example' as never)
-
-    await expect(
-      gateway.updateKnowledgeVisibility({
-        concurrencyToken: initial.concurrencyToken,
-        sourceId: initial.source.id,
-        visibility: initial.source.visibility
-      })
-    ).rejects.toMatchObject({
-      diagnosticKind: 'contract',
-      name: 'HttpCommandOutcomeUnknownError'
     })
   })
 })

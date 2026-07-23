@@ -1,123 +1,162 @@
 /** @file Knowledge 限界上下文的确定性内存数据 / Deterministic in-memory data for the Knowledge bounded context. */
 
-import type { UiKnowledgeSource, UiKnowledgeVisibilityModel } from '../../domain/models'
+import type { UiKnowledgeSource, UiKnowledgeVisibilityPolicy } from '../../domain/models'
 import { asUiOpaqueId } from '../../../../shared-kernel/identity'
 
-/** @brief Knowledge fixture 所属工作区 ID / Workspace ID owned by Knowledge fixtures. */
+/** @brief Knowledge fixture 所属 Workspace / Workspace owning the Knowledge fixtures. */
 export const MOCK_KNOWLEDGE_WORKSPACE_ID = asUiOpaqueId<'workspace'>('ws_mock_klee_career_lab')
 
-/** @brief Mock 简历知识来源 ID / Mock resume knowledge-source ID. */
-export const MOCK_RESUME_KNOWLEDGE_SOURCE_ID = asUiOpaqueId<'knowledge-source'>('ks_mock_resume')
-/** @brief Mock Git 知识来源 ID / Mock Git knowledge-source ID. */
-export const MOCK_GIT_KNOWLEDGE_SOURCE_ID = asUiOpaqueId<'knowledge-source'>('ks_mock_git')
+/** @brief Mock Resume KnowledgeSource identity / Mock Resume KnowledgeSource identity. */
+export const MOCK_RESUME_KNOWLEDGE_SOURCE_ID = asUiOpaqueId<'knowledge-source'>(
+  'knowledge_mock_resume_source'
+)
 
-/** @brief Mock 博客知识来源 ID / Mock blog knowledge-source ID. */
-export const MOCK_BLOG_KNOWLEDGE_SOURCE_ID = asUiOpaqueId<'knowledge-source'>('ks_mock_blog')
+/** @brief Mock Git KnowledgeSource identity / Mock Git KnowledgeSource identity. */
+export const MOCK_GIT_KNOWLEDGE_SOURCE_ID = asUiOpaqueId<'knowledge-source'>(
+  'knowledge_mock_git_source'
+)
 
-/** @brief Mock 文件知识来源 ID / Mock file knowledge-source ID. */
-export const MOCK_FILE_KNOWLEDGE_SOURCE_ID = asUiOpaqueId<'knowledge-source'>('ks_mock_file')
-/** @brief 默认的 Mock 知识可见性策略 / Default Mock knowledge-visibility policy. */
+/** @brief Mock blog KnowledgeSource identity / Mock blog KnowledgeSource identity. */
+export const MOCK_BLOG_KNOWLEDGE_SOURCE_ID = asUiOpaqueId<'knowledge-source'>(
+  'knowledge_mock_blog_source'
+)
+
+/** @brief Mock file KnowledgeSource identity / Mock file KnowledgeSource identity. */
+export const MOCK_FILE_KNOWLEDGE_SOURCE_ID = asUiOpaqueId<'knowledge-source'>(
+  'knowledge_mock_file_source'
+)
+
+/** @brief 默认的完整 Mock 可见性策略 / Default complete Mock visibility policy. */
 export const MOCK_DEFAULT_VISIBILITY_POLICY = {
-  policyVersion: 3,
-  defaultEffect: 'deny',
-  sensitivity: 'confidential',
   agentGrants: [
     {
       agentScope: 'resume_assistant',
-      agentScopeCode: 'resume_assistant',
-      effect: 'allow',
-      allowedOperations: ['retrieve', 'quote', 'summarize', 'derive']
+      allowedOperations: ['retrieve', 'quote', 'summarize', 'derive'],
+      effect: 'allow'
     },
     {
       agentScope: 'interview_agent',
-      agentScopeCode: 'interview_agent',
-      effect: 'allow',
-      allowedOperations: ['retrieve', 'summarize', 'derive']
+      allowedOperations: ['retrieve', 'summarize', 'derive'],
+      effect: 'allow'
     }
   ],
-  sessionOverrideAllowed: true,
   allowExternalModelProcessing: false,
   allowedModelRegions: ['cn', 'private_deployment'],
-  retentionDays: null
-} as const satisfies UiKnowledgeSource['visibility']
+  defaultEffect: 'deny',
+  policyVersion: 3,
+  retentionDays: null,
+  sensitivity: 'confidential',
+  sessionOverrideAllowed: true
+} as const satisfies UiKnowledgeVisibilityPolicy
 
-/** @brief Mock 知识来源列表 / Mock knowledge-source list. */
+/** @brief Mock KnowledgeSource 列表 / Mock KnowledgeSource list. */
 export const MOCK_KNOWLEDGE_SOURCES: readonly UiKnowledgeSource[] = [
   {
+    createdAt: '2026-07-15T03:56:20.000Z',
+    currentVersionId: asUiOpaqueId<'knowledge-source-version'>('knowledge_version_mock_resume_18'),
+    enabled: true,
     id: MOCK_RESUME_KNOWLEDGE_SOURCE_ID,
-    workspaceId: MOCK_KNOWLEDGE_WORKSPACE_ID,
+    ingestion: {
+      chunkCount: 18,
+      documentCount: 1,
+      lastProblem: null,
+      lastSuccessAt: '2026-07-15T03:56:20.000Z',
+      status: 'ready'
+    },
     name: 'AI 平台工程师 · 中文简历',
+    publicConfig: {
+      resumeId: asUiOpaqueId<'resume'>('resume_mock_primary_document')
+    },
+    revision: 18,
     sourceType: 'resume',
-    originLabel: 'Resume revision 18 · 自动同步',
-    ingestionStatus: 'ready',
-    documentCount: 1,
-    chunkCount: 18,
-    enabled: true,
+    updatedAt: '2026-07-15T03:56:20.000Z',
     visibility: MOCK_DEFAULT_VISIBILITY_POLICY,
-    lastSuccessAt: '2026-07-15T03:56:20.000Z',
-    updatedAt: '2026-07-15T03:56:20.000Z'
+    workspaceId: MOCK_KNOWLEDGE_WORKSPACE_ID
   },
   {
+    createdAt: '2026-07-10T09:20:00.000Z',
+    currentVersionId: asUiOpaqueId<'knowledge-source-version'>('knowledge_version_mock_git_7'),
+    enabled: true,
     id: MOCK_GIT_KNOWLEDGE_SOURCE_ID,
-    workspaceId: MOCK_KNOWLEDGE_WORKSPACE_ID,
+    ingestion: {
+      chunkCount: 327,
+      documentCount: 46,
+      lastProblem: null,
+      lastSuccessAt: '2026-07-14T09:20:00.000Z',
+      status: 'ready'
+    },
     name: 'portfolio-engineering',
+    publicConfig: {
+      cloneUrl: 'https://github.com/klee-lab/portfolio-engineering',
+      ref: 'main'
+    },
+    revision: 7,
     sourceType: 'git_repository',
-    originLabel: 'github.com/klee-lab/portfolio-engineering · main',
-    ingestionStatus: 'ready',
-    documentCount: 46,
-    chunkCount: 327,
-    enabled: true,
+    updatedAt: '2026-07-14T09:20:00.000Z',
     visibility: MOCK_DEFAULT_VISIBILITY_POLICY,
-    lastSuccessAt: '2026-07-14T09:20:00.000Z',
-    updatedAt: '2026-07-14T09:20:00.000Z'
+    workspaceId: MOCK_KNOWLEDGE_WORKSPACE_ID
   },
   {
-    id: MOCK_BLOG_KNOWLEDGE_SOURCE_ID,
-    workspaceId: MOCK_KNOWLEDGE_WORKSPACE_ID,
-    name: '技术博客',
-    sourceType: 'blog_feed',
-    originLabel: 'klee.example/blog/rss.xml',
-    ingestionStatus: 'embedding',
-    documentCount: 12,
-    chunkCount: 94,
+    createdAt: '2026-07-13T08:05:00.000Z',
+    currentVersionId: null,
     enabled: true,
+    id: MOCK_BLOG_KNOWLEDGE_SOURCE_ID,
+    ingestion: {
+      chunkCount: 94,
+      documentCount: 12,
+      lastProblem: null,
+      lastSuccessAt: '2026-07-13T08:05:00.000Z',
+      status: 'embedding'
+    },
+    name: '技术博客',
+    publicConfig: {
+      url: 'https://klee.example/blog/rss.xml'
+    },
+    revision: 4,
+    sourceType: 'blog_feed',
+    updatedAt: '2026-07-15T02:12:00.000Z',
     visibility: {
       ...MOCK_DEFAULT_VISIBILITY_POLICY,
       sensitivity: 'normal'
     },
-    lastSuccessAt: '2026-07-13T08:05:00.000Z',
-    updatedAt: '2026-07-15T02:12:00.000Z'
+    workspaceId: MOCK_KNOWLEDGE_WORKSPACE_ID
   },
   {
-    id: MOCK_FILE_KNOWLEDGE_SOURCE_ID,
-    workspaceId: MOCK_KNOWLEDGE_WORKSPACE_ID,
-    name: '旧版项目复盘.pdf',
-    sourceType: 'file',
-    originLabel: 'project-retrospective.pdf',
-    ingestionStatus: 'failed',
-    documentCount: 0,
-    chunkCount: 0,
+    createdAt: '2026-07-12T11:40:00.000Z',
+    currentVersionId: null,
     enabled: false,
+    id: MOCK_FILE_KNOWLEDGE_SOURCE_ID,
+    ingestion: {
+      chunkCount: 0,
+      documentCount: 0,
+      lastProblem: {
+        code: 'knowledge.embedding_failed',
+        detail: null,
+        errors: [],
+        extensions: null,
+        instance: null,
+        requestId: asUiOpaqueId<'request'>('request_mock_knowledge_failure'),
+        retryable: true,
+        status: 503,
+        title: 'Knowledge ingestion failed',
+        type: 'https://api.hmalliances.org/problems/knowledge-ingestion'
+      },
+      lastSuccessAt: null,
+      status: 'failed'
+    },
+    name: '旧版项目复盘.pdf',
+    publicConfig: {
+      filename: 'project-retrospective.pdf',
+      mediaType: 'application/pdf'
+    },
+    revision: 2,
+    sourceType: 'file',
+    updatedAt: '2026-07-12T11:40:00.000Z',
     visibility: {
       ...MOCK_DEFAULT_VISIBILITY_POLICY,
-      sensitivity: 'highly_confidential',
-      agentGrants: []
+      agentGrants: [],
+      sensitivity: 'highly_confidential'
     },
-    lastSuccessAt: null,
-    updatedAt: '2026-07-12T11:40:00.000Z'
+    workspaceId: MOCK_KNOWLEDGE_WORKSPACE_ID
   }
 ]
-
-/** @brief Mock 知识可见性页面数据 / Mock knowledge-visibility page data. */
-export const MOCK_KNOWLEDGE_VISIBILITY: UiKnowledgeVisibilityModel = {
-  concurrencyToken: 'memory-knowledge-1',
-  source: MOCK_KNOWLEDGE_SOURCES[1]!,
-  availableAgentScopes: [
-    'resume_assistant',
-    'job_fit_analyst',
-    'interview_agent',
-    'interview_reporter',
-    'general_chat',
-    'portfolio_assistant'
-  ]
-}

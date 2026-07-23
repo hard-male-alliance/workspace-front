@@ -1,7 +1,6 @@
 @import '../ui/design-tokens.css';
 @import '../ui/ui.css';
 @import './foundation.css';
-@import './knowledge/remote-operations.css';
 @import './interview/workspace.css';
 @import './resume/workspace.css';
 @import './shell/base.css';

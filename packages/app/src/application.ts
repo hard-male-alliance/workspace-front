@@ -17,7 +17,7 @@ export type { UiCommandId } from './shared-kernel/command'
 export { asUiConcurrencyToken } from './shared-kernel/concurrency'
 export type { UiConcurrencyToken } from './shared-kernel/concurrency'
 export { asUiOpaqueId } from './shared-kernel/identity'
-export type { UiOpaqueId, UiWorkspaceId } from './shared-kernel/identity'
+export type { UiKnowledgeSourceId, UiOpaqueId, UiWorkspaceId } from './shared-kernel/identity'
 export type { UiResourceReference } from './shared-kernel/resource-reference'
 export type { UiContentLocale } from './shared-kernel/locale'
 export { cloneUiJsonValue, uiJsonValuesEqual } from './shared-kernel/json'
@@ -48,6 +48,63 @@ export type {
   UiWorkspaceCursor,
   UiWorkspaceMemberId
 } from './contexts/workspace/domain/models'
+export {
+  asUiKnowledgeSourceCursor,
+  asUiKnowledgeSourcePageLimit,
+  UI_KNOWLEDGE_SOURCE_PAGE_LIMIT_MAX
+} from './contexts/knowledge/domain/models'
+export type {
+  UiAgentScopeGrant,
+  UiKnowledgeAgentScope,
+  UiKnowledgeIngestionState,
+  UiKnowledgeIngestionStatus,
+  UiKnowledgeModelRegion,
+  UiKnowledgeOperation,
+  UiKnowledgeProblem,
+  UiKnowledgeProblemFieldError,
+  UiKnowledgeSensitivity,
+  UiKnowledgeSource,
+  UiKnowledgeSourceAuthority,
+  UiKnowledgeSourceCursor,
+  UiKnowledgeSourcePage,
+  UiKnowledgeSourcePageLimit,
+  UiKnowledgeSourceType,
+  UiKnowledgeSourceVersionId,
+  UiKnowledgeVisibilityPolicy,
+  UiPublicKnowledgeSourceConfig,
+  UiVisibilityEffect
+} from './contexts/knowledge/domain/models'
+export type {
+  UiCreateManualKnowledgeNoteCommand,
+  UiKnowledgeSourcePageRead,
+  UiKnowledgeSourcePatch,
+  UiKnowledgeSourceRead,
+  UiUpdateKnowledgeSourceCommand
+} from './contexts/knowledge/application/commands'
+export type { KnowledgeGateway } from './contexts/knowledge/application/gateway'
+export {
+  createKnowledgeManualNoteCreationProcess,
+  KnowledgeManualNoteCreationProcessError
+} from './contexts/knowledge/application/manual-note-creation'
+export {
+  classifyKnowledgeUpdateRecovery,
+  KnowledgeUpdateRecoveryError,
+  knowledgeVisibilityPoliciesEqual
+} from './contexts/knowledge/application/update-recovery'
+export type {
+  KnowledgeUpdateRecoveryErrorCode,
+  UiKnowledgeUpdateConflictField,
+  UiKnowledgeUpdateRecovery
+} from './contexts/knowledge/application/update-recovery'
+export type {
+  KnowledgeManualNoteCreationProcess,
+  KnowledgeManualNoteCreationProcessErrorCode,
+  UiKnowledgeCreateAuthorityReviewReason,
+  UiKnowledgeCreateRecoveryMode,
+  UiKnowledgeCreationScope,
+  UiManualKnowledgeNoteDraft,
+  UiPendingManualKnowledgeNoteCreation
+} from './contexts/knowledge/application/manual-note-creation'
 export { asUiResumeCursor, asUiResumePageLimit } from './contexts/resume/domain/models'
 export type {
   UiResumeCursor,

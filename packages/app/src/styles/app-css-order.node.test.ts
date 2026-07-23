@@ -20,7 +20,6 @@ const expectedImportPaths = [
   '../ui/design-tokens.css',
   '../ui/ui.css',
   './foundation.css',
-  './knowledge/remote-operations.css',
   './interview/workspace.css',
   './resume/workspace.css',
   './shell/base.css',

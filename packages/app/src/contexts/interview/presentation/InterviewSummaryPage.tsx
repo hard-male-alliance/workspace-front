@@ -222,6 +222,14 @@ function InterviewSummary({
                 '以下为当前工作区的资料；当前报告契约不提供本次会话的资料范围或引用关系。'
             })}
           </p>
+          {data.hasMoreKnowledgeSources ? (
+            <p className="aw-inline-warning" role="status">
+              {t('interviewSummary.moreMaterialsAvailable', {
+                defaultValue:
+                  '这里只展示 Knowledge API 的首批来源；仍有更多来源未加载，不能把此列表理解为完整资料范围。'
+              })}
+            </p>
+          ) : null}
           <div className="aw-inline-actions">
             {data.knowledgeSources.map((source) => (
               <span className="aw-chip" key={source.id}>

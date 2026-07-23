@@ -152,7 +152,7 @@ describe('WorkspaceApp app shell', (): void => {
       }
     })
     const listResumeSummariesPage = vi.spyOn(gateways.resume, 'listResumeSummariesPage')
-    const listKnowledgeSources = vi.spyOn(gateways.knowledge, 'listKnowledgeSources')
+    const listKnowledgeSourcePage = vi.spyOn(gateways.knowledge, 'listKnowledgeSourcePage')
     const listCompletedInterviews = vi.spyOn(gateways.interview, 'listCompletedInterviews')
 
     render(<WorkspaceApp gateways={gateways} initialPath="/" />)
@@ -169,7 +169,7 @@ describe('WorkspaceApp app shell', (): void => {
       expect(listResumeSummariesPage).toHaveBeenCalledWith(
         expect.objectContaining({ workspaceId: secondAccess.workspace.id })
       )
-      expect(listKnowledgeSources).not.toHaveBeenCalled()
+      expect(listKnowledgeSourcePage).not.toHaveBeenCalled()
       expect(listCompletedInterviews).not.toHaveBeenCalled()
     })
   })

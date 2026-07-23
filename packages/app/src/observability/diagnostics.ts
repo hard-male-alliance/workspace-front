@@ -17,8 +17,8 @@ export const DIAGNOSTIC_ROUTES = [
   'interview.room',
   'interview.setup',
   'interview.summary',
+  'knowledge.source',
   'knowledge.sources',
-  'knowledge.visibility',
   'resume.creation',
   'resume.editor',
   'resume.entry',
@@ -64,8 +64,8 @@ export type DiagnosticResourceName =
   | 'interview.runtime'
   | 'interview.setup'
   | 'interview.summary'
+  | 'knowledge.source'
   | 'knowledge.sources'
-  | 'knowledge.visibility'
   | 'resume.creation'
   | 'resume.editor'
   | 'resume.entry'

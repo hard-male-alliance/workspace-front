@@ -20,7 +20,7 @@ import { useAsyncResource, useWorkspaceSession } from './AppData'
 import { useDiagnostics } from './Diagnostics'
 import { ResourceErrorState } from './ResourceErrorState'
 import type { WorkspaceSessionAccess } from './session/workspace-session'
-import { useHasUnsavedChanges } from './UnsavedChanges'
+import { useHasUnsavedChanges, useHasUnsavedChangesNow } from './UnsavedChanges'
 
 /** @brief 主导航项 / Primary navigation item. */
 interface NavigationItem {
@@ -150,10 +150,6 @@ function getBreadcrumbKey(pathname: string): string {
     return 'breadcrumbs.interviewRoom'
   }
 
-  if (pathname.includes('/visibility')) {
-    return 'breadcrumbs.visibility'
-  }
-
   if (pathname.startsWith('/knowledge')) {
     return 'breadcrumbs.knowledge'
   }
@@ -203,16 +199,18 @@ export function WorkspaceShell({ onSignOut, runtimeInfo }: WorkspaceShellProps):
   )
   /** @brief 应用子树是否存在未保存更改 / Whether the application subtree contains unsaved changes. */
   const hasUnsavedChanges = useHasUnsavedChanges()
+  /** @brief 导航发生瞬间的同步未保存状态 / Synchronous unsaved state at the instant of navigation. */
+  const hasUnsavedChangesNow = useHasUnsavedChangesNow()
   /** @brief 拦截导航以外的待确认 Shell 动作 / Pending non-navigation Shell action awaiting confirmation. */
   const [pendingShellAction, setPendingShellAction] = useState<PendingShellAction>()
   /** @brief 仅在 URL 真正改变且存在草稿时拦截 SPA 导航 / Block SPA navigation only when the URL changes and drafts exist. */
   const shouldBlockNavigation = useCallback<BlockerFunction>(
     ({ currentLocation, nextLocation }) =>
-      hasUnsavedChanges &&
+      hasUnsavedChangesNow() &&
       (currentLocation.pathname !== nextLocation.pathname ||
         currentLocation.search !== nextLocation.search ||
         currentLocation.hash !== nextLocation.hash),
-    [hasUnsavedChanges]
+    [hasUnsavedChangesNow]
   )
   /** @brief React Router 管理的 SPA 导航拦截器 / SPA navigation blocker managed by React Router. */
   const navigationBlocker = useBlocker(shouldBlockNavigation)

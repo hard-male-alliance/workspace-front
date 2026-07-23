@@ -181,18 +181,20 @@ describe('classifyResourceFailure', (): void => {
       referenceId: 'req_api_v2_5678',
       retryable: false
     })
-    expect(
-      classifyResourceFailure({
-        kind: 'contract',
-        name: 'ApiV2WriteOutcomeUnknownError',
-        requestId: 'req_api_v2_bad_response',
-        status: 500
-      })
-    ).toEqual({
+    expect(requiresAuthorityReload(unknownWrite)).toBe(true)
+    /** @brief 已收到但无法验证成功响应的未知写入 / Unknown write with a received but invalid success response. */
+    const invalidSuccess = {
+      kind: 'contract',
+      name: 'ApiV2WriteOutcomeUnknownError',
+      requestId: 'req_api_v2_bad_response',
+      status: 200
+    }
+    expect(classifyResourceFailure(invalidSuccess)).toEqual({
       kind: 'invalid-response',
       referenceId: 'req_api_v2_bad_response',
       retryable: false
     })
+    expect(requiresAuthorityReload(invalidSuccess)).toBe(true)
     expect(classifyResourceFailure({ kind: 'timeout', name: 'ApiV2NetworkError' })).toEqual({
       kind: 'service-unavailable',
       referenceId: null,

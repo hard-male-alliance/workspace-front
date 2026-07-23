@@ -10,12 +10,27 @@ import { runDiagnosticCommand, useDiagnostics } from '../../../app/Diagnostics'
 import { ResourceErrorState, ResourceFailureMessage } from '../../../app/ResourceErrorState'
 import { classifyResourceFailure } from '../../../app/resource-errors'
 import { createUiCommandId } from '../../../shared-kernel/command'
-import type { UiKnowledgeSourceId } from '../../knowledge'
+import type { UiKnowledgeSource, UiKnowledgeSourceId } from '../../knowledge'
 import { LoadingState } from '../../../ui'
 import type { UiCreateInterviewInput } from '../domain/models'
 
 /** @brief 手动岗位选择的表单哨兵值 / Form sentinel for a manually entered job target. */
 const customJobValue = '__custom__'
+
+/**
+ * @brief 选择一个可安全展示的 KnowledgeSource 公开事实 / Select one safely displayable public KnowledgeSource fact.
+ * @param source canonical KnowledgeSource / Canonical KnowledgeSource.
+ * @return 原样公开配置事实；不存在时为来源类型 / Literal public-config fact, or source type when absent.
+ */
+function getKnowledgeSourcePublicFact(source: UiKnowledgeSource): string {
+  return (
+    source.publicConfig.filename ??
+    source.publicConfig.url ??
+    source.publicConfig.cloneUrl ??
+    source.publicConfig.resumeId ??
+    source.sourceType
+  )
+}
 
 function InterviewSetupForm({
   data,
@@ -296,8 +311,9 @@ function InterviewSetupForm({
               {t('interviewSetup.knowledge', { defaultValue: '本次使用的知识资料' })}
             </h2>
             <p>
-              {t('interviewSetup.knowledgeDescription', {
-                defaultValue: '默认全选；最终可访问范围仍由后端权限策略决定。'
+              {t('interviewSetup.loadedKnowledgeDescription', {
+                defaultValue:
+                  '默认选择当前已加载来源；最终可访问范围仍由服务端结合来源策略与会话权限决定。'
               })}
             </p>
           </div>
@@ -321,6 +337,14 @@ function InterviewSetupForm({
             </button>
           ) : null}
         </div>
+        {data.hasMoreKnowledgeSources ? (
+          <p className="aw-inline-warning" role="status">
+            {t('interviewSetup.moreKnowledgeAvailable', {
+              defaultValue:
+                '当前只展示 Knowledge API 返回的首批来源，仍有更多来源未加载；这里的“全选”仅作用于当前列表。'
+            })}
+          </p>
+        ) : null}
         {data.knowledgeSources.length === 0 ? (
           <p className="aw-interview-empty-note">
             {t('interviewSetup.noKnowledge', {
@@ -339,10 +363,11 @@ function InterviewSetupForm({
                 />
                 <span>
                   <strong>{source.name}</strong>
-                  <small>{source.originLabel}</small>
+                  <small>{getKnowledgeSourcePublicFact(source)}</small>
                 </span>
                 <span className="aw-status">
-                  {source.documentCount} {t('knowledge.documents', { defaultValue: '份文档' })}
+                  {source.ingestion.documentCount}{' '}
+                  {t('knowledge.documents', { defaultValue: '份文档' })}
                 </span>
               </label>
             ))}

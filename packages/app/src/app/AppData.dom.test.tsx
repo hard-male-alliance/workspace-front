@@ -103,7 +103,7 @@ describe('useAsyncResource', (): void => {
       }: {
         readonly load: () => Promise<string>
         readonly resourceKey: string
-      }) => useAsyncResource('knowledge.visibility', load, resourceKey),
+      }) => useAsyncResource('knowledge.source', load, resourceKey),
       {
         initialProps: { load: loadA, resourceKey: 'source-a' },
         wrapper: AsyncResourceTestProvider

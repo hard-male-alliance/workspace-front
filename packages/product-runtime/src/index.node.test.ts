@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   asUiConcurrencyToken,
+  asUiKnowledgeSourcePageLimit,
   asUiOpaqueId,
   asUiResumePageLimit,
   asUiResumeTemplatePageLimit,
@@ -19,7 +20,6 @@ import {
 } from '@ai-job-workspace/product-api-v2'
 
 import {
-  ApiV2CapabilityUnavailableError,
   createApiV2ResumeCreationGateway,
   createApiV2ResumeGateway,
   createApiV2ResumeTemplateCatalog,
@@ -92,6 +92,37 @@ const WORKSPACE_ACCESS = {
     slug: 'klee-personal',
     updated_at: '2026-07-22T12:00:00Z'
   }
+} as const
+
+/** @brief KnowledgeSource 的 API v2 测试载荷 / API v2 test payload for a KnowledgeSource. */
+const KNOWLEDGE_SOURCE = {
+  created_at: '2026-07-22T12:00:00Z',
+  current_version_id: null,
+  enabled: true,
+  id: 'knowledge_01K0EXAMPLE00000000001',
+  ingestion: {
+    chunk_count: 0,
+    document_count: 0,
+    last_problem: null,
+    last_success_at: null,
+    status: 'not_started'
+  },
+  name: 'Distributed systems interview notes',
+  public_config: {},
+  revision: 1,
+  source_type: 'manual_note',
+  updated_at: '2026-07-22T12:00:00Z',
+  visibility: {
+    agent_grants: [],
+    allow_external_model_processing: false,
+    allowed_model_regions: ['cn'],
+    default_effect: 'deny',
+    policy_version: 1,
+    retention_days: 365,
+    sensitivity: 'confidential',
+    session_override_allowed: false
+  },
+  workspace_id: WORKSPACE_ACCESS.workspace.id
 } as const
 
 /** @brief ResumeSummary 的 API v2 测试载荷 / API v2 test payload for ResumeSummary. */
@@ -506,7 +537,79 @@ describe('createProductGateways', (): void => {
     expect(observation?.signal).toBeInstanceOf(AbortSignal)
   })
 
-  it('对未接入能力显式失败且不创建 v1 fallback', async (): Promise<void> => {
+  it('把 KnowledgeSource 列表直接装配到认证 API v2 client', async (): Promise<void> => {
+    /** @brief fetch 观察记录 / Observation captured from fetch. */
+    let observation:
+      | {
+          readonly authorization: string | null
+          readonly signal: AbortSignal | null | undefined
+          readonly url: string
+        }
+      | undefined
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        /** @brief 当前请求头 / Current request headers. */
+        const headers = new Headers(init?.headers)
+        observation = {
+          authorization: headers.get('Authorization'),
+          signal: init?.signal,
+          url: typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+        }
+        /** @brief 客户端请求 ID / Client request ID. */
+        const requestId = headers.get('X-Request-Id')
+        if (requestId === null) throw new Error('The test request omitted X-Request-Id.')
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              items: [KNOWLEDGE_SOURCE],
+              page: { has_more: false, next_cursor: null }
+            }),
+            {
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Request-Id': requestId
+              }
+            }
+          )
+        )
+      })
+    )
+    /** @brief v2-only 产品网关 / v2-only product gateways. */
+    const gateways = createProductGateways({
+      authentication: authenticationPort((): string => ACCESS_TOKEN),
+      locale: 'zh-CN'
+    })
+    /** @brief 调用方取消信号 / Caller cancellation signal. */
+    const signal = new AbortController().signal
+
+    await expect(
+      gateways.knowledge.listKnowledgeSourcePage({
+        cursor: null,
+        limit: asUiKnowledgeSourcePageLimit(50),
+        signal,
+        workspaceId: asUiOpaqueId<'workspace'>(WORKSPACE_ACCESS.workspace.id)
+      })
+    ).resolves.toMatchObject({
+      hasMore: false,
+      items: [
+        {
+          id: KNOWLEDGE_SOURCE.id,
+          name: KNOWLEDGE_SOURCE.name,
+          sourceType: 'manual_note',
+          workspaceId: WORKSPACE_ACCESS.workspace.id
+        }
+      ],
+      nextCursor: null
+    })
+    expect(observation).toMatchObject({
+      authorization: `Bearer ${ACCESS_TOKEN}`,
+      signal,
+      url: `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ACCESS.workspace.id}/knowledge-sources?limit=50`
+    })
+  })
+
+  it('对尚未接入的 Interview 能力显式失败且不创建 v1 fallback', async (): Promise<void> => {
     /** @brief v2-only 产品网关 / v2-only product gateways. */
     const gateways = createProductGateways({
       authentication: authenticationPort((): string => ACCESS_TOKEN),
@@ -521,11 +624,6 @@ describe('createProductGateways', (): void => {
       capability: 'interview-scenarios.list',
       name: 'ApiV2CapabilityUnavailableError'
     })
-    await expect(
-      gateways.knowledge.listKnowledgeSources(
-        asUiOpaqueId<'workspace'>('ws_01K0EXAMPLE00000000000001')
-      )
-    ).rejects.toBeInstanceOf(ApiV2CapabilityUnavailableError)
   })
 })
 

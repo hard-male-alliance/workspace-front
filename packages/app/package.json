@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@ai-job-workspace/platform": "workspace:*",
+    "@ai-job-workspace/product-api-v2": "workspace:*",
     "i18next": "^26.3.6",
     "lucide-react": "^1.24.0",
     "react-i18next": "^17.0.9",

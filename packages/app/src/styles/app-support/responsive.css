@@ -55,7 +55,6 @@
   .aw-today-grid,
   .aw-workbench-grid,
   .aw-template-layout,
-  .aw-knowledge-layout,
   .aw-summary-layout,
   .aw-interview-grid,
   .aw-visibility-grid {
@@ -74,10 +73,6 @@
 
   .aw-visibility-summary-stats {
     flex-wrap: wrap;
-  }
-
-  .aw-source-detail {
-    position: static;
   }
 
   .aw-editor-workspace {

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import type { AppGateways } from '../application'
+import { asUiKnowledgeSourceCursor } from '../contexts/knowledge'
 import { asUiOpaqueId } from '../shared-kernel/identity'
 import {
   InMemoryIdentityGateway,
@@ -47,9 +48,9 @@ describe('createAppQueries', (): void => {
       .mockRejectedValue(new Error('Interview capability is not connected.'))
     /** @brief Resume 摘要页调用观察 / Resume-summary page call observation. */
     const listResumeSummariesPage = vi.spyOn(gateways.resume, 'listResumeSummariesPage')
-    /** @brief KnowledgeSource 调用观察 / KnowledgeSource call observation. */
-    const listKnowledgeSources = vi
-      .spyOn(gateways.knowledge, 'listKnowledgeSources')
+    /** @brief KnowledgeSource 单页调用观察 / KnowledgeSource page-call observation. */
+    const listKnowledgeSourcePage = vi
+      .spyOn(gateways.knowledge, 'listKnowledgeSourcePage')
       .mockRejectedValue(new Error('Knowledge capability is not connected.'))
     /** @brief Identity 读取观察 / Identity-read observation. */
     const loadCurrentUser = vi.spyOn(gateways.identity, 'loadCurrentUser')
@@ -74,7 +75,39 @@ describe('createAppQueries', (): void => {
     expect(listResumeSummariesPage).toHaveBeenCalledWith(
       expect.objectContaining({ cursor: null, limit: 200 })
     )
-    expect(listKnowledgeSources).not.toHaveBeenCalled()
+    expect(listKnowledgeSourcePage).not.toHaveBeenCalled()
+  })
+
+  it('Interview 投影只读取 KnowledgeSource 首页并公开未加载状态', async (): Promise<void> => {
+    /** @brief 当前测试 gateway / Gateways used by this test. */
+    const gateways = createGateways()
+    /** @brief 强制返回后续 cursor 的单页调用观察 / One-page call forced to return a continuation cursor. */
+    const listKnowledgeSourcePage = vi
+      .spyOn(gateways.knowledge, 'listKnowledgeSourcePage')
+      .mockResolvedValue({
+        hasMore: true,
+        items: [],
+        nextCursor: asUiKnowledgeSourceCursor('knowledge_cursor_second_page')
+      })
+    /** @brief 页面资源取消信号 / Page-resource cancellation signal. */
+    const signal = new AbortController().signal
+    /** @brief Interview 配置投影 / Interview setup projection. */
+    const result = await createAppQueries(
+      gateways,
+      createWorkspaceSession(gateways.identity, gateways.workspace)
+    ).interviewSetup.load(signal)
+
+    expect(result).toMatchObject({
+      hasMoreKnowledgeSources: true,
+      knowledgeSources: []
+    })
+    expect(listKnowledgeSourcePage).toHaveBeenCalledTimes(1)
+    expect(listKnowledgeSourcePage).toHaveBeenCalledWith({
+      cursor: null,
+      limit: 200,
+      signal,
+      workspaceId: result.workspaceId
+    })
   })
 
   it('在应用层聚合公开投影并复用单一工作区会话', async (): Promise<void> => {
@@ -103,8 +136,10 @@ describe('createAppQueries', (): void => {
     expect(home.resumeSummary?.id).toBe('res_mock_ai_platform')
     expect(setup.workspaceId).toBe(home.home.workspaceAccess.workspace.id)
     expect(setup.knowledgeSources.length).toBeGreaterThan(0)
+    expect(setup.hasMoreKnowledgeSources).toBe(false)
     expect(summary.details.session.id).toBe('int_mock_system_design')
     expect(summary.knowledgeSources.length).toBeGreaterThan(0)
+    expect(summary.hasMoreKnowledgeSources).toBe(false)
     expect(getInterviewRuntime).not.toHaveBeenCalled()
     expect(loadCurrentUser).toHaveBeenCalledTimes(1)
     expect(listWorkspaceAccessPage).toHaveBeenCalledTimes(1)
