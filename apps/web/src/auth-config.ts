@@ -26,6 +26,12 @@ export interface WebOAuthConfiguration {
   readonly scopes: typeof WEB_OAUTH_SCOPES
 }
 
+/** @brief Web OAuth origin validation policy / Web OAuth origin validation policy. */
+export interface WebOAuthConfigurationOptions {
+  /** @brief Allow standard HTTP loopback origins only for Vite development. */
+  readonly allowDevelopmentLoopbackHttp?: boolean | undefined
+}
+
 /** @brief Web OAuth 配置错误 / Web OAuth configuration error. */
 export class WebOAuthConfigurationError extends Error {
   override readonly name = 'WebOAuthConfigurationError'
@@ -70,7 +76,8 @@ export function assertWebOAuthTransactionConfiguration(
  */
 export function resolveWebOAuthConfiguration(
   environment: PublicWebOAuthEnvironment,
-  applicationOrigin: string
+  applicationOrigin: string,
+  options: WebOAuthConfigurationOptions = {}
 ): WebOAuthConfiguration {
   /** @brief 构建期 public client ID / Build-time public client ID. */
   const clientId = environment.VITE_OAUTH_CLIENT_ID
@@ -85,21 +92,33 @@ export function resolveWebOAuthConfiguration(
       return codePoint <= 0x20 || codePoint === 0x7f
     })
   ) {
-    throw new WebOAuthConfigurationError('VITE_OAUTH_CLIENT_ID must be a valid public client ID.')
+    throw new WebOAuthConfigurationError(
+      'VITE_OAUTH_CLIENT_ID must be a valid public client ID. Create apps/web/.env from apps/web/.env.example and set VITE_OAUTH_CLIENT_ID to the registered public Web OAuth client ID.'
+    )
   }
 
   try {
     /** @brief 当前应用 origin / Current application origin. */
     const origin = new URL(applicationOrigin)
-    if (
-      origin.protocol !== 'https:' ||
-      origin.origin !== applicationOrigin ||
-      origin.pathname !== '/' ||
-      origin.search !== '' ||
-      origin.hash !== '' ||
-      origin.username !== '' ||
-      origin.password !== ''
-    ) {
+    /** @brief Canonical origin without path, credentials, search, or hash. */
+    const isCanonicalOrigin =
+      origin.origin === applicationOrigin &&
+      origin.pathname === '/' &&
+      origin.search === '' &&
+      origin.hash === '' &&
+      origin.username === '' &&
+      origin.password === ''
+    /** @brief Production and preview deployment origin policy. */
+    const isHttpsDeploymentOrigin = origin.protocol === 'https:' && isCanonicalOrigin
+    /** @brief Vite development-only standard loopback HTTP policy. */
+    const isDevelopmentLoopbackHttpOrigin =
+      options.allowDevelopmentLoopbackHttp === true &&
+      origin.protocol === 'http:' &&
+      isCanonicalOrigin &&
+      origin.port !== '' &&
+      (origin.hostname === 'localhost' || origin.hostname === '127.0.0.1')
+
+    if (!isHttpsDeploymentOrigin && !isDevelopmentLoopbackHttpOrigin) {
       throw new Error()
     }
     return Object.freeze({

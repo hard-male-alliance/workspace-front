@@ -2,6 +2,8 @@ import '../styles/shared-ui/host-startup-failure.css'
 
 /** @brief 宿主启动失败视图属性 / Host startup-failure view properties. */
 export interface HostStartupFailureProps {
+  /** @brief Safe low-detail remediation text supplied by the host / Safe low-detail remediation text supplied by the host. */
+  readonly detail?: string | undefined
   /** @brief 宿主提供的 BCP 47 locale 候选 / BCP 47 locale candidate supplied by the host. */
   readonly locale: string
   /** @brief 用户确认后重新加载宿主应用 / Reload the host application after explicit user confirmation. */
@@ -56,6 +58,7 @@ function selectHostStartupFailureCopy(locale: string): HostStartupFailureCopy {
  * @return 可访问的启动失败页 / Accessible startup-failure page.
  */
 export function HostStartupFailure({
+  detail,
   locale,
   onRetry
 }: HostStartupFailureProps): React.JSX.Element {
@@ -71,6 +74,7 @@ export function HostStartupFailure({
         <p className="aw-host-startup-eyebrow">Inkwell · Job Workspace</p>
         <h1 id="host-startup-error-title">{copy.title}</h1>
         <p>{copy.message}</p>
+        {detail === undefined ? null : <p>{detail}</p>}
         <button className="aw-host-startup-action" onClick={onRetry} type="button">
           {copy.action}
         </button>

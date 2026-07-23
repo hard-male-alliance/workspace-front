@@ -23,6 +23,58 @@ describe('resolveWebOAuthConfiguration', (): void => {
     })
   })
 
+  it.each([
+    ['localhost', 'http://localhost:5173', 'http://localhost:5173/oauth/callback'],
+    ['127.0.0.1', 'http://127.0.0.1:5173', 'http://127.0.0.1:5173/oauth/callback']
+  ] as const)(
+    'allows development loopback HTTP origin for %s',
+    (_host, origin, redirectUri): void => {
+      expect(
+        resolveWebOAuthConfiguration(
+          { VITE_OAUTH_CLIENT_ID: 'workspace-web-local' },
+          origin,
+          { allowDevelopmentLoopbackHttp: true }
+        )
+      ).toEqual({
+        clientId: 'workspace-web-local',
+        redirectUri,
+        scopes: WEB_OAUTH_SCOPES
+      })
+    }
+  )
+
+  it.each([
+    'http://app.hmalliances.org',
+    'http://192.168.0.2:5173',
+    'http://localhost.evil.test:5173'
+  ] as const)('rejects non-loopback HTTP origin in development: %s', (origin): void => {
+    expect(() =>
+      resolveWebOAuthConfiguration(
+        { VITE_OAUTH_CLIENT_ID: 'workspace-web-local' },
+        origin,
+        { allowDevelopmentLoopbackHttp: true }
+      )
+    ).toThrow(WebOAuthConfigurationError)
+  })
+
+  it('keeps production HTTP origins rejected even for localhost', (): void => {
+    expect(() =>
+      resolveWebOAuthConfiguration(
+        { VITE_OAUTH_CLIENT_ID: 'workspace-web-local' },
+        'http://localhost:5173'
+      )
+    ).toThrow(WebOAuthConfigurationError)
+  })
+
+  it.each([{}, { VITE_OAUTH_CLIENT_ID: ' workspace-web' }] as const)(
+    'describes how to fix a missing or invalid public client ID',
+    (environment): void => {
+      expect(() =>
+        resolveWebOAuthConfiguration(environment, 'https://app.hmalliances.org')
+      ).toThrow(/Create apps\/web\/\.env/)
+    }
+  )
+
   it('rejects a callback transaction created under different deployment settings', (): void => {
     /** @brief 当前部署配置 / Current deployment configuration. */
     const configuration = resolveWebOAuthConfiguration(

@@ -13,6 +13,7 @@ import { createProductGateways } from '@ai-job-workspace/product-runtime'
 import {
   assertWebOAuthTransactionConfiguration,
   resolveWebOAuthConfiguration,
+  WebOAuthConfigurationError,
   type WebOAuthConfiguration
 } from './auth-config'
 import { createWebArtifactSave } from './artifact-save'
@@ -92,7 +93,8 @@ async function bootstrapWebApplication(): Promise<void> {
   /** @brief 当前 HTTPS 部署的 public-client 配置 / Public-client configuration of this HTTPS deployment. */
   const oauthConfiguration = resolveWebOAuthConfiguration(
     { VITE_OAUTH_CLIENT_ID: import.meta.env.VITE_OAUTH_CLIENT_ID },
-    globalThis.location.origin
+    globalThis.location.origin,
+    { allowDevelopmentLoopbackHttp: import.meta.env.DEV }
   )
 
   diagnostics.emit('app.started', {
@@ -185,11 +187,24 @@ function reloadWebApplication(): void {
   globalThis.location.reload()
 }
 
+/**
+ * @brief Produce a safe startup remediation hint without reflecting secrets / Produce a safe startup remediation hint without reflecting secrets.
+ * @param error Untrusted startup error.
+ * @return Safe low-cardinality detail for the startup failure page.
+ */
+function safeWebStartupFailureDetail(error: unknown): string | undefined {
+  return error instanceof WebOAuthConfigurationError ? error.message : undefined
+}
+
 void bootstrapWebApplication().catch((error: unknown): void => {
   console.error('Web application failed to start.', error)
   applicationRoot.render(
     <StrictMode>
-      <HostStartupFailure locale={navigator.language} onRetry={reloadWebApplication} />
+      <HostStartupFailure
+        detail={safeWebStartupFailureDetail(error)}
+        locale={navigator.language}
+        onRetry={reloadWebApplication}
+      />
     </StrictMode>
   )
 })
