@@ -1,3 +1,5 @@
+* text=auto eol=lf
+
 /scripts/check-contracts.mjs text eol=lf
 /scripts/check-contracts.node.test.mjs text eol=lf
 /scripts/check-production-artifacts.mjs text eol=lf

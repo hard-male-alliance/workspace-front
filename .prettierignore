@@ -4,6 +4,7 @@ workspace-shared-docs/**
 # Dependency lockfile ordering and generated outputs are not source formatting targets.
 pnpm-lock.yaml
 .pytest_cache/**
+.tmp/**
 **/dist/**
 **/out/**
 coverage/**
