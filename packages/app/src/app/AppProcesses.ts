@@ -1,6 +1,11 @@
 /** @file 跨限界上下文的命名产品流程 / Named product processes spanning bounded contexts. */
 
-import type { AppGateways, UiResumeId } from '../application'
+import type {
+  AppGateways,
+  UiConcurrencyToken,
+  UiResumeEditorModel,
+  UiResumeId
+} from '../application'
 import {
   asUiWorkspaceOperationsPageLimit,
   type UiWorkspaceArtifact,
@@ -53,6 +58,9 @@ export interface StartResumePdfPreview extends ResumeRenderTarget {
 
 /** @brief 轮询观察到新权威时的通知 / Notification emitted when polling observes new authority. */
 export type ResumeRenderObservation = (authority: UiWorkspaceJobAuthority) => void
+
+/** @brief 通用 Workspace Job 权威观察通知 / Generic Workspace-Job authority observation. */
+export type WorkspaceJobObservation = ResumeRenderObservation
 
 /** @brief 可替换的下一轮等待策略 / Replaceable policy for waiting before the next poll. */
 export type ResumeRenderPollWait = (delayMilliseconds: number, signal: AbortSignal) => Promise<void>
@@ -189,10 +197,119 @@ export interface ResumeRenderProcess {
   ) => Promise<UiWorkspaceArtifactContent>
 }
 
+/** @brief 一次 Resume restore 流程绑定的不可变目标 / Immutable target bound to one Resume-restore process. */
+export interface ResumeRestoreTarget {
+  /** @brief 显式授权 Workspace / Explicitly authorized Workspace. */
+  readonly workspaceId: UiWorkspaceId
+  /** @brief 要恢复的 Resume / Resume to restore. */
+  readonly resumeId: UiResumeId
+  /** @brief 启动 restore 时读取的当前 revision / Current revision read when restore starts. */
+  readonly currentRevision: number
+  /** @brief 用户明确选择的历史 revision / Historical revision explicitly selected by the user. */
+  readonly sourceRevision: number
+}
+
+/** @brief 启动一次 Resume restore 的完整用户意图 / Complete user intent for starting one Resume restore. */
+export interface StartResumeRestore extends ResumeRestoreTarget {
+  /** @brief 同一恢复意图及确认重放中稳定的命令 identity / Command identity stable across the restore intent and confirmation replays. */
+  readonly commandId: UiCommandId
+  /** @brief 当前 Resume 表示的强 ETag / Strong ETag of the current Resume representation. */
+  readonly concurrencyToken: UiConcurrencyToken
+  /** @brief 当前网络调用的可选取消信号 / Optional cancellation signal for the current network call. */
+  readonly signal?: AbortSignal
+}
+
+/** @brief Resume restore 跨资源不变量失败类别 / Cross-resource invariant failure category for Resume restore. */
+export type ResumeRestoreProcessErrorCode =
+  | 'invalid-job-transition'
+  | 'job-identity-mismatch'
+  | 'job-subject-mismatch'
+  | 'resume-not-advanced'
+
+/** @brief 不泄漏服务端内容的 Resume restore 流程错误 / Resume-restore process error exposing no server-authored content. */
+export class ResumeRestoreProcessError extends Error {
+  /** @brief 稳定流程错误 code / Stable process-error code. */
+  readonly code: ResumeRestoreProcessErrorCode
+
+  /**
+   * @brief 构造安全且可分类的 restore 流程错误 / Construct a safe, classifiable restore-process error.
+   * @param code 稳定流程错误 code / Stable process-error code.
+   */
+  constructor(code: ResumeRestoreProcessErrorCode) {
+    super(`Resume restore process invariant failed: ${code}.`)
+    this.name = 'ResumeRestoreProcessError'
+    this.code = code
+  }
+}
+
+/** @brief 跨 Resume Review 与 Workspace Operations 的恢复流程 / Restore process spanning Resume Review and Workspace Operations. */
+export interface ResumeRestoreProcess {
+  /**
+   * @brief 启动一次并发安全的 restore Job / Start one concurrency-safe restore Job.
+   * @param input 冻结的当前权威与恢复意图 / Frozen current authority and restore intent.
+   * @return 已完成 Workspace/subject 核对的 Job 权威 / Job authority after Workspace and subject validation.
+   */
+  readonly start: (input: StartResumeRestore) => Promise<UiWorkspaceJobAuthority>
+  /**
+   * @brief 观察一个已知 restore Job 到真实终态 / Observe a known restore Job to an authoritative terminal state.
+   * @param target 冻结恢复目标 / Frozen restore target.
+   * @param initial 已知 Job 权威 / Known Job authority.
+   * @param signal 页面或用户取消信号 / Page or user cancellation signal.
+   * @param onObservation 每次权威更新通知 / Notification for each authority update.
+   * @return 真实终态 Job 权威 / Authoritative terminal Job authority.
+   */
+  readonly watchToTerminal: (
+    target: ResumeRestoreTarget,
+    initial: UiWorkspaceJobAuthority,
+    signal: AbortSignal,
+    onObservation: WorkspaceJobObservation
+  ) => Promise<UiWorkspaceJobAuthority>
+  /**
+   * @brief 读取已知 restore Job 的最新权威 / Read the latest authority of a known restore Job.
+   * @param target 冻结恢复目标 / Frozen restore target.
+   * @param jobId Job identity / Job identity.
+   * @param signal 可选取消信号 / Optional cancellation signal.
+   * @return 已完成范围核对的 Job 权威 / Job authority after scope validation.
+   */
+  readonly refreshJob: (
+    target: ResumeRestoreTarget,
+    jobId: UiWorkspaceJobId,
+    signal?: AbortSignal
+  ) => Promise<UiWorkspaceJobAuthority>
+  /**
+   * @brief 取消一个仍在执行的 restore Job / Cancel a restore Job that is still running.
+   * @param target 冻结恢复目标 / Frozen restore target.
+   * @param authority 当前 Job 与强 ETag / Current Job and strong ETag.
+   * @param commandId 同一取消意图中稳定的 identity / Stable identity within one cancellation intent.
+   * @param signal 可选取消信号 / Optional cancellation signal.
+   * @return 取消后并完成状态迁移核对的权威 / Authority after cancellation and transition validation.
+   */
+  readonly cancel: (
+    target: ResumeRestoreTarget,
+    authority: UiWorkspaceJobAuthority,
+    commandId: UiCommandId,
+    signal?: AbortSignal
+  ) => Promise<UiWorkspaceJobAuthority>
+  /**
+   * @brief succeeded 后重新读取当前 Resume 权威 / Reread current Resume authority after success.
+   * @param target 冻结恢复目标 / Frozen restore target.
+   * @param job succeeded Job / Succeeded Job.
+   * @param signal 读取取消信号 / Read cancellation signal.
+   * @return revision 已前进的完整 Resume 权威 / Complete Resume authority whose revision advanced.
+   */
+  readonly readRestoredResume: (
+    target: ResumeRestoreTarget,
+    job: Extract<UiWorkspaceJob, { readonly status: 'succeeded' }>,
+    signal: AbortSignal
+  ) => Promise<UiResumeEditorModel>
+}
+
 /** @brief 应用层拥有的命名产品流程集合 / Named product processes owned by the application layer. */
 export interface AppProcesses {
   /** @brief Resume PDF Render 跨上下文流程 / Cross-context Resume PDF Render process. */
   readonly resumeRender: ResumeRenderProcess
+  /** @brief Resume 历史恢复跨上下文流程 / Cross-context Resume history-restore process. */
+  readonly resumeRestore: ResumeRestoreProcess
 }
 
 /**
@@ -247,6 +364,28 @@ function assertResumeRenderJob(
     job.subject.revision !== target.resumeRevision
   ) {
     throw new ResumeRenderProcessError('job-subject-mismatch')
+  }
+}
+
+/**
+ * @brief 核对 Job 属于目标 Resume restore，而不猜测开放 kind 或可选 subject revision / Validate that a Job belongs to a target Resume restore without guessing its open kind or optional subject revision.
+ * @param job 待核对 Job / Job to validate.
+ * @param target 冻结恢复目标 / Frozen restore target.
+ * @param expectedJobId 可选路径 Job identity / Optional Job identity from the request path.
+ */
+function assertResumeRestoreJob(
+  job: UiWorkspaceJob,
+  target: ResumeRestoreTarget,
+  expectedJobId?: UiWorkspaceJobId
+): void {
+  if (
+    job.workspaceId !== target.workspaceId ||
+    (expectedJobId !== undefined && job.id !== expectedJobId)
+  ) {
+    throw new ResumeRestoreProcessError('job-identity-mismatch')
+  }
+  if (job.subject.resourceType !== RESUME_RESOURCE_TYPE || job.subject.id !== target.resumeId) {
+    throw new ResumeRestoreProcessError('job-subject-mismatch')
   }
 }
 
@@ -325,6 +464,53 @@ export function createAppProcesses(
   waitForNextPoll: ResumeRenderPollWait = waitForVisiblePollDelay,
   now: () => number = Date.now
 ): AppProcesses {
+  /**
+   * @brief 以共用退避和状态图观察一个已知 Job / Observe a known Job using shared backoff and transition rules.
+   * @param workspaceId 显式授权 Workspace / Explicitly authorized Workspace.
+   * @param initial 已知 Job 权威 / Known Job authority.
+   * @param signal 页面或用户取消信号 / Page or user cancellation signal.
+   * @param onObservation 每次权威变化通知 / Notification on each authority change.
+   * @param assertScope 对当前流程的范围核对 / Scope assertion for the current process.
+   * @param invalidTransition 构造上下文专属迁移错误 / Factory for a context-specific transition error.
+   * @return 真实终态 Job 权威 / Authoritative terminal Job.
+   */
+  const watchWorkspaceJobToTerminal = async (
+    workspaceId: UiWorkspaceId,
+    initial: UiWorkspaceJobAuthority,
+    signal: AbortSignal,
+    onObservation: WorkspaceJobObservation,
+    assertScope: (job: UiWorkspaceJob, expectedJobId?: UiWorkspaceJobId) => void,
+    invalidTransition: () => Error
+  ): Promise<UiWorkspaceJobAuthority> => {
+    assertScope(initial.job)
+    /** @brief 当前最新 Job 权威 / Latest current Job authority. */
+    let current = initial
+    /** @brief 上一次没有进展后的等待时间 / Previous delay after an observation without progress. */
+    let previousDelay: number | null = null
+    while (workspaceJobNeedsPolling(current.job)) {
+      /** @brief 本轮带 decorrelated jitter 的等待 / Decorrelated-jitter wait for this poll. */
+      const delay = nextPollDelayMilliseconds(previousDelay)
+      await waitForNextPoll(delay, signal)
+      /** @brief 本轮读取到的新权威 / New authority read by this poll. */
+      const next = await gateways.workspaceOperations.getJob({
+        jobId: current.job.id,
+        signal,
+        workspaceId
+      })
+      signal.throwIfAborted()
+      assertScope(next.job, current.job.id)
+      try {
+        assertJobTransition(current.job, next.job)
+      } catch {
+        throw invalidTransition()
+      }
+      previousDelay = hasMaterialJobProgress(current.job, next.job) ? null : delay
+      current = next
+      onObservation(current)
+    }
+    return current
+  }
+
   /** @brief Resume Render 命名流程实现 / Named Resume-render process implementation. */
   const resumeRender: ResumeRenderProcess = {
     async startPdfPreview(input): Promise<UiWorkspaceJobAuthority> {
@@ -342,30 +528,14 @@ export function createAppProcesses(
       return authority
     },
     async watchToTerminal(target, initial, signal, onObservation) {
-      assertResumeRenderJob(initial.job, target)
-      /** @brief 当前最新 Job 权威 / Latest current Job authority. */
-      let current = initial
-      /** @brief 上一次没有进展后的等待时间 / Previous delay after an observation without progress. */
-      let previousDelay: number | null = null
-
-      while (workspaceJobNeedsPolling(current.job)) {
-        /** @brief 本轮带 decorrelated jitter 的等待 / Decorrelated-jitter wait for this poll. */
-        const delay = nextPollDelayMilliseconds(previousDelay)
-        await waitForNextPoll(delay, signal)
-        /** @brief 本轮读取到的新权威 / New authority read by this poll. */
-        const next = await gateways.workspaceOperations.getJob({
-          jobId: current.job.id,
-          signal,
-          workspaceId: target.workspaceId
-        })
-        signal.throwIfAborted()
-        assertResumeRenderJob(next.job, target, current.job.id)
-        assertJobTransition(current.job, next.job)
-        previousDelay = hasMaterialJobProgress(current.job, next.job) ? null : delay
-        current = next
-        onObservation(current)
-      }
-      return current
+      return watchWorkspaceJobToTerminal(
+        target.workspaceId,
+        initial,
+        signal,
+        onObservation,
+        (job, expectedJobId): void => assertResumeRenderJob(job, target, expectedJobId),
+        (): Error => new ResumeRenderProcessError('invalid-job-transition')
+      )
     },
     async refreshJob(target, jobId, signal) {
       /** @brief 最新 Job 权威 / Latest Job authority. */
@@ -504,5 +674,72 @@ export function createAppProcesses(
     }
   }
 
-  return Object.freeze({ resumeRender: Object.freeze(resumeRender) })
+  /** @brief Resume restore 命名流程实现 / Named Resume-restore process implementation. */
+  const resumeRestore: ResumeRestoreProcess = {
+    async start(input) {
+      /** @brief API v2 接受的 restore Job / Restore Job accepted by API v2. */
+      const authority = await gateways.resumeReview.startResumeRestore(input)
+      assertResumeRestoreJob(authority.job, input)
+      return authority
+    },
+    async watchToTerminal(target, initial, signal, onObservation) {
+      return watchWorkspaceJobToTerminal(
+        target.workspaceId,
+        initial,
+        signal,
+        onObservation,
+        (job, expectedJobId): void => assertResumeRestoreJob(job, target, expectedJobId),
+        (): Error => new ResumeRestoreProcessError('invalid-job-transition')
+      )
+    },
+    async refreshJob(target, jobId, signal) {
+      /** @brief 最新 restore Job 权威 / Latest restore-Job authority. */
+      const authority = await gateways.workspaceOperations.getJob({
+        jobId,
+        ...(signal === undefined ? {} : { signal }),
+        workspaceId: target.workspaceId
+      })
+      assertResumeRestoreJob(authority.job, target, jobId)
+      return authority
+    },
+    async cancel(target, authority, commandId, signal) {
+      assertResumeRestoreJob(authority.job, target)
+      if (!workspaceJobNeedsPolling(authority.job)) {
+        throw new ResumeRestoreProcessError('invalid-job-transition')
+      }
+      /** @brief cancellation 返回的新权威 / New authority returned by cancellation. */
+      const cancelled = await gateways.workspaceOperations.cancelJob({
+        commandId,
+        concurrencyToken: authority.concurrencyToken,
+        jobId: authority.job.id,
+        ...(signal === undefined ? {} : { signal }),
+        workspaceId: target.workspaceId
+      })
+      assertResumeRestoreJob(cancelled.job, target, authority.job.id)
+      try {
+        assertJobTransition(authority.job, cancelled.job)
+      } catch {
+        throw new ResumeRestoreProcessError('invalid-job-transition')
+      }
+      return cancelled
+    },
+    async readRestoredResume(target, job, signal) {
+      assertResumeRestoreJob(job, target)
+      /** @brief Job 成功后重新读取的唯一当前 Resume 权威 / Sole current Resume authority reread after Job success. */
+      const editor = await gateways.resume.getResumeEditor(
+        target.workspaceId,
+        target.resumeId,
+        signal
+      )
+      if (editor.resume.revision <= target.currentRevision) {
+        throw new ResumeRestoreProcessError('resume-not-advanced')
+      }
+      return editor
+    }
+  }
+
+  return Object.freeze({
+    resumeRender: Object.freeze(resumeRender),
+    resumeRestore: Object.freeze(resumeRestore)
+  })
 }

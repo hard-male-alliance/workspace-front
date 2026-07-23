@@ -92,7 +92,7 @@ export class InMemoryWorkspaceOperationsGateway implements WorkspaceOperationsGa
     /** @brief 完成前用于授权核对的当前 Job / Current Job used for authorization checking before completion. */
     const current = this.store.getJobAuthority(request.jobId)
     if (current.job.workspaceId !== request.workspaceId) return throwMemoryNotFound('workspace job')
-    return cloneMemoryValue(this.store.advanceRenderJob(request.jobId))
+    return cloneMemoryValue(this.store.advanceJob(request.jobId))
   }
 
   /** @inheritdoc */

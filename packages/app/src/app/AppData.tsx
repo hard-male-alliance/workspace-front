@@ -11,6 +11,9 @@ import { createWorkspaceSession, type WorkspaceSession } from './session/workspa
 /** @brief Resume gateway 依赖注入上下文 / Resume-gateway dependency-injection context. */
 const ResumeGatewayContext = createContext<AppGateways['resume'] | null>(null)
 
+/** @brief Resume 审阅端口依赖注入上下文 / Resume-review port dependency-injection context. */
+const ResumeReviewContext = createContext<AppGateways['resumeReview'] | null>(null)
+
 /** @brief Resume 创建端口依赖注入上下文 / Resume-creation port dependency-injection context. */
 const ResumeCreationContext = createContext<AppGateways['resumeCreation'] | null>(null)
 
@@ -63,17 +66,19 @@ export function AppDataProvider({ children, gateways }: AppDataProviderProps): R
     <AppProcessesContext.Provider value={appProcesses}>
       <AppQueriesContext.Provider value={appQueries}>
         <ResumeGatewayContext.Provider value={gateways.resume}>
-          <ResumeCreationContext.Provider value={gateways.resumeCreation}>
-            <ResumeTemplateCatalogContext.Provider value={gateways.resumeTemplates}>
-              <InterviewGatewayContext.Provider value={gateways.interview}>
-                <KnowledgeGatewayContext.Provider value={gateways.knowledge}>
-                  <WorkspaceSessionContext.Provider value={workspaceSession}>
-                    {children}
-                  </WorkspaceSessionContext.Provider>
-                </KnowledgeGatewayContext.Provider>
-              </InterviewGatewayContext.Provider>
-            </ResumeTemplateCatalogContext.Provider>
-          </ResumeCreationContext.Provider>
+          <ResumeReviewContext.Provider value={gateways.resumeReview}>
+            <ResumeCreationContext.Provider value={gateways.resumeCreation}>
+              <ResumeTemplateCatalogContext.Provider value={gateways.resumeTemplates}>
+                <InterviewGatewayContext.Provider value={gateways.interview}>
+                  <KnowledgeGatewayContext.Provider value={gateways.knowledge}>
+                    <WorkspaceSessionContext.Provider value={workspaceSession}>
+                      {children}
+                    </WorkspaceSessionContext.Provider>
+                  </KnowledgeGatewayContext.Provider>
+                </InterviewGatewayContext.Provider>
+              </ResumeTemplateCatalogContext.Provider>
+            </ResumeCreationContext.Provider>
+          </ResumeReviewContext.Provider>
         </ResumeGatewayContext.Provider>
       </AppQueriesContext.Provider>
     </AppProcessesContext.Provider>
@@ -90,6 +95,18 @@ export function useResumeRenderProcess(): AppProcesses['resumeRender'] {
   const processes = useContext(AppProcessesContext)
   if (processes === null) throw new Error('Resume pages require AppDataProvider.')
   return processes.resumeRender
+}
+
+/**
+ * @brief 读取 Resume 历史恢复命名产品流程 / Read the named Resume history-restore product process.
+ * @return 隔离页面与通用 Job gateway 的恢复流程 / Restore process isolating the page from the generic Job gateway.
+ * @throws 未被 AppDataProvider 包裹时抛出 / Throws when not wrapped by AppDataProvider.
+ */
+export function useResumeRestoreProcess(): AppProcesses['resumeRestore'] {
+  /** @brief 当前应用流程集合 / Current application-process collection. */
+  const processes = useContext(AppProcessesContext)
+  if (processes === null) throw new Error('Resume pages require AppDataProvider.')
+  return processes.resumeRestore
 }
 
 /**
@@ -136,6 +153,18 @@ export function useResumeGateway(): AppGateways['resume'] {
 
   if (gateway === null) throw new Error('Resume pages require AppDataProvider.')
   return gateway
+}
+
+/**
+ * @brief 读取 Resume 历史与建议审阅端口 / Read the Resume history and proposal-review port.
+ * @return 已注入的 Resume 审阅端口 / Injected Resume-review port.
+ * @throws 未被 AppDataProvider 包裹时抛出错误 / Throws when not wrapped by AppDataProvider.
+ */
+export function useResumeReview(): AppGateways['resumeReview'] {
+  /** @brief 当前 Resume 审阅端口 / Current Resume-review port. */
+  const review = useContext(ResumeReviewContext)
+  if (review === null) throw new Error('Resume review requires AppDataProvider.')
+  return review
 }
 
 /**

@@ -183,6 +183,8 @@ const diagnosticCommandOperations = new Set<DiagnosticCommandOperation>([
   'resume.authority_reload',
   'resume.create',
   'resume.pdf_render',
+  'resume.proposal_decision',
+  'resume.restore',
   'resume.section_delete',
   'resume.section_reorder',
   'resume.section_update'
@@ -199,6 +201,7 @@ const diagnosticResourceNames = new Set<DiagnosticResourceName>([
   'resume.creation',
   'resume.editor',
   'resume.entry',
+  'resume.review',
   'resume.template_settings',
   'workspace.session',
   'workspace.home'

@@ -18,6 +18,7 @@ import {
   createUnavailableInterviewGateway,
   createUnavailableKnowledgeGateway
 } from './api-v2-gateways'
+import { createApiV2ResumeReviewGateway } from './resume-review-gateway'
 
 export { ApiV2CapabilityUnavailableError } from './api-v2-gateways'
 
@@ -59,6 +60,7 @@ export function createProductGateways(options: ProductGatewayOptions): AppGatewa
     interview: createUnavailableInterviewGateway(),
     knowledge: createUnavailableKnowledgeGateway(),
     resume: createApiV2ResumeGateway(client, client, client),
+    resumeReview: createApiV2ResumeReviewGateway(client, client, client),
     resumeCreation: createApiV2ResumeCreationGateway(client),
     resumeTemplates: createApiV2ResumeTemplateCatalog(publicClient),
     workspace: createApiV2WorkspaceGateway(client),

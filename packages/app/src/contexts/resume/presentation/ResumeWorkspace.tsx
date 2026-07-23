@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronUp,
   GripVertical,
+  History,
   Send,
   Settings2,
   Sparkles,
@@ -1582,6 +1583,10 @@ export function ResumeWorkspace({
           <Settings2 aria-hidden="true" size={15} />
           {t('resume.templateSettings', { defaultValue: '模板设置' })}
         </Link>
+        <Link className="aw-tab" to={`/resumes/${editor.resume.id}/review?tab=proposals`}>
+          <History aria-hidden="true" size={15} />
+          {t('resume.review.shortTitle', { defaultValue: '版本与建议' })}
+        </Link>
         <button className="aw-tab" onClick={(): void => setMobileAssistantOpen(true)} type="button">
           {t('resume.assistant', { defaultValue: '简历助手' })}
         </button>
@@ -1610,7 +1615,14 @@ export function ResumeWorkspace({
             label={t('resume.workspace.previewWindow', { defaultValue: '预览' })}
             onToggle={(): void => togglePane('preview')}
             trailing={
-              <>
+              <span className="aw-resume-workspace-links">
+                <Link
+                  className="aw-template-settings-link"
+                  to={`/resumes/${editor.resume.id}/review?tab=proposals`}
+                >
+                  <History aria-hidden="true" size={15} />
+                  <span>{t('resume.review.shortTitle', { defaultValue: '版本与建议' })}</span>
+                </Link>
                 <Link
                   aria-disabled={isWriteLocked}
                   aria-label={t('resume.workspace.openTemplateSettings', {
@@ -1629,7 +1641,7 @@ export function ResumeWorkspace({
                       : `${selectedTemplate.name} · v${selectedTemplate.version}`}
                   </span>
                 </Link>
-              </>
+              </span>
             }
           />
         </div>

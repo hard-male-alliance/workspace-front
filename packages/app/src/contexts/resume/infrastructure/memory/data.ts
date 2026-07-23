@@ -5,6 +5,7 @@ import {
   type UiResumeDocument,
   type UiResumeEditorModel
 } from '../../domain/document'
+import type { UiResumeProposal, UiResumeRevision } from '../../domain/review'
 import type {
   UiResumeSummary,
   UiTemplateManifest,
@@ -38,6 +39,21 @@ export const MOCK_PROJECT_SECTION_ID = asUiOpaqueId<'resume-section'>('sec_mock_
 
 /** @brief Mock 简历区段 ID：技能 / Mock resume skills-section ID. */
 export const MOCK_SKILLS_SECTION_ID = asUiOpaqueId<'resume-section'>('sec_mock_skills')
+
+/** @brief Mock 经历条目 ID：AI 平台工程师 / Mock experience-item ID: AI platform engineer. */
+export const MOCK_PLATFORM_ENGINEER_ITEM_ID = asUiOpaqueId<'resume-item'>(
+  'itm_mock_platform_engineer'
+)
+
+/** @brief 包含重复 operation ID 组的待审 Proposal / Pending Proposal containing a duplicate-operation-ID group. */
+export const MOCK_GROUPED_RESUME_PROPOSAL_ID = asUiOpaqueId<'resume-proposal'>(
+  'proposal_mock_platform_impact'
+)
+
+/** @brief 调整项目顺序的待审 Proposal / Pending Proposal for reordering the project section. */
+export const MOCK_MOVE_RESUME_PROPOSAL_ID = asUiOpaqueId<'resume-proposal'>(
+  'proposal_mock_project_priority'
+)
 
 /** @brief Mock 主模板清单 / Mock primary template manifest. */
 export const MOCK_DAWN_TEMPLATE: UiTemplateManifest = {
@@ -225,7 +241,7 @@ function richText(text: string): { readonly text: string; readonly marks: readon
 export const MOCK_RESUME_DOCUMENT: UiResumeDocument = {
   id: MOCK_RESUME_ID,
   workspaceId: MOCK_RESUME_WORKSPACE_ID,
-  createdAt: '2026-07-18T00:00:00.000Z',
+  createdAt: '2026-07-01T02:00:00.000Z',
   revision: 18,
   title: 'AI 平台工程师 · 中文简历',
   locale: 'zh-SG',
@@ -280,7 +296,7 @@ export const MOCK_RESUME_DOCUMENT: UiResumeDocument = {
       content: null,
       items: [
         {
-          id: asUiOpaqueId<'resume-item'>('itm_mock_platform_engineer'),
+          id: MOCK_PLATFORM_ENGINEER_ITEM_ID,
           kind: 'experience',
           title: 'AI 平台工程师',
           subtitle: null,
@@ -453,6 +469,194 @@ export const MOCK_RESUME_DOCUMENT: UiResumeDocument = {
   knowledgeSourceId: MOCK_RESUME_KNOWLEDGE_SOURCE_ID,
   updatedAt: '2026-07-15T03:56:00.000Z'
 }
+
+/** @brief Mock 创建者资源引用 / Mock creator resource reference. */
+const MOCK_RESUME_CREATOR_REF = {
+  id: 'user_mock_klee',
+  resourceType: 'user',
+  revision: 3
+} as const
+
+/** @brief Mock Agent 资源引用 / Mock Agent resource reference. */
+const MOCK_RESUME_AGENT_REF = {
+  id: 'agent_mock_career_editor',
+  resourceType: 'agent',
+  revision: 7
+} as const
+
+/** @brief 当前 revision 之前一次聚焦经历的完整历史 SIR / Complete historical SIR before the current impact-focused revision. */
+const MOCK_RESUME_REVISION_17_DOCUMENT: UiResumeDocument = {
+  ...MOCK_RESUME_DOCUMENT,
+  profile: {
+    ...MOCK_RESUME_DOCUMENT.profile,
+    headline: 'AI Platform Engineer'
+  },
+  revision: 17,
+  title: 'AI 平台工程师',
+  updatedAt: '2026-07-12T09:32:00.000Z'
+}
+
+/** @brief 更早使用历史模板版本的完整历史 SIR / Earlier complete historical SIR using a historical template version. */
+const MOCK_RESUME_REVISION_14_DOCUMENT: UiResumeDocument = {
+  ...MOCK_RESUME_REVISION_17_DOCUMENT,
+  revision: 14,
+  template: {
+    templateId: MOCK_HISTORICAL_DAWN_TEMPLATE.id,
+    templateVersion: MOCK_HISTORICAL_DAWN_TEMPLATE.version
+  },
+  title: '平台工程师 · 求职草稿',
+  updatedAt: '2026-07-08T05:10:00.000Z'
+}
+
+/** @brief 按最新优先排序的不可变 Resume revision fixtures / Immutable Resume revision fixtures ordered newest first. */
+export const MOCK_RESUME_REVISIONS: readonly UiResumeRevision[] = [
+  {
+    createdAt: MOCK_RESUME_DOCUMENT.updatedAt,
+    createdBy: MOCK_RESUME_CREATOR_REF,
+    document: MOCK_RESUME_DOCUMENT,
+    resumeId: MOCK_RESUME_ID,
+    revision: MOCK_RESUME_DOCUMENT.revision
+  },
+  {
+    createdAt: MOCK_RESUME_REVISION_17_DOCUMENT.updatedAt,
+    createdBy: MOCK_RESUME_AGENT_REF,
+    document: MOCK_RESUME_REVISION_17_DOCUMENT,
+    resumeId: MOCK_RESUME_ID,
+    revision: MOCK_RESUME_REVISION_17_DOCUMENT.revision
+  },
+  {
+    createdAt: MOCK_RESUME_REVISION_14_DOCUMENT.updatedAt,
+    createdBy: MOCK_RESUME_CREATOR_REF,
+    document: MOCK_RESUME_REVISION_14_DOCUMENT,
+    resumeId: MOCK_RESUME_ID,
+    revision: MOCK_RESUME_REVISION_14_DOCUMENT.revision
+  }
+]
+
+/** @brief Resume Proposal fixtures，覆盖待审与终态 / Resume Proposal fixtures covering pending and terminal states. */
+export const MOCK_RESUME_PROPOSALS: readonly UiResumeProposal[] = [
+  {
+    baseRevision: MOCK_RESUME_DOCUMENT.revision,
+    createdAt: '2026-07-15T04:00:00.000Z',
+    evidenceRefs: [
+      {
+        id: MOCK_RESUME_KNOWLEDGE_SOURCE_ID,
+        resourceType: 'knowledge-source',
+        revision: 12
+      },
+      {
+        id: 'artifact_mock_career_evidence',
+        resourceType: 'artifact',
+        revision: 1
+      }
+    ],
+    id: MOCK_GROUPED_RESUME_PROPOSAL_ID,
+    operations: [
+      {
+        entityId: MOCK_RESUME_ID,
+        fieldPath: ['title'],
+        kind: 'set-field',
+        operationId: asUiOpaqueId<'resume-proposal-operation'>('proposal_operation_impact_group'),
+        value: '高级 AI 平台工程师 · 分布式系统'
+      },
+      {
+        entityId: MOCK_PLATFORM_ENGINEER_ITEM_ID,
+        fieldPath: ['summary'],
+        kind: 'set-field',
+        operationId: asUiOpaqueId<'resume-proposal-operation'>('proposal_operation_impact_group'),
+        value: {
+          marks: [],
+          text: '负责多租户 Agent 平台的架构、上线与可靠性治理。'
+        }
+      },
+      {
+        entityId: MOCK_RESUME_ID,
+        fieldPath: ['profile', 'headline'],
+        kind: 'set-field',
+        operationId: asUiOpaqueId<'resume-proposal-operation'>('proposal_operation_headline'),
+        value: 'Senior AI Platform Engineer · Reliable Agent Systems'
+      }
+    ],
+    resumeId: MOCK_RESUME_ID,
+    revision: 2,
+    status: 'pending',
+    title: '突出平台影响力与生产可靠性',
+    updatedAt: '2026-07-15T04:02:00.000Z',
+    workspaceId: MOCK_RESUME_WORKSPACE_ID
+  },
+  {
+    baseRevision: MOCK_RESUME_DOCUMENT.revision,
+    createdAt: '2026-07-15T03:58:00.000Z',
+    evidenceRefs: [],
+    id: MOCK_MOVE_RESUME_PROPOSAL_ID,
+    operations: [
+      {
+        afterId: MOCK_SUMMARY_SECTION_ID,
+        entityId: MOCK_PROJECT_SECTION_ID,
+        entityKind: 'section',
+        kind: 'move-entity',
+        operationId: asUiOpaqueId<'resume-proposal-operation'>(
+          'proposal_operation_prioritize_projects'
+        ),
+        parentId: null
+      }
+    ],
+    resumeId: MOCK_RESUME_ID,
+    revision: 1,
+    status: 'pending',
+    title: '把代表项目提前到工作经历之前',
+    updatedAt: '2026-07-15T03:58:00.000Z',
+    workspaceId: MOCK_RESUME_WORKSPACE_ID
+  },
+  {
+    baseRevision: 17,
+    createdAt: '2026-07-14T08:00:00.000Z',
+    evidenceRefs: [{ id: 'knowledge_item_mock_role', resourceType: 'knowledge-item' }],
+    id: asUiOpaqueId<'resume-proposal'>('proposal_mock_accepted_headline'),
+    operations: [
+      {
+        entityId: MOCK_RESUME_ID,
+        fieldPath: ['profile', 'headline'],
+        kind: 'set-field',
+        operationId: asUiOpaqueId<'resume-proposal-operation'>(
+          'proposal_operation_accepted_headline'
+        ),
+        value: MOCK_RESUME_DOCUMENT.profile.headline
+      }
+    ],
+    resumeId: MOCK_RESUME_ID,
+    revision: 2,
+    status: 'accepted',
+    title: '补充分布式系统方向',
+    updatedAt: '2026-07-14T08:05:00.000Z',
+    workspaceId: MOCK_RESUME_WORKSPACE_ID
+  },
+  {
+    baseRevision: 14,
+    createdAt: '2026-07-10T06:30:00.000Z',
+    evidenceRefs: [],
+    id: asUiOpaqueId<'resume-proposal'>('proposal_mock_rejected_template'),
+    operations: [
+      {
+        kind: 'set-template',
+        operationId: asUiOpaqueId<'resume-proposal-operation'>(
+          'proposal_operation_rejected_template'
+        ),
+        settings: { show_rule: true },
+        template: {
+          templateId: MOCK_EDITORIAL_TEMPLATE_ID,
+          templateVersion: MOCK_EDITORIAL_TEMPLATE.version
+        }
+      }
+    ],
+    resumeId: MOCK_RESUME_ID,
+    revision: 3,
+    status: 'rejected',
+    title: '切换为 Editorial 模板',
+    updatedAt: '2026-07-10T06:36:00.000Z',
+    workspaceId: MOCK_RESUME_WORKSPACE_ID
+  }
+]
 
 /** @brief Mock API v2 ResumeSummary 投影 / Mock API v2 ResumeSummary projections. */
 export const MOCK_RESUME_SUMMARIES: readonly UiResumeSummary[] = [

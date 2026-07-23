@@ -4,6 +4,7 @@ import {
   ResumeCreationPage,
   ResumeEditorPage,
   ResumeListPage,
+  ResumeReviewPage,
   TemplateSettingsPage
 } from '../../contexts/resume'
 
@@ -18,6 +19,7 @@ export default function ResumeRoutes(): React.JSX.Element {
       <Route element={<ResumeListPage />} index />
       <Route element={<ResumeCreationPage />} path="new" />
       <Route element={<ResumeEditorPage />} path=":resumeId/edit" />
+      <Route element={<ResumeReviewPage />} path=":resumeId/review" />
       <Route element={<TemplateSettingsPage />} path=":resumeId/template" />
       <Route element={<Navigate replace to="/" />} path="*" />
     </Routes>

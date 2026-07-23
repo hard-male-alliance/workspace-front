@@ -113,6 +113,7 @@ function createGateways(
     interview: new InMemoryInterviewGateway(),
     knowledge: new InMemoryKnowledgeGateway(),
     resume,
+    resumeReview: resume,
     resumeCreation: overrides.creation ?? resume,
     resumeTemplates: overrides.catalog ?? resume,
     workspace: overrides.workspace ?? new InMemoryWorkspaceGateway(),

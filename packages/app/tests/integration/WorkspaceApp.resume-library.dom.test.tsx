@@ -84,6 +84,7 @@ function createGateways(
     interview: new InMemoryInterviewGateway(),
     knowledge: new InMemoryKnowledgeGateway(),
     resume,
+    resumeReview: resumeCapabilities,
     resumeCreation: resumeCapabilities,
     resumeTemplates: resumeCapabilities,
     workspace,

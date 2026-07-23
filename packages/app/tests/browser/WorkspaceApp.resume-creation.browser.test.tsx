@@ -36,6 +36,7 @@ function createBrowserCreationGateways(): AppGateways {
     interview: new InMemoryInterviewGateway(),
     knowledge: new InMemoryKnowledgeGateway(),
     resume,
+    resumeReview: resume,
     resumeCreation: resume,
     resumeTemplates: resume,
     workspace: new InMemoryWorkspaceGateway(),

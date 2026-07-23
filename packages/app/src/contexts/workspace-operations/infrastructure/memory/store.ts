@@ -22,6 +22,18 @@ export interface InMemoryResumeRenderRegistration {
   readonly formats: readonly InMemoryResumeRenderFormat[]
 }
 
+/** @brief 注册一个内存 Resume Restore Job 的输入 / Input for registering one in-memory Resume Restore Job. */
+export interface InMemoryResumeRestoreRegistration {
+  readonly commandId: UiCommandId
+  readonly workspaceId: UiWorkspaceId
+  readonly resumeId: string
+  readonly currentRevision: number
+  readonly concurrencyToken: string
+  readonly sourceRevision: number
+  /** @brief Job 成功阶段原子提交并返回新 Resume revision / Atomically commit at the Job success stage and return the new Resume revision. */
+  readonly complete: () => number
+}
+
 /** @brief 内存 Render store 支持的协议格式 / Protocol formats supported by the in-memory Render store. */
 export type InMemoryResumeRenderFormat = 'pdf' | 'json' | 'docx'
 
@@ -36,6 +48,18 @@ interface StoredArtifact {
 interface StoredRenderCommand {
   readonly fingerprint: string
   readonly jobId: UiWorkspaceJobId
+}
+
+/** @brief 已注册 Restore command 的稳定指纹与 Job identity / Stable fingerprint and Job identity of a registered Restore command. */
+interface StoredRestoreCommand {
+  readonly fingerprint: string
+  readonly jobId: UiWorkspaceJobId
+}
+
+/** @brief Restore Job 到真实聚合提交动作的关联 / Association from a Restore Job to its real aggregate commit. */
+interface StoredRestoreProcess {
+  readonly complete: () => number
+  readonly resumeId: string
 }
 
 /** @brief PDF 测试内容 / PDF test content. */
@@ -96,6 +120,21 @@ function renderFingerprint(input: InMemoryResumeRenderRegistration): string {
   })
 }
 
+/**
+ * @brief 创建 Restore command 的稳定测试指纹 / Create a stable test fingerprint for a Restore command.
+ * @param input 完整 Restore 注册输入 / Complete Restore registration input.
+ * @return 不含运行时提交回调的规范 JSON 指纹 / Canonical JSON fingerprint excluding the runtime commit callback.
+ */
+function restoreFingerprint(input: InMemoryResumeRestoreRegistration): string {
+  return JSON.stringify({
+    concurrencyToken: input.concurrencyToken,
+    currentRevision: input.currentRevision,
+    resumeId: input.resumeId,
+    sourceRevision: input.sourceRevision,
+    workspaceId: input.workspaceId
+  })
+}
+
 /** @brief Workspace Operations 自动化测试 adapter 的共享 store / Shared store for Workspace Operations automated-test adapters. */
 export class InMemoryWorkspaceOperationsStore {
   /** @brief 当前 store 中的 Job 权威 / Job authorities in this store. */
@@ -107,6 +146,12 @@ export class InMemoryWorkspaceOperationsStore {
   /** @brief Render command 的幂等结果 / Idempotent Render-command results. */
   private readonly renderCommands = new Map<string, StoredRenderCommand>()
 
+  /** @brief Restore command 的幂等结果 / Idempotent Restore-command results. */
+  private readonly restoreCommands = new Map<string, StoredRestoreCommand>()
+
+  /** @brief 尚未到达终态的 Restore 提交流程 / Restore commit processes that have not reached a terminal state. */
+  private readonly restoreProcesses = new Map<UiWorkspaceJobId, StoredRestoreProcess>()
+
   /** @brief 每个 Render Job 请求的不可变格式 / Immutable formats requested by each Render Job. */
   private readonly renderFormats = new Map<
     UiWorkspaceJobId,
@@ -114,7 +159,7 @@ export class InMemoryWorkspaceOperationsStore {
   >()
 
   /** @brief 为不同 canonical path 分配唯一测试 Job ID 的序号 / Ordinal allocating unique test Job IDs across canonical paths. */
-  private nextRenderJobOrdinal = 1
+  private nextJobOrdinal = 1
 
   /**
    * @brief 幂等注册一个 Resume Render Job / Idempotently register one Resume Render Job.
@@ -138,8 +183,8 @@ export class InMemoryWorkspaceOperationsStore {
       return this.getJobAuthority(existing.jobId)
     }
     /** @brief 与 path-aware 幂等缓存解耦的唯一 Job identity / Unique Job identity independent of the path-aware idempotency cache. */
-    const jobId = asUiOpaqueId<'workspace-job'>(`render_job_${this.nextRenderJobOrdinal}`)
-    this.nextRenderJobOrdinal += 1
+    const jobId = asUiOpaqueId<'workspace-job'>(`render_job_${this.nextJobOrdinal}`)
+    this.nextJobOrdinal += 1
     /** @brief 首次注册的 queued Job 权威 / Queued Job authority registered for the first time. */
     const authority: UiWorkspaceJobAuthority = {
       concurrencyToken: asUiConcurrencyToken('"memory-render-job-1"'),
@@ -172,6 +217,64 @@ export class InMemoryWorkspaceOperationsStore {
   }
 
   /**
+   * @brief 幂等注册一个 Resume Restore Job / Idempotently register one Resume Restore Job.
+   * @param input 冻结 Restore 意图与真实成功提交动作 / Frozen Restore intent and real success-stage commit action.
+   * @return queued Job 权威或同一意图的既有权威 / Queued Job authority or existing authority for the same intent.
+   */
+  registerResumeRestore(input: InMemoryResumeRestoreRegistration): UiWorkspaceJobAuthority {
+    /** @brief 当前意图的稳定指纹 / Stable fingerprint of the current intent. */
+    const fingerprint = restoreFingerprint(input)
+    /** @brief 与 canonical restore-jobs path 绑定的幂等缓存键 / Idempotency cache key bound to the canonical restore-jobs path. */
+    const cacheKey = `${input.workspaceId}:${input.resumeId}:${input.commandId}`
+    /** @brief 同一 command identity 的既有注册 / Existing registration for the same command identity. */
+    const existing = this.restoreCommands.get(cacheKey)
+    if (existing !== undefined) {
+      if (existing.fingerprint !== fingerprint) {
+        throw new InMemoryGatewayError(
+          'memory.idempotency_key_reused',
+          'The Mock Restore command identity was reused with a different request.'
+        )
+      }
+      return this.getJobAuthority(existing.jobId)
+    }
+    /** @brief 与 Render 路径共享唯一空间的 Job identity / Job identity sharing one unique namespace with the Render path. */
+    const jobId = asUiOpaqueId<'workspace-job'>(`restore_job_${this.nextJobOrdinal}`)
+    this.nextJobOrdinal += 1
+    /** @brief 首次注册的 queued Restore Job / Queued Restore Job registered for the first time. */
+    const authority: UiWorkspaceJobAuthority = {
+      concurrencyToken: asUiConcurrencyToken('"memory-restore-job-1"'),
+      job: {
+        createdAt: '2026-07-18T00:00:00.000Z',
+        finishedAt: null,
+        id: jobId,
+        kind: 'resume.restore',
+        problem: null,
+        progress: { completed: 0, phase: 'queued', total: 1, unit: 'steps' },
+        resultRefs: [],
+        revision: 1,
+        startedAt: null,
+        status: 'queued',
+        subject: {
+          id: input.resumeId,
+          resourceType: 'resume',
+          revision: input.currentRevision
+        },
+        updatedAt: '2026-07-18T00:00:00.000Z',
+        workspaceId: input.workspaceId
+      },
+      location: `https://api.hmalliances.org:8022/api/v2/workspaces/${input.workspaceId}/jobs/${jobId}`,
+      requestId: `request_${input.commandId}`
+    }
+    this.jobs.set(jobId, authority)
+    this.restoreCommands.set(cacheKey, { fingerprint, jobId })
+    this.restoreProcesses.set(jobId, {
+      complete: input.complete,
+      resumeId: input.resumeId
+    })
+    return authority
+  }
+
+  /**
    * @brief 读取一个 Job 权威 / Read one Job authority.
    * @param jobId Job identity / Job identity.
    * @return 当前权威 / Current authority.
@@ -186,23 +289,27 @@ export class InMemoryWorkspaceOperationsStore {
   }
 
   /**
-   * @brief 将 Render Job 确定性推进一个合法状态 / Deterministically advance a Render Job by one legal state.
+   * @brief 将内存 Job 确定性推进一个合法状态 / Deterministically advance an in-memory Job by one legal state.
    * @param jobId Job identity / Job identity.
    * @return 推进后的权威；终态保持不变 / Advanced authority, preserving an existing terminal state.
    */
-  advanceRenderJob(jobId: UiWorkspaceJobId): UiWorkspaceJobAuthority {
+  advanceJob(jobId: UiWorkspaceJobId): UiWorkspaceJobAuthority {
     /** @brief 当前 Job 权威 / Current Job authority. */
     const current = this.getJobAuthority(jobId)
-    if (current.job.kind !== 'resume.render') return current
     if (current.job.status === 'queued') {
       /** @brief 合法 queued-to-running 中间权威 / Legal queued-to-running intermediate authority. */
       const running: UiWorkspaceJobAuthority = {
-        concurrencyToken: asUiConcurrencyToken('"memory-render-job-2"'),
+        concurrencyToken: asUiConcurrencyToken(`"memory-${current.job.kind}-job-2"`),
         job: {
           ...current.job,
           finishedAt: null,
           problem: null,
-          progress: { completed: 1, phase: 'layout', total: 2, unit: 'steps' },
+          progress: {
+            completed: 1,
+            phase: current.job.kind === 'resume.restore' ? 'restoring' : 'layout',
+            total: 2,
+            unit: 'steps'
+          },
           resultRefs: [],
           revision: current.job.revision + 1,
           startedAt: '2026-07-18T00:00:01.000Z',
@@ -216,6 +323,79 @@ export class InMemoryWorkspaceOperationsStore {
       return running
     }
     if (current.job.status !== 'running') return current
+    if (current.job.kind === 'resume.restore') {
+      /** @brief 该 Job 接受时冻结的真实 Restore 提交流程 / Real Restore commit process frozen when this Job was accepted. */
+      const process = this.restoreProcesses.get(jobId)
+      if (process === undefined) {
+        throw new InMemoryGatewayError(
+          'memory.unavailable',
+          'The Mock Restore Job lost its aggregate commit process.'
+        )
+      }
+      try {
+        /** @brief Restore 原子提交创建的新 Resume revision / New Resume revision created by the atomic Restore commit. */
+        const restoredRevision = process.complete()
+        /** @brief 成功 Restore 终态 / Successful Restore terminal state. */
+        const completed: UiWorkspaceJobAuthority = {
+          concurrencyToken: asUiConcurrencyToken('"memory-restore-job-3"'),
+          job: {
+            ...current.job,
+            finishedAt: '2026-07-18T00:00:05.000Z',
+            problem: null,
+            progress: { completed: 1, phase: 'completed', total: 1, unit: 'steps' },
+            resultRefs: [
+              {
+                id: process.resumeId,
+                resourceType: 'resume',
+                revision: restoredRevision
+              }
+            ],
+            revision: current.job.revision + 1,
+            startedAt: current.job.startedAt,
+            status: 'succeeded',
+            updatedAt: '2026-07-18T00:00:05.000Z'
+          },
+          location: null,
+          requestId: `request_observe_${jobId}`
+        }
+        this.restoreProcesses.delete(jobId)
+        this.jobs.set(jobId, completed)
+        return completed
+      } catch {
+        /** @brief 聚合权威变化后失败关闭的 Restore 终态 / Restore terminal state failing closed after aggregate authority changed. */
+        const failed: UiWorkspaceJobAuthority = {
+          concurrencyToken: asUiConcurrencyToken('"memory-restore-job-3-failed"'),
+          job: {
+            ...current.job,
+            finishedAt: '2026-07-18T00:00:05.000Z',
+            problem: {
+              code: 'resume.restore_conflict',
+              detail: null,
+              errors: [],
+              extensions: null,
+              instance: null,
+              requestId: `request_observe_${jobId}`,
+              retryable: false,
+              status: 409,
+              title: 'Resume restore could not be committed.',
+              type: 'https://api.hmalliances.org/problems/resume-restore-conflict'
+            },
+            progress: current.job.progress,
+            resultRefs: [],
+            revision: current.job.revision + 1,
+            startedAt: current.job.startedAt,
+            status: 'failed',
+            updatedAt: '2026-07-18T00:00:05.000Z'
+          },
+          location: null,
+          requestId: `request_observe_${jobId}`
+        }
+        this.restoreProcesses.delete(jobId)
+        this.jobs.set(jobId, failed)
+        return failed
+      }
+    }
+    if (current.job.kind !== 'resume.render') return current
     /** @brief 注册时保留的 Render formats / Render formats retained at registration. */
     const formats = this.renderFormats.get(jobId)
     if (formats === undefined) {
@@ -312,6 +492,7 @@ export class InMemoryWorkspaceOperationsStore {
       requestId: `request_cancel_${jobId}`
     }
     this.jobs.set(jobId, cancelled)
+    if (current.job.kind === 'resume.restore') this.restoreProcesses.delete(jobId)
     return cancelled
   }
 

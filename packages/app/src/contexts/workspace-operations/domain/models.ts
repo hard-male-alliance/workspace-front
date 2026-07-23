@@ -3,6 +3,7 @@
 import type { UiConcurrencyToken } from '../../../shared-kernel/concurrency'
 import type { UiJsonObject } from '../../../shared-kernel/json'
 import type { UiOpaqueId, UiWorkspaceId } from '../../../shared-kernel/identity'
+import type { UiResourceReference } from '../../../shared-kernel/resource-reference'
 
 /** @brief Workspace Job 身份 / Workspace Job identity. */
 export type UiWorkspaceJobId = UiOpaqueId<'workspace-job'>
@@ -50,18 +51,8 @@ export function asUiWorkspaceOperationsPageLimit(value: number): UiWorkspaceOper
   return value as UiWorkspaceOperationsPageLimit
 }
 
-/**
- * @brief 跨限界上下文的资源引用 / Cross-bounded-context resource reference.
- * @note `resourceType` 是服务端开放 code，不能在前端闭合为枚举 / `resourceType` is an open server code and must not be closed into a frontend enum.
- */
-export interface UiWorkspaceResourceRef {
-  /** @brief 稳定资源类型 code / Stable resource-type code. */
-  readonly resourceType: string
-  /** @brief 不透明资源身份 / Opaque resource identity. */
-  readonly id: string
-  /** @brief 可选领域 revision；保留缺失与 null 的区别 / Optional domain revision, preserving absence versus null. */
-  readonly revision?: number | null
-}
+/** @brief Workspace Operations 对共享 ResourceRef 的语义别名 / Semantic alias for the shared ResourceRef in Workspace Operations. */
+export type UiWorkspaceResourceRef = UiResourceReference
 
 /** @brief Job 进度计量单位 / Job progress measurement unit. */
 export type UiWorkspaceJobProgressUnit = 'bytes' | 'items' | 'pages' | 'steps' | 'unknown'

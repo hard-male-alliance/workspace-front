@@ -24,8 +24,8 @@ import {
   isResumeCommandDefinitivelyRejected,
   isResumeUnreplayableContractResponse
 } from '../application/errors'
-import type { UiResumeEditorModel, UiResumeSection } from '../domain/document'
-import { selectResumeDateLabel, selectResumePlainText } from './resume-document-selectors'
+import type { UiResumeEditorModel } from '../domain/document'
+import { ResumeSemanticPreview } from './ResumeSemanticPreview'
 import { createResumePdfPreviewLease, type ResumePdfPreviewLease } from './resume-pdf-preview'
 
 /** @brief 原生 PDF 查看器必须完成 iframe 加载的时限 / Deadline for the native PDF viewer to finish loading the iframe. */
@@ -45,56 +45,6 @@ type PdfInlinePreviewStatus = 'idle' | 'loading' | 'ready' | 'unavailable'
  */
 function supportsInlinePdfPreview(): boolean {
   return typeof navigator !== 'undefined' && navigator.pdfViewerEnabled === true
-}
-
-/** @brief 纸张中的语义板块 / Semantic section rendered on the paper preview. */
-function ResumePaperSection({ section }: { readonly section: UiResumeSection }): React.JSX.Element {
-  const { t } = useTranslation()
-  return (
-    <section className="aw-paper-section">
-      <h3>{section.title || section.kind}</h3>
-      {section.content !== null && section.content.text.length > 0 ? (
-        <p>{selectResumePlainText(section.content)}</p>
-      ) : null}
-      {section.items
-        .filter((item) => item.visible)
-        .map((item) => {
-          /** @brief 仅供展示的日期范围文本 / Presentation-only date-range label. */
-          const dateLabel =
-            item.dateRange === null
-              ? null
-              : selectResumeDateLabel(
-                  item.dateRange,
-                  t('resume.date.present', { defaultValue: '至今' })
-                )
-          return (
-            <div className="aw-paper-entry" key={item.id}>
-              <div className="aw-paper-entry-title">
-                <span>{item.title ?? item.kind}</span>
-                {dateLabel === null ? null : <span>{dateLabel}</span>}
-              </div>
-              {item.organization !== null || item.subtitle !== null || item.location !== null ? (
-                <p>
-                  {[item.organization, item.subtitle, item.location].filter(Boolean).join(' · ')}
-                </p>
-              ) : null}
-              {item.summary !== null && item.summary.text.length > 0 ? (
-                <p>{selectResumePlainText(item.summary)}</p>
-              ) : null}
-              {item.highlights.length > 0 ? (
-                <ul>
-                  {item.highlights.map((highlight, index) => (
-                    <li key={`${item.id}:highlight:${index}`}>
-                      {selectResumePlainText(highlight)}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </div>
-          )
-        })}
-    </section>
-  )
 }
 
 /** @brief PDF 视觉预览面板属性 / PDF visual-preview panel properties. */
@@ -882,7 +832,9 @@ export function ResumePreviewPanel({
           >
             {isSaving
               ? t('resume.workspace.savingPdf', { defaultValue: '正在保存 PDF…' })
-              : t('resume.workspace.downloadPdf', { defaultValue: '下载 PDF' })}
+              : t('resume.workspace.downloadPreviewPdf', {
+                  defaultValue: '下载预览 PDF'
+                })}
           </button>
         ) : null}
       </div>
@@ -1114,25 +1066,10 @@ export function ResumePreviewPanel({
             </div>
           </div>
         ) : (
-          <article
-            aria-label={t('resume.semanticPreviewAria', { defaultValue: '简历语义预览' })}
-            className="aw-paper"
-          >
-            <header className="aw-paper-header">
-              <h2 className="aw-paper-name">{editor.resume.profile.fullName}</h2>
-              {editor.resume.profile.headline !== null ? (
-                <p className="aw-paper-role">{editor.resume.profile.headline}</p>
-              ) : null}
-              <p className="aw-paper-contact">
-                {editor.resume.profile.contacts.map((contact) => contact.value).join(' · ')}
-              </p>
-            </header>
-            {editor.resume.sections
-              .filter((section) => section.visible)
-              .map((section) => (
-                <ResumePaperSection key={section.id} section={section} />
-              ))}
-          </article>
+          <ResumeSemanticPreview
+            document={editor.resume}
+            label={t('resume.semanticPreviewAria', { defaultValue: '简历语义预览' })}
+          />
         )}
       </div>
     </section>

@@ -38,6 +38,7 @@ function createComposition(): TestComposition {
       interview: new InMemoryInterviewGateway(),
       knowledge: new InMemoryKnowledgeGateway(),
       resume,
+      resumeReview: resume,
       resumeCreation: resume,
       resumeTemplates: resume,
       workspace: new InMemoryWorkspaceGateway(),
@@ -246,5 +247,59 @@ describe('createAppProcesses Resume Render', (): void => {
       ResumeRenderProcessError
     )
     expect(readArtifactContent).not.toHaveBeenCalled()
+  })
+})
+
+/** @brief 跨 Resume history 与通用 Job 的恢复流程 / Restore process spanning Resume history and generic Jobs. */
+describe('createAppProcesses Resume restore', (): void => {
+  it('observes the real Job and rereads the advanced Resume only after success', async (): Promise<void> => {
+    /** @brief 当前测试组合 / Current test composition. */
+    const { gateways } = createComposition()
+    /** @brief 启动前读取的 Resume 与强 ETag / Resume and strong ETag read before starting. */
+    const current = await gateways.resume.getResumeEditor(
+      MOCK_RESUME_WORKSPACE_ID,
+      MOCK_RESUME_ID,
+      new AbortController().signal
+    )
+    /** @brief 不等待真实时间的 restore 流程 / Restore process independent of wall-clock delays. */
+    const process = createAppProcesses(gateways, () => Promise.resolve()).resumeRestore
+    /** @brief 冻结恢复目标 / Frozen restore target. */
+    const target = {
+      currentRevision: current.resume.revision,
+      resumeId: current.resume.id,
+      sourceRevision: 17,
+      workspaceId: current.resume.workspaceId
+    } as const
+    /** @brief API v2 接受的 queued Job / Queued Job accepted by API v2. */
+    const started = await process.start({
+      ...target,
+      commandId: createUiCommandId(),
+      concurrencyToken: current.concurrencyToken
+    })
+    expect(started.job.status).toBe('queued')
+    /** @brief 轮询期间的真实状态 / Real states observed during polling. */
+    const observed: string[] = []
+    /** @brief 到达的真实终态 / Real terminal state reached by polling. */
+    const terminal = await process.watchToTerminal(
+      target,
+      started,
+      new AbortController().signal,
+      (authority): void => {
+        observed.push(authority.job.status)
+      }
+    )
+    expect(observed).toEqual(['running', 'succeeded'])
+    expect(terminal.job.status).toBe('succeeded')
+    if (terminal.job.status !== 'succeeded') throw new Error('Expected a succeeded Restore Job.')
+    /** @brief Job 成功后重新读取的 Resume 权威 / Resume authority reread after Job success. */
+    const restored = await process.readRestoredResume(
+      target,
+      terminal.job,
+      new AbortController().signal
+    )
+    expect(restored.resume).toMatchObject({
+      id: MOCK_RESUME_ID,
+      revision: current.resume.revision + 1
+    })
   })
 })

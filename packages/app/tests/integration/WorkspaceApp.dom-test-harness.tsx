@@ -67,6 +67,7 @@ export function createTestGateways(
     interview: new InMemoryInterviewGateway(),
     knowledge: new InMemoryKnowledgeGateway(),
     resume,
+    resumeReview: resume,
     resumeCreation: resume,
     resumeTemplates,
     workspace: new InMemoryWorkspaceGateway(),

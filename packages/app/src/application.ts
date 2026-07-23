@@ -4,6 +4,7 @@ import type { InterviewGateway } from './contexts/interview/application/gateway'
 import type { IdentityGateway } from './contexts/identity/application/gateway'
 import type { KnowledgeGateway } from './contexts/knowledge/application/gateway'
 import type { ResumeGateway } from './contexts/resume/application/gateway'
+import type { ResumeReviewPort } from './contexts/resume/application/review'
 import type {
   ResumeCreationPort,
   ResumeTemplateCatalogPort
@@ -17,6 +18,7 @@ export { asUiConcurrencyToken } from './shared-kernel/concurrency'
 export type { UiConcurrencyToken } from './shared-kernel/concurrency'
 export { asUiOpaqueId } from './shared-kernel/identity'
 export type { UiOpaqueId, UiWorkspaceId } from './shared-kernel/identity'
+export type { UiResourceReference } from './shared-kernel/resource-reference'
 export type { UiContentLocale } from './shared-kernel/locale'
 export { cloneUiJsonValue, uiJsonValuesEqual } from './shared-kernel/json'
 export {
@@ -73,6 +75,39 @@ export type {
   UiTemplateReference
 } from './contexts/resume/domain/document'
 export { asUiResumePartialDate } from './contexts/resume/domain/document'
+export {
+  asUiResumeProposalCursor,
+  asUiResumeReviewPageLimit,
+  asUiResumeRevisionCursor,
+  groupUiResumeProposalOperations,
+  UI_RESUME_REVIEW_PAGE_LIMIT_MAX
+} from './contexts/resume/domain/review'
+export type {
+  UiDecideResumeProposalCommand,
+  UiPendingResumeProposal,
+  UiResumeProposal,
+  UiResumeProposalAuthority,
+  UiResumeProposalConflict,
+  UiResumeProposalCursor,
+  UiResumeProposalDecision,
+  UiResumeProposalDecisionResult,
+  UiResumeProposalId,
+  UiResumeProposalOperation,
+  UiResumeProposalOperationGroup,
+  UiResumeProposalOperationId,
+  UiResumeProposalPage,
+  UiResumeProposalPageRead,
+  UiResumeProposalStatus,
+  UiResumeReviewPageLimit,
+  UiResumeRevision,
+  UiResumeRevisionCursor,
+  UiResumeRevisionPage,
+  UiResumeRevisionPageRead,
+  UiResumeRevisionSummary,
+  UiStartResumeRestoreInput,
+  UiTerminalResumeProposal
+} from './contexts/resume/domain/review'
+export type { ResumeReviewPort } from './contexts/resume/application/review'
 export {
   asUiResumeTemplateCursor,
   asUiResumeTemplatePageLimit,
@@ -154,6 +189,8 @@ export interface AppGateways {
   readonly workspaceOperations: WorkspaceOperationsGateway
   /** @brief Resume Authoring 端口 / Resume Authoring port. */
   readonly resume: ResumeGateway
+  /** @brief Resume 历史、建议审阅与恢复端口 / Resume history, proposal-review, and restore port. */
+  readonly resumeReview: ResumeReviewPort
   /** @brief Workspace-scoped Resume 创建端口 / Workspace-scoped Resume-creation port. */
   readonly resumeCreation: ResumeCreationPort
   /** @brief 全局不可变 Resume Template 目录端口 / Global immutable Resume Template-catalog port. */

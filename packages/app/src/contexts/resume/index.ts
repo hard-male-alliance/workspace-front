@@ -83,6 +83,39 @@ export type {
   UiCreatedResumeResource
 } from './domain/creation'
 export type { ResumeGateway } from './application/gateway'
+export type { ResumeReviewPort } from './application/review'
+export {
+  asUiResumeProposalCursor,
+  asUiResumeReviewPageLimit,
+  asUiResumeRevisionCursor,
+  groupUiResumeProposalOperations,
+  UI_RESUME_REVIEW_PAGE_LIMIT_MAX
+} from './domain/review'
+export type {
+  UiDecideResumeProposalCommand,
+  UiPendingResumeProposal,
+  UiResumeProposal,
+  UiResumeProposalAuthority,
+  UiResumeProposalConflict,
+  UiResumeProposalCursor,
+  UiResumeProposalDecision,
+  UiResumeProposalDecisionResult,
+  UiResumeProposalId,
+  UiResumeProposalOperation,
+  UiResumeProposalOperationGroup,
+  UiResumeProposalOperationId,
+  UiResumeProposalPage,
+  UiResumeProposalPageRead,
+  UiResumeProposalStatus,
+  UiResumeReviewPageLimit,
+  UiResumeRevision,
+  UiResumeRevisionCursor,
+  UiResumeRevisionPage,
+  UiResumeRevisionPageRead,
+  UiResumeRevisionSummary,
+  UiStartResumeRestoreInput,
+  UiTerminalResumeProposal
+} from './domain/review'
 export {
   createResumeFromTemplate,
   loadResumeCreationTemplatePage,
@@ -103,4 +136,5 @@ export type { ResumeBatchConflict, ResumeBatchConflictRecovery } from './applica
 export { ResumeCreationPage } from './presentation/ResumeCreationPage'
 export { ResumeEditorPage } from './presentation/ResumeEditorPage'
 export { ResumeListPage } from './presentation/ResumeListPage'
+export { ResumeReviewPage } from './presentation/ResumeReviewPage'
 export { TemplateSettingsPage } from './presentation/TemplateSettingsPage'
