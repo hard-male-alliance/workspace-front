@@ -9,6 +9,7 @@ import type {
   ResumeTemplateCatalogPort
 } from './contexts/resume/application/resume-creation'
 import type { WorkspaceGateway } from './contexts/workspace/application/gateway'
+import type { WorkspaceOperationsGateway } from './contexts/workspace-operations/application/gateway'
 
 export { createUiCommandId } from './shared-kernel/command'
 export type { UiCommandId } from './shared-kernel/command'
@@ -48,6 +49,9 @@ export type {
 export { asUiResumeCursor, asUiResumePageLimit } from './contexts/resume/domain/models'
 export type {
   UiResumeCursor,
+  UiResumeRenderFormat,
+  UiResumeRenderMode,
+  UiStartResumeRenderInput,
   UiResumeTemplateSectionFact,
   UiResumeTemplateStyleCommand,
   UiResumeSummary,
@@ -102,6 +106,39 @@ export {
   getResumeBatchConflict,
   ResumeBatchConflictError
 } from './contexts/resume/application/errors'
+export {
+  asUiWorkspaceOperationsCursor,
+  asUiWorkspaceOperationsPageLimit,
+  uiWorkspaceArtifactsEqual,
+  UI_WORKSPACE_OPERATIONS_PAGE_LIMIT_MAX
+} from './contexts/workspace-operations/domain/models'
+export type {
+  UiWorkspaceArtifact,
+  UiWorkspaceArtifactAuthority,
+  UiWorkspaceArtifactContent,
+  UiWorkspaceArtifactId,
+  UiWorkspaceArtifactKind,
+  UiWorkspaceArtifactPage,
+  UiWorkspaceJob,
+  UiWorkspaceJobAuthority,
+  UiWorkspaceJobId,
+  UiWorkspaceJobPage,
+  UiWorkspaceJobProgress,
+  UiWorkspaceJobProgressUnit,
+  UiWorkspaceOperationProblem,
+  UiWorkspaceOperationProblemFieldError,
+  UiWorkspaceOperationsCursor,
+  UiWorkspaceOperationsPageLimit,
+  UiWorkspaceResourceRef
+} from './contexts/workspace-operations/domain/models'
+export type {
+  UiWorkspaceArtifactPageRead,
+  UiWorkspaceArtifactRead,
+  UiWorkspaceJobCancellation,
+  UiWorkspaceJobPageRead,
+  UiWorkspaceJobRead,
+  WorkspaceOperationsGateway
+} from './contexts/workspace-operations/application/gateway'
 export type {
   ResumeBatchConflict,
   ResumeBatchConflictRecovery
@@ -113,6 +150,8 @@ export interface AppGateways {
   readonly identity: IdentityGateway
   /** @brief Workspace Experience 端口 / Workspace Experience port. */
   readonly workspace: WorkspaceGateway
+  /** @brief Workspace 通用 Job 与 Artifact 端口 / Generic Workspace Job and Artifact port. */
+  readonly workspaceOperations: WorkspaceOperationsGateway
   /** @brief Resume Authoring 端口 / Resume Authoring port. */
   readonly resume: ResumeGateway
   /** @brief Workspace-scoped Resume 创建端口 / Workspace-scoped Resume-creation port. */

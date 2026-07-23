@@ -11,6 +11,7 @@ describe('sanitizePdfFileName', () => {
     ['CON.pdf', '_CON.pdf'],
     ['CON.txt', '_CON.txt.pdf'],
     ['lpt9', '_lpt9.pdf'],
+    ['offer\u202Efdp.exe', 'offerfdp.exe.pdf'],
     ['简历：平台工程师', '简历 平台工程师.pdf']
   ])('将 %j 净化为安全 PDF 名称 %j', (input, expected) => {
     expect(sanitizePdfFileName(input)).toBe(expected)

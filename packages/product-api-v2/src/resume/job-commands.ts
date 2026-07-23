@@ -228,9 +228,13 @@ function assertResumeJobSubject(
       'API v2 accepted a Resume Job for a non-Resume subject or identity different from the submitted command.'
     )
   }
+  /** @brief 服务端在通用 ResourceRef 中实际提供的可选 revision / Optional revision actually supplied in the generic ResourceRef. */
+  const actualRevision = representation.value.subject.revision
   if (
     expectedRevision !== undefined &&
-    representation.value.subject.revision !== expectedRevision
+    actualRevision !== undefined &&
+    actualRevision !== null &&
+    actualRevision !== expectedRevision
   ) {
     throw new ApiV2ContractError(
       'API v2 accepted a Resume render Job for a different Resume revision.'

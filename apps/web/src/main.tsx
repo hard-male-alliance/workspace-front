@@ -1,7 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { HostStartupFailure, WorkspaceApp } from '@ai-job-workspace/app'
-import { APPLICATION_VERSION, type ArtifactSavePort } from '@ai-job-workspace/platform'
+import { APPLICATION_VERSION } from '@ai-job-workspace/platform'
 import {
   completeWebAuthorization,
   InMemoryWebTokenSession,
@@ -15,6 +15,7 @@ import {
   resolveWebOAuthConfiguration,
   type WebOAuthConfiguration
 } from './auth-config'
+import { createWebArtifactSave } from './artifact-save'
 import { createWebDiagnostics } from './create-web-observability'
 import { resolveDiagnosticsUploadConfiguration } from './diagnostics-config'
 import { WebAuthenticationScreen } from './WebAuthenticationScreen'
@@ -34,12 +35,6 @@ const applicationRoot = createRoot(rootElement)
 
 /** @brief 当前页面唯一、永不持久化的 Web token 会话 / Sole current-page Web token session that is never persisted. */
 const tokenSession = new InMemoryWebTokenSession()
-
-/** @brief v2 Artifact 下载尚未接入前的显式缺失能力 / Explicitly unavailable capability until v2 Artifact download is wired. */
-const unavailableArtifactSave: ArtifactSavePort = Object.freeze({
-  saveArtifact: (): Promise<never> =>
-    Promise.reject(new Error('API v2 Artifact saving is not implemented by the Web host yet.'))
-})
 
 /** @brief 在任何异步工作前消费并清理可能含 code 的 callback / Callback consumed and scrubbed before any asynchronous work. */
 let consumedCallback: ConsumedWebOAuthCallback | null = null
@@ -134,9 +129,18 @@ async function bootstrapWebApplication(): Promise<void> {
     consumedCallback = null
   }
 
+  /** @brief 认证丢失前可静止的 Web Artifact 服务；组合完成前为 null / Web Artifact service quiesceable before authentication loss, or null before composition completes. */
+  let artifactSaveLifecycle: ReturnType<typeof createWebArtifactSave> | null = null
   /** @brief 将资源服务器 401 与私有 token 轮换组合的 Web 认证端口 / Web authentication port composing resource-server 401 handling with private token rotation. */
   const authentication = createWebApiV2Authentication({
-    onAuthenticationLost: (error: unknown): void => renderAuthentication(oauthConfiguration, error),
+    onAuthenticationLost: (error: unknown): void => {
+      /** @brief 先静止敏感下载再切换认证页面 / Quiesce sensitive downloads before switching to authentication. */
+      const transition = async (): Promise<void> => {
+        await artifactSaveLifecycle?.suspendAndQuiesce()
+        renderAuthentication(oauthConfiguration, error)
+      }
+      void transition()
+    },
     session: tokenSession
   })
   /** @brief 仅指向契约 HTTP adapter 的产品网关 / Product gateways backed only by contract HTTP adapters. */
@@ -145,16 +149,27 @@ async function bootstrapWebApplication(): Promise<void> {
     locale: navigator.language,
     transportProfile: { kind: 'production' }
   })
+  /** @brief 通过权威 API v2 metadata 与 Bearer 内容流实现的 Web Artifact 保存端口 / Web Artifact-save port backed by authoritative API v2 metadata and Bearer content streams. */
+  const artifactSave = createWebArtifactSave({
+    workspaceOperations: gateways.workspaceOperations
+  })
+  artifactSaveLifecycle = artifactSave
 
   applicationRoot.render(
     <StrictMode>
       <WorkspaceApp
-        artifactSave={unavailableArtifactSave}
+        artifactSave={artifactSave}
         diagnostics={diagnostics}
         gateways={gateways}
         onSignOut={async (): Promise<void> => {
-          await logoutWebTokenSession({ session: tokenSession })
-          renderAuthentication(oauthConfiguration)
+          await artifactSave.suspendAndQuiesce()
+          try {
+            await logoutWebTokenSession({ session: tokenSession })
+            renderAuthentication(oauthConfiguration)
+          } catch (error: unknown) {
+            artifactSave.resume()
+            throw error
+          }
         }}
         runtimeInfo={{ appVersion: APPLICATION_VERSION, platform: 'web' }}
       />

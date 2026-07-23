@@ -1,9 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { ApiV2ContractError } from '../http/errors'
+import type {
+  ApiV2AuthenticatedContentResponse,
+  ApiV2AuthenticatedHeaderVisibility
+} from '../http/client'
 import { readCanonicalExample } from '../test-support/contract.node-test-fixtures'
 import { parseArtifact, type Artifact } from './artifact'
 import {
+  ARTIFACT_CONTENT_IDLE_TIMEOUT_MILLISECONDS,
   getWorkspaceArtifactContent,
   type AuthenticatedArtifactContentClient
 } from './artifact-content'
@@ -54,17 +59,38 @@ async function emptyArtifact(): Promise<Artifact> {
 }
 
 /**
+ * @brief 为测试 Response 附加 transport 头可见性事实 / Attach the transport header-visibility fact to a test Response.
+ * @param response 待提升的未消费响应 / Unconsumed response to refine.
+ * @param headerVisibility 原始 fetch 的响应头可见性 / Header visibility of the original fetch.
+ * @return 满足受保护 content 端口的响应 / Response satisfying the protected-content port.
+ */
+function authenticatedResponse(
+  response: Response,
+  headerVisibility: ApiV2AuthenticatedHeaderVisibility = 'unfiltered'
+): ApiV2AuthenticatedContentResponse {
+  Object.defineProperty(response, 'headerVisibility', {
+    configurable: false,
+    enumerable: true,
+    value: headerVisibility,
+    writable: false
+  })
+  return response as ApiV2AuthenticatedContentResponse
+}
+
+/**
  * @brief 构造完整或部分 content 响应 / Build a complete or partial content response.
  * @param status HTTP 成功状态 / HTTP success status.
  * @param body 响应字节 / Response bytes.
  * @param overrides 响应头覆盖 / Response-header overrides.
- * @return 未消费 fetch Response / Unconsumed fetch Response.
+ * @param headerVisibility 原始 fetch 的响应头可见性 / Header visibility of the original fetch.
+ * @return 未消费且携带 transport 可见性事实的响应 / Unconsumed response carrying the transport visibility fact.
  */
 function contentResponse(
   status: 200 | 206,
   body: Uint8Array | null,
-  overrides: Readonly<Record<string, string | null>> = {}
-): Response {
+  overrides: Readonly<Record<string, string | null>> = {},
+  headerVisibility: ApiV2AuthenticatedHeaderVisibility = 'unfiltered'
+): ApiV2AuthenticatedContentResponse {
   /** @brief 基础安全响应头 / Baseline safe response headers. */
   const headers = new Headers({
     'Accept-Ranges': 'bytes',
@@ -80,7 +106,8 @@ function contentResponse(
   }
   /** @brief 脱离任何 SharedArrayBuffer 的 fetch body / Fetch body detached from any SharedArrayBuffer. */
   const responseBody = body === null ? null : Uint8Array.from(body).buffer
-  return new Response(responseBody, { headers, status })
+  /** @brief transport 已限制大小的测试响应 / Test response whose size was bounded by the transport. */
+  return authenticatedResponse(new Response(responseBody, { headers, status }), headerVisibility)
 }
 
 describe('API v2 Artifact content consumer', (): void => {
@@ -111,6 +138,64 @@ describe('API v2 Artifact content consumer', (): void => {
       `/workspaces/${WORKSPACE_ID}/artifacts/${ARTIFACT_ID}/content`,
       { ifRange: null, maxResponseBytes: 4, range: null }
     )
+  })
+
+  it('defaults a CORS-filtered Content-Disposition to safe attachment semantics', async (): Promise<void> => {
+    /** @brief 模拟浏览器 CORS 过滤后不可见 Content-Disposition 的响应 / Response simulating a Content-Disposition hidden by browser CORS filtering. */
+    const response = contentResponse(
+      200,
+      new Uint8Array([1, 2, 3, 4]),
+      {
+        'Content-Disposition': null
+      },
+      'cors-filtered'
+    )
+    /** @brief 返回 CORS-filtered 响应的 transport / Transport returning the CORS-filtered response. */
+    const getAuthenticatedContent = vi
+      .fn<AuthenticatedArtifactContentClient['getAuthenticatedContent']>()
+      .mockResolvedValue(response)
+
+    await expect(
+      getWorkspaceArtifactContent(
+        { getAuthenticatedContent },
+        { artifact: await fourByteArtifact() }
+      )
+    ).resolves.toMatchObject({ disposition: 'attachment', kind: 'complete' })
+  })
+
+  it('cancels a body that makes no progress before the stream idle deadline', async (): Promise<void> => {
+    vi.useFakeTimers()
+    try {
+      /** @brief 永不产出 chunk 或 EOF 的恶意 body / Malicious body that never produces a chunk or EOF. */
+      const stalledBody = new ReadableStream<Uint8Array>({
+        pull: (): Promise<void> => new Promise((): void => undefined)
+      })
+      /** @brief 带合法响应头但停滞 body 的响应 / Response with valid headers and a stalled body. */
+      const response = contentResponse(200, new Uint8Array([1, 2, 3, 4]))
+      Object.defineProperty(response, 'body', { configurable: true, value: stalledBody })
+      /** @brief 返回停滞响应的 transport / Transport returning the stalled response. */
+      const getAuthenticatedContent = vi
+        .fn<AuthenticatedArtifactContentClient['getAuthenticatedContent']>()
+        .mockResolvedValue(response)
+      /** @brief 带空闲截止的验证流 / Validating stream carrying the idle deadline. */
+      const content = await getWorkspaceArtifactContent(
+        { getAuthenticatedContent },
+        { artifact: await fourByteArtifact() }
+      )
+      /** @brief 触发底层 pull 的 reader / Reader triggering the underlying pull. */
+      const reader = content.body?.getReader()
+      if (reader === undefined) throw new Error('Expected a non-empty Artifact stream.')
+      /** @brief 等待超时失败的首次读取 / First read awaiting timeout failure. */
+      const reading = reader.read()
+      /** @brief 在推进 fake timer 前即注册的拒绝断言 / Rejection assertion registered before advancing the fake timer. */
+      const rejection = expect(reading).rejects.toBeInstanceOf(ApiV2ContractError)
+
+      await vi.advanceTimersByTimeAsync(ARTIFACT_CONTENT_IDLE_TIMEOUT_MILLISECONDS)
+
+      await rejection
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('keeps an exact 206 response in the partial branch', async (): Promise<void> => {
@@ -295,15 +380,17 @@ describe('API v2 Artifact content consumer', (): void => {
       }
     })
     /** @brief 带错误媒体类型的响应 / Response carrying the wrong media type. */
-    const response = new Response(body, {
-      headers: {
-        'Content-Disposition': 'inline',
-        'Content-Type': 'application/octet-stream',
-        ETag: CONTENT_ETAG,
-        'X-Request-Id': REQUEST_ID
-      },
-      status: 200
-    })
+    const response = authenticatedResponse(
+      new Response(body, {
+        headers: {
+          'Content-Disposition': 'inline',
+          'Content-Type': 'application/octet-stream',
+          ETag: CONTENT_ETAG,
+          'X-Request-Id': REQUEST_ID
+        },
+        status: 200
+      })
+    )
     /** @brief 返回协议错误响应的 transport / Transport returning the invalid response. */
     const getAuthenticatedContent = vi
       .fn<AuthenticatedArtifactContentClient['getAuthenticatedContent']>()
@@ -420,15 +507,17 @@ describe('API v2 Artifact content consumer', (): void => {
       }
     })
     /** @brief 没有 Content-Length 的合法流式响应 / Valid streaming response without Content-Length. */
-    const response = new Response(body, {
-      headers: {
-        'Content-Disposition': 'inline',
-        'Content-Type': 'application/pdf',
-        ETag: CONTENT_ETAG,
-        'X-Request-Id': REQUEST_ID
-      },
-      status: 200
-    })
+    const response = authenticatedResponse(
+      new Response(body, {
+        headers: {
+          'Content-Disposition': 'inline',
+          'Content-Type': 'application/pdf',
+          ETag: CONTENT_ETAG,
+          'X-Request-Id': REQUEST_ID
+        },
+        status: 200
+      })
+    )
     /** @brief 返回分块 body 的 transport / Transport returning the chunked body. */
     const getAuthenticatedContent = vi
       .fn<AuthenticatedArtifactContentClient['getAuthenticatedContent']>()

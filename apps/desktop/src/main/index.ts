@@ -2,9 +2,12 @@
 
 import { app, dialog, safeStorage } from 'electron'
 import type { BrowserWindow } from 'electron'
+import { join } from 'node:path'
 import type { DesktopAuthenticationFailureReason } from '@ai-job-workspace/platform'
 import { WebCryptoJwksIdTokenVerifier } from '@ai-job-workspace/product-api-v2/native-oauth'
 
+import { registerNativeArtifactSaveHandler } from './artifact-save-ipc'
+import { NativeArtifactSaveService } from './artifact-save-service'
 import { createSecureBeforeQuitHandler } from './before-quit'
 import { DESKTOP_BUILD_OAUTH_CLIENT_ID } from './build-public-config'
 import {
@@ -13,6 +16,7 @@ import {
 } from './diagnostics-config'
 import { configureDefaultPermissionDenial, createMainWindow } from './main-window'
 import { resolveDesktopOAuthConfiguration } from './native-oauth-config'
+import { createNativeArtifactAuthentication } from './native-oauth-api-authentication'
 import { NativeOAuthController, registerNativeOAuthHandlers } from './native-oauth-ipc'
 import {
   ElectronNativeRefreshGrantStore,
@@ -132,13 +136,52 @@ async function initializeDesktopApplication(): Promise<void> {
       console.error('Native OAuth session restoration failed.', error)
     }
   }
+  /** @brief 初始化期间允许二次 401 回调延迟引用的认证控制器 / Authentication controller referenced lazily by the second-401 callback during initialization. */
+  let authentication: NativeOAuthController | null = null
+  /** @brief 仅在 main 读取和轮换 token 的 Artifact 认证端口 / Artifact authentication port reading and rotating tokens only in main. */
+  const artifactAuthentication = createNativeArtifactAuthentication({
+    /** @brief 连续 401 后触发完整宿主登出 / Trigger complete host sign-out after repeated 401 responses. */
+    onAuthenticationRejected: (): void => {
+      void authentication?.signOut()
+    },
+    session: nativeOAuthSession
+  })
+  /** @brief 原生对话框与常量内存流式落盘的 Artifact 保存服务 / Artifact-save service using a native dialog and constant-memory streaming writes. */
+  const artifactSave = new NativeArtifactSaveService({
+    authentication: artifactAuthentication,
+    dialog: {
+      /**
+       * @brief 用可信主窗口显示原生 PDF 保存对话框 / Show a native PDF save dialog owned by the trusted main window.
+       * @param suggestedFileName 已净化建议文件名 / Sanitized suggested filename.
+       * @return 取消或 main-only 绝对目标路径 / Cancellation or a main-only absolute destination path.
+       */
+      async choosePdfDestination(suggestedFileName) {
+        /** @brief 发起保存时仍存活的可信主窗口 / Trusted main window still alive when save starts. */
+        const owner = mainWindow
+        if (owner === null || owner.isDestroyed()) {
+          throw new Error('The trusted renderer window is unavailable for Artifact saving.')
+        }
+        /** @brief Electron 原生保存选择 / Electron native save selection. */
+        const selection = await dialog.showSaveDialog(owner, {
+          defaultPath: join(app.getPath('downloads'), suggestedFileName),
+          filters: [{ extensions: ['pdf'], name: 'PDF' }],
+          properties: ['createDirectory', 'showOverwriteConfirmation']
+        })
+        return selection.canceled || selection.filePath === undefined
+          ? Object.freeze({ cancelled: true as const })
+          : Object.freeze({ cancelled: false as const, filePath: selection.filePath })
+      }
+    }
+  })
   /** @brief renderer 可调用但不拥有长期凭据的认证控制器 / Authentication controller callable by renderer without owning long-lived credentials. */
-  const authentication = new NativeOAuthController({
+  authentication = new NativeOAuthController({
     configuration: oauthConfiguration,
     ...(restoreFailure === undefined ? {} : { initialFailureReason: restoreFailure }),
+    protectedOperations: artifactSave,
     session: nativeOAuthSession
   })
   registerNativeOAuthHandlers(authentication, resolveTrustedRendererIdentity)
+  registerNativeArtifactSaveHandler(artifactSave, resolveTrustedRendererIdentity)
   nativeOAuthController = authentication
 
   await openMainWindow()

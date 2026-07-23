@@ -46,12 +46,24 @@ export interface NativeOAuthControllerSession {
   readonly shutdown: () => Promise<void>
 }
 
+/** @brief 与 native OAuth 会话共同静止的受保护操作边界 / Protected-operation boundary quiesced with the native OAuth session. */
+export interface NativeOAuthProtectedOperationBoundary {
+  /** @brief 登出前暂停、取消并静止受保护操作 / Suspend, cancel, and quiesce protected operations before sign-out. */
+  readonly suspendAndQuiesce: () => Promise<void>
+  /** @brief 成功授权后恢复受保护操作 / Resume protected operations after successful authorization. */
+  readonly resume: () => void
+  /** @brief 应用退出前永久关闭并静止受保护操作 / Permanently close and quiesce protected operations before shutdown. */
+  readonly closeAndQuiesce: () => Promise<void>
+}
+
 /** @brief native OAuth 控制器的可替换协议依赖 / Replaceable protocol dependencies of the native OAuth controller. */
 export interface NativeOAuthControllerDependencies {
   /** @brief 已验证 public-client 配置 / Validated public-client configuration. */
   readonly configuration: DesktopOAuthConfiguration
   /** @brief main-only 会话 / Main-only session. */
   readonly session: NativeOAuthControllerSession
+  /** @brief 与登录态绑定的 main-only 受保护操作 / Main-only protected operations bound to authentication state. */
+  readonly protectedOperations?: NativeOAuthProtectedOperationBoundary | undefined
   /** @brief 可替换 discovery fetch / Replaceable discovery fetch. */
   readonly fetchDiscovery?: ((signal?: AbortSignal) => Promise<OidcDiscoveryDocument>) | undefined
   /** @brief 可替换 native authorization 编排 / Replaceable native-authorization orchestration. */
@@ -163,6 +175,8 @@ export class NativeOAuthController {
   private readonly configuration: DesktopOAuthConfiguration
   /** @brief main-only 会话 / Main-only session. */
   private readonly session: NativeOAuthControllerSession
+  /** @brief 登出和退出时必须先静止的 main-only 操作 / Main-only operations that must quiesce before sign-out and shutdown. */
+  private readonly protectedOperations: NativeOAuthProtectedOperationBoundary
   /** @brief discovery fetch / Discovery fetch. */
   private readonly fetchDiscovery: (signal?: AbortSignal) => Promise<OidcDiscoveryDocument>
   /** @brief native authorization runner / Native-authorization runner. */
@@ -194,6 +208,13 @@ export class NativeOAuthController {
   constructor(dependencies: NativeOAuthControllerDependencies) {
     this.configuration = dependencies.configuration
     this.session = dependencies.session
+    this.protectedOperations =
+      dependencies.protectedOperations ??
+      Object.freeze({
+        closeAndQuiesce: (): Promise<void> => Promise.resolve(),
+        resume: (): void => undefined,
+        suspendAndQuiesce: (): Promise<void> => Promise.resolve()
+      })
     this.fetchDiscovery =
       dependencies.fetchDiscovery ?? ((signal) => fetchOidcDiscovery(fetch, signal))
     this.authorizeOperation = dependencies.authorize ?? runNativeAuthorization
@@ -357,9 +378,11 @@ export class NativeOAuthController {
         ),
         boundary
       )
+      if (signal.aborted) throw new NativeOAuthLoopbackCancelledError()
       /** @brief grant 安装后的当前投影 / Current projection after grant installation. */
       const projection = this.session.getProjection()
       if (projection === null) throw new Error('Native OAuth completed without a live session.')
+      this.protectedOperations.resume()
       return successfulSession(projection)
     } catch (error: unknown) {
       await this.session.cancelAuthorization().catch(() => undefined)
@@ -408,6 +431,7 @@ export class NativeOAuthController {
     /** @brief 授权终态之后执行的唯一登出任务 / Sole sign-out task running after authorization reaches a terminal state. */
     const operation = (async (): Promise<DesktopAuthenticationResult> => {
       try {
+        await this.protectedOperations.suspendAndQuiesce()
         await this.authorizationFlight?.catch(() => undefined)
         await this.awaitAuthorizationQuiescence()
         await this.session.signOut()
@@ -433,6 +457,7 @@ export class NativeOAuthController {
     this.authorizationAbort?.abort()
     /** @brief 授权任务退出后再等待 session 静止的关闭任务 / Disposal waiting for authorization completion before session quiesce. */
     const operation = (async (): Promise<void> => {
+      await this.protectedOperations.closeAndQuiesce()
       await this.authorizationFlight?.catch(() => undefined)
       await this.awaitAuthorizationQuiescence()
       await this.signOutFlight?.catch(() => undefined)

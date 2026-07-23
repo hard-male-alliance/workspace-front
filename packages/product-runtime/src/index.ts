@@ -13,6 +13,7 @@ import {
   createApiV2ResumeCreationGateway,
   createApiV2ResumeGateway,
   createApiV2ResumeTemplateCatalog,
+  createApiV2WorkspaceOperationsGateway,
   createApiV2WorkspaceGateway,
   createUnavailableInterviewGateway,
   createUnavailableKnowledgeGateway
@@ -57,9 +58,10 @@ export function createProductGateways(options: ProductGatewayOptions): AppGatewa
     identity: createApiV2IdentityGateway(client),
     interview: createUnavailableInterviewGateway(),
     knowledge: createUnavailableKnowledgeGateway(),
-    resume: createApiV2ResumeGateway(client, client),
+    resume: createApiV2ResumeGateway(client, client, client),
     resumeCreation: createApiV2ResumeCreationGateway(client),
     resumeTemplates: createApiV2ResumeTemplateCatalog(publicClient),
-    workspace: createApiV2WorkspaceGateway(client)
+    workspace: createApiV2WorkspaceGateway(client),
+    workspaceOperations: createApiV2WorkspaceOperationsGateway(client)
   }
 }

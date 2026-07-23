@@ -2,25 +2,38 @@
 
 import {
   applyResumeOperations,
+  cancelWorkspaceJob,
   createWorkspaceResume,
+  createWorkspaceResumeRenderJob,
   getCurrentUser,
+  getWorkspaceArtifact,
+  getWorkspaceArtifactContent,
+  getWorkspaceJob,
   getWorkspaceResume,
   getResumeTemplate,
+  listWorkspaceArtifactPage,
+  listWorkspaceJobPage,
   listResumePage,
   listResumeTemplatePage,
   listWorkspaceAccessPage,
   type ApiV2Client,
+  type ApiV2HttpClient,
   ApiV2ContractError,
   ApiV2WriteOutcomeUnknownError,
   type CurrentUser,
   type ColorValue,
+  type Artifact,
+  type Job,
   type Measurement,
+  type ProblemDetails,
+  type ResourceReference,
   type ResumeDocument,
   type ResumeStyleIntent,
   type ResumeCreationHttpClient,
   type ResumeOperation,
   type ResumeOperationBatch,
   type ResumeOperationsHttpClient,
+  type ResumeJobCommandHttpClient,
   type ResumeSummary,
   type RichText,
   type TextMark,
@@ -37,6 +50,7 @@ import {
   asUiPrincipalSubject,
   asUiResumeCursor,
   asUiResumeTemplateCursor,
+  asUiWorkspaceOperationsCursor,
   asUiUserLocale,
   asUiWorkspaceCursor,
   asUiWorkspaceRevision,
@@ -44,11 +58,13 @@ import {
   asUiWorkspaceTimestamp,
   cloneUiJsonValue,
   ResumeBatchConflictError,
+  uiWorkspaceArtifactsEqual,
   uiJsonValuesEqual,
   type AppGateways,
   type UiCreatedResumeResource,
   type UiColorValue,
   type UiCurrentUser,
+  type UiJsonObject,
   type UiJsonValue,
   type UiMeasurement,
   type UiResumeDocument,
@@ -61,7 +77,16 @@ import {
   type UiResumeTemplatePage,
   type UiTemplateManifest,
   type UiWorkspaceAccess,
-  type UiWorkspaceAccessPage
+  type UiWorkspaceAccessPage,
+  type UiWorkspaceArtifact,
+  type UiWorkspaceArtifactAuthority,
+  type UiWorkspaceArtifactContent,
+  type UiWorkspaceArtifactPage,
+  type UiWorkspaceJob,
+  type UiWorkspaceJobAuthority,
+  type UiWorkspaceJobPage,
+  type UiWorkspaceOperationProblem,
+  type UiWorkspaceResourceRef
 } from '@ai-job-workspace/app/application'
 
 /** @brief WorkspaceAccess 协议页 / Protocol page of WorkspaceAccess values. */
@@ -72,6 +97,226 @@ type ApiResumeSummaryPage = Awaited<ReturnType<typeof listResumePage>>
 
 /** @brief Resume Template 协议页 / Protocol page of Resume Templates. */
 type ApiResumeTemplatePage = TemplateList
+
+/** @brief 可映射为应用 Job 权威的协议表示 / Protocol representation mappable to an application Job authority. */
+interface ApiWorkspaceJobAuthoritySource {
+  readonly value: Job
+  readonly entityTag: string
+  readonly requestId: string
+  readonly location?: string
+}
+
+/**
+ * @brief 把协议 ResourceRef 无损映射为 camelCase 值对象 / Losslessly map a protocol ResourceRef into a camelCase value object.
+ * @param source 已严格解码的资源引用 / Strictly decoded resource reference.
+ * @return 保留 revision 缺失与 null 区别的领域引用 / Domain reference preserving absent versus null revision.
+ */
+export function mapWorkspaceResourceRef(source: ResourceReference): UiWorkspaceResourceRef {
+  /** @brief 不含可选 revision 的必需字段 / Required fields without the optional revision. */
+  const required = { id: source.id, resourceType: source.resource_type }
+  if (!Object.hasOwn(source, 'revision')) return required
+  /** @brief 已由协议 decoder 保证存在的 revision / Revision whose presence was guaranteed by the protocol decoder. */
+  const revision = source.revision
+  if (revision === undefined) {
+    throw new ApiV2ContractError('An API v2 ResourceRef cannot own an undefined revision.')
+  }
+  return { ...required, revision }
+}
+
+/**
+ * @brief 把协议 ProblemDetails 映射为安全 camelCase 投影 / Map protocol ProblemDetails into a safe camelCase projection.
+ * @param source 已严格解码的问题详情 / Strictly decoded problem details.
+ * @return 不共享可变容器的问题投影 / Problem projection sharing no mutable containers.
+ */
+export function mapWorkspaceOperationProblem(source: ProblemDetails): UiWorkspaceOperationProblem {
+  return {
+    code: source.code,
+    detail: source.detail,
+    errors: source.errors.map((error) => ({
+      code: error.code,
+      messageKey: error.message_key,
+      params: error.params === null ? null : Object.fromEntries(Object.entries(error.params)),
+      pointer: error.pointer
+    })),
+    extensions:
+      source.extensions === null ? null : cloneUiJsonValue(source.extensions as UiJsonObject),
+    instance: source.instance,
+    requestId: source.request_id,
+    retryable: source.retryable,
+    status: source.status,
+    title: source.title,
+    type: source.type
+  }
+}
+
+/**
+ * @brief 把 API v2 Job 映射为闭合 camelCase 生命周期 / Map an API v2 Job into the closed camelCase lifecycle.
+ * @param source 已严格解码的协议 Job / Strictly decoded protocol Job.
+ * @return 保留开放 kind、主体、结果、进度与时间的领域 Job / Domain Job preserving open kind, subject, results, progress, and timestamps.
+ */
+export function mapWorkspaceJob(source: Job): UiWorkspaceJob {
+  /** @brief 跨状态公共字段 / Fields shared across lifecycle states. */
+  const fields = {
+    createdAt: source.created_at,
+    id: asUiOpaqueId<'workspace-job'>(source.id),
+    kind: source.kind,
+    progress:
+      source.progress === null
+        ? null
+        : {
+            completed: source.progress.completed,
+            phase: source.progress.phase,
+            total: source.progress.total,
+            unit: source.progress.unit
+          },
+    resultRefs: source.result_refs.map(mapWorkspaceResourceRef),
+    revision: source.revision,
+    subject: mapWorkspaceResourceRef(source.subject),
+    updatedAt: source.updated_at,
+    workspaceId: asUiOpaqueId<'workspace'>(source.workspace_id)
+  }
+  switch (source.status) {
+    case 'queued':
+      return { ...fields, finishedAt: null, problem: null, startedAt: null, status: source.status }
+    case 'running':
+      return {
+        ...fields,
+        finishedAt: null,
+        problem: null,
+        startedAt: source.started_at,
+        status: source.status
+      }
+    case 'succeeded':
+      return {
+        ...fields,
+        finishedAt: source.finished_at,
+        problem: null,
+        startedAt: source.started_at,
+        status: source.status
+      }
+    case 'failed':
+      return {
+        ...fields,
+        finishedAt: source.finished_at,
+        problem: mapWorkspaceOperationProblem(source.problem),
+        startedAt: source.started_at,
+        status: source.status
+      }
+    case 'cancelled':
+      return {
+        ...fields,
+        finishedAt: source.finished_at,
+        problem: source.problem === null ? null : mapWorkspaceOperationProblem(source.problem),
+        startedAt: source.started_at,
+        status: source.status
+      }
+    case 'expired':
+      return {
+        ...fields,
+        finishedAt: source.finished_at,
+        problem: source.problem === null ? null : mapWorkspaceOperationProblem(source.problem),
+        startedAt: null,
+        status: source.status
+      }
+  }
+}
+
+/**
+ * @brief 把协议 Job 表示映射为应用权威 / Map a protocol Job representation into application authority.
+ * @param source 同一响应中的 Job、ETag、request ID 与可选 Location / Job, ETag, request ID, and optional Location from one response.
+ * @return 可安全读取或取消的 Job 权威 / Job authority safe to read or cancel.
+ */
+export function mapWorkspaceJobAuthority(
+  source: ApiWorkspaceJobAuthoritySource
+): UiWorkspaceJobAuthority {
+  return {
+    concurrencyToken: asUiConcurrencyToken(source.entityTag),
+    job: mapWorkspaceJob(source.value),
+    location: source.location ?? null,
+    requestId: source.requestId
+  }
+}
+
+/**
+ * @brief 把协议 Job cursor 页映射为封闭领域页 / Map a protocol Job cursor page into a closed domain page.
+ * @param source 已严格解码的协议页 / Strictly decoded protocol page.
+ * @return 保持 hasMore/cursor 关系的 Job 页 / Job page preserving the hasMore/cursor relation.
+ */
+export function mapWorkspaceJobPage(
+  source: Awaited<ReturnType<typeof listWorkspaceJobPage>>
+): UiWorkspaceJobPage {
+  /** @brief 当前页领域 Job / Domain Jobs on the current page. */
+  const items = source.items.map(mapWorkspaceJob)
+  if (!source.page.has_more) return { hasMore: false, items, nextCursor: null }
+  if (source.page.next_cursor === null) {
+    throw new ApiV2ContractError('An API v2 Job page with more items must carry a cursor.')
+  }
+  return {
+    hasMore: true,
+    items,
+    nextCursor: asUiWorkspaceOperationsCursor(source.page.next_cursor)
+  }
+}
+
+/**
+ * @brief 把 Artifact DTO 映射为不暴露 content URL 的领域 metadata / Map an Artifact DTO into domain metadata without exposing its content URL.
+ * @param source 已严格解码的 Artifact / Strictly decoded Artifact.
+ * @return camelCase Artifact metadata / camelCase Artifact metadata.
+ */
+export function mapWorkspaceArtifact(source: Artifact): UiWorkspaceArtifact {
+  return {
+    createdAt: source.created_at,
+    expiresAt: source.expires_at,
+    id: asUiOpaqueId<'workspace-artifact'>(source.id),
+    kind: source.kind,
+    mediaType: source.media_type,
+    pageCount: source.page_count,
+    revision: source.revision,
+    sha256: source.sha256,
+    sizeBytes: source.size_bytes,
+    subject: mapWorkspaceResourceRef(source.subject),
+    updatedAt: source.updated_at,
+    workspaceId: asUiOpaqueId<'workspace'>(source.workspace_id)
+  }
+}
+
+/**
+ * @brief 把协议 Artifact 表示映射为应用权威 / Map a protocol Artifact representation into application authority.
+ * @param source 同一响应中的 metadata、ETag 与 request ID / Metadata, ETag, and request ID from one response.
+ * @return 不暴露 content URL 的 Artifact 权威 / Artifact authority without an exposed content URL.
+ */
+export function mapWorkspaceArtifactAuthority(source: {
+  readonly value: Artifact
+  readonly entityTag: string
+  readonly requestId: string
+}): UiWorkspaceArtifactAuthority {
+  return {
+    artifact: mapWorkspaceArtifact(source.value),
+    concurrencyToken: asUiConcurrencyToken(source.entityTag),
+    requestId: source.requestId
+  }
+}
+
+/**
+ * @brief 把协议 Artifact cursor 页映射为封闭领域页 / Map a protocol Artifact cursor page into a closed domain page.
+ * @param source 已严格解码的协议页 / Strictly decoded protocol page.
+ * @return 保持 hasMore/cursor 关系的 Artifact 页 / Artifact page preserving the hasMore/cursor relation.
+ */
+export function mapWorkspaceArtifactPage(
+  source: Awaited<ReturnType<typeof listWorkspaceArtifactPage>>
+): UiWorkspaceArtifactPage {
+  /** @brief 当前页 Artifact metadata / Artifact metadata on the current page. */
+  const items = source.items.map(mapWorkspaceArtifact)
+  if (!source.page.has_more) return { hasMore: false, items, nextCursor: null }
+  if (source.page.next_cursor === null) {
+    throw new ApiV2ContractError('An API v2 Artifact page with more items must carry a cursor.')
+  }
+  return {
+    hasMore: true,
+    items,
+    nextCursor: asUiWorkspaceOperationsCursor(source.page.next_cursor)
+  }
+}
 
 /**
  * @brief API v2 尚未接入某项产品能力 / A product capability has not yet been connected to API v2.
@@ -626,6 +871,149 @@ export function createApiV2WorkspaceGateway(client: ApiV2Client): AppGateways['w
   }
 }
 
+/**
+ * @brief 创建 Workspace Operations 的 API v2 应用适配器 / Create the API v2 application adapter for Workspace Operations.
+ * @param client 具备读取、写入与受保护 content stream 的 v2-only 客户端 / v2-only client supporting reads, writes, and protected content streams.
+ * @return 通用 Job、Artifact metadata 与完整 content 端口 / Generic Job, Artifact metadata, and complete-content port.
+ */
+export function createApiV2WorkspaceOperationsGateway(
+  client: ApiV2HttpClient
+): AppGateways['workspaceOperations'] {
+  return {
+    async cancelJob(command): Promise<UiWorkspaceJobAuthority> {
+      /** @brief 取消后的权威协议 Job / Authoritative protocol Job after cancellation. */
+      const authority = await cancelWorkspaceJob(client, {
+        idempotencyKey: command.commandId,
+        ifMatch: command.concurrencyToken,
+        jobId: command.jobId,
+        ...(command.signal === undefined ? {} : { signal: command.signal }),
+        workspaceId: command.workspaceId
+      })
+      return mapWorkspaceJobAuthority(authority)
+    },
+    async getArtifact(request): Promise<UiWorkspaceArtifactAuthority> {
+      /** @brief 带 metadata ETag 的协议 Artifact / Protocol Artifact carrying its metadata ETag. */
+      const authority = await getWorkspaceArtifact(client, {
+        artifactId: request.artifactId,
+        ...(request.signal === undefined ? {} : { signal: request.signal }),
+        workspaceId: request.workspaceId
+      })
+      return mapWorkspaceArtifactAuthority(authority)
+    },
+    async getJob(request): Promise<UiWorkspaceJobAuthority> {
+      /** @brief 带强 ETag 的协议 Job / Protocol Job carrying its strong ETag. */
+      const authority = await getWorkspaceJob(client, {
+        jobId: request.jobId,
+        ...(request.signal === undefined ? {} : { signal: request.signal }),
+        workspaceId: request.workspaceId
+      })
+      return mapWorkspaceJobAuthority(authority)
+    },
+    async listArtifactsPage(request): Promise<UiWorkspaceArtifactPage> {
+      /** @brief 已验证的协议 Artifact 页 / Validated protocol Artifact page. */
+      const page = await listWorkspaceArtifactPage(client, {
+        cursor: request.cursor,
+        ...(request.kind === undefined ? {} : { kind: request.kind }),
+        limit: request.limit,
+        ...(request.signal === undefined ? {} : { signal: request.signal }),
+        ...(request.subjectId === undefined ? {} : { subjectId: request.subjectId }),
+        ...(request.subjectType === undefined ? {} : { subjectType: request.subjectType }),
+        workspaceId: request.workspaceId
+      })
+      /** @brief 应用模型中的 Artifact 页 / Artifact page in the application model. */
+      const mapped = mapWorkspaceArtifactPage(page)
+      if (
+        mapped.items.some(
+          (artifact) =>
+            artifact.workspaceId !== request.workspaceId ||
+            (request.kind !== undefined &&
+              request.kind !== null &&
+              artifact.kind !== request.kind) ||
+            (request.subjectType !== undefined &&
+              request.subjectType !== null &&
+              artifact.subject.resourceType !== request.subjectType) ||
+            (request.subjectId !== undefined &&
+              request.subjectId !== null &&
+              artifact.subject.id !== request.subjectId)
+        )
+      ) {
+        throw new ApiV2ContractError(
+          'An API v2 Artifact collection item escaped its Workspace or requested filters.'
+        )
+      }
+      return mapped
+    },
+    async listJobsPage(request): Promise<UiWorkspaceJobPage> {
+      /** @brief 已验证的协议 Job 页 / Validated protocol Job page. */
+      const page = await listWorkspaceJobPage(client, {
+        cursor: request.cursor,
+        ...(request.kind === undefined ? {} : { kind: request.kind }),
+        limit: request.limit,
+        ...(request.signal === undefined ? {} : { signal: request.signal }),
+        ...(request.subjectId === undefined ? {} : { subjectId: request.subjectId }),
+        ...(request.subjectType === undefined ? {} : { subjectType: request.subjectType }),
+        workspaceId: request.workspaceId
+      })
+      /** @brief 应用模型中的 Job 页 / Job page in the application model. */
+      const mapped = mapWorkspaceJobPage(page)
+      if (
+        mapped.items.some(
+          (job) =>
+            job.workspaceId !== request.workspaceId ||
+            (request.kind !== undefined && request.kind !== null && job.kind !== request.kind) ||
+            (request.subjectType !== undefined &&
+              request.subjectType !== null &&
+              job.subject.resourceType !== request.subjectType) ||
+            (request.subjectId !== undefined &&
+              request.subjectId !== null &&
+              job.subject.id !== request.subjectId)
+        )
+      ) {
+        throw new ApiV2ContractError(
+          'An API v2 Job collection item escaped its Workspace or requested filters.'
+        )
+      }
+      return mapped
+    },
+    async readArtifactContent(request): Promise<UiWorkspaceArtifactContent> {
+      /** @brief 调用方已核对且仅读取一次的 metadata 快照 / Caller-validated metadata snapshot read exactly once. */
+      const expectedArtifact = request.artifact
+      /** @brief 临近内容读取重新取得的权威 metadata / Authoritative metadata re-fetched immediately before content read. */
+      const metadata = await getWorkspaceArtifact(client, {
+        artifactId: expectedArtifact.id,
+        ...(request.signal === undefined ? {} : { signal: request.signal }),
+        workspaceId: expectedArtifact.workspaceId
+      })
+      /** @brief 重新映射后用于防止 metadata/content 检查时使用时竞态的快照 / Remapped snapshot preventing metadata/content time-of-check-to-time-of-use drift. */
+      const currentArtifact = mapWorkspaceArtifact(metadata.value)
+      if (!uiWorkspaceArtifactsEqual(expectedArtifact, currentArtifact)) {
+        throw new ApiV2ContractError(
+          'API v2 Artifact metadata changed before its protected content was opened.'
+        )
+      }
+      /** @brief 使用 canonical metadata 发起的受保护完整内容读取 / Protected complete-content read using canonical metadata. */
+      const content = await getWorkspaceArtifactContent(client, {
+        artifact: metadata.value,
+        ...(request.signal === undefined ? {} : { signal: request.signal })
+      })
+      if (content.kind !== 'complete') {
+        throw new ApiV2ContractError(
+          'A complete Workspace Artifact read cannot return a partial representation.'
+        )
+      }
+      return {
+        acceptsByteRanges: content.acceptsByteRanges,
+        body: content.body,
+        byteLength: content.expectedByteLength,
+        disposition: content.disposition,
+        entityTag: asUiConcurrencyToken(content.entityTag),
+        mediaType: content.mediaType,
+        requestId: content.requestId
+      }
+    }
+  }
+}
+
 /** @brief Resume command 的公共权威输入 / Shared authority input for a Resume command. */
 interface ResumeCommandAuthority {
   /** @brief 同一用户意图及其安全重试内稳定的命令身份 / Command identity stable within one user intent and its safe retries. */
@@ -965,11 +1353,13 @@ function createResumeTemplateStyleOperations(
  * @brief 创建 Resume 的 API v2 应用适配器 / Create the API v2 application adapter for Resume.
  * @param client v2-only Bearer 读取客户端 / v2-only Bearer read client.
  * @param operationsClient v2-only Resume operations 写端口 / v2-only Resume-operations write port.
- * @return Resume 应用端口；未接入操作显式失败 / Resume application port; unconnected operations fail explicitly.
+ * @param jobClient v2-only Resume Job command 写端口 / v2-only Resume Job-command write port.
+ * @return Resume Authoring 与 Render command 应用端口 / Resume Authoring and Render-command application port.
  */
 export function createApiV2ResumeGateway(
   client: ApiV2Client,
-  operationsClient: ResumeOperationsHttpClient
+  operationsClient: ResumeOperationsHttpClient,
+  jobClient: ResumeJobCommandHttpClient
 ): AppGateways['resume'] {
   return {
     async deleteResumeSection(input): Promise<UiResumeEditorModel> {
@@ -997,7 +1387,6 @@ export function createApiV2ResumeGateway(
         resume: mapResumeDocument(representation.value)
       }
     },
-    getResumeRenderJob: unavailableOperation('jobs.read'),
     async listResumeSummariesPage(request): Promise<UiResumeSummaryPage> {
       /** @brief 当前 ResumeSummary 协议页 / Current protocol page of ResumeSummary values. */
       const page = await listResumePage(client, request.workspaceId, {
@@ -1028,7 +1417,30 @@ export function createApiV2ResumeGateway(
           document.sections.every((section, index) => section.id === input.orderedSectionIds[index])
       )
     },
-    startResumePdfRender: unavailableOperation('resume.render-jobs.create'),
+    async startResumeRender(input): Promise<UiWorkspaceJobAuthority> {
+      /** @brief API v2 接受的 Render Job 权威 / Render Job authority accepted by API v2. */
+      const authority = await createWorkspaceResumeRenderJob(jobClient, {
+        idempotencyKey: input.commandId,
+        request: {
+          formats: input.formats,
+          mode: input.mode,
+          resume_revision: input.resumeRevision
+        },
+        resumeId: input.resumeId,
+        ...(input.signal === undefined ? {} : { signal: input.signal }),
+        workspaceId: input.workspaceId
+      })
+      if (
+        authority.value.kind !== 'resume.render' ||
+        authority.value.workspace_id !== input.workspaceId ||
+        authority.value.subject.resource_type !== 'resume' ||
+        authority.value.subject.id !== input.resumeId ||
+        authority.value.subject.revision !== input.resumeRevision
+      ) {
+        throw new ApiV2WriteOutcomeUnknownError('contract', 202, null, authority.requestId)
+      }
+      return mapWorkspaceJobAuthority(authority)
+    },
     async updateResumeSection(input): Promise<UiResumeEditorModel> {
       /** @brief 字段级意图使用稳定 entity identity，可由服务端仅在安全时 rebase / Field-level intents use stable entity identity and may be rebased only when safe by the service. */
       const operations: ResumeOperation[] = []

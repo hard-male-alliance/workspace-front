@@ -92,7 +92,7 @@ describe('createProductionContentSecurityPolicy', (): void => {
     expect(policy).toContain(
       `connect-src 'self' ${API_V2_PRODUCTION_ORIGIN} https://diagnostics.example.test:8443;`
     )
-    expect(policy).toContain(`frame-src ${API_V2_PRODUCTION_ORIGIN};`)
+    expect(policy).toContain("frame-src 'self' blob:;")
     expect(policy).not.toContain('frame-src https://diagnostics.example.test:8443')
     expect(policy).toContain("object-src 'none';")
     expect(policy).not.toContain('/api/v1/frontend-diagnostics/batches')
@@ -104,7 +104,7 @@ describe('createProductionContentSecurityPolicy', (): void => {
     const policy = createProductionContentSecurityPolicy({ kind: 'disabled' })
 
     expect(policy).toContain(`connect-src 'self' ${API_V2_PRODUCTION_ORIGIN};`)
-    expect(policy).toContain(`frame-src ${API_V2_PRODUCTION_ORIGIN};`)
+    expect(policy).toContain("frame-src 'self' blob:;")
     expect(policy).not.toContain('*')
   })
 
@@ -139,6 +139,7 @@ describe('createProductionContentSecurityPolicy', (): void => {
 
     expect(transportOrigin).toBe(API_V2_PRODUCTION_ORIGIN)
     expect(policy).toContain(`connect-src 'self' ${transportOrigin};`)
-    expect(policy).toContain(`frame-src ${transportOrigin};`)
+    expect(policy).toContain("frame-src 'self' blob:;")
+    expect(policy).not.toContain(`frame-src ${transportOrigin};`)
   })
 })

@@ -69,14 +69,14 @@ describe('API v2 Job consumer', (): void => {
     {
       finished_at: '2026-07-22T12:10:04Z',
       problem: null,
-      started_at: '2026-07-22T12:10:01Z',
+      started_at: null,
       status: 'succeeded',
       polling: false
     },
     {
       finished_at: '2026-07-22T12:10:04Z',
       problem: failedProblem(),
-      started_at: '2026-07-22T12:10:01Z',
+      started_at: null,
       status: 'failed',
       polling: false
     },
@@ -121,7 +121,6 @@ describe('API v2 Job consumer', (): void => {
   it.each([
     { status: 'queued', started_at: '2026-07-22T12:10:01Z' },
     { status: 'running', started_at: null },
-    { status: 'succeeded', started_at: null, finished_at: '2026-07-22T12:10:04Z' },
     {
       status: 'failed',
       started_at: '2026-07-22T12:10:01Z',

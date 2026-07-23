@@ -181,6 +181,18 @@ describe('classifyResourceFailure', (): void => {
       referenceId: 'req_api_v2_5678',
       retryable: false
     })
+    expect(
+      classifyResourceFailure({
+        kind: 'contract',
+        name: 'ApiV2WriteOutcomeUnknownError',
+        requestId: 'req_api_v2_bad_response',
+        status: 500
+      })
+    ).toEqual({
+      kind: 'invalid-response',
+      referenceId: 'req_api_v2_bad_response',
+      retryable: false
+    })
     expect(classifyResourceFailure({ kind: 'timeout', name: 'ApiV2NetworkError' })).toEqual({
       kind: 'service-unavailable',
       referenceId: null,
@@ -260,4 +272,16 @@ describe('classifyResourceFailure', (): void => {
       expect(requiresAuthorityReload(error)).toBe(false)
     }
   )
+
+  it('classifies Render and host Artifact failures by their stable application codes', (): void => {
+    expect(
+      classifyResourceFailure({ code: 'preview-too-large', name: 'ResumeRenderProcessError' })
+    ).toMatchObject({ kind: 'capability-unavailable', retryable: false })
+    expect(
+      classifyResourceFailure({ code: 'content-length-mismatch', name: 'ResumePdfPreviewError' })
+    ).toMatchObject({ kind: 'invalid-response', retryable: false })
+    expect(
+      classifyResourceFailure({ code: 'artifact-too-large', name: 'WebArtifactSaveError' })
+    ).toMatchObject({ kind: 'capability-unavailable', retryable: false })
+  })
 })

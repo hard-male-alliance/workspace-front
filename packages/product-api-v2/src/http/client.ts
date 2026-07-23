@@ -78,6 +78,18 @@ export interface ApiV2AuthenticatedContentOptions {
   readonly signal?: AbortSignal
 }
 
+/** @brief Artifact 响应头的浏览器可见性 / Browser visibility of Artifact response headers. */
+export type ApiV2AuthenticatedHeaderVisibility = 'cors-filtered' | 'unfiltered'
+
+/**
+ * @brief 保留原始浏览器头可见性的受保护二进制响应 / Protected binary response preserving original browser header visibility.
+ * @note transport 为限制流大小而重建 `Response` 时，原生 `Response.type` 会丢失；该判别值显式保留安全解析可依赖的事实 / Reconstructing a `Response` to bound its stream loses native `Response.type`; this discriminant explicitly preserves the fact required for safe parsing.
+ */
+export interface ApiV2AuthenticatedContentResponse extends Response {
+  /** @brief 原始 fetch 响应是否经过 CORS 头过滤 / Whether the original fetch response had CORS-filtered headers. */
+  readonly headerVisibility: ApiV2AuthenticatedHeaderVisibility
+}
+
 /** @brief POST 成功的封闭产品语义 / Closed product semantics for a successful POST. */
 export type ApiV2PostSuccessKind =
   'accepted-resource' | 'created-resource' | 'query-result' | 'updated-resource' | 'updated-result'
@@ -307,7 +319,7 @@ export interface ApiV2AuthenticatedContentClient {
   readonly getAuthenticatedContent: (
     path: string,
     options: ApiV2AuthenticatedContentOptions
-  ) => Promise<Response>
+  ) => Promise<ApiV2AuthenticatedContentResponse>
 }
 
 /** @brief API v2 最小写入端口 / Minimal API v2 write port. */
@@ -1223,7 +1235,7 @@ async function parseAuthenticatedContentResponse(
   maximumBytes: number,
   now: number,
   callerSignal: AbortSignal | undefined
-): Promise<Response> {
+): Promise<ApiV2AuthenticatedContentResponse> {
   try {
     /** @brief 已验证公共响应头 / Validated common response headers. */
     const headers = validateResponseHeaders(response)
@@ -1250,8 +1262,11 @@ async function parseAuthenticatedContentResponse(
         response.status
       )
     }
+    /** @brief 原始 fetch 的响应头可见性 / Header visibility of the original fetch. */
+    const headerVisibility: ApiV2AuthenticatedHeaderVisibility =
+      response.type === 'cors' ? 'cors-filtered' : 'unfiltered'
     /** @brief 保持 headers/status 且隐藏 transport URL 的有界响应 / Bounded response preserving headers/status while hiding the transport URL. */
-    return new Response(
+    const boundedResponse = new Response(
       response.body === null ? null : boundedBinaryBody(response.body, maximumBytes, callerSignal),
       {
         headers: response.headers,
@@ -1259,6 +1274,13 @@ async function parseAuthenticatedContentResponse(
         statusText: response.statusText
       }
     )
+    Object.defineProperty(boundedResponse, 'headerVisibility', {
+      configurable: false,
+      enumerable: true,
+      value: headerVisibility,
+      writable: false
+    })
+    return boundedResponse as ApiV2AuthenticatedContentResponse
   } catch (error: unknown) {
     cancelResponseBodyBestEffort(response)
     throw error
@@ -1948,7 +1970,10 @@ export function createApiV2Client(options: ApiV2ClientOptions): ApiV2HttpClient 
   }
 
   return {
-    async getAuthenticatedContent(path, requestOptions): Promise<Response> {
+    async getAuthenticatedContent(
+      path,
+      requestOptions
+    ): Promise<ApiV2AuthenticatedContentResponse> {
       /** @brief 从调用方对象仅读取一次的成功体上限 / Success-body ceiling read exactly once from the caller object. */
       const maximumResponseBytes = validateBinaryResponseByteLimit(requestOptions?.maxResponseBytes)
       /** @brief 从调用方对象仅读取一次的 Range / Range read exactly once from the caller object. */
@@ -1977,7 +2002,7 @@ export function createApiV2Client(options: ApiV2ClientOptions): ApiV2HttpClient 
         {
           ...(ifRange === undefined ? {} : { ifRange }),
           method: 'GET',
-          parse: (response): Promise<Response> =>
+          parse: (response): Promise<ApiV2AuthenticatedContentResponse> =>
             parseAuthenticatedContentResponse(response, maximumResponseBytes, now(), callerSignal),
           ...(range === undefined ? {} : { range }),
           requestUrl

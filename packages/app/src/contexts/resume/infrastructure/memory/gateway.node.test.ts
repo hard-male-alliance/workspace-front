@@ -10,6 +10,10 @@ import { asUiResumeTemplatePageLimit } from '../../domain/creation'
 import type { UiResumeEditorModel } from '../../domain/document'
 import { asUiResumePageLimit } from '../../domain/models'
 import {
+  InMemoryWorkspaceOperationsGateway,
+  InMemoryWorkspaceOperationsStore
+} from '../../../../testing'
+import {
   MOCK_EDITORIAL_TEMPLATE,
   MOCK_HISTORICAL_DAWN_TEMPLATE,
   MOCK_RESUME_ID,
@@ -213,21 +217,91 @@ describe('InMemoryResumeGateway', () => {
     })
   })
 
-  it('keeps PDF rendering split into start and status recovery', async () => {
-    const resumeGateway = new InMemoryResumeGateway()
+  it('keeps Render commands, generic Jobs, Artifacts, and content in their own contexts', async () => {
+    /** @brief 两个内存 adapter 共享的 Operations 状态 / Operations state shared by both in-memory adapters. */
+    const operationsStore = new InMemoryWorkspaceOperationsStore()
+    /** @brief 只负责 Resume command 的 adapter / Adapter responsible only for Resume commands. */
+    const resumeGateway = new InMemoryResumeGateway({ operationsStore })
+    /** @brief 负责通用 Job 与 Artifact 的 adapter / Adapter responsible for generic Jobs and Artifacts. */
+    const operationsGateway = new InMemoryWorkspaceOperationsGateway({}, operationsStore)
 
-    const started = await resumeGateway.startResumePdfRender({
-      commandId: 'command_render_memory_test' as never,
+    const started = await resumeGateway.startResumeRender({
+      commandId: createUiCommandId(),
+      formats: ['pdf'],
+      mode: 'preview',
       resumeId: MOCK_RESUME_ID,
       resumeRevision: 18,
       workspaceId: MOCK_RESUME_WORKSPACE_ID
     })
-    const completed = await resumeGateway.getResumeRenderJob(started.id)
+    const running = await operationsGateway.getJob({
+      jobId: started.job.id,
+      workspaceId: MOCK_RESUME_WORKSPACE_ID
+    })
+    const completed = await operationsGateway.getJob({
+      jobId: started.job.id,
+      workspaceId: MOCK_RESUME_WORKSPACE_ID
+    })
+    /** @brief 成功 Job 的唯一 Artifact 引用 / Sole Artifact reference of the succeeded Job. */
+    const artifactRef = completed.job.resultRefs[0]
+    expect(artifactRef).toBeDefined()
+    if (artifactRef === undefined) throw new Error('The Mock Render Job must produce one Artifact.')
+    /** @brief 独立读取的 Artifact metadata / Artifact metadata read independently. */
+    const { artifact } = await operationsGateway.getArtifact({
+      artifactId: asUiOpaqueId<'workspace-artifact'>(artifactRef.id),
+      workspaceId: MOCK_RESUME_WORKSPACE_ID
+    })
+    /** @brief 不暴露 URL 的受保护内容 / Protected content that exposes no URL. */
+    const content = await operationsGateway.readArtifactContent({
+      artifact
+    })
 
-    expect(started.status).toBe('queued')
-    expect(completed.status).toBe('succeeded')
-    expect(completed.artifacts).toHaveLength(1)
-    expect(completed.artifacts[0]).toMatchObject({ id: 'artifact_mock_18' })
+    expect(started.job.status).toBe('queued')
+    expect(running.job.status).toBe('running')
+    expect(completed.job.status).toBe('succeeded')
+    expect(artifact).toMatchObject({ kind: 'resume_pdf', mediaType: 'application/pdf' })
+    expect(content).toMatchObject({ byteLength: artifact.sizeBytes, mediaType: artifact.mediaType })
+    expect(content.body).not.toBeNull()
+  })
+
+  it('scopes one Render command key independently across canonical Resume paths', () => {
+    /** @brief 独享 path-aware 幂等缓存的 Operations store / Operations store owning an isolated path-aware idempotency cache. */
+    const operationsStore = new InMemoryWorkspaceOperationsStore()
+    /** @brief 两个 canonical path 共用的 command identity / Command identity shared by two canonical paths. */
+    const commandId = createUiCommandId()
+    /** @brief 第一个 Resume path 的 Render 权威 / Render authority for the first Resume path. */
+    const first = operationsStore.registerResumeRender({
+      commandId,
+      formats: ['pdf'],
+      mode: 'preview',
+      resumeId: MOCK_RESUME_ID,
+      resumeRevision: 18,
+      workspaceId: MOCK_RESUME_WORKSPACE_ID
+    })
+    /** @brief 同 Workspace 中另一个 canonical Resume path / Another canonical Resume path in the same Workspace. */
+    const otherResumeId = asUiOpaqueId<'resume'>('resume_other_canonical_path')
+    /** @brief 相同 key 在另一路径上的独立 Render 权威 / Independent Render authority for the same key on another path. */
+    const second = operationsStore.registerResumeRender({
+      commandId,
+      formats: ['pdf'],
+      mode: 'preview',
+      resumeId: otherResumeId,
+      resumeRevision: 18,
+      workspaceId: MOCK_RESUME_WORKSPACE_ID
+    })
+
+    expect(second.job.id).not.toBe(first.job.id)
+    expect(first.job.subject.id).toBe(MOCK_RESUME_ID)
+    expect(second.job.subject.id).toBe(otherResumeId)
+    expect(
+      operationsStore.registerResumeRender({
+        commandId,
+        formats: ['pdf'],
+        mode: 'preview',
+        resumeId: MOCK_RESUME_ID,
+        resumeRevision: 18,
+        workspaceId: MOCK_RESUME_WORKSPACE_ID
+      })
+    ).toEqual(first)
   })
 
   it('routes section structure and atomic template style through the resume gateway', async () => {

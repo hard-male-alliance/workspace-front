@@ -127,6 +127,13 @@ export function classifyResourceFailure(error: unknown): ResourceFailure {
       return { kind: 'invalid-response', referenceId: null, retryable: false }
     }
     if (name === 'ApiV2WriteOutcomeUnknownError') {
+      if (error.kind === 'contract' && typeof error.status === 'number') {
+        return {
+          kind: 'invalid-response',
+          referenceId: readReferenceId(error.requestId),
+          retryable: false
+        }
+      }
       return {
         kind: 'outcome-unknown',
         referenceId: readReferenceId(error.requestId),
@@ -145,6 +152,22 @@ export function classifyResourceFailure(error: unknown): ResourceFailure {
         failure?.kind === 'invalid-creation-result'
         ? { kind: 'invalid-response', referenceId: null, retryable: false }
         : { kind: 'invalid-request', referenceId: null, retryable: false }
+    }
+    if (name === 'ResumeRenderProcessError') {
+      return error.code === 'preview-too-large'
+        ? { kind: 'capability-unavailable', referenceId: null, retryable: false }
+        : { kind: 'invalid-response', referenceId: null, retryable: false }
+    }
+    if (name === 'ResumePdfPreviewError') {
+      return { kind: 'invalid-response', referenceId: null, retryable: false }
+    }
+    if (name === 'WebArtifactSaveError') {
+      if (error.code === 'artifact-too-large' || error.code === 'download-start-failed') {
+        return { kind: 'capability-unavailable', referenceId: null, retryable: false }
+      }
+      return error.code === 'artifact-not-downloadable'
+        ? { kind: 'invalid-request', referenceId: null, retryable: false }
+        : { kind: 'invalid-response', referenceId: null, retryable: false }
     }
     if (name === 'HttpProblemError' && typeof error.status === 'number') {
       return classifyHttpStatus(

@@ -82,6 +82,7 @@ const GATEWAY_HOOK_OWNERS = Object.freeze({
   useKnowledgeGateway: 'knowledge',
   useResumeCreation: 'resume',
   useResumeGateway: 'resume',
+  useResumeRenderProcess: 'resume',
   useResumeTemplateCatalog: 'resume',
   useWorkspaceGateway: 'workspace'
 })

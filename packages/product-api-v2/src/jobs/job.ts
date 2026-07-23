@@ -74,7 +74,7 @@ export interface RunningJob extends JobFields {
 export interface SucceededJob extends JobFields {
   readonly status: 'succeeded'
   readonly problem: null
-  readonly started_at: string
+  readonly started_at: string | null
   readonly finished_at: string
 }
 
@@ -82,7 +82,7 @@ export interface SucceededJob extends JobFields {
 export interface FailedJob extends JobFields {
   readonly status: 'failed'
   readonly problem: ProblemDetails
-  readonly started_at: string
+  readonly started_at: string | null
   readonly finished_at: string
 }
 
@@ -250,9 +250,9 @@ export function parseJob(value: unknown): Job {
       }
       return { ...fields, finished_at: null, problem: null, started_at: startedAt, status }
     case 'succeeded':
-      if (problem !== null || startedAt === null || finishedAt === null) {
+      if (problem !== null || finishedAt === null) {
         throw new ApiV2ContractError(
-          'A succeeded API v2 Job requires start and finish times and forbids problem.'
+          'A succeeded API v2 Job requires finished_at and forbids problem.'
         )
       }
       return {
@@ -263,10 +263,8 @@ export function parseJob(value: unknown): Job {
         status
       }
     case 'failed':
-      if (problem === null || startedAt === null || finishedAt === null) {
-        throw new ApiV2ContractError(
-          'A failed API v2 Job requires start and finish times plus ProblemDetails.'
-        )
+      if (problem === null || finishedAt === null) {
+        throw new ApiV2ContractError('A failed API v2 Job requires finished_at and ProblemDetails.')
       }
       return { ...fields, finished_at: finishedAt, problem, started_at: startedAt, status }
     case 'cancelled':

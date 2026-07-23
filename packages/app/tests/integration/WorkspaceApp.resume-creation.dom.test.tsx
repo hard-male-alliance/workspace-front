@@ -29,6 +29,7 @@ import type { UiWorkspaceAccess } from '../../src/contexts/workspace/domain/mode
 import { asUiWorkspaceSlug } from '../../src/contexts/workspace/domain/models'
 import { DEMO_WORKSPACE_ACCESSES } from '../../src/contexts/workspace/infrastructure/memory/data'
 import { InMemoryWorkspaceGateway } from '../../src/contexts/workspace/infrastructure/memory/gateway'
+import { InMemoryWorkspaceOperationsGateway } from '../../src/contexts/workspace-operations/infrastructure/memory/gateway'
 import { createDiagnostics } from '../../src/infrastructure/observability'
 import type { Diagnostics } from '../../src/observability'
 import { appI18n, setAppLocale } from '../../src/i18n'
@@ -114,7 +115,8 @@ function createGateways(
     resume,
     resumeCreation: overrides.creation ?? resume,
     resumeTemplates: overrides.catalog ?? resume,
-    workspace: overrides.workspace ?? new InMemoryWorkspaceGateway()
+    workspace: overrides.workspace ?? new InMemoryWorkspaceGateway(),
+    workspaceOperations: new InMemoryWorkspaceOperationsGateway()
   }
 }
 

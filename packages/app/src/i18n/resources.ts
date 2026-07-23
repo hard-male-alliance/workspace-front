@@ -294,13 +294,13 @@ export const zhSGTranslation = {
         '服务器已拒绝整个批次，并随结果返回最新权威版本。请检查保留的本地草稿后再继续。',
       outcomeUnknownTitle: '简历操作结果待确认',
       authorityReadRequiredTitle: '需要读取服务器版本',
-      invalidSuccessTitle: '服务端响应无法确认',
+      invalidResponseTitle: '服务端响应无法确认',
       idempotencyKeyReusedTitle: '命令标识发生冲突',
       commandRejectedTitle: '原操作已被拒绝',
       outcomeUnknownDescription:
         '请求可能已由服务器处理。请原样确认同一条幂等命令，不要创建新的写入意图。',
       outcomeContractDescription:
-        '服务端成功响应不符合 API v2 契约。请重新读取权威版本；不要重放会返回同一坏响应的命令。',
+        '服务端 HTTP 响应不符合 API v2 契约。请重新读取权威版本；不要重放会返回同一坏响应的命令。',
       idempotencyKeyReusedDescription:
         '服务端拒绝了重复用于不同意图的命令标识。请重新读取权威版本，再创建新操作。',
       commandRejectedDescription:
@@ -329,7 +329,10 @@ export const zhSGTranslation = {
       resumePdfPolling: '继续查询 PDF',
       renderOutcomeUnknown: 'PDF 生成结果待确认。',
       pdfUnsupported: '当前模板不支持 PDF 输出。',
-      pdfFrameTitle: '简历 PDF 预览'
+      pdfFrameTitle: '简历 PDF 预览',
+      pdfInlineLoading: '正在浏览器中打开已验证的 PDF…',
+      pdfInlineUnavailableTitle: '当前浏览器无法内嵌显示 PDF',
+      pdfInlineUnavailableDescription: 'PDF 已安全生成并完成校验，请下载后使用系统 PDF 查看器打开。'
     }
   },
   template: {
@@ -422,7 +425,7 @@ export const zhSGTranslation = {
     authorityReason: {
       'abandoned-confirmation': '已放弃旧命令标识；读取权威后才能创建新命令。',
       'idempotency-key-reused': '命令标识被用于不同意图；必须读取权威后创建新命令。',
-      'invalid-success': '成功响应不符合 API v2 契约；不要重放会返回同一坏响应的命令。',
+      'invalid-response': 'HTTP 响应不符合 API v2 契约；不要重放会返回同一坏响应的命令。',
       'terminal-rejection': '服务端已明确拒绝原命令；请读取权威后检查草稿。',
       conflict: '简历已在其他位置更新；请读取最新权威后继续。'
     },
@@ -1011,13 +1014,13 @@ export const enUSTranslation = {
         'The server rejected the whole batch and returned the latest authority with that result. Review the retained local draft before continuing.',
       outcomeUnknownTitle: 'Resume operation result is unknown',
       authorityReadRequiredTitle: 'Server version must be read',
-      invalidSuccessTitle: 'Server response could not be confirmed',
+      invalidResponseTitle: 'Server response could not be confirmed',
       idempotencyKeyReusedTitle: 'Command identifier conflict',
       commandRejectedTitle: 'Original operation was rejected',
       outcomeUnknownDescription:
         'The server may have processed this request. Confirm the exact same idempotent command instead of creating a new write intent.',
       outcomeContractDescription:
-        'The successful server response violated API v2. Reload authority instead of replaying a command that would return the same invalid response.',
+        'The HTTP response violated API v2. Reload authority instead of replaying a command that would return the same invalid response.',
       idempotencyKeyReusedDescription:
         'The server rejected a command identifier reused for a different intent. Reload authority before creating a new operation.',
       commandRejectedDescription:
@@ -1047,7 +1050,11 @@ export const enUSTranslation = {
       resumePdfPolling: 'Continue checking PDF',
       renderOutcomeUnknown: 'The PDF generation result is not yet confirmed.',
       pdfUnsupported: 'The current template does not support PDF output.',
-      pdfFrameTitle: 'Resume PDF preview'
+      pdfFrameTitle: 'Resume PDF preview',
+      pdfInlineLoading: 'Opening the validated PDF in this browser…',
+      pdfInlineUnavailableTitle: 'This browser cannot display the PDF inline',
+      pdfInlineUnavailableDescription:
+        'The PDF was generated and validated safely. Download it and open it in your system PDF viewer.'
     }
   },
   template: {
@@ -1152,8 +1159,8 @@ export const enUSTranslation = {
         'The old command identity was abandoned. Read authority before creating a new command.',
       'idempotency-key-reused':
         'The command identity was reused for another intent. Read authority before creating a new command.',
-      'invalid-success':
-        'The success response violated API v2. Do not replay a command that returns the same invalid response.',
+      'invalid-response':
+        'The HTTP response violated API v2. Do not replay a command that returns the same invalid response.',
       'terminal-rejection':
         'The service definitively rejected the command. Read authority and then review the retained draft.',
       conflict: 'The Resume changed elsewhere. Read latest authority before continuing.'

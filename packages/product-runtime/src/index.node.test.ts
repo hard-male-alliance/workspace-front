@@ -13,6 +13,7 @@ import {
   type ApiV2GetOptions,
   type ApiV2JsonResponse,
   type ResumeCreationHttpClient,
+  type ResumeJobCommandHttpClient,
   type ResumeOperationBatch,
   type ResumeOperationsHttpClient
 } from '@ai-job-workspace/product-api-v2'
@@ -41,6 +42,12 @@ const ACCESS_TOKEN = 'access_product_runtime_example_only_7Yw8N2'
 const UNUSED_RESUME_OPERATIONS: ResumeOperationsHttpClient = {
   postJson: (): Promise<never> =>
     Promise.reject(new Error('A read-only Resume ACL test attempted an operation write.'))
+}
+
+/** @brief 非 Render 测试不会调用的 Resume Job command 端口 / Resume Job-command port never called by non-Render tests. */
+const UNUSED_RESUME_JOBS: ResumeJobCommandHttpClient = {
+  postJson: (): Promise<never> =>
+    Promise.reject(new Error('A non-Render Resume ACL test attempted a Job command.'))
 }
 
 /**
@@ -607,7 +614,7 @@ describe('API v2 Resume ACL', (): void => {
       }
     }
     /** @brief Resume 应用适配器 / Resume application adapter. */
-    const gateway = createApiV2ResumeGateway(client, UNUSED_RESUME_OPERATIONS)
+    const gateway = createApiV2ResumeGateway(client, UNUSED_RESUME_OPERATIONS, UNUSED_RESUME_JOBS)
     /** @brief 调用方取消控制器 / Caller cancellation controller. */
     const controller = new AbortController()
 
@@ -922,7 +929,8 @@ describe('API v2 Resume ACL', (): void => {
         getJson: (): Promise<never> =>
           Promise.reject(new Error('The operation test unexpectedly performed a read.'))
       },
-      operationsClient
+      operationsClient,
+      UNUSED_RESUME_JOBS
     )
     /** @brief 一次编辑意图的完整领域输入 / Complete domain input for one edit intent. */
     const input = {
@@ -1023,7 +1031,8 @@ describe('API v2 Resume ACL', (): void => {
         getJson: (): Promise<never> =>
           Promise.reject(new Error('The reorder test unexpectedly performed a read.'))
       },
-      operationsClient
+      operationsClient,
+      UNUSED_RESUME_JOBS
     )
 
     await gateway.reorderResumeSections({
@@ -1085,7 +1094,8 @@ describe('API v2 Resume ACL', (): void => {
         getJson: (): Promise<never> =>
           Promise.reject(new Error('The delete test unexpectedly performed a read.'))
       },
-      operationsClient
+      operationsClient,
+      UNUSED_RESUME_JOBS
     )
 
     await gateway.deleteResumeSection({
@@ -1127,7 +1137,8 @@ describe('API v2 Resume ACL', (): void => {
         getJson: (): Promise<never> =>
           Promise.reject(new Error('The update postcondition test unexpectedly performed a read.'))
       },
-      operationsClient
+      operationsClient,
+      UNUSED_RESUME_JOBS
     )
 
     await expect(
@@ -1176,7 +1187,8 @@ describe('API v2 Resume ACL', (): void => {
         getJson: (): Promise<never> =>
           Promise.reject(new Error('The reorder postcondition test unexpectedly performed a read.'))
       },
-      operationsClient
+      operationsClient,
+      UNUSED_RESUME_JOBS
     )
 
     await expect(
@@ -1211,7 +1223,8 @@ describe('API v2 Resume ACL', (): void => {
         getJson: (): Promise<never> =>
           Promise.reject(new Error('The delete postcondition test unexpectedly performed a read.'))
       },
-      operationsClient
+      operationsClient,
+      UNUSED_RESUME_JOBS
     )
 
     await expect(
@@ -1299,7 +1312,8 @@ describe('API v2 Resume ACL', (): void => {
         getJson: (): Promise<never> =>
           Promise.reject(new Error('The Template-style test unexpectedly performed a read.'))
       },
-      operationsClient
+      operationsClient,
+      UNUSED_RESUME_JOBS
     )
     /** @brief 不包含调用生命周期 signal 的冻结命令 / Frozen command excluding call-lifecycle signals. */
     const command = {
@@ -1408,7 +1422,8 @@ describe('API v2 Resume ACL', (): void => {
         getJson: (): Promise<never> =>
           Promise.reject(new Error('The Template-style test unexpectedly performed a read.'))
       },
-      operationsClient
+      operationsClient,
+      UNUSED_RESUME_JOBS
     )
 
     await expect(
@@ -1462,7 +1477,8 @@ describe('API v2 Resume ACL', (): void => {
         getJson: (): Promise<never> =>
           Promise.reject(new Error('The conflict test unexpectedly performed a read.'))
       },
-      operationsClient
+      operationsClient,
+      UNUSED_RESUME_JOBS
     )
     /** @brief 捕获的应用领域错误 / Captured application-domain error. */
     let captured: unknown
@@ -1522,7 +1538,7 @@ describe('API v2 Resume ACL', (): void => {
       }
     }
     /** @brief Resume 应用适配器 / Resume application adapter. */
-    const gateway = createApiV2ResumeGateway(client, UNUSED_RESUME_OPERATIONS)
+    const gateway = createApiV2ResumeGateway(client, UNUSED_RESUME_OPERATIONS, UNUSED_RESUME_JOBS)
     /** @brief 调用方取消控制器 / Caller cancellation controller. */
     const controller = new AbortController()
 

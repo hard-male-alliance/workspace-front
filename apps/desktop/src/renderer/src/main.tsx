@@ -6,7 +6,6 @@ import { createRoot } from 'react-dom/client'
 import { WorkspaceApp } from '@ai-job-workspace/app'
 import { HostedAuthenticationScreen, HostStartupFailure } from '@ai-job-workspace/app/ui'
 import type {
-  ArtifactSavePort,
   DesktopAuthenticatedSession,
   DesktopAuthenticationFailureReason,
   ElectronRuntimeInfo,
@@ -36,12 +35,6 @@ const mountElement = rootElement
 
 /** @brief Electron renderer 唯一 React root / Sole React root for the Electron renderer. */
 const applicationRoot = createRoot(mountElement)
-
-/** @brief v2 Artifact 保存宿主边界接入前的显式缺失能力 / Explicitly unavailable capability until the v2 Artifact host boundary is connected. */
-const unavailableArtifactSave: ArtifactSavePort = Object.freeze({
-  saveArtifact: (): Promise<never> =>
-    Promise.reject(new Error('API v2 Artifact saving is not implemented by the Electron host yet.'))
-})
 
 /** @brief 仅在 Electron renderer 模块内可见的 preload bridge 投影 / Module-local projection of the preload bridge for the Electron renderer. */
 interface DesktopHostWindow extends Window {
@@ -157,7 +150,7 @@ function renderWorkspace(
   applicationRoot.render(
     <StrictMode>
       <WorkspaceApp
-        artifactSave={unavailableArtifactSave}
+        artifactSave={host.bridge.artifactSave}
         diagnostics={diagnostics}
         gateways={gateways}
         onSignOut={() =>

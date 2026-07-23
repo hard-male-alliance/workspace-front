@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { HttpCommandOutcomeUnknownError, HttpProblemError } from '@ai-job-workspace/app/http'
 import { ResumeBatchConflictError } from '@ai-job-workspace/app/application'
@@ -29,6 +29,15 @@ const RESUME_OUTCOME_UNKNOWN_MUTATIONS = [
 
 /** @brief 不会取消的测试读取信号 / Test read signal that remains active. */
 const ACTIVE_RESUME_READ_SIGNAL = new AbortController().signal
+
+/**
+ * @brief 在桌面窗口栏内选择模板设置入口 / Select the Template-settings entry inside the desktop window bar.
+ * @param accessibleName 当前语言下的入口名称 / Entry name in the current locale.
+ * @return 桌面布局使用的设置链接 / Settings link used by the desktop layout.
+ */
+function desktopTemplateSettingsLink(accessibleName: string): HTMLElement {
+  return within(screen.getByRole('toolbar')).getByRole('link', { name: accessibleName })
+}
 
 /** @brief 简历编辑器用户行为测试 / Resume-editor user-behaviour tests. */
 describe('WorkspaceApp Resume editor', (): void => {
@@ -364,9 +373,10 @@ describe('WorkspaceApp Resume editor', (): void => {
       )
       expect(content).toBeDisabled()
       expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled()
-      expect(
-        screen.getByRole('link', { name: 'Open Template and style settings' })
-      ).toHaveAttribute('aria-disabled', 'true')
+      expect(desktopTemplateSettingsLink('Open Template and style settings')).toHaveAttribute(
+        'aria-disabled',
+        'true'
+      )
       expect(screen.getByText('Revision 18')).toBeInTheDocument()
       expect(update).toHaveBeenCalledTimes(1)
 
@@ -857,7 +867,7 @@ describe('WorkspaceApp Resume editor', (): void => {
 
     expect(
       await screen.findByText(
-        'The successful server response violated API v2. Reload authority instead of replaying a command that would return the same invalid response.'
+        'The HTTP response violated API v2. Reload authority instead of replaying a command that would return the same invalid response.'
       )
     ).toBeInTheDocument()
     expect(screen.getByText('Server response could not be confirmed')).toBeInTheDocument()
@@ -875,7 +885,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     expect(screen.getByRole('textbox', { name: 'Semantic content' })).toBeEnabled()
   })
 
-  it('can abandon a persistently malformed 409 confirmation and create a new command after GET', async (): Promise<void> => {
+  it('discards a persistently malformed 409 response and creates a new command after GET', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('en-US')
     /** @brief 当前用例独享的 Resume gateway / Resume gateway owned by this case. */
     const resume = new InMemoryResumeGateway()
@@ -921,14 +931,15 @@ describe('WorkspaceApp Resume editor', (): void => {
     fireEvent.change(content, { target: { value: 'Retry only as a new explicit command' } })
     fireEvent.blur(content)
 
-    expect(await screen.findByText('Resume operation result is unknown')).toBeInTheDocument()
-    /** @brief 已无法可靠分类时显式选择的权威读取动作 / Explicit authority-read action selected when the response cannot be classified safely. */
-    const abandon = screen.getByRole('button', {
-      name: 'Abandon confirmation and read server version'
-    })
+    expect(await screen.findByText('Server response could not be confirmed')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Confirm previous operation' })
+    ).not.toBeInTheDocument()
+    /** @brief 坏响应使旧命令不可重放后唯一允许的权威读取动作 / Sole authority-read action allowed after the malformed response makes the old command unreplayable. */
+    const reload = screen.getByRole('button', { name: 'Reload server version' })
     /** @brief 必须被放弃的旧 command identity / Old command identity that must be abandoned. */
     const oldCommandId = update.mock.calls[0]?.[0].commandId
-    fireEvent.click(abandon)
+    fireEvent.click(reload)
 
     await vi.waitFor((): void => expect(getEditor).toHaveBeenCalledTimes(2))
     await vi.waitFor((): void => {
@@ -1288,7 +1299,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     /** @brief 并发期间不应发出的排序命令 / Reorder command that must not be sent concurrently. */
     const reorder = vi.spyOn(resume, 'reorderResumeSections')
     /** @brief 并发期间不应发出的 PDF 任务 / PDF command that must not be sent concurrently. */
-    const renderPdf = vi.spyOn(resume, 'startResumePdfRender')
+    const renderPdf = vi.spyOn(resume, 'startResumeRender')
 
     render(
       <WorkspaceApp
@@ -1417,7 +1428,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     expect(screen.getByRole('button', { name: '下移职业摘要' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '删除职业摘要' })).toBeInTheDocument()
     /** @brief 只表达当前 exact pinned 身份的设置入口 / Settings entry expressing only the current exact pinned identity. */
-    const templateSettings = screen.getByRole('link', { name: '打开模板与样式设置' })
+    const templateSettings = desktopTemplateSettingsLink('打开模板与样式设置')
     expect(templateSettings).toHaveTextContent('Dawn · v1.0.0')
     expect(templateSettings).toHaveAttribute('href', '/resumes/res_mock_ai_platform/template')
     expect(templateSettings).not.toHaveAttribute('aria-disabled', 'true')
@@ -1455,7 +1466,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     await screen.findByRole('heading', { name: 'Klee Chen' })
 
     /** @brief 历史 exact pinned 身份的设置入口 / Settings entry for the historical exact pinned identity. */
-    const templateSettings = screen.getByRole('link', { name: '打开模板与样式设置' })
+    const templateSettings = desktopTemplateSettingsLink('打开模板与样式设置')
     expect(templateSettings).toHaveTextContent('Dawn Legacy · v0.9.0')
     expect(getTemplate).toHaveBeenCalledWith(
       {

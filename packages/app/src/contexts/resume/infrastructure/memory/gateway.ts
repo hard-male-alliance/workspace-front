@@ -8,8 +8,6 @@ import type {
 import { ResumeSnapshotConflictError } from '../../application/errors'
 import { ResumeMutationLane } from '../../application/mutation-lane'
 import type {
-  UiResumePdfArtifact,
-  UiResumeRenderJob,
   UiResumeSectionDeleteInput,
   UiResumeSectionsReorderInput,
   UiResumeSectionUpdateInput,
@@ -17,7 +15,7 @@ import type {
   UiResumeSummaryPageRead,
   UiResumeTemplateStyleCommand,
   UiTemplateManifest,
-  UiStartResumePdfRenderInput
+  UiStartResumeRenderInput
 } from '../../domain/models'
 import { asUiResumeCursor } from '../../domain/models'
 import type { UiResumeEditorModel, UiResumeId, UiTemplateReference } from '../../domain/document'
@@ -40,6 +38,17 @@ import {
 import { asUiConcurrencyToken } from '../../../../shared-kernel/concurrency'
 import type { UiConcurrencyToken } from '../../../../shared-kernel/concurrency'
 import type { UiCommandId } from '../../../../shared-kernel/command'
+import type { UiWorkspaceJobAuthority } from '../../../workspace-operations'
+
+/** @brief Resume command 内存 adapter 所需的最小 Operations store / Minimal Operations store required by the in-memory Resume-command adapter. */
+export interface InMemoryResumeOperationsStore {
+  /**
+   * @brief 注册一个可由通用 Operations gateway 观察的 Render Job / Register a Render Job observable through a generic Operations gateway.
+   * @param input 完整 Render command / Complete Render command.
+   * @return 新建或幂等恢复的 Job 权威 / Newly created or idempotently recovered Job authority.
+   */
+  registerResumeRender(input: UiStartResumeRenderInput): UiWorkspaceJobAuthority
+}
 import {
   MOCK_RESUME_EDITOR,
   MOCK_RESUME_ID,
@@ -75,6 +84,12 @@ interface CachedResumeCommandResult {
   readonly fingerprint: string
   /** @brief 首次执行确认的完整权威 / Complete authority confirmed by the first execution. */
   readonly result: UiResumeEditorModel
+}
+
+/** @brief Resume 内存 adapter 的组合选项 / Composition options for the in-memory Resume adapter. */
+export interface InMemoryResumeGatewayOptions extends InMemoryGatewayOptions {
+  /** @brief 与 Workspace Operations adapter 共享的状态 / State shared with the Workspace Operations adapter. */
+  readonly operationsStore?: InMemoryResumeOperationsStore
 }
 
 /**
@@ -122,8 +137,8 @@ export class InMemoryResumeGateway
   /** @brief 测试 adapter 中按聚合隔离的写通道 / Aggregate-scoped mutation lane in the test adapter. */
   private readonly mutationLane = new ResumeMutationLane()
 
-  /** @brief 测试用 Render Jobs / Render Jobs used by automated tests. */
-  private readonly renderJobs = new Map<string, UiResumeRenderJob>()
+  /** @brief 与 Workspace Operations adapter 共享的 Job/Artifact 状态 / Job and Artifact state shared with the Workspace Operations adapter. */
+  private readonly operationsStore: InMemoryResumeOperationsStore | null
 
   /** @brief 按创建意图保存的幂等测试结果 / Idempotent test results stored by creation intent. */
   private readonly createdResumes = new Map<string, UiCreatedResume>()
@@ -138,8 +153,9 @@ export class InMemoryResumeGateway
    * @brief 构造 Resume 内存测试网关 / Construct the Resume in-memory test gateway.
    * @param options 确定性测试行为选项 / Deterministic test behavior options.
    */
-  constructor(options: InMemoryGatewayOptions = {}) {
+  constructor(options: InMemoryResumeGatewayOptions = {}) {
     this.options = options
+    this.operationsStore = options.operationsStore ?? null
     this.editor = cloneMemoryValue(MOCK_RESUME_EDITOR)
   }
 
@@ -326,48 +342,36 @@ export class InMemoryResumeGateway
     return cloneMemoryValue(this.editor)
   }
 
-  async startResumePdfRender(input: UiStartResumePdfRenderInput): Promise<UiResumeRenderJob> {
+  /**
+   * @brief 幂等启动一个 Mock Resume Render Job / Idempotently start one Mock Resume Render Job.
+   * @param input 完整 Render 意图 / Complete Render intent.
+   * @return 可由共享 Workspace Operations store 继续观察的 Job 权威 / Job authority observable through the shared Workspace Operations store.
+   */
+  async startResumeRender(input: UiStartResumeRenderInput): Promise<UiWorkspaceJobAuthority> {
     await prepareMemoryRead(this.options)
     input.signal?.throwIfAborted()
     if (input.resumeId !== MOCK_RESUME_ID || input.workspaceId !== MOCK_RESUME_WORKSPACE_ID) {
       return throwMemoryNotFound('resume editor')
     }
-    const job: UiResumeRenderJob = {
-      artifacts: [],
-      id: asUiOpaqueId<'resume-render-job'>(`render_mock_${input.resumeRevision}`),
-      progressPercent: 0,
-      resumeId: input.resumeId,
-      resumeRevision: input.resumeRevision,
-      status: 'queued'
+    if (
+      !Number.isSafeInteger(input.resumeRevision) ||
+      input.resumeRevision < 1 ||
+      input.formats.length < 1 ||
+      input.formats.length > 3 ||
+      new Set(input.formats).size !== input.formats.length
+    ) {
+      throw new InMemoryGatewayError(
+        'memory.conflict',
+        'The Mock Resume Render request violates the API v2 payload invariants.'
+      )
     }
-    this.renderJobs.set(job.id, job)
-    return cloneMemoryValue(job)
-  }
-
-  async getResumeRenderJob(
-    jobId: UiResumeRenderJob['id'],
-    signal?: AbortSignal
-  ): Promise<UiResumeRenderJob> {
-    await prepareMemoryRead(this.options)
-    signal?.throwIfAborted()
-    const job = this.renderJobs.get(jobId)
-    if (job === undefined) return throwMemoryNotFound('resume render job')
-    const artifact: UiResumePdfArtifact = {
-      contentUrl: 'about:blank#mock-resume-pdf',
-      createdAt: '2026-07-18T00:00:05.000Z',
-      id: asUiOpaqueId<'resume-pdf-artifact'>(`artifact_mock_${job.resumeRevision}`),
-      pageCount: 1,
-      resumeId: job.resumeId,
-      resumeRevision: job.resumeRevision
+    if (this.operationsStore === null) {
+      throw new InMemoryGatewayError(
+        'memory.unavailable',
+        'The Mock Resume adapter requires a shared Workspace Operations store for Render commands.'
+      )
     }
-    const completed: UiResumeRenderJob = {
-      ...job,
-      artifacts: [artifact],
-      progressPercent: 100,
-      status: 'succeeded'
-    }
-    this.renderJobs.set(jobId, completed)
-    return cloneMemoryValue(completed)
+    return cloneMemoryValue(this.operationsStore.registerResumeRender(input))
   }
 
   /**

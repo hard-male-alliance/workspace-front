@@ -3,7 +3,8 @@
 import { boundedInteger, opaqueId, strongEntityTag } from '../http/contract'
 import type {
   ApiV2AuthenticatedContentClient,
-  ApiV2AuthenticatedContentOptions
+  ApiV2AuthenticatedContentOptions,
+  ApiV2AuthenticatedContentResponse
 } from '../http/client'
 import { ApiV2ContractError } from '../http/errors'
 import { cancelResponseBodyBestEffort } from '../http/response-body'
@@ -15,6 +16,12 @@ const HTTP_TOKEN_PATTERN = /^[!#$%&'*+.^_`|~A-Za-z0-9-]+$/u
 
 /** @brief 参数化 HTTP 字段的最大字符数 / Maximum character count for a parameterized HTTP field. */
 const MAXIMUM_PARAMETERIZED_HEADER_LENGTH = 4096
+
+/** @brief Artifact body 在没有任何读取进展时的截止毫秒数 / Artifact-body deadline in milliseconds without read progress. */
+export const ARTIFACT_CONTENT_IDLE_TIMEOUT_MILLISECONDS = 30_000
+
+/** @brief fetch body reader 的一个 chunk 或 EOF 结果 / One chunk-or-EOF result from a fetch-body reader. */
+type ArtifactStreamReadResult = Awaited<ReturnType<ReadableStreamDefaultReader<Uint8Array>['read']>>
 
 /** @brief 可请求的 Artifact 字节闭区间 / Inclusive Artifact byte interval that can be requested. */
 export interface ArtifactByteRange {
@@ -32,6 +39,9 @@ export type AuthenticatedArtifactContentOptions = ApiV2AuthenticatedContentOptio
  * @note 实现必须只在 canonical API v2 origin 附加内存 Bearer token，使用 `credentials: omit` 并以 `redirect: error` 失败关闭 / Implementations must attach the in-memory Bearer token only at the canonical API v2 origin, use `credentials: omit`, and fail closed with `redirect: error`.
  */
 export type AuthenticatedArtifactContentClient = ApiV2AuthenticatedContentClient
+
+/** @brief 保留浏览器头可见性事实的 Artifact transport 响应 / Artifact transport response preserving browser header-visibility facts. */
+export type AuthenticatedArtifactContentResponse = ApiV2AuthenticatedContentResponse
 
 /** @brief Artifact content 读取输入 / Input for reading Artifact content. */
 export interface ArtifactContentReadRequest {
@@ -267,10 +277,15 @@ function matchingMediaType(value: string | null, expected: string): string {
 /**
  * @brief 解析并安全收敛 Content-Disposition / Parse and safely normalize Content-Disposition.
  * @param value 响应 Content-Disposition / Response Content-Disposition.
+ * @param corsFiltered 响应字段是否可能被 CORS 暴露列表过滤 / Whether the response field may be filtered by the CORS exposure list.
  * @return inline 或安全默认的 attachment / Inline or the safe attachment default.
  * @note filename 参数仅做语法验证，不向 UI 暴露为可信路径 / Filename parameters are syntax-checked but never exposed to UI as trusted paths.
  */
-function contentDisposition(value: string | null): ArtifactContentDisposition {
+function contentDisposition(
+  value: string | null,
+  corsFiltered: boolean
+): ArtifactContentDisposition {
+  if (value === null && corsFiltered) return 'attachment'
   /** @brief 不区分大小写的 disposition type / Case-insensitive disposition type. */
   const rawDisposition = parameterizedHeader(value, 'response.headers.Content-Disposition')
   if (!HTTP_TOKEN_PATTERN.test(rawDisposition)) {
@@ -388,6 +403,40 @@ function matchingContentRange(
 }
 
 /**
+ * @brief 在固定空闲截止内读取下一个 Artifact chunk / Read the next Artifact chunk within a fixed idle deadline.
+ * @param reader fetch body 的独占 reader / Exclusive reader for the fetch body.
+ * @return 下一个 chunk 或 EOF / Next chunk or EOF.
+ */
+async function readArtifactChunkWithIdleDeadline(
+  reader: ReadableStreamDefaultReader<Uint8Array>
+): Promise<ArtifactStreamReadResult> {
+  return new Promise<ArtifactStreamReadResult>((resolve, reject): void => {
+    /** @brief 本次 read 的空闲截止 timer / Idle-deadline timer for this read. */
+    const timer = globalThis.setTimeout(
+      (): void =>
+        reject(
+          new ApiV2ContractError('API v2 Artifact content body made no progress before timeout.')
+        ),
+      ARTIFACT_CONTENT_IDLE_TIMEOUT_MILLISECONDS
+    )
+    void reader.read().then(
+      (result): void => {
+        globalThis.clearTimeout(timer)
+        resolve(result)
+      },
+      (error: unknown): void => {
+        globalThis.clearTimeout(timer)
+        reject(
+          error instanceof Error
+            ? error
+            : new ApiV2ContractError('API v2 Artifact content body failed while streaming.')
+        )
+      }
+    )
+  })
+}
+
+/**
  * @brief 检查响应 body 尚未消费或锁定 / Check that the response body is neither consumed nor locked.
  * @param response 待交给上层的响应 / Response whose body will be handed upward.
  * @param expectedByteLength 预期 body 大小 / Expected body size.
@@ -411,55 +460,77 @@ function responseBody(
     }
     return null
   }
+  /** @brief fetch body 的独占 reader / Exclusive reader for the fetch body. */
+  const reader = body.getReader()
   /** @brief 流式观察到的字节数 / Byte count observed while streaming. */
   let receivedByteLength = 0
   /** @brief 完整响应的常量内存 SHA-256；部分响应不创建 / Constant-memory SHA-256 for a complete response, omitted for a partial response. */
   const digest = expectedSha256 === null ? null : new IncrementalSha256()
-  return body.pipeThrough(
-    new TransformStream<Uint8Array, Uint8Array>({
-      /**
-       * @brief 在透传每个 chunk 前强制 body 上限 / Enforce the body ceiling before forwarding each chunk.
-       * @param chunk fetch body 字节块 / Fetch body byte chunk.
-       * @param controller 下游 stream controller / Downstream stream controller.
-       * @return 无返回值 / No return value.
-       */
-      transform(chunk, controller): void {
-        receivedByteLength += chunk.byteLength
-        if (receivedByteLength > expectedByteLength) {
-          controller.error(
-            new ApiV2ContractError(
-              'API v2 Artifact content body exceeds the selected representation size.'
-            )
-          )
-          return
-        }
-        digest?.update(chunk)
-        controller.enqueue(chunk)
-      },
-      /**
-       * @brief 在 EOF 验证 body 不短于预期 / Verify at EOF that the body is not shorter than expected.
-       * @param controller 下游 stream controller / Downstream stream controller.
-       * @return 无返回值 / No return value.
-       */
-      flush(controller): void {
-        if (receivedByteLength !== expectedByteLength) {
-          controller.error(
-            new ApiV2ContractError(
+  /** @brief reader 是否已经进入不可再次使用的终态 / Whether the reader has entered a terminal state. */
+  let finished = false
+
+  return new ReadableStream<Uint8Array>({
+    /**
+     * @brief 在每次下游拉取时读取、验证并透传一个 chunk / Read, validate, and forward one chunk for each downstream pull.
+     * @param controller 下游 stream controller / Downstream stream controller.
+     * @return 当前 pull 完成的 Promise / Promise completing the current pull.
+     */
+    async pull(controller): Promise<void> {
+      if (finished) return
+      try {
+        /** @brief 空闲截止内到达的下一个 chunk 或 EOF / Next chunk or EOF arriving within the idle deadline. */
+        const result = await readArtifactChunkWithIdleDeadline(reader)
+        if (finished) return
+        if (result.done) {
+          finished = true
+          if (receivedByteLength !== expectedByteLength) {
+            throw new ApiV2ContractError(
               'API v2 Artifact content body is shorter than the selected representation size.'
             )
-          )
-          return
-        }
-        if (digest !== null && digest.digestHex() !== expectedSha256) {
-          controller.error(
-            new ApiV2ContractError(
+          }
+          if (digest !== null && digest.digestHex() !== expectedSha256) {
+            throw new ApiV2ContractError(
               'API v2 Artifact content SHA-256 differs from its authoritative metadata.'
             )
+          }
+          reader.releaseLock()
+          controller.close()
+          return
+        }
+        if (result.value.byteLength === 0) {
+          throw new ApiV2ContractError('API v2 Artifact content body made no byte progress.')
+        }
+        receivedByteLength += result.value.byteLength
+        if (receivedByteLength > expectedByteLength) {
+          throw new ApiV2ContractError(
+            'API v2 Artifact content body exceeds the selected representation size.'
           )
         }
+        digest?.update(result.value)
+        controller.enqueue(result.value)
+      } catch (error: unknown) {
+        finished = true
+        await reader.cancel(error).catch(() => undefined)
+        reader.releaseLock()
+        controller.error(
+          error instanceof Error
+            ? error
+            : new ApiV2ContractError('API v2 Artifact content body failed while streaming.')
+        )
       }
-    })
-  )
+    },
+    /**
+     * @brief 下游取消时立即取消 fetch body / Immediately cancel the fetch body when downstream cancels.
+     * @param reason 下游取消原因 / Downstream cancellation reason.
+     * @return fetch reader 取消完成的 Promise / Promise completing cancellation of the fetch reader.
+     */
+    async cancel(reason): Promise<void> {
+      if (finished) return
+      finished = true
+      await reader.cancel(reason).catch(() => undefined)
+      reader.releaseLock()
+    }
+  })
 }
 
 /**
@@ -532,7 +603,10 @@ export async function getWorkspaceArtifactContent(
       'response.headers.X-Request-Id'
     )
     /** @brief 安全收敛的内容展示策略 / Safely normalized content presentation policy. */
-    const disposition = contentDisposition(response.headers.get('Content-Disposition'))
+    const disposition = contentDisposition(
+      response.headers.get('Content-Disposition'),
+      response.headerVisibility === 'cors-filtered'
+    )
     /** @brief 服务端是否声明 byte-range 能力 / Whether the server advertises byte-range support. */
     const acceptsByteRanges =
       response.headers

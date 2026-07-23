@@ -4,6 +4,7 @@ import type { AppGateways } from '../application'
 import { classifyDiagnosticError } from '../observability'
 import type { DiagnosticResourceName } from '../observability'
 import { useDiagnostics } from './Diagnostics'
+import { createAppProcesses, type AppProcesses } from './AppProcesses'
 import { createAppQueries, type AppQueries } from './AppQueries'
 import { createWorkspaceSession, type WorkspaceSession } from './session/workspace-session'
 
@@ -27,6 +28,9 @@ const WorkspaceSessionContext = createContext<WorkspaceSession | null>(null)
 
 /** @brief 跨上下文只读应用查询上下文 / Cross-context read application-query context. */
 const AppQueriesContext = createContext<AppQueries | null>(null)
+
+/** @brief 跨上下文命名产品流程上下文 / Cross-context named product-process context. */
+const AppProcessesContext = createContext<AppProcesses | null>(null)
 
 /** @brief 应用数据提供器属性 / App data-provider properties. */
 export interface AppDataProviderProps {
@@ -52,24 +56,40 @@ export function AppDataProvider({ children, gateways }: AppDataProviderProps): R
     () => createAppQueries(gateways, workspaceSession),
     [gateways, workspaceSession]
   )
+  /** @brief 将跨上下文写入与异步观察收敛在应用层的命名流程 / Named processes containing cross-context writes and asynchronous observation in the application layer. */
+  const appProcesses = useMemo(() => createAppProcesses(gateways), [gateways])
 
   return (
-    <AppQueriesContext.Provider value={appQueries}>
-      <ResumeGatewayContext.Provider value={gateways.resume}>
-        <ResumeCreationContext.Provider value={gateways.resumeCreation}>
-          <ResumeTemplateCatalogContext.Provider value={gateways.resumeTemplates}>
-            <InterviewGatewayContext.Provider value={gateways.interview}>
-              <KnowledgeGatewayContext.Provider value={gateways.knowledge}>
-                <WorkspaceSessionContext.Provider value={workspaceSession}>
-                  {children}
-                </WorkspaceSessionContext.Provider>
-              </KnowledgeGatewayContext.Provider>
-            </InterviewGatewayContext.Provider>
-          </ResumeTemplateCatalogContext.Provider>
-        </ResumeCreationContext.Provider>
-      </ResumeGatewayContext.Provider>
-    </AppQueriesContext.Provider>
+    <AppProcessesContext.Provider value={appProcesses}>
+      <AppQueriesContext.Provider value={appQueries}>
+        <ResumeGatewayContext.Provider value={gateways.resume}>
+          <ResumeCreationContext.Provider value={gateways.resumeCreation}>
+            <ResumeTemplateCatalogContext.Provider value={gateways.resumeTemplates}>
+              <InterviewGatewayContext.Provider value={gateways.interview}>
+                <KnowledgeGatewayContext.Provider value={gateways.knowledge}>
+                  <WorkspaceSessionContext.Provider value={workspaceSession}>
+                    {children}
+                  </WorkspaceSessionContext.Provider>
+                </KnowledgeGatewayContext.Provider>
+              </InterviewGatewayContext.Provider>
+            </ResumeTemplateCatalogContext.Provider>
+          </ResumeCreationContext.Provider>
+        </ResumeGatewayContext.Provider>
+      </AppQueriesContext.Provider>
+    </AppProcessesContext.Provider>
   )
+}
+
+/**
+ * @brief 读取 Resume Render 命名产品流程 / Read the named Resume-render product process.
+ * @return 隔离 Resume 页面与通用 Job/Artifact gateway 的跨上下文流程 / Cross-context process isolating Resume presentation from generic Job/Artifact gateways.
+ * @throws 未被 AppDataProvider 包裹时抛出 / Throws when not wrapped by AppDataProvider.
+ */
+export function useResumeRenderProcess(): AppProcesses['resumeRender'] {
+  /** @brief 当前应用流程集合 / Current application-process collection. */
+  const processes = useContext(AppProcessesContext)
+  if (processes === null) throw new Error('Resume pages require AppDataProvider.')
+  return processes.resumeRender
 }
 
 /**

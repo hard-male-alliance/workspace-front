@@ -199,6 +199,25 @@ describe('API v2 authenticated Artifact content transport', (): void => {
     await expect(new Response(result.body).arrayBuffer()).resolves.toHaveProperty('byteLength', 2)
   })
 
+  it('preserves CORS header visibility through the bounded transport response', async (): Promise<void> => {
+    /** @brief 模拟浏览器已经过滤 Content-Disposition 的原始 CORS 响应 / Raw CORS response whose Content-Disposition was already filtered by the browser. */
+    const corsResponse = binaryResponse(200, new Uint8Array([1, 2, 3, 4]), {
+      'Content-Disposition': null
+    })
+    Object.defineProperty(corsResponse, 'type', { configurable: true, value: 'cors' })
+    /** @brief 返回 CORS 响应的 fetch 替身 / Fetch double returning the CORS response. */
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(corsResponse)
+    /** @brief 经真实受保护 transport 构造的客户端 / Client built through the real protected transport. */
+    const client = createApiV2Client({
+      authentication: fixedAuthentication(),
+      fetchImpl
+    })
+
+    await expect(
+      getWorkspaceArtifactContent(client, { artifact: await fourByteArtifact() })
+    ).resolves.toMatchObject({ disposition: 'attachment', kind: 'complete' })
+  })
+
   it('permits an RFC 9110 Range fallback to the metadata-bounded complete representation', async (): Promise<void> => {
     /** @brief If-Range 不匹配后返回完整表示的 fetch 替身 / Fetch double returning a complete representation after an If-Range mismatch. */
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(

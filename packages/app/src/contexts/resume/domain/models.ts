@@ -1,6 +1,6 @@
 /** @file Resume Authoring 领域投影 / Resume Authoring domain projections. */
 
-import type { UiOpaqueId, UiWorkspaceId } from '../../../shared-kernel/identity'
+import type { UiWorkspaceId } from '../../../shared-kernel/identity'
 import type { UiCommandId } from '../../../shared-kernel/command'
 import type { UiConcurrencyToken } from '../../../shared-kernel/concurrency'
 import type { UiContentLocale } from '../../../shared-kernel/locale'
@@ -239,38 +239,14 @@ export interface UiTemplateManifest {
   readonly publishedAt: string
 }
 
-/** @brief PDF Render artifact 展示模型 / PDF Render artifact display model. */
-export interface UiResumePdfArtifact {
-  /** @brief 产物下载 URL / Artifact download URL. */
-  readonly contentUrl: string
-  /** @brief 产物创建时间 / Artifact creation timestamp. */
-  readonly createdAt: string
-  /** @brief 产物身份 / Artifact identity. */
-  readonly id: UiOpaqueId<'resume-pdf-artifact'>
-  /** @brief PDF 页数（如果可用） / PDF page count when available. */
-  readonly pageCount: number | null
-  /** @brief 产物对应的 Resume 身份 / Resume identity represented by the artifact. */
-  readonly resumeId: UiResumeId
-  /** @brief 产物对应的 Resume revision / Resume revision represented by the artifact. */
-  readonly resumeRevision: number
-}
+/** @brief Resume render 的产品意图 / Product intent of a Resume render. */
+export type UiResumeRenderMode = 'preview' | 'final' | 'export'
 
-/** @brief Resume Render Job 状态 / Resume Render Job status. */
-export type UiResumeRenderJobStatus =
-  'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'expired' | 'unknown'
+/** @brief Resume render 可请求的 Artifact 格式 / Artifact formats requestable from a Resume render. */
+export type UiResumeRenderFormat = 'pdf' | 'json' | 'docx'
 
-/** @brief Resume Render Job 展示模型 / Resume Render Job display model. */
-export interface UiResumeRenderJob {
-  readonly id: UiOpaqueId<'resume-render-job'>
-  readonly resumeId: UiResumeId
-  readonly resumeRevision: number
-  readonly status: UiResumeRenderJobStatus
-  readonly progressPercent: number | null
-  readonly artifacts: readonly UiResumePdfArtifact[]
-}
-
-/** @brief 启动 PDF preview Render Job 输入 / Start-PDF-preview input. */
-export interface UiStartResumePdfRenderInput {
+/** @brief 启动精确 revision Resume Render Job 的输入 / Input for starting a Resume Render Job for an exact revision. */
+export interface UiStartResumeRenderInput {
   /** @brief 一次用户生成意图内保持稳定的命令身份 / Command identity stable within one user render intent. */
   readonly commandId: UiCommandId
   /** @brief 显式 Workspace 授权上下文 / Explicit Workspace authorization context. */
@@ -279,6 +255,10 @@ export interface UiStartResumePdfRenderInput {
   readonly resumeId: UiResumeId
   /** @brief 要渲染的领域 revision / Domain revision to render. */
   readonly resumeRevision: number
+  /** @brief preview、final 或 export 产品意图 / Preview, final, or export product intent. */
+  readonly mode: UiResumeRenderMode
+  /** @brief 至少一种且不重复的产物格式 / At least one unique artifact format. */
+  readonly formats: readonly UiResumeRenderFormat[]
   /** @brief 可选取消信号 / Optional cancellation signal. */
   readonly signal?: AbortSignal
 }

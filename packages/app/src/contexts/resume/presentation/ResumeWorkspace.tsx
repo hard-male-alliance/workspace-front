@@ -16,19 +16,18 @@ import type { KeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { runDiagnosticCommand, useDiagnostics } from '../../../app/Diagnostics'
-import { useArtifactSave } from '../../../app/Host'
 import { ResourceErrorState, ResourceFailureMessage } from '../../../app/ResourceErrorState'
 import { useUnsavedChanges } from '../../../app/UnsavedChanges'
 import { classifyResourceFailure } from '../../../app/resource-errors'
-import { sanitizePdfFileName } from '@ai-job-workspace/platform'
 import { createUiCommandId, type UiCommandId } from '../../../shared-kernel/command'
+import { nextDeadlineTimerDelayMilliseconds } from '../../../shared-kernel/polling'
 import {
   getResumeBatchConflict,
   getResumeCommandRetryAfterMilliseconds,
   getResumeConflictStatus,
   getResumeIdempotencyConflict,
   isResumeCommandDefinitivelyRejected,
-  isResumeContractWriteOutcomeUnknown,
+  isResumeUnreplayableContractResponse,
   ResumeBatchConflictError,
   type ResumeConflictStatus
 } from '../application/errors'
@@ -43,14 +42,13 @@ import {
   type UiResumeSectionId
 } from '../domain/document'
 import type {
-  UiResumePdfArtifact,
-  UiResumeRenderJob,
   UiResumeSectionDeleteInput,
   UiResumeSectionsReorderInput,
   UiResumeSectionUpdateInput,
   UiTemplateManifest
 } from '../domain/models'
-import { selectResumeDateLabel, selectResumePlainText } from './resume-document-selectors'
+import { ResumePreviewPanel } from './ResumePreviewPanel'
+import { selectResumePlainText } from './resume-document-selectors'
 
 /** @brief 桌面简历工作台窗口 / Desktop resume-workspace pane. */
 type ResumePane = 'assistant' | 'editor' | 'preview'
@@ -149,7 +147,7 @@ type ResumeAuthorityRecovery =
       readonly reason:
         | 'abandoned-confirmation'
         | 'idempotency-key-reused'
-        | 'invalid-success'
+        | 'invalid-response'
         | 'terminal-rejection'
     }
   | {
@@ -170,12 +168,7 @@ interface RunResumeMutation {
 
 /** @brief Resume mutation 错误对页面状态机的处置 / Disposition of a Resume-mutation error in the page state machine. */
 type ResumeMutationErrorDisposition =
-  | 'authority-conflict'
-  | 'batch-conflict'
-  | 'discard-command'
-  | 'outcome-unknown'
-  | 'outcome-unknown-discard-command'
-  | null
+  'authority-conflict' | 'batch-conflict' | 'discard-command' | 'outcome-unknown' | null
 
 /** @brief 窗口顺序 / Stable pane order. */
 const RESUME_PANES: readonly ResumePane[] = ['assistant', 'editor', 'preview']
@@ -217,63 +210,13 @@ function mustDiscardResumeCommand(error: unknown): boolean {
     error instanceof ResumeBatchConflictError ||
     getResumeIdempotencyConflict(error) === 'key-reused' ||
     isResumeCommandDefinitivelyRejected(error) ||
-    isResumeContractWriteOutcomeUnknown(error)
+    isResumeUnreplayableContractResponse(error)
   )
 }
 
 /** @brief 获取板块可编辑纯文本 / Get editable plain text for a section. */
 function getSectionContent(section: UiResumeSection): string {
   return selectResumePlainText(section.content)
-}
-
-/** @brief 纸张中的语义板块 / Semantic section rendered on the paper preview. */
-function ResumePaperSection({ section }: { readonly section: UiResumeSection }): React.JSX.Element {
-  const { t } = useTranslation()
-  return (
-    <section className="aw-paper-section">
-      <h3>{section.title || section.kind}</h3>
-      {section.content !== null && section.content.text.length > 0 ? (
-        <p>{selectResumePlainText(section.content)}</p>
-      ) : null}
-      {section.items
-        .filter((item) => item.visible)
-        .map((item) => {
-          /** @brief 仅供展示的日期范围文本 / Presentation-only date-range label. */
-          const dateLabel =
-            item.dateRange === null
-              ? null
-              : selectResumeDateLabel(
-                  item.dateRange,
-                  t('resume.date.present', { defaultValue: '至今' })
-                )
-          return (
-            <div className="aw-paper-entry" key={item.id}>
-              <div className="aw-paper-entry-title">
-                <span>{item.title ?? item.kind}</span>
-                {dateLabel === null ? null : <span>{dateLabel}</span>}
-              </div>
-              {item.organization !== null || item.subtitle !== null || item.location !== null ? (
-                <p>
-                  {[item.organization, item.subtitle, item.location].filter(Boolean).join(' · ')}
-                </p>
-              ) : null}
-              {item.summary !== null && item.summary.text.length > 0 ? (
-                <p>{selectResumePlainText(item.summary)}</p>
-              ) : null}
-              {item.highlights.length > 0 ? (
-                <ul>
-                  {item.highlights.map((highlight, index) => (
-                    <li key={`${item.id}:highlight:${index}`}>
-                      {selectResumePlainText(highlight)}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </div>
-          )
-        })}
-    </section>
-  )
 }
 
 /**
@@ -288,28 +231,6 @@ function createResumePreviewIdentity(editor: UiResumeEditorModel): string {
     editor.resume.template.templateId,
     editor.resume.template.templateVersion
   ])
-}
-
-/**
- * @brief 核对 Render Job 是否属于当前简历 revision / Check whether a Render Job belongs to the current Resume revision.
- * @param job 待核对的 Render Job / Render Job to inspect.
- * @param editor 当前简历编辑器 / Current Resume editor.
- * @return 身份与 revision 均匹配时为 true / True when both identity and revision match.
- */
-function isRenderJobCurrent(job: UiResumeRenderJob, editor: UiResumeEditorModel): boolean {
-  return job.resumeId === editor.resume.id && job.resumeRevision === editor.resume.revision
-}
-
-/**
- * @brief 核对 PDF 产物是否属于当前简历 revision / Check whether a PDF artifact belongs to the current Resume revision.
- * @param artifact 待核对的 PDF 产物 / PDF artifact to inspect.
- * @param editor 当前简历编辑器 / Current Resume editor.
- * @return 身份与 revision 均匹配时为 true / True when both identity and revision match.
- */
-function isPdfArtifactCurrent(artifact: UiResumePdfArtifact, editor: UiResumeEditorModel): boolean {
-  return (
-    artifact.resumeId === editor.resume.id && artifact.resumeRevision === editor.resume.revision
-  )
 }
 
 /** @brief 标题栏中的窗口开关 / Pane toggle inside the fixed window title bar. */
@@ -755,8 +676,7 @@ function ResumeSectionsEditor({
       if (
         disposition === 'authority-conflict' ||
         disposition === 'discard-command' ||
-        disposition === 'outcome-unknown' ||
-        disposition === 'outcome-unknown-discard-command'
+        disposition === 'outcome-unknown'
       ) {
         return
       }
@@ -1206,354 +1126,6 @@ function ResumeSectionsEditor({
   )
 }
 
-/** @brief PDF 视觉预览窗口 / PDF visual-preview pane. */
-function ResumePreviewPanel({
-  editor,
-  generation,
-  gateway,
-  isWriteLocked,
-  onAuthorityConflict,
-  pdfSupported
-}: {
-  readonly editor: UiResumeEditorModel
-  readonly generation: string
-  readonly gateway: ResumeGateway
-  /** @brief 文档权威状态未恢复时禁止创建新 Job / Prevent new Job creation until document authority is recovered. */
-  readonly isWriteLocked: boolean
-  /** @brief 将并发冲突提升到 Resume 聚合恢复状态 / Promote a concurrency conflict to Resume aggregate recovery. */
-  readonly onAuthorityConflict: (status: ResumeConflictStatus) => void
-  readonly pdfSupported: boolean
-}): React.JSX.Element {
-  const { t } = useTranslation()
-  const diagnostics = useDiagnostics()
-  const artifactSave = useArtifactSave()
-  const [artifact, setArtifact] = useState<UiResumePdfArtifact | null>(null)
-  const [job, setJob] = useState<UiResumeRenderJob | null>(null)
-  /** @brief 最近一次 Render Job 启动或轮询错误 / Latest Render Job start or polling error. */
-  const [error, setError] = useState<unknown>(null)
-  const [isRendering, setRendering] = useState(false)
-  /** @brief 启动响应得到确认前必须复用的命令身份 / Command identity that must be reused until the start response is confirmed. */
-  const [startCommandId, setStartCommandId] = useState<UiCommandId | null>(null)
-  /** @brief React state commit 前同步占位的 Render 单通道 / Synchronous single lane for Render before React state commits. */
-  const renderInFlightRef = useRef(false)
-  /** @brief 与未确认启动意图绑定的同步 command identity / Synchronous command identity bound to an unconfirmed start intent. */
-  const startCommandIdRef = useRef<UiCommandId | null>(null)
-  /** @brief PDF 产物是否正在由宿主保存 / Whether the PDF artifact is being saved by the host. */
-  const [isSaving, setSaving] = useState(false)
-  /** @brief React state commit 前同步占位的宿主保存单通道 / Synchronous single lane for host saves before React state commits. */
-  const saveInFlightRef = useRef(false)
-  /** @brief 产物保存的可访问状态 / Accessible artifact-save status. */
-  const [saveStatus, setSaveStatus] = useState<string | null>(null)
-  /** @brief 产物保存失败 / Artifact-save failure. */
-  const [saveError, setSaveError] = useState<unknown>(null)
-  const renderAbortRef = useRef<AbortController | null>(null)
-  /** @brief 当前仍允许提交异步结果的预览代际 / Preview generation still allowed to commit async results. */
-  const activeGenerationRef = useRef<string | null>(generation)
-  /** @brief Render 失败的安全页面语义 / Safe page semantics of the Render failure. */
-  const renderFailure = error === null ? null : classifyResourceFailure(error)
-  /** @brief 是否可继续查询已经获得身份的 Job / Whether a Job whose identity is known can be polled again. */
-  const canResumePolling =
-    error !== null && job !== null && ['queued', 'running'].includes(job.status)
-  /** @brief 是否必须用同一幂等键确认 Job 创建结果 / Whether Job creation must be confirmed with the same idempotency key. */
-  const mustConfirmStart = renderFailure?.kind === 'outcome-unknown' && startCommandId !== null
-  /** @brief 产物保存结果是否无法确认 / Whether the artifact-save outcome cannot be confirmed. */
-  const saveOutcomeUnknown =
-    saveError !== null && classifyResourceFailure(saveError).kind === 'outcome-unknown'
-
-  useEffect((): (() => void) => {
-    activeGenerationRef.current = generation
-    return (): void => {
-      if (activeGenerationRef.current === generation) activeGenerationRef.current = null
-      renderAbortRef.current?.abort()
-    }
-  }, [generation])
-
-  /**
-   * @brief 判断异步操作是否仍可提交到当前预览代际 / Test whether an async operation may still commit to the current preview generation.
-   * @param expectedGeneration 操作启动时的代际 / Generation captured when the operation started.
-   * @param signal 可选取消信号 / Optional abort signal.
-   * @return 组件仍挂载、代际未变化且未取消时为 true / True while mounted, current, and not aborted.
-   */
-  const canCommitGeneration = (expectedGeneration: string, signal?: AbortSignal): boolean =>
-    activeGenerationRef.current === expectedGeneration && signal?.aborted !== true
-
-  const waitForNextPoll = (signal: AbortSignal): Promise<void> =>
-    new Promise((resolve, reject): void => {
-      const timer = window.setTimeout(resolve, 1000)
-      signal.addEventListener(
-        'abort',
-        (): void => {
-          window.clearTimeout(timer)
-          reject(new DOMException('PDF polling was aborted.', 'AbortError'))
-        },
-        { once: true }
-      )
-    })
-
-  const renderPdf = async (): Promise<void> => {
-    if (renderInFlightRef.current || isWriteLocked || !pdfSupported) return
-    renderInFlightRef.current = true
-    renderAbortRef.current?.abort()
-    const controller = new AbortController()
-    /** @brief 本次渲染绑定的预览代际 / Preview generation captured for this render. */
-    const expectedGeneration = generation
-    renderAbortRef.current = controller
-    setRendering(true)
-    setError(null)
-    /** @brief 本次是继续读取已知 Job，而不是创建另一个 Job / This attempt resumes a known Job instead of creating another Job. */
-    const resumeKnownJob = canResumePolling
-    /** @brief 一次用户生成意图内稳定的 command identity / Stable command identity within one user render intent. */
-    const commandId = startCommandIdRef.current ?? createUiCommandId()
-    if (!resumeKnownJob && startCommandIdRef.current === null) {
-      startCommandIdRef.current = commandId
-      setStartCommandId(commandId)
-    }
-    try {
-      await runDiagnosticCommand(
-        diagnostics,
-        { operation: 'resume.pdf_render', scope: 'resume' },
-        async (): Promise<void> => {
-          let current =
-            resumeKnownJob && job !== null
-              ? job
-              : await gateway.startResumePdfRender({
-                  commandId,
-                  resumeId: editor.resume.id,
-                  resumeRevision: editor.resume.revision,
-                  signal: controller.signal,
-                  workspaceId: editor.resume.workspaceId
-                })
-          if (!canCommitGeneration(expectedGeneration, controller.signal)) return
-          if (!resumeKnownJob) {
-            startCommandIdRef.current = null
-            setStartCommandId(null)
-          }
-          if (!isRenderJobCurrent(current, editor)) {
-            throw new Error('Resume PDF Render Job belongs to a different Resume generation.')
-          }
-          setJob(current)
-          for (
-            let attempt = 0;
-            attempt < 60 && ['queued', 'running'].includes(current.status);
-            attempt += 1
-          ) {
-            current = await gateway.getResumeRenderJob(current.id, controller.signal)
-            if (!canCommitGeneration(expectedGeneration, controller.signal)) return
-            if (!isRenderJobCurrent(current, editor)) {
-              throw new Error('Resume PDF Render Job belongs to a different Resume generation.')
-            }
-            setJob(current)
-            if (['queued', 'running'].includes(current.status)) {
-              await waitForNextPoll(controller.signal)
-            }
-          }
-          if (current.status !== 'succeeded') {
-            throw new Error('Resume PDF rendering did not complete successfully.')
-          }
-          const completedArtifact = current.artifacts.at(0)
-          if (completedArtifact === undefined) {
-            throw new Error('Resume PDF rendering completed without a PDF artifact.')
-          }
-          if (!isPdfArtifactCurrent(completedArtifact, editor)) {
-            throw new Error('Resume PDF artifact belongs to a different Resume generation.')
-          }
-          if (!canCommitGeneration(expectedGeneration, controller.signal)) return
-          setArtifact(completedArtifact)
-        }
-      )
-    } catch (reason: unknown) {
-      if (canCommitGeneration(expectedGeneration, controller.signal)) {
-        /** @brief PDF 生成返回的权威并发冲突 / Authoritative concurrency conflict returned by PDF generation. */
-        const conflictStatus = getResumeConflictStatus(reason)
-        if (conflictStatus !== null) {
-          startCommandIdRef.current = null
-          setStartCommandId(null)
-          onAuthorityConflict(conflictStatus)
-          return
-        }
-        setError(reason)
-        if (classifyResourceFailure(reason).kind !== 'outcome-unknown') {
-          startCommandIdRef.current = null
-          setStartCommandId(null)
-        }
-      }
-    } finally {
-      if (renderAbortRef.current === controller) {
-        renderAbortRef.current = null
-        renderInFlightRef.current = false
-        if (canCommitGeneration(expectedGeneration, controller.signal)) setRendering(false)
-      }
-    }
-  }
-
-  /**
-   * @brief 请求当前宿主保存已生成的 PDF / Ask the current host to save the generated PDF.
-   * @return 保存流程结束后的 Promise / Promise fulfilled after the save flow ends.
-   */
-  const savePdf = async (): Promise<void> => {
-    if (artifact === null || saveInFlightRef.current || !isPdfArtifactCurrent(artifact, editor))
-      return
-    saveInFlightRef.current = true
-
-    /** @brief 本次保存绑定的预览代际 / Preview generation captured for this save. */
-    const expectedGeneration = generation
-    /** @brief 本次保存使用的不可变产物快照 / Immutable artifact snapshot used by this save. */
-    const artifactToSave = artifact
-    setSaving(true)
-    setSaveError(null)
-    setSaveStatus(null)
-    try {
-      /** @brief 宿主返回的保存判别结果 / Discriminated save result returned by the host. */
-      const result = await artifactSave.saveArtifact({
-        artifactId: artifactToSave.id,
-        suggestedFileName: sanitizePdfFileName(`${editor.resume.profile.fullName} Resume`)
-      })
-      if (!canCommitGeneration(expectedGeneration)) return
-      if (result.status === 'saved') {
-        setSaveStatus(t('resume.workspace.pdfSaved', { defaultValue: 'PDF 已保存。' }))
-      } else if (result.status === 'started') {
-        setSaveStatus(
-          t('resume.workspace.pdfDownloadStarted', { defaultValue: 'PDF 下载已开始。' })
-        )
-      } else {
-        setSaveStatus(t('resume.workspace.pdfSaveCancelled', { defaultValue: '已取消保存。' }))
-      }
-    } catch (error: unknown) {
-      if (canCommitGeneration(expectedGeneration)) {
-        setSaveError(error)
-      }
-    } finally {
-      saveInFlightRef.current = false
-      if (canCommitGeneration(expectedGeneration)) setSaving(false)
-    }
-  }
-
-  return (
-    <section
-      aria-label={
-        artifact === null
-          ? t('resume.workspace.semanticPreviewRegion', {
-              defaultValue: '语义内容预览（非最终排版）'
-            })
-          : t('resume.workspace.pdfPreviewRegion', { defaultValue: 'PDF 预览' })
-      }
-    >
-      <div className="aw-inline-actions">
-        <button
-          className="aw-primary-button"
-          disabled={isRendering || isWriteLocked || !pdfSupported}
-          onClick={(): void => {
-            void renderPdf()
-          }}
-          type="button"
-        >
-          {isRendering
-            ? t('resume.workspace.renderingPdf', { defaultValue: '正在生成 PDF…' })
-            : mustConfirmStart
-              ? t('resume.workspace.confirmPdfRender', {
-                  defaultValue: '确认 PDF 生成结果'
-                })
-              : canResumePolling
-                ? t('resume.workspace.resumePdfPolling', {
-                    defaultValue: '继续查询 PDF'
-                  })
-                : t('resume.workspace.renderPdf', { defaultValue: '生成 PDF 预览' })}
-        </button>
-        {!pdfSupported ? (
-          <span className="aw-muted-copy">
-            {t('resume.workspace.pdfUnsupported', {
-              defaultValue: '当前模板不支持 PDF 输出。'
-            })}
-          </span>
-        ) : null}
-        {artifact === null ? (
-          <span className="aw-muted-copy">
-            {t('resume.workspace.semanticPreviewNotice', {
-              defaultValue: '当前为语义内容预览，不代表最终模板排版。'
-            })}
-          </span>
-        ) : null}
-        {job?.progressPercent !== null && job?.progressPercent !== undefined ? (
-          <span aria-live="polite">{Math.round(job.progressPercent)}%</span>
-        ) : null}
-        {artifact !== null ? (
-          <button
-            className="aw-quiet-button"
-            disabled={isSaving || saveOutcomeUnknown}
-            onClick={(): void => {
-              void savePdf()
-            }}
-            type="button"
-          >
-            {isSaving
-              ? t('resume.workspace.savingPdf', { defaultValue: '正在保存 PDF…' })
-              : t('resume.workspace.downloadPdf', { defaultValue: '下载 PDF' })}
-          </button>
-        ) : null}
-      </div>
-      {saveStatus !== null ? (
-        <span aria-live="polite" className="aw-sr-only">
-          {saveStatus}
-        </span>
-      ) : null}
-      {saveError !== null ? (
-        <div className="aw-inline-error" role="alert">
-          <strong>
-            {saveOutcomeUnknown
-              ? t('resume.workspace.pdfSaveOutcomeUnknown', {
-                  defaultValue: 'PDF 保存结果待确认。请先检查下载记录或目标文件。'
-                })
-              : t('resume.workspace.pdfSaveError', { defaultValue: '无法保存 PDF' })}
-          </strong>{' '}
-          <ResourceFailureMessage error={saveError} />
-        </div>
-      ) : null}
-      {error !== null ? (
-        <div className="aw-inline-error" role="alert">
-          <strong>
-            {mustConfirmStart
-              ? t('resume.workspace.renderOutcomeUnknown', {
-                  defaultValue: 'PDF 生成结果待确认。'
-                })
-              : t('resume.workspace.renderError', { defaultValue: '无法生成 PDF 预览' })}
-          </strong>{' '}
-          <ResourceFailureMessage error={error} />
-        </div>
-      ) : null}
-      <div className="aw-editor-scroll aw-editor-preview">
-        {artifact !== null ? (
-          <iframe
-            className="aw-paper"
-            sandbox=""
-            src={artifact.contentUrl}
-            title={t('resume.workspace.pdfFrameTitle', { defaultValue: '简历 PDF 预览' })}
-          />
-        ) : (
-          <article
-            aria-label={t('resume.semanticPreviewAria', { defaultValue: '简历语义预览' })}
-            className="aw-paper"
-          >
-            <header className="aw-paper-header">
-              <h2 className="aw-paper-name">{editor.resume.profile.fullName}</h2>
-              {editor.resume.profile.headline !== null ? (
-                <p className="aw-paper-role">{editor.resume.profile.headline}</p>
-              ) : null}
-              <p className="aw-paper-contact">
-                {editor.resume.profile.contacts.map((contact) => contact.value).join(' · ')}
-              </p>
-            </header>
-            {editor.resume.sections
-              .filter((section) => section.visible)
-              .map((section) => (
-                <ResumePaperSection key={section.id} section={section} />
-              ))}
-          </article>
-        )}
-      </div>
-    </section>
-  )
-}
-
 /** @brief 已加载的三窗口简历工作台 / Loaded three-window resume workspace. */
 export function ResumeWorkspace({
   initialEditor,
@@ -1634,14 +1206,11 @@ export function ResumeWorkspace({
     ) {
       return undefined
     }
-    /** @brief 距离服务端允许再次确认的剩余毫秒 / Milliseconds remaining until the server allows confirmation again. */
-    const remaining = authorityRecovery.confirmNotBefore - Date.now()
-    if (remaining <= 0) return undefined
+    /** @brief 受宿主上限约束的下一段恢复等待 / Next recovery wait segment bounded by the host limit. */
+    const delayMilliseconds = nextDeadlineTimerDelayMilliseconds(authorityRecovery.confirmNotBefore)
+    if (delayMilliseconds === null) return undefined
     /** @brief 受浏览器定时器上限约束的恢复定时器 / Recovery timer bounded by the browser timer limit. */
-    const timer = window.setTimeout(
-      (): void => setConfirmationClock(Date.now()),
-      Math.min(remaining, 2_147_483_647)
-    )
+    const timer = window.setTimeout((): void => setConfirmationClock(Date.now()), delayMilliseconds)
     return (): void => window.clearTimeout(timer)
   }, [authorityRecovery, confirmationClock])
 
@@ -1697,16 +1266,17 @@ export function ResumeWorkspace({
       setAuthorityRecovery({ kind: 'authority-required', reason: 'idempotency-key-reused' })
       return 'discard-command'
     }
+    if (isResumeUnreplayableContractResponse(error)) {
+      abandonUnknownOutcome()
+      setAuthorityRecovery({ kind: 'authority-required', reason: 'invalid-response' })
+      return 'discard-command'
+    }
     const status = getResumeConflictStatus(error)
     if (status !== null) {
       setAuthorityRecovery({ kind: 'conflict', status })
       return 'authority-conflict'
     }
     if (classifyResourceFailure(error).kind === 'outcome-unknown') {
-      if (isResumeContractWriteOutcomeUnknown(error)) {
-        setAuthorityRecovery({ kind: 'authority-required', reason: 'invalid-success' })
-        return 'outcome-unknown-discard-command'
-      }
       setConfirmationClock(Date.now())
       setAuthorityRecovery({
         abandon: abandonUnknownOutcome,
@@ -1847,12 +1417,8 @@ export function ResumeWorkspace({
       <ResumePreviewPanel
         editor={editor}
         generation={previewGeneration}
-        gateway={gateway}
         isWriteLocked={isWriteLocked}
         key={previewGeneration}
-        onAuthorityConflict={(status): void => {
-          setAuthorityRecovery({ kind: 'conflict', status })
-        }}
         pdfSupported={selectedTemplate?.supportedOutputFormats.includes('pdf') === true}
       />
     )
@@ -1873,8 +1439,8 @@ export function ResumeWorkspace({
                       ? t('resume.workspace.authorityReadRequiredTitle', {
                           defaultValue: '需要读取服务器版本'
                         })
-                      : authorityRecovery.reason === 'invalid-success'
-                        ? t('resume.workspace.invalidSuccessTitle', {
+                      : authorityRecovery.reason === 'invalid-response'
+                        ? t('resume.workspace.invalidResponseTitle', {
                             defaultValue: '服务端响应无法确认'
                           })
                         : authorityRecovery.reason === 'idempotency-key-reused'
@@ -1897,7 +1463,7 @@ export function ResumeWorkspace({
                           defaultValue:
                             '已放弃旧命令标识。必须完成权威读取，才能基于保留的草稿创建新操作。'
                         })
-                      : authorityRecovery.reason === 'invalid-success'
+                      : authorityRecovery.reason === 'invalid-response'
                         ? t('resume.workspace.outcomeContractDescription', {
                             defaultValue:
                               '服务端成功响应不符合 API v2 契约。请重新读取权威版本；不要重放会返回同一坏响应的命令。'
@@ -2002,6 +1568,20 @@ export function ResumeWorkspace({
         >
           {t('resume.preview', { defaultValue: '预览' })}
         </button>
+        <Link
+          aria-disabled={isWriteLocked}
+          aria-label={t('resume.workspace.openTemplateSettings', {
+            defaultValue: '打开模板与样式设置'
+          })}
+          className="aw-tab"
+          onClick={(event): void => {
+            if (isWriteLocked) event.preventDefault()
+          }}
+          to={`/resumes/${editor.resume.id}/template`}
+        >
+          <Settings2 aria-hidden="true" size={15} />
+          {t('resume.templateSettings', { defaultValue: '模板设置' })}
+        </Link>
         <button className="aw-tab" onClick={(): void => setMobileAssistantOpen(true)} type="button">
           {t('resume.assistant', { defaultValue: '简历助手' })}
         </button>

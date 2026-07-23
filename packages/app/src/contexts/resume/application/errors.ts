@@ -131,7 +131,11 @@ export function getResumeBatchConflict(error: unknown): ResumeBatchConflictRecov
  */
 export function getResumeConflictStatus(error: unknown): ResumeConflictStatus | null {
   if (!isRecord(error)) return null
-  if (error.name === 'ApiV2WriteOutcomeUnknownError') return null
+  if (error.name === 'ApiV2WriteOutcomeUnknownError') {
+    return error.kind === 'contract' && (error.status === 409 || error.status === 412)
+      ? error.status
+      : null
+  }
   if (error.name === 'ApiV2ProblemError' && isRecord(error.problem)) {
     /** @brief 已由 API v2 transport 验证的 Problem status / Problem status validated by the API v2 transport. */
     const problemStatus = error.problem.status
@@ -208,18 +212,16 @@ export function isResumeCommandDefinitivelyRejected(error: unknown): boolean {
 }
 
 /**
- * @brief 判断未知写结果是否来自已完成 2xx 的响应契约失败 / Determine whether an unknown write outcome came from contract failure after a completed 2xx response.
+ * @brief 判断未知写结果是否来自已收到 HTTP 响应的契约失败 / Determine whether an unknown write outcome came from a received but non-conforming HTTP response.
  * @param error application port 返回的未知错误 / Unknown error returned by the application port.
- * @return 原 key 的终态响应不可再用于确认时为 true / True when the terminal response for the original key cannot confirm the outcome again.
- * @note 该情形应先 GET 权威，但不得继续重放会稳定返回同一坏响应的 key；network、timeout、abort 与 server unknown 仍保留原 key。 / Authority must be read first, but the key that deterministically replays the same invalid response must not be retried; network, timeout, abort, and server unknowns retain the original key.
+ * @return 原 key 的已缓存坏响应不可再用于确认时为 true / True when the malformed response cached for the original key cannot confirm the outcome again.
+ * @note 该情形应先 GET 权威，但不得继续重放会稳定返回同一坏响应的 key；network、timeout、abort 与无可信 HTTP 响应的 server unknown 仍保留原 key。 / Authority must be read first, but the key that deterministically replays the same invalid response must not be retried; network, timeout, abort, and server unknowns without a trustworthy HTTP response retain the original key.
  */
-export function isResumeContractWriteOutcomeUnknown(error: unknown): boolean {
+export function isResumeUnreplayableContractResponse(error: unknown): boolean {
   return (
     isRecord(error) &&
     error.name === 'ApiV2WriteOutcomeUnknownError' &&
     error.kind === 'contract' &&
-    typeof error.status === 'number' &&
-    error.status >= 200 &&
-    error.status < 300
+    typeof error.status === 'number'
   )
 }

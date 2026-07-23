@@ -7,7 +7,9 @@ import {
   InMemoryInterviewGateway,
   InMemoryWorkspaceGateway,
   InMemoryKnowledgeGateway,
-  InMemoryResumeGateway
+  InMemoryResumeGateway,
+  InMemoryWorkspaceOperationsGateway,
+  InMemoryWorkspaceOperationsStore
 } from '../testing'
 import { createAppQueries } from './AppQueries'
 import { createWorkspaceSession } from './session/workspace-session'
@@ -18,8 +20,10 @@ import { createWorkspaceSession } from './session/workspace-session'
  * @return 可供应用查询组合的 gateway 集合 / Gateway collection for application-query composition.
  */
 function createGateways(workspace = new InMemoryWorkspaceGateway()): AppGateways {
+  /** @brief Resume 与 Operations 共享的异步资源状态 / Asynchronous-resource state shared by Resume and Operations. */
+  const operationsStore = new InMemoryWorkspaceOperationsStore()
   /** @brief 同时承载 Resume 各端口的独享测试适配器 / Isolated test adapter serving each Resume port. */
-  const resume = new InMemoryResumeGateway()
+  const resume = new InMemoryResumeGateway({ operationsStore })
   return {
     identity: new InMemoryIdentityGateway(),
     interview: new InMemoryInterviewGateway(),
@@ -27,7 +31,8 @@ function createGateways(workspace = new InMemoryWorkspaceGateway()): AppGateways
     resume,
     resumeCreation: resume,
     resumeTemplates: resume,
-    workspace
+    workspace,
+    workspaceOperations: new InMemoryWorkspaceOperationsGateway({}, operationsStore)
   }
 }
 

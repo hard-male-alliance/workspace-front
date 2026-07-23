@@ -10,6 +10,7 @@ import {
 
 import type { IpcSenderEvent } from './ipc-sender'
 import type { NativeOAuthControllerSession } from './native-oauth-ipc'
+import type { NativeOAuthSessionProjection } from './native-oauth-session'
 
 /** @brief 测试 IPC handler 形状 / Test IPC-handler shape. */
 type TestIpcHandler = (event: IpcSenderEvent, ...arguments_: unknown[]) => unknown
@@ -186,6 +187,8 @@ function createObservableSession() {
   const cancelAuthorization = vi.fn((): Promise<void> => Promise.resolve())
   /** @brief 关闭 spy / Shutdown spy. */
   const shutdown = vi.fn((): Promise<void> => Promise.resolve())
+  /** @brief 登出 spy / Sign-out spy. */
+  const signOut = vi.fn((): Promise<void> => Promise.resolve())
   return {
     cancelAuthorization,
     session: {
@@ -195,13 +198,111 @@ function createObservableSession() {
       getProjection: () => null,
       refresh: (): Promise<void> => Promise.resolve(),
       shutdown,
-      signOut: (): Promise<void> => Promise.resolve()
+      signOut
     },
-    shutdown
+    shutdown,
+    signOut
   }
 }
 
 describe('NativeOAuthController lifecycle', (): void => {
+  it('成功重新授权后才恢复受保护操作', async (): Promise<void> => {
+    /** @brief 授权后安装的投影 / Projection installed after authorization. */
+    let currentProjection: NativeOAuthSessionProjection | null = null
+    /** @brief 恢复 spy / Resume spy. */
+    const resume = vi.fn()
+    /** @brief 授权时安装投影的测试会话 / Test session installing a projection during authorization. */
+    const session: NativeOAuthControllerSession = {
+      beginAuthorization: (): Promise<{ readonly installGrant: () => Promise<void> }> =>
+        Promise.resolve({ installGrant: (): Promise<void> => Promise.resolve() }),
+      cancelAuthorization: (): Promise<void> => Promise.resolve(),
+      getProjection: (): NativeOAuthSessionProjection | null => currentProjection,
+      refresh: (): Promise<void> => Promise.resolve(),
+      shutdown: (): Promise<void> => Promise.resolve(),
+      signOut: (): Promise<void> => Promise.resolve()
+    }
+    /** @brief 待测控制器 / Controller under test. */
+    const controller = new NativeOAuthController({
+      authorize: (): Promise<void> => {
+        currentProjection = {
+          accessToken: 'access-token-after-authorization',
+          expiresAtEpochSeconds: 4_000_000_000,
+          scopes: ['openid', 'offline_access'],
+          subject: 'subject_01JEXAMPLE'
+        }
+        return Promise.resolve()
+      },
+      configuration: controllerConfiguration,
+      fetchDiscovery: (): Promise<never> => Promise.resolve({} as never),
+      protectedOperations: {
+        closeAndQuiesce: (): Promise<void> => Promise.resolve(),
+        resume,
+        suspendAndQuiesce: (): Promise<void> => Promise.resolve()
+      },
+      session
+    })
+
+    await expect(controller.authorize('login')).resolves.toMatchObject({ kind: 'success' })
+    expect(resume).toHaveBeenCalledOnce()
+  })
+
+  it('登出先静止 main-only 受保护操作再清 native 会话', async (): Promise<void> => {
+    /** @brief 生命周期调用顺序 / Lifecycle call order. */
+    const order: string[] = []
+    /** @brief 可观察会话 / Observable session. */
+    const observed = createObservableSession()
+    observed.signOut.mockImplementation((): Promise<void> => {
+      order.push('session-sign-out')
+      return Promise.resolve()
+    })
+    /** @brief 待测控制器 / Controller under test. */
+    const controller = new NativeOAuthController({
+      configuration: controllerConfiguration,
+      protectedOperations: {
+        closeAndQuiesce: (): Promise<void> => Promise.resolve(),
+        resume: (): void => undefined,
+        suspendAndQuiesce: (): Promise<void> => {
+          order.push('artifact-quiesced')
+          return Promise.resolve()
+        }
+      },
+      session: observed.session
+    })
+
+    await expect(controller.signOut()).resolves.toEqual({
+      kind: 'success',
+      session: { kind: 'anonymous' }
+    })
+    expect(order).toEqual(['artifact-quiesced', 'session-sign-out'])
+  })
+
+  it('应用退出先永久关闭受保护操作再 shutdown native 会话', async (): Promise<void> => {
+    /** @brief 生命周期调用顺序 / Lifecycle call order. */
+    const order: string[] = []
+    /** @brief 可观察会话 / Observable session. */
+    const observed = createObservableSession()
+    observed.shutdown.mockImplementation((): Promise<void> => {
+      order.push('session-shutdown')
+      return Promise.resolve()
+    })
+    /** @brief 待测控制器 / Controller under test. */
+    const controller = new NativeOAuthController({
+      configuration: controllerConfiguration,
+      protectedOperations: {
+        closeAndQuiesce: (): Promise<void> => {
+          order.push('artifact-closed')
+          return Promise.resolve()
+        },
+        resume: (): void => undefined,
+        suspendAndQuiesce: (): Promise<void> => Promise.resolve()
+      },
+      session: observed.session
+    })
+
+    await expect(controller.dispose()).resolves.toBeUndefined()
+    expect(order).toEqual(['artifact-closed', 'session-shutdown'])
+  })
+
   it('把启动期安全存储不可用显式投影给 renderer', (): void => {
     /** @brief 可观察匿名会话 / Observable anonymous session. */
     const { session } = createObservableSession()

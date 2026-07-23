@@ -28,7 +28,7 @@ export const PRODUCTION_TEST_DATA_SENTINELS = Object.freeze([
   { name: 'interview scenario fixture ID', value: 'scn_mock_system_design' },
   { name: 'interview session fixture ID', value: 'int_mock_system_design' },
   { name: 'interview report fixture ID', value: 'rpt_mock_system_design' },
-  { name: 'resume artifact fixture URL', value: 'about:blank#mock-resume-pdf' },
+  { name: 'resume Render Job fixture ETag', value: 'memory-render-job-1' },
   { name: 'in-memory adapter', value: 'InMemoryWorkspaceGateway' },
   { name: 'in-memory adapter', value: 'InMemoryResumeGateway' },
   { name: 'in-memory adapter', value: 'InMemoryInterviewGateway' },

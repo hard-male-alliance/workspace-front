@@ -25,6 +25,7 @@ import { classifyResourceFailure } from '../../../app/resource-errors'
 import { createUiCommandId } from '../../../shared-kernel/command'
 import { asUiOpaqueId } from '../../../shared-kernel/identity'
 import { cloneUiJsonValue, uiJsonValuesEqual } from '../../../shared-kernel/json'
+import { nextDeadlineTimerDelayMilliseconds } from '../../../shared-kernel/polling'
 import { LoadingState } from '../../../ui'
 import {
   getResumeBatchConflict,
@@ -32,7 +33,7 @@ import {
   getResumeConflictStatus,
   getResumeIdempotencyConflict,
   isResumeCommandDefinitivelyRejected,
-  isResumeContractWriteOutcomeUnknown
+  isResumeUnreplayableContractResponse
 } from '../application/errors'
 import type { ResumeGateway } from '../application/gateway'
 import type { ResumeTemplateCatalogPort } from '../application/resume-creation'
@@ -246,7 +247,7 @@ type TemplateAuthorityRecovery =
       readonly reason:
         | 'abandoned-confirmation'
         | 'idempotency-key-reused'
-        | 'invalid-success'
+        | 'invalid-response'
         | 'terminal-rejection'
         | 'conflict'
     }
@@ -556,12 +557,13 @@ function TemplateSettingsContent({
       return undefined
     }
     if (confirmationClock >= recovery.confirmNotBefore) return undefined
-    /** @brief Retry-After 剩余毫秒 / Remaining Retry-After milliseconds. */
-    const remaining = recovery.confirmNotBefore - Date.now()
+    /** @brief 受宿主上限约束的下一段冷却等待 / Next cooldown segment bounded by the host limit. */
+    const delayMilliseconds = nextDeadlineTimerDelayMilliseconds(recovery.confirmNotBefore)
+    if (delayMilliseconds === null) return undefined
     /** @brief 浏览器上限内的冷却计时器 / Cooldown timer within the browser limit. */
     const timer = window.setTimeout(
       (): void => setConfirmationClock(Math.max(Date.now(), recovery.confirmNotBefore ?? 0)),
-      Math.max(0, Math.min(remaining, 2_147_483_647))
+      delayMilliseconds
     )
     return (): void => window.clearTimeout(timer)
   }, [confirmationClock, recovery])
@@ -767,16 +769,16 @@ function TemplateSettingsContent({
       setSaveStatus('error')
       return
     }
-    if (getResumeConflictStatus(error) !== null) {
+    if (isResumeUnreplayableContractResponse(error)) {
       if (attemptRef.current === attempt) attemptRef.current = null
-      setRecovery({ kind: 'authority-required', reason: 'conflict' })
+      reconciliationAttemptRef.current = attempt
+      setRecovery({ kind: 'authority-required', reason: 'invalid-response' })
       setSaveStatus('error')
       return
     }
-    if (isResumeContractWriteOutcomeUnknown(error)) {
+    if (getResumeConflictStatus(error) !== null) {
       if (attemptRef.current === attempt) attemptRef.current = null
-      reconciliationAttemptRef.current = attempt
-      setRecovery({ kind: 'authority-required', reason: 'invalid-success' })
+      setRecovery({ kind: 'authority-required', reason: 'conflict' })
       setSaveStatus('error')
       return
     }

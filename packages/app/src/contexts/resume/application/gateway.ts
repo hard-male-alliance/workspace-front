@@ -1,16 +1,16 @@
 /** @file Resume Authoring 应用端口 / Resume Authoring application port. */
 
 import type { UiWorkspaceId } from '../../../shared-kernel/identity'
+import type { UiWorkspaceJobAuthority } from '../../workspace-operations'
 import type { UiResumeEditorModel, UiResumeId } from '../domain/document'
 import type {
-  UiResumeRenderJob,
   UiResumeSectionDeleteInput,
   UiResumeSectionsReorderInput,
   UiResumeSectionUpdateInput,
   UiResumeSummaryPage,
   UiResumeSummaryPageRead,
   UiResumeTemplateStyleCommand,
-  UiStartResumePdfRenderInput
+  UiStartResumeRenderInput
 } from '../domain/models'
 
 /** @brief 简历与模板页面数据端口 / Resume and template page-data port. */
@@ -35,14 +35,12 @@ export interface ResumeGateway {
     signal: AbortSignal
   ): Promise<UiResumeEditorModel>
 
-  /** @brief 启动 PDF preview Render Job / Start a PDF preview Render Job. */
-  startResumePdfRender(input: UiStartResumePdfRenderInput): Promise<UiResumeRenderJob>
-
-  /** @brief 查询 Resume Render Job / Get a Resume Render Job. */
-  getResumeRenderJob(
-    jobId: UiResumeRenderJob['id'],
-    signal?: AbortSignal
-  ): Promise<UiResumeRenderJob>
+  /**
+   * @brief 为精确 Resume revision 启动通用 Render Job / Start a generic Render Job for an exact Resume revision.
+   * @param input 幂等 command、Workspace、Resume、revision、mode 与唯一 formats / Idempotent command, Workspace, Resume, revision, mode, and unique formats.
+   * @return 已接受且可由 Workspace Operations 继续观察的 Job 权威 / Accepted Job authority observable through Workspace Operations.
+   */
+  startResumeRender(input: UiStartResumeRenderInput): Promise<UiWorkspaceJobAuthority>
 
   /**
    * @brief 提交用户对单个板块的编辑 / Submit a user-authored section edit.

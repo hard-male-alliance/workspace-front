@@ -16,6 +16,7 @@ export function sanitizePdfFileName(input: string): SafePdfFileName {
     .replace(/\.pdf$/iu, '')
     // eslint-disable-next-line no-control-regex -- Filename boundary must remove the complete ASCII control range.
     .replace(/[\u0000-\u001f\u007f<>:"/\\|?*]+/gu, ' ')
+    .replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/gu, '')
     .replace(/\s+/gu, ' ')
     .replace(/^[ .]+|[ .]+$/gu, '')
     .slice(0, MAX_SUGGESTED_FILE_NAME_LENGTH - 4)
@@ -33,6 +34,8 @@ export function sanitizePdfFileName(input: string): SafePdfFileName {
 
 /** @brief 保存宿主产物的请求 / Request to save a host artifact. */
 export interface SaveArtifactRequest {
+  /** @brief 授权路径中的不透明 Workspace ID / Opaque Workspace ID in the authorization path. */
+  readonly workspaceId: string
   /** @brief 由宿主重新解析权威元数据的不透明产物 ID / Opaque artifact ID whose authoritative metadata the host resolves again. */
   readonly artifactId: string
   /** @brief 不包含目录信息的安全建议文件名 / Safe suggested filename without directory information. */
@@ -59,10 +62,19 @@ export type SaveArtifactResult =
  * @note 端口刻意不暴露文件路径、Node.js 文件系统或通用 IPC / The port intentionally exposes no file paths, Node.js filesystem, or generic IPC.
  */
 export interface ArtifactSavePort {
+  /** @brief 当前宿主可保存的最大 Artifact 字节数；null 表示流式宿主无应用层上限 / Maximum Artifact bytes this host can save, or null when a streaming host has no application-level ceiling. */
+  readonly maximumArtifactBytes: number | null
   /**
    * @brief 将已生成的产物保存到用户选择的位置 / Save a generated artifact to a user-selected destination.
-   * @param request 只含不透明产物 ID 与安全建议文件名的请求 / Request containing only an opaque artifact ID and safe suggested filename.
+   * @param request 只含不透明 Workspace/Artifact ID 与安全建议文件名的请求 / Request containing only opaque Workspace/Artifact IDs and a safe suggested filename.
+   * @param signal 可选调用方生命周期取消信号 / Optional caller-lifecycle abort signal.
    * @return 已启动、已保存或已取消的判别结果 / Discriminated started, saved, or cancelled result.
    */
-  readonly saveArtifact: (request: SaveArtifactRequest) => Promise<SaveArtifactResult>
+  readonly saveArtifact: (
+    request: SaveArtifactRequest,
+    signal?: AbortSignal
+  ) => Promise<SaveArtifactResult>
 }
+
+/** @brief Electron 原生产物保存 IPC 通道 / IPC channel for native Electron artifact saving. */
+export const DESKTOP_ARTIFACT_SAVE_CHANNEL = 'artifact:save' as const

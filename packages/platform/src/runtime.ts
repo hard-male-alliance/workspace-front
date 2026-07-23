@@ -1,5 +1,6 @@
 import type { DiagnosticsConfigurationErrorReason } from './diagnostics'
 import type { DesktopAuthenticationBridge } from './desktop-authentication'
+import type { ArtifactSavePort } from './artifact-save'
 
 /**
  * @brief 运行时宿主类型 / Runtime host type.
@@ -51,6 +52,8 @@ export interface PlatformBridge {
   readonly getRuntimeInfo: () => Promise<RuntimeInfo>
   /** @brief 仅 Electron main 可兑现的封闭认证能力 / Closed authentication capability fulfilled only by Electron main. */
   readonly authentication: DesktopAuthenticationBridge
+  /** @brief 仅 Electron main 可兑现的原生产物保存能力 / Native artifact-save capability fulfilled only by Electron main. */
+  readonly artifactSave: ArtifactSavePort
 }
 
 /** @brief 运行时信息 IPC 通道 / Runtime information IPC channel. */

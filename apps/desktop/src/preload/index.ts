@@ -2,9 +2,12 @@
 
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
+  DESKTOP_ARTIFACT_SAVE_CHANNEL,
   DesktopAuthenticationResult,
   PlatformBridge,
-  RuntimeInfo
+  RuntimeInfo,
+  SaveArtifactRequest,
+  SaveArtifactResult
 } from '@ai-job-workspace/platform'
 
 import { createDesktopPlatformBridge } from './bridge'
@@ -34,8 +37,22 @@ function invokeWithStringArgument(
   return ipcRenderer.invoke(channel, value)
 }
 
+/**
+ * @brief 调用封闭的原生产物保存通道 / Invoke the closed native artifact-save channel.
+ * @param channel 编译期固定产物通道 / Compile-time fixed artifact channel.
+ * @param request 只含 Workspace/Artifact ID 与安全文件名的请求 / Request containing only Workspace/Artifact IDs and a safe filename.
+ * @return 主进程可观察的保存终态 / Save terminal state observed by main.
+ */
+function invokeArtifactSave(
+  channel: typeof DESKTOP_ARTIFACT_SAVE_CHANNEL,
+  request: SaveArtifactRequest
+): Promise<SaveArtifactResult> {
+  return ipcRenderer.invoke(channel, request)
+}
+
 /** @brief 暴露给 renderer 的冻结窄桥接 / Frozen narrow bridge exposed to the renderer. */
 const platformBridge: PlatformBridge = createDesktopPlatformBridge({
+  invokeArtifactSave,
   invokeWithStringArgument,
   invokeWithoutArgument
 })

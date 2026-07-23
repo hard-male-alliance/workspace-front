@@ -9,7 +9,9 @@ import {
   InMemoryInterviewGateway,
   InMemoryKnowledgeGateway,
   InMemoryResumeGateway,
-  InMemoryWorkspaceGateway
+  InMemoryWorkspaceGateway,
+  InMemoryWorkspaceOperationsGateway,
+  InMemoryWorkspaceOperationsStore
 } from '@ai-job-workspace/app/testing'
 import { APPLICATION_VERSION } from '@ai-job-workspace/platform'
 
@@ -19,7 +21,10 @@ import { APPLICATION_VERSION } from '@ai-job-workspace/platform'
  */
 function createBrowserTestGateways(): AppGateways {
   /** @brief 同时实现 Resume 各用例端口的独享测试适配器 / Isolated test adapter implementing each Resume use-case port. */
-  const resume = new InMemoryResumeGateway()
+  const operationsStore = new InMemoryWorkspaceOperationsStore()
+  /** @brief 与 Resume command 共享状态的 Workspace Operations adapter / Workspace Operations adapter sharing state with Resume commands. */
+  const workspaceOperations = new InMemoryWorkspaceOperationsGateway({}, operationsStore)
+  const resume = new InMemoryResumeGateway({ operationsStore })
   return {
     identity: new InMemoryIdentityGateway(),
     interview: new InMemoryInterviewGateway(),
@@ -27,7 +32,8 @@ function createBrowserTestGateways(): AppGateways {
     resume,
     resumeCreation: resume,
     resumeTemplates: resume,
-    workspace: new InMemoryWorkspaceGateway()
+    workspace: new InMemoryWorkspaceGateway(),
+    workspaceOperations
   }
 }
 
@@ -41,7 +47,10 @@ export async function renderBrowserWorkspace(
 ): Promise<Awaited<ReturnType<typeof render>>> {
   return render(
     <WorkspaceApp
-      artifactSave={{ saveArtifact: () => Promise.resolve({ status: 'saved' }) }}
+      artifactSave={{
+        maximumArtifactBytes: null,
+        saveArtifact: () => Promise.resolve({ status: 'saved' })
+      }}
       diagnostics={createDiagnostics({ sinks: [] })}
       gateways={createBrowserTestGateways()}
       initialPath={initialPath}

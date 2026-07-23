@@ -1,6 +1,7 @@
 /** @file Electron preload 的窄平台桥接组合 / Narrow platform-bridge composition in the Electron preload. */
 
 import {
+  DESKTOP_ARTIFACT_SAVE_CHANNEL,
   DESKTOP_AUTH_AUTHORIZE_CHANNEL,
   DESKTOP_AUTH_GET_SESSION_CHANNEL,
   DESKTOP_AUTH_REFRESH_CHANNEL,
@@ -11,7 +12,9 @@ import type {
   DesktopAuthenticationResult,
   HostedIdentityScreenHint,
   PlatformBridge,
-  RuntimeInfo
+  RuntimeInfo,
+  SaveArtifactRequest,
+  SaveArtifactResult
 } from '@ai-job-workspace/platform'
 
 /** @brief preload 允许的无参数 IPC 通道 / Argument-free IPC channels permitted by the preload. */
@@ -35,8 +38,16 @@ export type DesktopStringArgumentInvoker = (
   value: string | null
 ) => Promise<DesktopAuthenticationResult>
 
+/** @brief preload 允许的产物保存 IPC 调用器 / Artifact-save IPC invoker permitted by the preload. */
+export type DesktopArtifactSaveInvoker = (
+  channel: typeof DESKTOP_ARTIFACT_SAVE_CHANNEL,
+  request: SaveArtifactRequest
+) => Promise<SaveArtifactResult>
+
 /** @brief 创建 preload bridge 的受限依赖 / Restricted dependencies for creating the preload bridge. */
 export interface DesktopPlatformBridgeDependencies {
+  /** @brief 仅允许封闭产物保存请求的调用器 / Invoker limited to the closed artifact-save request. */
+  readonly invokeArtifactSave: DesktopArtifactSaveInvoker
   /** @brief 仅允许无参数白名单通道的调用器 / Invoker limited to argument-free allowlisted channels. */
   readonly invokeWithoutArgument: DesktopNoArgumentInvoker
   /** @brief 仅允许单字符串参数白名单通道的调用器 / Invoker limited to allowlisted channels carrying one string. */
@@ -60,6 +71,23 @@ export function createDesktopPlatformBridge(
   }
 
   return Object.freeze({
+    artifactSave: Object.freeze({
+      maximumArtifactBytes: null,
+      saveArtifact: (
+        request: SaveArtifactRequest,
+        signal?: AbortSignal
+      ): Promise<SaveArtifactResult> => {
+        signal?.throwIfAborted()
+        return dependencies.invokeArtifactSave(
+          DESKTOP_ARTIFACT_SAVE_CHANNEL,
+          Object.freeze({
+            artifactId: request.artifactId,
+            suggestedFileName: request.suggestedFileName,
+            workspaceId: request.workspaceId
+          })
+        )
+      }
+    }),
     authentication: Object.freeze({
       authorize: (screenHint: HostedIdentityScreenHint) =>
         dependencies.invokeWithStringArgument(DESKTOP_AUTH_AUTHORIZE_CHANNEL, screenHint),

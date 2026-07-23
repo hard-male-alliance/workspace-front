@@ -578,6 +578,29 @@ export class NativeOAuthSession {
   }
 
   /**
+   * @brief 条件清除被资源服务器连续拒绝的 Access Token / Conditionally clear an Access Token repeatedly rejected by the resource server.
+   * @param rejectedAccessToken 第二次请求实际发送的 token / Token actually sent by the second request.
+   * @return 无返回值 / No return value.
+   * @note 只清内存短期 token；随后由宿主认证控制器完成持久授权登出 / Only the short-lived in-memory token is cleared; the host authentication controller then signs out the durable grant.
+   */
+  invalidateAccessToken(rejectedAccessToken: string): void {
+    /** @brief 当前状态快照 / Current state snapshot. */
+    const source = this.state
+    if (
+      this.lifecycle !== 'active' ||
+      source === null ||
+      source.accessToken !== rejectedAccessToken
+    ) {
+      return
+    }
+    this.state = Object.freeze({
+      ...source,
+      accessToken: null,
+      expiresAtEpochSeconds: 0
+    })
+  }
+
+  /**
    * @brief 条件刷新当前 token 世代 / Conditionally refresh the current token generation.
    * @param rejectedAccessToken 被资源服务器拒绝的 token；无 token 时为 null / Token rejected by the resource server, or null when absent.
    * @param signal 可选调用方取消信号 / Optional caller cancellation signal.

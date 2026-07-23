@@ -158,11 +158,14 @@ async function inspectPreloadBoundary(page) {
     const bridgeKeys = Object.keys(bridge).sort()
     /** @brief renderer 可枚举的封闭认证能力 / Enumerable closed authentication capabilities visible to the renderer. */
     const authenticationKeys = Object.keys(bridge.authentication ?? {}).sort()
+    /** @brief renderer 可枚举的封闭 Artifact 保存能力 / Enumerable closed Artifact-save capabilities visible to the renderer. */
+    const artifactSaveKeys = Object.keys(bridge.artifactSave ?? {}).sort()
     /** @brief main 启动恢复后的会话投影 / Session projection after main-process startup recovery. */
     const authenticationSession = await bridge.authentication?.getSession()
     /** @brief 通过固定 IPC 通道取得的运行时信息 / Runtime information obtained through the fixed IPC channel. */
     const runtimeInfo = await bridge.getRuntimeInfo()
     return {
+      artifactSaveKeys,
       authenticationKeys,
       authenticationSession,
       bridgeKeys,
@@ -180,10 +183,19 @@ async function inspectPreloadBoundary(page) {
     throw new Error('Desktop preload bridge is unavailable in the trusted renderer.')
   }
   if (
-    JSON.stringify(snapshot.bridgeKeys) !== JSON.stringify(['authentication', 'getRuntimeInfo'])
+    JSON.stringify(snapshot.bridgeKeys) !==
+    JSON.stringify(['artifactSave', 'authentication', 'getRuntimeInfo'])
   ) {
     throw new Error(
       `Desktop preload exposed unexpected capabilities: ${snapshot.bridgeKeys.join(', ')}.`
+    )
+  }
+  if (
+    JSON.stringify(snapshot.artifactSaveKeys) !==
+    JSON.stringify(['maximumArtifactBytes', 'saveArtifact'])
+  ) {
+    throw new Error(
+      `Desktop preload exposed an invalid Artifact-save boundary: ${snapshot.artifactSaveKeys.join(', ')}.`
     )
   }
   if (
@@ -270,7 +282,7 @@ async function verifyContentSecurityPolicy(page) {
     ['default-src', ["'self'"]],
     ['base-uri', ["'self'"]],
     ['object-src', ["'none'"]],
-    ['frame-src', [API_V2_PRODUCTION_ORIGIN]],
+    ['frame-src', ["'self'", 'blob:']],
     ['form-action', ["'self'"]],
     ['script-src', ["'self'"]],
     ['style-src', ["'self'", "'unsafe-inline'"]],

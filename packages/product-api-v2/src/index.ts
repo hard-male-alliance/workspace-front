@@ -5,6 +5,8 @@ export { createApiV2Client, createApiV2PublicClient } from './http/client'
 export type { ApiV2AccessTokenRefreshRequest, ApiV2AuthenticationPort } from './http/authentication'
 export type {
   ApiV2AcceptedResourceResponse,
+  ApiV2AuthenticatedContentResponse,
+  ApiV2AuthenticatedHeaderVisibility,
   ApiV2Client,
   ApiV2ClientOptions,
   ApiV2CreatedResourceResponse,

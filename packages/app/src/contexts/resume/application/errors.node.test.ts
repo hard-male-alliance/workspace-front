@@ -10,7 +10,7 @@ import {
   getResumeConflictStatus,
   getResumeIdempotencyConflict,
   isResumeCommandDefinitivelyRejected,
-  isResumeContractWriteOutcomeUnknown,
+  isResumeUnreplayableContractResponse,
   ResumeBatchConflictError
 } from './errors'
 
@@ -151,23 +151,23 @@ describe('Resume API v2 Problem classification', (): void => {
     expect(getResumeIdempotencyConflict(error)).toBe(expected)
   })
 
-  it('distinguishes a terminal 2xx contract failure from retryable unknown transports', (): void => {
+  it('distinguishes cached malformed HTTP responses from retryable unknown transports', (): void => {
     expect(
-      isResumeContractWriteOutcomeUnknown({
+      isResumeUnreplayableContractResponse({
         kind: 'contract',
         name: 'ApiV2WriteOutcomeUnknownError',
         status: 200
       })
     ).toBe(true)
     expect(
-      isResumeContractWriteOutcomeUnknown({
+      isResumeUnreplayableContractResponse({
         kind: 'contract',
         name: 'ApiV2WriteOutcomeUnknownError',
         status: 409
       })
-    ).toBe(false)
+    ).toBe(true)
     expect(
-      isResumeContractWriteOutcomeUnknown({
+      isResumeUnreplayableContractResponse({
         kind: 'network',
         name: 'ApiV2WriteOutcomeUnknownError',
         status: null
@@ -236,13 +236,16 @@ describe('Resume API v2 Problem classification', (): void => {
     expect(getResumeCommandRetryAfterMilliseconds({ retryAfterMilliseconds: 10 })).toBeNull()
   })
 
-  it('never mistakes an unknown malformed 409 response for a definitive authority conflict', (): void => {
-    expect(
-      getResumeConflictStatus({
-        kind: 'contract',
-        name: 'ApiV2WriteOutcomeUnknownError',
-        status: 409
-      })
-    ).toBeNull()
-  })
+  it.each([409, 412] as const)(
+    'uses malformed status %i only to require an authority reread',
+    (status): void => {
+      expect(
+        getResumeConflictStatus({
+          kind: 'contract',
+          name: 'ApiV2WriteOutcomeUnknownError',
+          status
+        })
+      ).toBe(status)
+    }
+  )
 })

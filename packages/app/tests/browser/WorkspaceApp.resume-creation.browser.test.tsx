@@ -16,6 +16,8 @@ import { InMemoryResumeGateway } from '../../src/contexts/resume/infrastructure/
 import { ResumeCreationPage } from '../../src/contexts/resume/presentation/ResumeCreationPage'
 import { ResumeListPage } from '../../src/contexts/resume/presentation/ResumeListPage'
 import { InMemoryWorkspaceGateway } from '../../src/contexts/workspace/infrastructure/memory/gateway'
+import { InMemoryWorkspaceOperationsGateway } from '../../src/contexts/workspace-operations/infrastructure/memory/gateway'
+import { InMemoryWorkspaceOperationsStore } from '../../src/contexts/workspace-operations/infrastructure/memory/store'
 import { createDiagnostics } from '../../src/infrastructure/observability'
 import { appI18n, appI18nReady } from '../../src/i18n'
 
@@ -25,7 +27,10 @@ import { appI18n, appI18nReady } from '../../src/i18n'
  */
 function createBrowserCreationGateways(): AppGateways {
   /** @brief 当前浏览器测试独享的 Resume adapter / Resume adapter isolated to this browser test. */
-  const resume = new InMemoryResumeGateway()
+  const operationsStore = new InMemoryWorkspaceOperationsStore()
+  /** @brief 与 Resume command 共享状态的 Workspace Operations adapter / Workspace Operations adapter sharing state with Resume commands. */
+  const workspaceOperations = new InMemoryWorkspaceOperationsGateway({}, operationsStore)
+  const resume = new InMemoryResumeGateway({ operationsStore })
   return {
     identity: new InMemoryIdentityGateway(),
     interview: new InMemoryInterviewGateway(),
@@ -33,7 +38,8 @@ function createBrowserCreationGateways(): AppGateways {
     resume,
     resumeCreation: resume,
     resumeTemplates: resume,
-    workspace: new InMemoryWorkspaceGateway()
+    workspace: new InMemoryWorkspaceGateway(),
+    workspaceOperations
   }
 }
 

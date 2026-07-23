@@ -9,7 +9,9 @@ import {
   InMemoryInterviewGateway,
   InMemoryWorkspaceGateway,
   InMemoryKnowledgeGateway,
-  InMemoryResumeGateway
+  InMemoryResumeGateway,
+  InMemoryWorkspaceOperationsGateway,
+  InMemoryWorkspaceOperationsStore
 } from '@ai-job-workspace/app/testing'
 import { APPLICATION_VERSION } from '@ai-job-workspace/platform'
 import type { ArtifactSavePort } from '@ai-job-workspace/platform'
@@ -31,6 +33,7 @@ export type TestWorkspaceAppProps = Omit<
  */
 export function createTestArtifactSavePort(): ArtifactSavePort {
   return {
+    maximumArtifactBytes: null,
     saveArtifact: (): Promise<{ readonly status: 'saved' }> => Promise.resolve({ status: 'saved' })
   }
 }
@@ -47,7 +50,11 @@ export function createTestGateways(
   overrides: TestGatewayOverrides = {}
 ): WorkspaceAppProps['gateways'] {
   /** @brief 同时实现 Resume 各用例端口的独享测试适配器 / Isolated test adapter implementing each Resume use-case port. */
-  const resume = new InMemoryResumeGateway()
+  const operationsStore = new InMemoryWorkspaceOperationsStore()
+  /** @brief 与 Resume command adapter 共享 Job/Artifact 状态的测试适配器 / Test adapter sharing Job/Artifact state with the Resume command adapter. */
+  const workspaceOperations = new InMemoryWorkspaceOperationsGateway({}, operationsStore)
+  /** @brief 同时实现 Resume 各用例端口的独享测试适配器 / Isolated test adapter implementing each Resume use-case port. */
+  const resume = new InMemoryResumeGateway({ operationsStore })
   /** @brief 若 Resume override 同时实现公开目录，则保持两个端口的同一测试状态 / Preserve one test state across both ports when a Resume override also implements the public catalog. */
   const resumeTemplates =
     overrides.resume !== undefined &&
@@ -63,6 +70,7 @@ export function createTestGateways(
     resumeCreation: resume,
     resumeTemplates,
     workspace: new InMemoryWorkspaceGateway(),
+    workspaceOperations,
     ...overrides
   }
 }

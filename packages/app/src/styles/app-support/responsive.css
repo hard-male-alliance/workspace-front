@@ -114,7 +114,12 @@
   }
 
   .aw-mobile-tabs .aw-tab {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
     flex: 1;
+    text-decoration: none;
   }
 
   .aw-mobile-tabs .aw-tab[aria-pressed='true'] {
@@ -334,8 +339,12 @@
     padding: 20px 10px;
   }
 
-  .aw-paper {
+  .aw-paper,
+  .aw-pdf-preview-stage {
     min-height: 630px;
+  }
+
+  .aw-paper {
     padding: 38px 29px;
   }
 

@@ -150,6 +150,48 @@ const unusedVerifier: IdTokenSignatureVerifier = {
 }
 
 describe('NativeOAuthSession refresh lifecycle', (): void => {
+  it('只同步失效匹配的当前 Access Token，并保留可由宿主登出的长期授权', async (): Promise<void> => {
+    /** @brief 顺序生成 token 的计数 / Counter generating sequential tokens. */
+    let tokenCalls = 0
+    /** @brief 测试网络实现 / Test network implementation. */
+    const fetchImplementation: typeof fetch = (_input, init) => {
+      if (
+        init?.body instanceof URLSearchParams &&
+        init.body.get('grant_type') === 'refresh_token'
+      ) {
+        tokenCalls += 1
+        return Promise.resolve(
+          refreshResponse(
+            `access-token-${String(tokenCalls).padStart(20, '0')}`,
+            `refresh-token-${String(tokenCalls).padStart(20, '0')}`
+          )
+        )
+      }
+      throw new Error('unexpected request')
+    }
+    /** @brief 初始长期授权 store / Initial durable-grant store. */
+    const store = new TestGrantStore(grant('refresh-token-initial-00000000'))
+    /** @brief 待测 session / Session under test. */
+    const session = new NativeOAuthSession({
+      clientId: 'desktop-client',
+      fetchImpl: vi.fn(fetchImplementation),
+      grantStore: store,
+      idTokenVerifier: unusedVerifier,
+      nowEpochSeconds: () => 12_000
+    })
+    await session.restore()
+    /** @brief 恢复后的当前 token / Current token after restoration. */
+    const current = session.getProjection()?.accessToken
+    if (current === undefined) throw new Error('Expected restored session.')
+
+    session.invalidateAccessToken('late-access-token-observation')
+    expect(session.getProjection()?.accessToken).toBe(current)
+    session.invalidateAccessToken(current)
+
+    expect(session.getProjection()).toBeNull()
+    expect(store.current).not.toBeNull()
+  })
+
   it('交换 code、验证 ID Token 后才原子公开并持久化初始会话', async (): Promise<void> => {
     /** @brief 固定 discovery / Pinned discovery. */
     const discovery = {
