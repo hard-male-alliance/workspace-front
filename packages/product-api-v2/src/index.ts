@@ -99,6 +99,53 @@ export type {
 } from './artifacts/pdf-source-map'
 export { parseResourceReference, resourceType } from './resources/resource-reference'
 export type { ResourceReference } from './resources/resource-reference'
+export {
+  encodeCreateKnowledgeSourceRequest,
+  encodeKnowledgeSourceInput,
+  encodeUpdateKnowledgeSourceRequest,
+  parseKnowledgeSource,
+  parseKnowledgeSourceList,
+  parseKnowledgeVisibilityPolicy,
+  parsePublicKnowledgeSourceConfig
+} from './knowledge/knowledge-source'
+export type {
+  AgentScopeGrant,
+  CloudDriveSourceInput,
+  CreateKnowledgeSourceRequest,
+  FileSourceInput,
+  GitSourceInput,
+  KnowledgeAgentOperation,
+  KnowledgeIngestionState,
+  KnowledgeIngestionStatus,
+  KnowledgeModelRegion,
+  KnowledgePolicyEffect,
+  KnowledgeSensitivity,
+  KnowledgeSource,
+  KnowledgeSourceInput,
+  KnowledgeSourceType,
+  KnowledgeVisibilityPolicy,
+  ManualSourceInput,
+  PublicKnowledgeSourceConfig,
+  ResumeSourceInput,
+  UpdateKnowledgeSourceRequest,
+  UrlSourceInput
+} from './knowledge/knowledge-source'
+export {
+  createWorkspaceKnowledgeSource,
+  getWorkspaceKnowledgeSource,
+  listWorkspaceKnowledgeSourcePage,
+  updateWorkspaceKnowledgeSource
+} from './knowledge/knowledge-source-client'
+export type {
+  CreatedKnowledgeSourceRepresentation,
+  CreateWorkspaceKnowledgeSourceCommand,
+  KnowledgeSourceCreationHttpClient,
+  KnowledgeSourcePageRequest,
+  KnowledgeSourceReadRequest,
+  KnowledgeSourceRepresentation,
+  KnowledgeSourceUpdateHttpClient,
+  UpdateWorkspaceKnowledgeSourceCommand
+} from './knowledge/knowledge-source-client'
 export { listResumePage, parseResumeList } from './resume/resume-list'
 export type { ResumeListPageRequest, ResumeSummary } from './resume/resume-list'
 export {

@@ -469,6 +469,37 @@ export function httpsUrl(value: unknown, path: string): string {
 }
 
 /**
+ * @brief 断言绝对 HTTP(S) URL 且不含凭证 / Assert an absolute HTTP(S) URL without credentials.
+ * @param value 未知输入 / Unknown input.
+ * @param path 诊断字段路径 / Diagnostic field path.
+ * @return 已验证 URL 字符串 / Validated URL string.
+ * @note 这只验证公开 wire 格式；SSRF、DNS rebinding 与网络地址策略仍必须由执行抓取的服务端强制实施 / This validates only the public wire format; SSRF, DNS-rebinding, and network-address policy must still be enforced by the server performing the fetch.
+ */
+export function httpUrl(value: unknown, path: string): string {
+  /** @brief 已确认字符串 / Confirmed string. */
+  const decoded = stringValue(value, path)
+  /** @brief 通过 RFC 3986 原始门禁后的 WHATWG URL / WHATWG URL after the raw RFC 3986 gate. */
+  const url = parseRfc3986AbsoluteUri(decoded)
+  /** @brief 原始输入中的精确网络 scheme 前缀 / Exact network-scheme prefix in the raw input. */
+  const schemePrefix = decoded.startsWith('https://')
+    ? 'https://'
+    : decoded.startsWith('http://')
+      ? 'http://'
+      : null
+  if (
+    url === null ||
+    schemePrefix === null ||
+    !hasValidNetworkAuthority(decoded, schemePrefix) ||
+    (url.protocol !== 'http:' && url.protocol !== 'https:') ||
+    url.username !== '' ||
+    url.password !== ''
+  ) {
+    throw new ApiV2ContractError(`API v2 field ${path} must be an HTTP(S) URL.`)
+  }
+  return decoded
+}
+
+/**
  * @brief 断言 API v2 NetworkUrl / Assert an API v2 NetworkUrl.
  * @param value 未知输入 / Unknown input.
  * @param path 诊断字段路径 / Diagnostic field path.
