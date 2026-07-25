@@ -14,6 +14,18 @@ const DESKTOP_RUNTIME_OAUTH_OVERRIDE = 'runtime-override-must-be-ignored'
 
 const TRANSIENT_REMOVAL_ERROR_CODES = new Set(['EBUSY', 'ENOTEMPTY', 'EPERM'])
 
+/** @brief Playwright 连接清理的最长等待时间 / Maximum wait for Playwright connection cleanup. */
+const BROWSER_CLOSE_TIMEOUT_MILLISECONDS = 3_000
+
+/** @brief Electron 响应 SIGTERM 的最长等待时间 / Maximum wait for Electron to respond to SIGTERM. */
+const ELECTRON_TERM_TIMEOUT_MILLISECONDS = 5_000
+
+/** @brief Electron 响应 SIGKILL 的最长等待时间 / Maximum wait for Electron to respond to SIGKILL. */
+const ELECTRON_KILL_TIMEOUT_MILLISECONDS = 2_000
+
+/** @brief 隔离 userData 删除的总等待时间 / Overall deadline for isolated userData removal. */
+const TEMPORARY_DIRECTORY_TIMEOUT_MILLISECONDS = 5_000
+
 /** @brief CSP 必须阻止的外部网络地址 / External network URL that CSP must block. */
 const BLOCKED_NETWORK_URL = 'https://blocked.desktop-smoke.invalid/csp-probe'
 
@@ -58,6 +70,37 @@ function isTransientRemovalError(error) {
   )
 }
 
+/**
+ * @brief 有界等待 Promise，同时消费截止时间后的迟到 rejection / Await a promise within a deadline while consuming late rejections.
+ * @param promise 待观察的 Promise / Promise to observe.
+ * @param timeoutMilliseconds 最长等待毫秒数 / Maximum wait in milliseconds.
+ * @return fulfilled、rejected 或 timed-out 结果 / Fulfilled, rejected, or timed-out result.
+ */
+export async function settleWithinDeadline(promise, timeoutMilliseconds) {
+  return await new Promise((resolve) => {
+    let settled = false
+    const timer = setTimeout(() => {
+      settled = true
+      resolve({ status: 'timed-out' })
+    }, timeoutMilliseconds)
+
+    void Promise.resolve(promise).then(
+      (value) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        resolve({ status: 'fulfilled', value })
+      },
+      (error) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        resolve({ error, status: 'rejected' })
+      }
+    )
+  })
+}
+
 export async function removeTemporaryDirectory(
   directory,
   {
@@ -80,6 +123,186 @@ export async function removeTemporaryDirectory(
       delayMilliseconds *= 2
     }
   }
+}
+
+/**
+ * @brief 在总截止时间内删除临时目录 / Remove a temporary directory within an overall deadline.
+ * @param directory 临时目录 / Temporary directory.
+ * @param options 截止时间、删除实现与日志 / Deadline, removal implementation, and logger.
+ * @return 删除完成时兑现 / Resolves when removal completes.
+ */
+export async function removeTemporaryDirectoryWithinDeadline(
+  directory,
+  {
+    logger = console,
+    remove = removeTemporaryDirectory,
+    timeoutMilliseconds = TEMPORARY_DIRECTORY_TIMEOUT_MILLISECONDS
+  } = {}
+) {
+  const result = await settleWithinDeadline(remove(directory), timeoutMilliseconds)
+  if (result.status === 'rejected') throw result.error
+  if (result.status === 'timed-out') {
+    throw new Error(
+      `Desktop smoke temporary profile cleanup exceeded ${String(timeoutMilliseconds)}ms.`
+    )
+  }
+  logger.info('Desktop smoke cleanup: temporary profile removed.')
+}
+
+/**
+ * @brief 有界关闭 Playwright CDP 连接 / Close the Playwright CDP connection within a deadline.
+ * @param browser Playwright browser connection / Playwright browser connection.
+ * @param options 截止时间与日志 / Deadline and logger.
+ * @return 是否在截止时间内完成关闭 / Whether close completed within the deadline.
+ */
+export async function closeBrowserWithinDeadline(
+  browser,
+  { logger = console, timeoutMilliseconds = BROWSER_CLOSE_TIMEOUT_MILLISECONDS } = {}
+) {
+  logger.info('Desktop smoke cleanup: closing Playwright connection.')
+  const result = await settleWithinDeadline(
+    Promise.resolve().then(async () => await browser.close()),
+    timeoutMilliseconds
+  )
+  if (result.status === 'fulfilled') {
+    logger.info('Desktop smoke cleanup: Playwright connection closed.')
+    return true
+  }
+  if (result.status === 'rejected') {
+    logger.warn(
+      `Desktop smoke cleanup: Playwright close failed; continuing with process shutdown: ${
+        result.error instanceof Error ? result.error.message : String(result.error)
+      }.`
+    )
+    return false
+  }
+  logger.warn(
+    `Desktop smoke cleanup: Playwright close exceeded ${String(timeoutMilliseconds)}ms; continuing with process shutdown.`
+  )
+  return false
+}
+
+/**
+ * @brief 判断子进程是否已经退出 / Determine whether a child process has already exited.
+ * @param child Node child process / Node child process.
+ * @return 已观察到退出码或信号码时为 true / True when an exit code or signal code is observed.
+ */
+function hasChildExited(child) {
+  return child.exitCode !== null || child.signalCode !== null
+}
+
+/**
+ * @brief 有界等待子进程 exit 事件 / Wait for a child-process exit event within a deadline.
+ * @param child Node child process / Node child process.
+ * @param timeoutMilliseconds 最长等待毫秒数 / Maximum wait in milliseconds.
+ * @return 是否已经退出 / Whether the child exited.
+ */
+export async function waitForChildExit(child, timeoutMilliseconds) {
+  if (hasChildExited(child)) return true
+
+  return await new Promise((resolve) => {
+    let settled = false
+    const handleExit = () => {
+      finish(true)
+    }
+    const finish = (exited) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      child.off('exit', handleExit)
+      resolve(exited)
+    }
+    const timer = setTimeout(() => {
+      finish(hasChildExited(child))
+    }, timeoutMilliseconds)
+
+    child.once('exit', handleExit)
+    if (hasChildExited(child)) finish(true)
+  })
+}
+
+/**
+ * @brief 先 SIGTERM、后 SIGKILL 地有界终止 Electron / Terminate Electron within deadlines using SIGTERM then SIGKILL.
+ * @param child Electron 子进程 / Electron child process.
+ * @param options TERM/KILL 截止时间与日志 / TERM/KILL deadlines and logger.
+ * @return 实际退出路径 / Actual exit path.
+ */
+export async function terminateChildWithinDeadline(
+  child,
+  {
+    killTimeoutMilliseconds = ELECTRON_KILL_TIMEOUT_MILLISECONDS,
+    logger = console,
+    termTimeoutMilliseconds = ELECTRON_TERM_TIMEOUT_MILLISECONDS
+  } = {}
+) {
+  if (hasChildExited(child)) {
+    logger.info('Desktop smoke cleanup: Electron already exited.')
+    return 'already-exited'
+  }
+
+  logger.info('Desktop smoke cleanup: sending SIGTERM to Electron.')
+  const terminated = waitForChildExit(child, termTimeoutMilliseconds)
+  const termSignalSent = child.kill('SIGTERM')
+  if (await terminated) {
+    logger.info('Desktop smoke cleanup: Electron exited after SIGTERM.')
+    return 'sigterm'
+  }
+  if (!termSignalSent) {
+    throw new Error('Desktop smoke could not deliver SIGTERM to the Electron process.')
+  }
+
+  logger.warn('Desktop smoke cleanup: escalating Electron shutdown to SIGKILL.')
+  const killed = waitForChildExit(child, killTimeoutMilliseconds)
+  const killSignalSent = child.kill('SIGKILL')
+  if (await killed) {
+    logger.info('Desktop smoke cleanup: Electron exited after SIGKILL.')
+    return 'sigkill'
+  }
+  if (!killSignalSent) {
+    throw new Error('Desktop smoke could not deliver SIGKILL to the Electron process.')
+  }
+  throw new Error(
+    `Desktop smoke Electron process did not exit within ${String(killTimeoutMilliseconds)}ms after SIGKILL.`
+  )
+}
+
+/**
+ * @brief 释放父进程持有的 Electron 输出管道 / Release Electron output pipes held by the parent process.
+ * @param child Electron 子进程 / Electron child process.
+ * @return 无返回值 / No return value.
+ */
+function releaseChildOutputPipes(child) {
+  child.stdout?.destroy()
+  child.stderr?.destroy()
+}
+
+/**
+ * @brief 逐阶段清理 smoke 资源且汇总错误 / Clean smoke resources stage by stage and aggregate errors.
+ * @param resources Playwright、Electron 与隔离 userData / Playwright, Electron, and isolated userData.
+ * @return 全部清理阶段完成时兑现 / Resolves after every cleanup stage is attempted.
+ */
+async function cleanupDesktopRuntime({ browser, child, userDataDirectory }) {
+  /** @brief 每一阶段的清理错误；后续阶段仍会继续尝试 / Cleanup errors from each stage while later stages are still attempted. */
+  const cleanupErrors = []
+  if (browser !== undefined) {
+    await closeBrowserWithinDeadline(browser)
+  }
+  try {
+    await terminateChildWithinDeadline(child)
+  } catch (error) {
+    cleanupErrors.push(error)
+  } finally {
+    releaseChildOutputPipes(child)
+  }
+  try {
+    await removeTemporaryDirectoryWithinDeadline(userDataDirectory)
+  } catch (error) {
+    cleanupErrors.push(error)
+  }
+  if (cleanupErrors.length > 0) {
+    throw new AggregateError(cleanupErrors, 'Desktop smoke cleanup failed.')
+  }
+  console.info('Desktop smoke cleanup completed.')
 }
 
 /**
@@ -600,13 +823,6 @@ export async function runDesktopRuntimeSmoke(launch) {
       stdout
     }
   } finally {
-    if (browser !== undefined) await browser.close().catch(() => undefined)
-    if (child.exitCode === null && child.signalCode === null) {
-      /** @brief 等待 Electron 完全释放隔离 profile 后再删除 / Wait for Electron to fully release the isolated profile before deletion. */
-      const exited = new Promise((resolve) => child.once('exit', resolve))
-      child.kill()
-      await exited
-    }
-    await removeTemporaryDirectory(userDataDirectory)
+    await cleanupDesktopRuntime({ browser, child, userDataDirectory })
   }
 }
