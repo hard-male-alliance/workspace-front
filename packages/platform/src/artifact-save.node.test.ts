@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseArtifactSaveRequest, sanitizePdfFileName } from './artifact-save'
+import {
+  resolveResumeArtifactSaveFormat,
+  resumeArtifactSaveFormatForFileName,
+  sanitizeArtifactFileName,
+  sanitizePdfFileName
+} from './artifact-save'
 
 describe('sanitizePdfFileName', () => {
   it.each([
@@ -11,6 +16,7 @@ describe('sanitizePdfFileName', () => {
     ['CON.pdf', '_CON.pdf'],
     ['CON.txt', '_CON.txt.pdf'],
     ['lpt9', '_lpt9.pdf'],
+    ['offer\u202Efdp.exe', 'offerfdp.exe.pdf'],
     ['简历：平台工程师', '简历 平台工程师.pdf']
   ])('将 %j 净化为安全 PDF 名称 %j', (input, expected) => {
     expect(sanitizePdfFileName(input)).toBe(expected)
@@ -22,28 +28,55 @@ describe('sanitizePdfFileName', () => {
   })
 })
 
-describe('parseArtifactSaveRequest', () => {
-  it('仅投影精确产物 ID 与规范 PDF 文件名', () => {
-    expect(
-      parseArtifactSaveRequest({
-        artifactId: 'artifact_12345678',
-        suggestedFileName: 'Klee Resume.pdf'
-      })
-    ).toEqual({ artifactId: 'artifact_12345678', suggestedFileName: 'Klee Resume.pdf' })
+describe('Resume Artifact save formats', (): void => {
+  it.each([
+    [
+      'resume_pdf',
+      'application/pdf',
+      '.pdf',
+      sanitizeArtifactFileName('Klee Resume.json', 'resume_pdf')
+    ],
+    [
+      'resume_json',
+      'application/json',
+      '.json',
+      sanitizeArtifactFileName('Klee Resume.PDF', 'resume_json')
+    ],
+    [
+      'resume_docx',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      '.docx',
+      sanitizeArtifactFileName('Klee Resume.json', 'resume_docx')
+    ]
+  ] as const)(
+    'keeps the closed %s / %s / %s mapping',
+    (kind, mediaType, extension, fileName): void => {
+      /** @brief kind 与 MIME 联合解析结果 / Result jointly resolved from kind and MIME. */
+      const format = resolveResumeArtifactSaveFormat(kind, mediaType)
+      expect(format).toMatchObject({ extension, kind, mediaType })
+      expect(fileName).toBe(`Klee Resume${extension}`)
+      expect(resumeArtifactSaveFormatForFileName(fileName)).toBe(format)
+    }
+  )
+
+  it.each([
+    ['resume_pdf', 'application/json'],
+    ['resume_json', 'application/pdf'],
+    ['resume_docx', 'application/vnd.openxmlformats'],
+    ['generic', 'application/pdf'],
+    ['resume_pdf', 'application/pdf; charset=binary']
+  ])('fails closed for the cross-format pair %s / %s', (kind, mediaType): void => {
+    expect(resolveResumeArtifactSaveFormat(kind, mediaType)).toBeNull()
   })
 
   it.each([
-    null,
-    [],
-    { artifactId: 'artifact_12345678' },
-    { artifactId: 'short', suggestedFileName: 'resume.pdf' },
-    {
-      artifactId: 'artifact_12345678',
-      hiddenPath: '/tmp/private',
-      suggestedFileName: 'resume.pdf'
-    },
-    { artifactId: 'artifact_12345678', suggestedFileName: '../unsafe.pdf' }
-  ])('在信任边界拒绝错误或扩权载荷：%o', (payload) => {
-    expect(() => parseArtifactSaveRequest(payload)).toThrow()
+    '../escape.pdf',
+    'resume.exe',
+    'resume.txt',
+    'resume.pdf ',
+    'resume',
+    'resume\u202Efdp.exe.pdf'
+  ])('rejects an unsafe or unsupported runtime filename %j', (fileName): void => {
+    expect(resumeArtifactSaveFormatForFileName(fileName)).toBeNull()
   })
 })

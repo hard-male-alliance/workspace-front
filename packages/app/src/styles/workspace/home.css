@@ -11,6 +11,43 @@
   gap: 24px;
 }
 
+.aw-workspace-authority-summary {
+  display: grid;
+  gap: 10px;
+  justify-items: end;
+}
+
+.aw-workspace-authority-summary dl {
+  display: flex;
+  max-width: min(760px, 58vw);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px 16px;
+  margin: 0;
+}
+
+.aw-workspace-authority-summary dl > div {
+  display: flex;
+  min-width: 0;
+  gap: 5px;
+  color: var(--ui-color-ink-muted);
+  font-size: 11px;
+}
+
+.aw-workspace-authority-summary dt {
+  color: var(--ui-color-ink-subtle);
+}
+
+.aw-workspace-authority-summary dd {
+  max-width: 28ch;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ui-color-ink);
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .aw-workbench-context {
   margin: 0 0 8px;
   color: var(--ui-color-accent-subtle-foreground);
@@ -231,4 +268,20 @@
   margin: -4px 0 0;
   color: var(--ui-color-ink-subtle);
   font-size: 12px;
+}
+
+@media (max-width: 620px) {
+  .aw-workbench-header {
+    flex-direction: column;
+  }
+
+  .aw-workspace-authority-summary {
+    width: 100%;
+    justify-items: start;
+  }
+
+  .aw-workspace-authority-summary dl {
+    max-width: 100%;
+    justify-content: flex-start;
+  }
 }

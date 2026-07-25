@@ -7,6 +7,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@ai-job-workspace/app": "workspace:*"
+    "@ai-job-workspace/app": "workspace:*",
+    "@ai-job-workspace/product-api-v2": "workspace:*"
   }
 }

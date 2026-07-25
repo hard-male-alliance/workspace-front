@@ -25,6 +25,8 @@ const memorySourcePaths = [
   'packages/app/src/contexts/workspace/infrastructure/memory/gateway.ts',
   'packages/app/src/contexts/resume/infrastructure/memory/data.ts',
   'packages/app/src/contexts/resume/infrastructure/memory/gateway.ts',
+  'packages/app/src/contexts/workspace-operations/infrastructure/memory/store.ts',
+  'packages/app/src/contexts/workspace-operations/infrastructure/memory/gateway.ts',
   'packages/app/src/contexts/interview/infrastructure/memory/data.ts',
   'packages/app/src/contexts/interview/infrastructure/memory/gateway.ts',
   'packages/app/src/contexts/knowledge/infrastructure/memory/data.ts',

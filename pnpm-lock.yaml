@@ -92,6 +92,9 @@ importers:
       '@ai-job-workspace/platform':
         specifier: workspace:*
         version: link:../../packages/platform
+      '@ai-job-workspace/product-api-v2':
+        specifier: workspace:*
+        version: link:../../packages/product-api-v2
       '@ai-job-workspace/product-runtime':
         specifier: workspace:*
         version: link:../../packages/product-runtime
@@ -128,6 +131,9 @@ importers:
       '@ai-job-workspace/platform':
         specifier: workspace:*
         version: link:../../packages/platform
+      '@ai-job-workspace/product-api-v2':
+        specifier: workspace:*
+        version: link:../../packages/product-api-v2
       '@ai-job-workspace/product-runtime':
         specifier: workspace:*
         version: link:../../packages/product-runtime
@@ -168,14 +174,23 @@ importers:
       react-router-dom:
         specifier: ^7.18.1
         version: 7.18.1(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+    devDependencies:
+      '@ai-job-workspace/product-api-v2':
+        specifier: workspace:*
+        version: link:../product-api-v2
 
   packages/platform: {}
+
+  packages/product-api-v2: {}
 
   packages/product-runtime:
     dependencies:
       '@ai-job-workspace/app':
         specifier: workspace:*
         version: link:../app
+      '@ai-job-workspace/product-api-v2':
+        specifier: workspace:*
+        version: link:../product-api-v2
 
 packages:
 

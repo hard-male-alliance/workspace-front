@@ -3,22 +3,32 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { I18nextProvider } from 'react-i18next'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  ApiV2ContractError,
+  ApiV2ProblemError,
+  ApiV2WriteOutcomeUnknownError
+} from '@ai-job-workspace/product-api-v2'
 
-import { HttpCommandOutcomeUnknownError, HttpContractError, HttpProblemError } from '../http'
 import { appI18n, setAppLocale } from '../i18n'
 import { ResourceErrorState } from './ResourceErrorState'
 
 /** @brief 构造不应泄漏诊断文本的 ProblemDetails 错误 / Build a ProblemDetails error whose diagnostic text must not leak. */
-function createProblem(status: number, retryable = false): HttpProblemError {
-  return new HttpProblemError({
-    code: 'private.failure',
-    detail: 'private detail at https://internal.example.test/config',
-    requestId: 'req_safe_12345678',
-    retryable,
-    retryAfterMs: null,
-    status,
-    title: 'private backend title'
-  })
+function createProblem(status: number, retryable = false): ApiV2ProblemError {
+  return new ApiV2ProblemError(
+    {
+      code: 'private.failure',
+      detail: 'private detail at https://internal.example.test/config',
+      errors: [],
+      extensions: null,
+      instance: null,
+      request_id: 'req_safe_12345678',
+      retryable,
+      status,
+      title: 'private backend title',
+      type: 'https://api.hmalliances.org/problems/private-failure'
+    },
+    null
+  )
 }
 
 /**
@@ -68,8 +78,8 @@ describe('ResourceErrorState', (): void => {
   it.each([
     [new TypeError('GET https://private.example.test failed'), '无法连接到服务'],
     [new DOMException('private timeout detail', 'TimeoutError'), '服务暂时繁忙或响应超时'],
-    [new HttpContractError('private response body', 200), '服务返回了无法识别的数据'],
-    [new HttpCommandOutcomeUnknownError('network'), '请求可能已被服务处理']
+    [new ApiV2ContractError('private response body', 200), '服务返回了无法识别的数据'],
+    [new ApiV2WriteOutcomeUnknownError('network'), '请求可能已被服务处理']
   ] as const)(
     'presents transport and contract failures without raw details',
     (error, expectedCopy) => {

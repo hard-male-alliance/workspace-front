@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node", "vite/client", "vitest/globals"]
+  },
+  "include": [
+    "apps/web/src/**/*.node.test.ts",
+    "apps/web/src/**/*.node.test.tsx",
+    "packages/**/*.node.test.ts",
+    "packages/**/*.node.test.tsx"
+  ],
+  "exclude": ["node_modules", "dist", "out", "coverage", "workspace-shared-docs"]
+}

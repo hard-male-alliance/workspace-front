@@ -8,11 +8,7 @@
     "vitest.config.ts",
     "apps/*/*.config.ts",
     "apps/desktop/src/main/**/*.ts",
-    "apps/desktop/src/preload/**/*.ts",
-    "apps/**/*.node.test.ts",
-    "apps/**/*.node.test.tsx",
-    "packages/**/*.node.test.ts",
-    "packages/**/*.node.test.tsx"
+    "apps/desktop/src/preload/**/*.ts"
   ],
   "exclude": ["node_modules", "dist", "out", "coverage", "workspace-shared-docs"]
 }

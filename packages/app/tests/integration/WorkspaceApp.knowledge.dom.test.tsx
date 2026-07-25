@@ -1,296 +1,336 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+/** @file API v2 Knowledge 产品旅程集成测试 / API v2 Knowledge product-journey integration tests. */
+
+import { fireEvent, render, screen } from '@testing-library/react'
+import {
+  ApiV2ProblemError,
+  ApiV2WriteOutcomeUnknownError,
+  type ProblemDetails
+} from '@ai-job-workspace/product-api-v2'
 import { describe, expect, it, vi } from 'vitest'
 
-import { HttpCommandOutcomeUnknownError } from '@ai-job-workspace/app/http'
 import {
   InMemoryKnowledgeGateway,
-  MOCK_BLOG_KNOWLEDGE_SOURCE_ID,
-  MOCK_GIT_KNOWLEDGE_SOURCE_ID
+  MOCK_DEFAULT_VISIBILITY_POLICY,
+  MOCK_GIT_KNOWLEDGE_SOURCE_ID,
+  MOCK_KNOWLEDGE_WORKSPACE_ID
 } from '@ai-job-workspace/app/testing'
+import type { UiKnowledgeVisibilityPolicy } from '@ai-job-workspace/app/application'
 import {
   createTestGateways,
   installWorkspaceAppTestCleanup,
-  navigateWorkspaceApp,
   setWorkspaceAppTestLocale,
   WorkspaceApp
 } from './WorkspaceApp.dom-test-harness'
 
 installWorkspaceAppTestCleanup()
 
-/** @brief 知识库用户行为测试 / Knowledge-workflow user-behaviour tests. */
-describe('WorkspaceApp knowledge workflow', (): void => {
-  it('drops source-local drafts while switching to another authoritative source', async (): Promise<void> => {
+/**
+ * @brief 构造结构化 API v2 Problem / Build a structured API v2 Problem.
+ * @param code 稳定 Problem code / Stable Problem code.
+ * @param status HTTP 状态 / HTTP status.
+ * @return 完整 ProblemDetails / Complete ProblemDetails.
+ */
+function problem(code: string, status: number): ProblemDetails {
+  return {
+    code,
+    detail: 'private backend detail',
+    errors: [],
+    extensions: null,
+    instance: null,
+    request_id: 'request_knowledge_dom_12345678',
+    retryable: false,
+    status,
+    title: 'private backend title',
+    type: 'https://api.example.test/problems/knowledge'
+  }
+}
+
+/**
+ * @brief 填写手工笔记创建页的最小有效内容 / Fill the minimum valid manual-note creation content.
+ * @param name 来源名称 / Source name.
+ * @param content 笔记正文 / Note body.
+ */
+function fillManualNote(name: string, content: string): void {
+  fireEvent.change(screen.getByRole('textbox', { name: '来源名称' }), {
+    target: { value: name }
+  })
+  fireEvent.change(screen.getByRole('textbox', { name: '纯文本正文' }), {
+    target: { value: content }
+  })
+}
+
+/** @brief Knowledge API v2 用户行为测试 / Knowledge API v2 user-behaviour tests. */
+describe('WorkspaceApp Knowledge API v2 workflow', (): void => {
+  it('creates a manual note with the complete visible policy and opens authoritative detail', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
-    /** @brief 当前测试独享的知识 Gateway / Knowledge Gateway owned by the current test. */
+    /** @brief 当前测试独享 Knowledge gateway / Knowledge gateway owned by this test. */
     const knowledge = new InMemoryKnowledgeGateway()
-    /** @brief 原始内存读取绑定 / Bound original in-memory read. */
-    const readVisibility = knowledge.getKnowledgeVisibility.bind(knowledge)
-    /** @brief A 来源权威策略 / Authoritative policy for source A. */
-    const visibilityA = await readVisibility(MOCK_GIT_KNOWLEDGE_SOURCE_ID)
-    /** @brief B 来源权威策略 / Authoritative policy for source B. */
-    const visibilityB = await readVisibility(MOCK_BLOG_KNOWLEDGE_SOURCE_ID)
-    /** @brief 兑现 B 来源读取的函数 / Resolver for the source B read. */
-    let resolveVisibilityB: ((model: typeof visibilityB) => void) | undefined
-    /** @brief 保持 B 来源读取待定的 Promise / Promise keeping the source B read pending. */
-    const pendingVisibilityB = new Promise<typeof visibilityB>((resolve): void => {
-      resolveVisibilityB = resolve
-    })
-    vi.spyOn(knowledge, 'getKnowledgeVisibility').mockImplementation((sourceId) => {
-      if (sourceId === MOCK_GIT_KNOWLEDGE_SOURCE_ID) return Promise.resolve(visibilityA)
-      if (sourceId === MOCK_BLOG_KNOWLEDGE_SOURCE_ID) return pendingVisibilityB
-      return Promise.reject(new Error('Unexpected knowledge-source ID.'))
-    })
-    window.history.replaceState(null, '', `/knowledge/${MOCK_GIT_KNOWLEDGE_SOURCE_ID}/visibility`)
+    /** @brief 完整创建命令监视器 / Complete creation-command spy. */
+    const create = vi.spyOn(knowledge, 'createManualKnowledgeNote')
 
-    render(<WorkspaceApp gateways={createTestGateways({ knowledge })} />)
-    await screen.findByRole('heading', { name: 'Agent 可见性' })
-    /** @brief A 来源尚未提交的本地开关草稿 / Unsaved source-A toggle draft. */
-    const sourceAToggle = screen.getByRole('switch', { name: '允许会话级选择' })
-    fireEvent.click(sourceAToggle)
-    expect(sourceAToggle).toHaveAttribute('aria-checked', 'false')
-
-    navigateWorkspaceApp(`/knowledge/${MOCK_BLOG_KNOWLEDGE_SOURCE_ID}/visibility`)
-
-    expect(screen.getByText('正在加载知识可见性…')).toBeInTheDocument()
-    expect(screen.queryByText('portfolio-engineering')).not.toBeInTheDocument()
-
-    await act(async (): Promise<void> => {
-      resolveVisibilityB?.(visibilityB)
-      await pendingVisibilityB
-    })
-
-    expect((await screen.findAllByText('技术博客')).length).toBeGreaterThan(0)
-    expect(screen.getByRole('switch', { name: '允许会话级选择' })).toHaveAttribute(
-      'aria-checked',
-      'true'
+    render(
+      <WorkspaceApp gateways={createTestGateways({ knowledge })} initialPath="/knowledge/new" />
     )
-  })
+    await screen.findByRole('heading', { name: '新建手工笔记来源' })
+    fillManualNote('Distributed systems notes', 'Safety and liveness are different properties.')
+    fireEvent.click(screen.getByRole('button', { name: '创建手工笔记来源' }))
 
-  it('filters authoritative sources and renders the selected source policy', async (): Promise<void> => {
-    await setWorkspaceAppTestLocale('zh-SG')
-    /** @brief 当前测试独享的知识 Gateway / Knowledge Gateway owned by the current test. */
-    const knowledge = new InMemoryKnowledgeGateway()
-    /** @brief 权威来源读取监视器 / Authoritative-source read spy. */
-    const listSources = vi.spyOn(knowledge, 'listKnowledgeSources')
-
-    render(<WorkspaceApp gateways={createTestGateways({ knowledge })} initialPath="/knowledge" />)
-
-    await screen.findByRole('heading', { name: '个人记忆与知识库' })
-    expect(screen.getByRole('heading', { name: '来源详情' })).toBeInTheDocument()
-    expect(screen.getByText('默认策略')).toBeInTheDocument()
-    expect(screen.getByText('外部模型处理')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: '重新加载来源' }))
-    await vi.waitFor((): void => expect(listSources).toHaveBeenCalledTimes(2))
-
-    fireEvent.change(screen.getByRole('searchbox', { name: '筛选知识来源' }), {
-      target: { value: 'portfolio-engineering' }
+    await vi.waitFor((): void => expect(create).toHaveBeenCalledOnce())
+    /** @brief 交给 API v2 adapter 的完整创建命令 / Complete creation command passed to the API v2 adapter. */
+    const command = create.mock.calls[0]?.[0]
+    expect(command).toMatchObject({
+      content: 'Safety and liveness are different properties.',
+      name: 'Distributed systems notes',
+      visibility: {
+        agentGrants: [],
+        allowExternalModelProcessing: false,
+        allowedModelRegions: ['cn'],
+        defaultEffect: 'deny',
+        policyVersion: 1,
+        retentionDays: 365,
+        sensitivity: 'confidential',
+        sessionOverrideAllowed: false
+      },
+      workspaceId: MOCK_KNOWLEDGE_WORKSPACE_ID
     })
+    expect(command?.commandId).toMatch(/^command_/u)
+    expect(await screen.findByRole('heading', { name: 'Distributed systems notes' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: '尚未开始' })).toBeVisible()
+    expect(
+      screen.queryByText('Safety and liveness are different properties.')
+    ).not.toBeInTheDocument()
+  })
 
-    expect(screen.getAllByText('portfolio-engineering')).toHaveLength(2)
-    expect(screen.queryByText('AI 平台工程师 · 中文简历')).not.toBeInTheDocument()
+  it('locks an unknown creation and confirms it with the exact same key and payload', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 提交后丢失一次响应的测试 gateway / Test gateway losing one response after commit. */
+    const knowledge = new InMemoryKnowledgeGateway({ createOutcomeUnknownOnce: true })
+    /** @brief 两次精确 dispatch 监视器 / Spy observing both exact dispatches. */
+    const create = vi.spyOn(knowledge, 'createManualKnowledgeNote')
 
-    fireEvent.change(screen.getByRole('searchbox', { name: '筛选知识来源' }), {
-      target: { value: 'definitely-missing-source' }
+    render(
+      <WorkspaceApp gateways={createTestGateways({ knowledge })} initialPath="/knowledge/new" />
+    )
+    await screen.findByRole('heading', { name: '新建手工笔记来源' })
+    fillManualNote('Idempotency notes', 'The same intent keeps the same key and body.')
+    fireEvent.click(screen.getByRole('button', { name: '创建手工笔记来源' }))
+
+    expect(await screen.findByRole('heading', { name: '上一次创建结果尚未确认' })).toBeVisible()
+    expect(screen.getByRole('textbox', { name: '来源名称' })).toBeDisabled()
+    expect(screen.getByRole('textbox', { name: '纯文本正文' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: '原样确认上次创建' }))
+
+    await vi.waitFor((): void => expect(create).toHaveBeenCalledTimes(2))
+    /** @brief 首次未知结果命令 / First command with unknown result. */
+    const first = create.mock.calls[0]?.[0]
+    /** @brief 原样确认命令 / Exact confirmation command. */
+    const confirmation = create.mock.calls[1]?.[0]
+    expect(confirmation?.commandId).toBe(first?.commandId)
+    expect(confirmation?.workspaceId).toBe(first?.workspaceId)
+    expect(confirmation?.name).toBe(first?.name)
+    expect(confirmation?.content).toBe(first?.content)
+    expect(confirmation?.visibility).toEqual(first?.visibility)
+    expect(await screen.findByRole('heading', { name: 'Idempotency notes' })).toBeVisible()
+  })
+
+  it('forbids replay of an invalid success response and keeps the old key when rereading fails', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 不可重放成功响应的测试 gateway / Test gateway with an unreplayable success response. */
+    const knowledge = new InMemoryKnowledgeGateway()
+    /** @brief 返回坏 2xx 语义的创建端口 / Creation port returning invalid 2xx semantics. */
+    const create = vi
+      .spyOn(knowledge, 'createManualKnowledgeNote')
+      .mockRejectedValue(
+        new ApiV2WriteOutcomeUnknownError('contract', 201, null, 'request_knowledge_dom_12345678')
+      )
+    /** @brief 放弃阶段失败的权威首页读取 / Authority first-page read failing during abandonment. */
+    const list = vi
+      .spyOn(knowledge, 'listKnowledgeSourcePage')
+      .mockRejectedValueOnce(new TypeError('private network failure'))
+
+    render(
+      <WorkspaceApp gateways={createTestGateways({ knowledge })} initialPath="/knowledge/new" />
+    )
+    await screen.findByRole('heading', { name: '新建手工笔记来源' })
+    fillManualNote('Uncertain note', 'The response cannot prove the final outcome.')
+    fireEvent.click(screen.getByRole('button', { name: '创建手工笔记来源' }))
+
+    expect(await screen.findByRole('heading', { name: '旧命令不能继续确认' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: '原样确认上次创建' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '放弃旧命令并重读来源' }))
+    expect(screen.getByText(/服务器可能已经创建了该来源/u)).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: '确认重读并放弃旧 key' }))
+
+    expect(await screen.findByText(/无法连接到服务/u)).toBeVisible()
+    expect(screen.getByRole('heading', { name: '旧命令不能继续确认' })).toBeVisible()
+    expect(screen.getByRole('textbox', { name: '来源名称' })).toBeDisabled()
+    expect(create).toHaveBeenCalledOnce()
+    expect(list).toHaveBeenCalledOnce()
+  })
+
+  it('saves only the changed name with the strong ETag from authoritative GET', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 当前测试独享 Knowledge gateway / Knowledge gateway owned by this test. */
+    const knowledge = new InMemoryKnowledgeGateway()
+    /** @brief 编辑页加载前的已知权威 / Known authority before the edit page loads. */
+    const initial = await knowledge.getKnowledgeSource({
+      signal: new AbortController().signal,
+      sourceId: MOCK_GIT_KNOWLEDGE_SOURCE_ID,
+      workspaceId: MOCK_KNOWLEDGE_WORKSPACE_ID
     })
-    expect(screen.getByRole('heading', { name: '没有匹配结果' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '清除筛选' }))
-    expect(screen.getByRole('searchbox', { name: '筛选知识来源' })).toHaveValue('')
-    expect(screen.getByRole('heading', { level: 3, name: 'portfolio-engineering' })).toBeVisible()
-    expect(
-      screen.getByRole('heading', { level: 3, name: 'AI 平台工程师 · 中文简历' })
-    ).toBeVisible()
-    expect(screen.queryByRole('heading', { name: '没有匹配结果' })).not.toBeInTheDocument()
-  })
-
-  it('does not expose upload or search actions before their response contracts are frozen', async (): Promise<void> => {
-    await setWorkspaceAppTestLocale('en-US')
-    render(<WorkspaceApp initialPath="/knowledge" />)
-
-    await screen.findByRole('heading', { name: 'Personal memory & knowledge' })
-    expect(screen.getByRole('button', { name: 'Add source' })).toHaveAttribute(
-      'aria-disabled',
-      'true'
-    )
-    expect(screen.getByRole('button', { name: 'Add source' })).toHaveAccessibleDescription(
-      'Adding knowledge sources is being prepared; file upload is not available yet.'
-    )
-    expect(
-      screen.getByText(
-        'Knowledge search is being prepared. For now, you can browse the existing sources.'
-      )
-    ).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Search knowledge' })).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('Knowledge file')).not.toBeInTheDocument()
-  })
-
-  it('distinguishes an empty source collection from a filter with no matches', async (): Promise<void> => {
-    await setWorkspaceAppTestLocale('en-US')
-    /** @brief 返回空权威集合的知识 Gateway / Knowledge gateway returning an empty authoritative collection. */
-    const knowledge = new InMemoryKnowledgeGateway()
-    vi.spyOn(knowledge, 'listKnowledgeSources').mockResolvedValue([])
-
-    render(<WorkspaceApp gateways={createTestGateways({ knowledge })} initialPath="/knowledge" />)
-
-    expect(
-      await screen.findByRole('heading', { name: 'No knowledge sources yet' })
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText(
-        'This workspace has no material to browse yet. You can upload it here once adding sources is available.'
-      )
-    ).toBeInTheDocument()
-    /** @brief 页头与空状态中均可发现但不会伪造动作的入口 / Discoverable entries in both the header and empty state that never fabricate an action. */
-    const unavailableAddSourceButtons = screen.getAllByRole('button', { name: 'Add source' })
-    expect(unavailableAddSourceButtons).toHaveLength(2)
-    for (const button of unavailableAddSourceButtons) {
-      expect(button).toHaveAttribute('aria-disabled', 'true')
-      expect(button).toHaveAccessibleDescription(
-        'Adding knowledge sources is being prepared; file upload is not available yet.'
-      )
-    }
-    expect(screen.queryByText('No knowledge sources match this filter.')).not.toBeInTheDocument()
-  })
-
-  it('localizes visibility policy enums instead of rendering transport values', async (): Promise<void> => {
-    await setWorkspaceAppTestLocale('zh-SG')
-
-    render(<WorkspaceApp initialPath="/knowledge/ks_mock_git/visibility" />)
-
-    await screen.findByRole('heading', { name: 'Agent 可见性' })
-    expect(screen.getByText('权限概览')).toBeInTheDocument()
-    expect(screen.getByText('机密')).toBeInTheDocument()
-    expect(screen.getByText('中国大陆')).toBeInTheDocument()
-    expect(screen.getByText('私有部署')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: '授权如何生效' })).toBeInTheDocument()
-    expect(screen.queryByText('confidential')).not.toBeInTheDocument()
-    expect(screen.queryByText('private_deployment')).not.toBeInTheDocument()
-    expect(screen.queryByText(/PATCH|EffectiveAccess/u)).not.toBeInTheDocument()
-  })
-
-  it('persists visibility settings through the gateway instead of reporting a local save', async (): Promise<void> => {
-    await setWorkspaceAppTestLocale('zh-SG')
-    /** @brief 当前测试独享的知识 Gateway / Knowledge Gateway owned by the current test. */
-    const knowledge = new InMemoryKnowledgeGateway()
-    /** @brief 可见性更新命令监视器 / Visibility-update command spy. */
-    const updateVisibility = vi.spyOn(knowledge, 'updateKnowledgeVisibility')
+    /** @brief 条件 PATCH 监视器 / Conditional PATCH spy. */
+    const update = vi.spyOn(knowledge, 'updateKnowledgeSource')
 
     render(
       <WorkspaceApp
         gateways={createTestGateways({ knowledge })}
-        initialPath="/knowledge/ks_mock_git/visibility"
+        initialPath={`/knowledge/${MOCK_GIT_KNOWLEDGE_SOURCE_ID}/edit`}
       />
     )
-    await screen.findByRole('heading', { name: 'Agent 可见性' })
-
-    fireEvent.click(screen.getByRole('switch', { name: '允许会话级选择' }))
-    fireEvent.click(screen.getByRole('button', { name: '保存' }))
-
-    await vi.waitFor((): void => expect(updateVisibility).toHaveBeenCalledOnce())
-    /** @brief 交给 Gateway 的策略更新 / Policy update passed to the gateway. */
-    const update = updateVisibility.mock.calls[0]?.[0]
-    expect(update?.sourceId).toBe('ks_mock_git')
-    expect(update?.visibility.sessionOverrideAllowed).toBe(false)
-    expect(await screen.findByText('可见性策略已保存')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '保存' })).toBeDisabled()
-    fireEvent.click(screen.getByRole('button', { name: '保存' }))
-    expect(updateVisibility).toHaveBeenCalledTimes(1)
-    expect(screen.queryByText(/本地演示/u)).not.toBeInTheDocument()
-  })
-
-  it('可见性写入结果未知时先读取权威策略并保留本地开关草稿', async (): Promise<void> => {
-    await setWorkspaceAppTestLocale('zh-SG')
-    /** @brief 返回未知写结果的知识 Gateway / Knowledge gateway returning an unknown write outcome. */
-    const knowledge = new InMemoryKnowledgeGateway()
-    /** @brief 只发送一次的可见性写命令 / Visibility command sent exactly once. */
-    const update = vi
-      .spyOn(knowledge, 'updateKnowledgeVisibility')
-      .mockRejectedValue(new HttpCommandOutcomeUnknownError('network'))
-    /** @brief 初始与恢复阶段的权威读取 / Authoritative reads during initial load and recovery. */
-    const reload = vi.spyOn(knowledge, 'getKnowledgeVisibility')
-
-    render(
-      <WorkspaceApp
-        gateways={createTestGateways({ knowledge })}
-        initialPath="/knowledge/ks_mock_git/visibility"
-      />
-    )
-    await screen.findByRole('heading', { name: 'Agent 可见性' })
-    /** @brief 用户当前未确认的本地开关草稿 / User's current unconfirmed local switch draft. */
-    const sessionOverride = screen.getByRole('switch', { name: '允许会话级选择' })
-    fireEvent.click(sessionOverride)
-    expect(sessionOverride).toHaveAttribute('aria-checked', 'false')
-    fireEvent.click(screen.getByRole('button', { name: '保存' }))
-
-    expect(await screen.findByRole('alert')).toHaveTextContent('请先重新加载权威数据')
-    expect(screen.getByRole('button', { name: '保存' })).toBeDisabled()
-    expect(sessionOverride).toBeDisabled()
-    expect(screen.getByRole('switch', { name: '允许外部模型处理' })).toBeDisabled()
-    fireEvent.click(screen.getByRole('button', { name: '重新加载最新数据' }))
-
-    await vi.waitFor((): void => expect(reload).toHaveBeenCalledTimes(2))
-    expect(update).toHaveBeenCalledTimes(1)
-    expect(sessionOverride).toHaveAttribute('aria-checked', 'false')
-    await vi.waitFor((): void => {
-      expect(screen.getByRole('button', { name: '保存' })).toBeEnabled()
+    await screen.findByRole('heading', { name: '编辑知识来源' })
+    fireEvent.change(screen.getByRole('textbox', { name: '来源名称' }), {
+      target: { value: 'portfolio-runtime-safety' }
     })
-  })
-
-  it('未知结果的策略已由服务端应用时吸收权威值且不重复提交', async (): Promise<void> => {
-    await setWorkspaceAppTestLocale('zh-SG')
-    /** @brief 模拟服务端先提交成功、响应后丢失的 Knowledge Gateway / Knowledge gateway simulating commit-before-response-loss. */
-    const knowledge = new InMemoryKnowledgeGateway()
-    /** @brief 未被 spy 包装的真实内存更新 / Original in-memory update outside the spy wrapper. */
-    const applyUpdate = knowledge.updateKnowledgeVisibility.bind(knowledge)
-    /** @brief 允许测试观察保存中冻结状态的响应闸门 / Response gate allowing the test to observe the saving lock. */
-    let releaseResponse = (): void => {
-      throw new Error('The response gate was released before initialization.')
-    }
-    /** @brief 写响应保持待定的 Promise / Promise keeping the write response pending. */
-    const responseGate = new Promise<void>((resolve) => {
-      releaseResponse = resolve
-    })
-    /** @brief 已应用但最终报告未知结果的策略更新 / Policy update applied before reporting an unknown outcome. */
-    const update = vi
-      .spyOn(knowledge, 'updateKnowledgeVisibility')
-      .mockImplementationOnce(async (input) => {
-        await applyUpdate(input)
-        await responseGate
-        throw new HttpCommandOutcomeUnknownError('network')
-      })
-    /** @brief 初始与恢复阶段的权威读取 / Authoritative reads during initial load and recovery. */
-    const reload = vi.spyOn(knowledge, 'getKnowledgeVisibility')
-
-    render(
-      <WorkspaceApp
-        gateways={createTestGateways({ knowledge })}
-        initialPath="/knowledge/ks_mock_git/visibility"
-      />
-    )
-    await screen.findByRole('heading', { name: 'Agent 可见性' })
-    /** @brief 待提交的会话选择开关 / Session-selection switch being submitted. */
-    const sessionOverride = screen.getByRole('switch', { name: '允许会话级选择' })
-    /** @brief 未参与本次提交但同样必须冻结的外部模型开关 / External-model switch not edited but still required to freeze. */
-    const externalModel = screen.getByRole('switch', { name: '允许外部模型处理' })
-    fireEvent.click(sessionOverride)
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
 
     await vi.waitFor((): void => expect(update).toHaveBeenCalledOnce())
-    expect(sessionOverride).toBeDisabled()
-    expect(externalModel).toBeDisabled()
-    expect(screen.getByRole('button', { name: '正在保存…' })).toBeDisabled()
-    fireEvent.click(externalModel)
-    expect(externalModel).toHaveAttribute('aria-checked', 'false')
-
-    releaseResponse()
-    expect(await screen.findByRole('alert')).toHaveTextContent('请先重新加载权威数据')
-    fireEvent.click(screen.getByRole('button', { name: '重新加载最新数据' }))
-
-    await vi.waitFor((): void => expect(reload).toHaveBeenCalledTimes(2))
-    expect(await screen.findByText('可见性策略已保存')).toBeInTheDocument()
-    expect(sessionOverride).toHaveAttribute('aria-checked', 'false')
+    expect(update).toHaveBeenCalledWith({
+      concurrencyToken: initial.concurrencyToken,
+      patch: { name: 'portfolio-runtime-safety' },
+      sourceId: MOCK_GIT_KNOWLEDGE_SOURCE_ID,
+      workspaceId: MOCK_KNOWLEDGE_WORKSPACE_ID
+    })
+    expect(await screen.findByText('来源设置已由服务端确认')).toBeVisible()
     expect(screen.getByRole('button', { name: '保存' })).toBeDisabled()
+  })
+
+  it('absorbs an applied PATCH after an unknown response without sending it again', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 当前测试独享 Knowledge gateway / Knowledge gateway owned by this test. */
+    const knowledge = new InMemoryKnowledgeGateway()
+    /** @brief 未被 spy 包装的真实内存更新 / Original in-memory update outside the spy. */
+    const applyUpdate = knowledge.updateKnowledgeSource.bind(knowledge)
+    /** @brief 先提交成功再报告未知结果的 PATCH / PATCH committed before reporting an unknown result. */
+    const update = vi
+      .spyOn(knowledge, 'updateKnowledgeSource')
+      .mockImplementationOnce(async (command): Promise<never> => {
+        await applyUpdate(command)
+        throw new ApiV2WriteOutcomeUnknownError('network')
+      })
+    /** @brief 初始与恢复的单项 GET / Single-item GETs for initial load and recovery. */
+    const get = vi.spyOn(knowledge, 'getKnowledgeSource')
+
+    render(
+      <WorkspaceApp
+        gateways={createTestGateways({ knowledge })}
+        initialPath={`/knowledge/${MOCK_GIT_KNOWLEDGE_SOURCE_ID}/edit`}
+      />
+    )
+    await screen.findByRole('heading', { name: '编辑知识来源' })
+    fireEvent.change(screen.getByRole('textbox', { name: '来源名称' }), {
+      target: { value: 'authoritative-after-loss' }
+    })
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
-    expect(update).toHaveBeenCalledTimes(1)
+
+    expect(await screen.findByRole('heading', { name: '必须先读取最新权威来源' })).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: '读取最新权威并恢复' }))
+
+    expect(await screen.findByText('来源设置已由服务端确认')).toBeVisible()
+    expect(update).toHaveBeenCalledOnce()
+    expect(get).toHaveBeenCalledTimes(2)
+    expect(screen.getByRole('textbox', { name: '来源名称' })).toHaveValue(
+      'authoritative-after-loss'
+    )
+  })
+
+  it('uses one safe retry when only an untouched field changed remotely', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 当前测试独享 Knowledge gateway / Knowledge gateway owned by this test. */
+    const knowledge = new InMemoryKnowledgeGateway()
+    /** @brief 未被 spy 包装的真实内存更新 / Original in-memory update outside the spy. */
+    const applyUpdate = knowledge.updateKnowledgeSource.bind(knowledge)
+    /** @brief 远端仅变化的完整策略 / Complete policy changed only on the remote side. */
+    const remoteVisibility: UiKnowledgeVisibilityPolicy = {
+      ...MOCK_DEFAULT_VISIBILITY_POLICY,
+      retentionDays: 730
+    }
+    /** @brief 首次模拟并发冲突，第二次接受新 ETag / First simulate a conflict, then accept the new ETag. */
+    const update = vi
+      .spyOn(knowledge, 'updateKnowledgeSource')
+      .mockImplementationOnce(async (command): Promise<never> => {
+        await applyUpdate({
+          ...command,
+          patch: { visibility: remoteVisibility }
+        })
+        throw new ApiV2ProblemError(problem('knowledge.revision_conflict', 412), null)
+      })
+      .mockImplementation(applyUpdate)
+
+    render(
+      <WorkspaceApp
+        gateways={createTestGateways({ knowledge })}
+        initialPath={`/knowledge/${MOCK_GIT_KNOWLEDGE_SOURCE_ID}/edit`}
+      />
+    )
+    await screen.findByRole('heading', { name: '编辑知识来源' })
+    fireEvent.change(screen.getByRole('textbox', { name: '来源名称' }), {
+      target: { value: 'safe-retry-name' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    expect(await screen.findByRole('heading', { name: '必须先读取最新权威来源' })).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: '读取最新权威并恢复' }))
+
+    expect(await screen.findByText('来源设置已由服务端确认')).toBeVisible()
+    expect(update).toHaveBeenCalledTimes(2)
+    expect(update.mock.calls[1]?.[0].concurrencyToken).not.toBe(
+      update.mock.calls[0]?.[0].concurrencyToken
+    )
+    expect(update.mock.calls[1]?.[0].patch).toEqual({ name: 'safe-retry-name' })
+  })
+
+  it('preserves the local draft when a touched field changed and requires explicit review', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 当前测试独享 Knowledge gateway / Knowledge gateway owned by this test. */
+    const knowledge = new InMemoryKnowledgeGateway()
+    /** @brief 未被 spy 包装的真实内存更新 / Original in-memory update outside the spy. */
+    const applyUpdate = knowledge.updateKnowledgeSource.bind(knowledge)
+    /** @brief 首次把同一名称字段改成远端值并报告 412 / First change the same name remotely and report 412. */
+    const update = vi
+      .spyOn(knowledge, 'updateKnowledgeSource')
+      .mockImplementationOnce(async (command): Promise<never> => {
+        await applyUpdate({ ...command, patch: { name: 'remote-name' } })
+        throw new ApiV2ProblemError(problem('knowledge.revision_conflict', 412), null)
+      })
+      .mockImplementation(applyUpdate)
+
+    render(
+      <WorkspaceApp
+        gateways={createTestGateways({ knowledge })}
+        initialPath={`/knowledge/${MOCK_GIT_KNOWLEDGE_SOURCE_ID}/edit`}
+      />
+    )
+    await screen.findByRole('heading', { name: '编辑知识来源' })
+    fireEvent.change(screen.getByRole('textbox', { name: '来源名称' }), {
+      target: { value: 'local-name' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    expect(await screen.findByRole('heading', { name: '必须先读取最新权威来源' })).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: '读取最新权威并恢复' }))
+
+    expect(
+      await screen.findByRole('heading', {
+        name: '需要检查服务器版本与本地草稿'
+      })
+    ).toBeVisible()
+    expect(screen.getByRole('textbox', { name: '来源名称' })).toHaveValue('local-name')
+    expect(screen.getByRole('textbox', { name: '来源名称' })).toBeDisabled()
+    expect(update).toHaveBeenCalledOnce()
+
+    fireEvent.click(screen.getByRole('button', { name: '基于最新版本检查我的草稿' }))
+    expect(screen.getByRole('textbox', { name: '来源名称' })).toBeEnabled()
+    expect(screen.getByRole('textbox', { name: '来源名称' })).toHaveValue('local-name')
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    expect(await screen.findByText('来源设置已由服务端确认')).toBeVisible()
+    expect(update).toHaveBeenCalledTimes(2)
   })
 })

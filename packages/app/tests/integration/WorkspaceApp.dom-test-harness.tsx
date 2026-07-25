@@ -1,17 +1,25 @@
 import { act, cleanup } from '@testing-library/react'
+import { useEffect, useState } from 'react'
+import { RouterProvider } from 'react-router-dom'
 import { afterEach } from 'vitest'
-import { WorkspaceApp as SharedWorkspaceApp } from '@ai-job-workspace/app'
+import { createWorkspaceRouter } from '@ai-job-workspace/app'
 import type { WorkspaceAppProps } from '@ai-job-workspace/app'
 import { createDiagnostics } from '@ai-job-workspace/app/diagnostics'
 import { appI18n, appI18nReady } from '@ai-job-workspace/app/i18n'
 import {
+  InMemoryIdentityGateway,
   InMemoryInterviewGateway,
   InMemoryWorkspaceGateway,
   InMemoryKnowledgeGateway,
-  InMemoryResumeGateway
+  InMemoryResumeGateway,
+  InMemoryWorkspaceOperationsGateway,
+  InMemoryWorkspaceOperationsStore
 } from '@ai-job-workspace/app/testing'
 import { APPLICATION_VERSION } from '@ai-job-workspace/platform'
 import type { ArtifactSavePort } from '@ai-job-workspace/platform'
+
+/** @brief 当前测试应用的 Data Router / Data Router owned by the current test app. */
+let activeWorkspaceRouter: ReturnType<typeof createWorkspaceRouter> | undefined
 
 /** @brief 测试版应用属性 / Test application properties. */
 export type TestWorkspaceAppProps = Omit<
@@ -30,6 +38,7 @@ export type TestWorkspaceAppProps = Omit<
  */
 export function createTestArtifactSavePort(): ArtifactSavePort {
   return {
+    maximumArtifactBytes: null,
     saveArtifact: (): Promise<{ readonly status: 'saved' }> => Promise.resolve({ status: 'saved' })
   }
 }
@@ -45,11 +54,29 @@ export type TestGatewayOverrides = Partial<WorkspaceAppProps['gateways']>
 export function createTestGateways(
   overrides: TestGatewayOverrides = {}
 ): WorkspaceAppProps['gateways'] {
+  /** @brief 同时实现 Resume 各用例端口的独享测试适配器 / Isolated test adapter implementing each Resume use-case port. */
+  const operationsStore = new InMemoryWorkspaceOperationsStore()
+  /** @brief 与 Resume command adapter 共享 Job/Artifact 状态的测试适配器 / Test adapter sharing Job/Artifact state with the Resume command adapter. */
+  const workspaceOperations = new InMemoryWorkspaceOperationsGateway({}, operationsStore)
+  /** @brief 同时实现 Resume 各用例端口的独享测试适配器 / Isolated test adapter implementing each Resume use-case port. */
+  const resume = new InMemoryResumeGateway({ operationsStore })
+  /** @brief 若 Resume override 同时实现公开目录，则保持两个端口的同一测试状态 / Preserve one test state across both ports when a Resume override also implements the public catalog. */
+  const resumeTemplates =
+    overrides.resume !== undefined &&
+    'listTemplatePage' in overrides.resume &&
+    'getTemplate' in overrides.resume
+      ? (overrides.resume as WorkspaceAppProps['gateways']['resumeTemplates'])
+      : resume
   return {
+    identity: new InMemoryIdentityGateway(),
     interview: new InMemoryInterviewGateway(),
     knowledge: new InMemoryKnowledgeGateway(),
-    resume: new InMemoryResumeGateway(),
+    resume,
+    resumeReview: resume,
+    resumeCreation: resume,
+    resumeTemplates,
     workspace: new InMemoryWorkspaceGateway(),
+    workspaceOperations,
     ...overrides
   }
 }
@@ -66,15 +93,24 @@ export function WorkspaceApp({
   runtimeInfo,
   ...props
 }: TestWorkspaceAppProps): React.JSX.Element {
-  return (
-    <SharedWorkspaceApp
-      {...props}
-      artifactSave={artifactSave ?? createTestArtifactSavePort()}
-      diagnostics={diagnostics ?? createDiagnostics({ sinks: [] })}
-      gateways={gateways ?? createTestGateways()}
-      runtimeInfo={runtimeInfo ?? { appVersion: APPLICATION_VERSION, platform: 'web' }}
-    />
+  const [router] = useState(() =>
+    createWorkspaceRouter({
+      ...props,
+      artifactSave: artifactSave ?? createTestArtifactSavePort(),
+      diagnostics: diagnostics ?? createDiagnostics({ sinks: [] }),
+      gateways: gateways ?? createTestGateways(),
+      runtimeInfo: runtimeInfo ?? { appVersion: APPLICATION_VERSION, platform: 'web' }
+    })
   )
+
+  useEffect((): (() => void) => {
+    activeWorkspaceRouter = router
+    return (): void => {
+      if (activeWorkspaceRouter === router) activeWorkspaceRouter = undefined
+    }
+  }, [router])
+
+  return <RouterProvider router={router} />
 }
 
 /**
@@ -84,6 +120,7 @@ export function WorkspaceApp({
 export function installWorkspaceAppTestCleanup(): void {
   afterEach((): void => {
     cleanup()
+    activeWorkspaceRouter = undefined
     window.history.replaceState(null, '', '/')
     window.localStorage.clear()
     document.documentElement.removeAttribute('data-theme')
@@ -95,10 +132,13 @@ export function installWorkspaceAppTestCleanup(): void {
  * @param path 目标应用路径 / Target application path.
  * @return 无返回值；路由提交由 act 同步刷新 / No return value; the route commit is flushed synchronously by act.
  */
-export function navigateWorkspaceApp(path: string): void {
-  act((): void => {
-    window.history.pushState(null, '', path)
-    window.dispatchEvent(new PopStateEvent('popstate'))
+export async function navigateWorkspaceApp(path: string): Promise<void> {
+  if (activeWorkspaceRouter === undefined) {
+    throw new Error('WorkspaceApp test router is not mounted.')
+  }
+  const router = activeWorkspaceRouter
+  await act(async (): Promise<void> => {
+    await router.navigate(path)
   })
 }
 

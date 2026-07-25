@@ -1,0 +1,399 @@
+/* API v2 Resume revision history and Proposal review */
+.aw-resume-review-page {
+  max-width: 1280px;
+}
+
+.aw-review-page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--ui-space-6);
+  margin-bottom: var(--ui-space-6);
+}
+
+.aw-review-page-header h1,
+.aw-review-detail h2 {
+  margin: 0;
+  color: var(--ui-color-ink);
+  letter-spacing: -0.025em;
+}
+
+.aw-review-page-header h1 {
+  font-size: clamp(1.8rem, 4vw, 2.5rem);
+}
+
+.aw-review-page-header p {
+  max-width: 720px;
+  margin: var(--ui-space-2) 0 0;
+  color: var(--ui-color-ink-muted);
+  line-height: var(--ui-leading-relaxed);
+}
+
+.aw-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: var(--ui-space-5);
+  color: var(--ui-color-ink-muted);
+  font-size: var(--ui-text-sm);
+  text-decoration: none;
+}
+
+.aw-back-link:hover {
+  color: var(--ui-color-ink);
+}
+
+.aw-review-current-revision {
+  flex: none;
+  padding: 7px 11px;
+  border: 1px solid var(--ui-color-border);
+  border-radius: var(--ui-radius-pill);
+  background: var(--ui-color-surface);
+  color: var(--ui-color-ink-muted);
+  font-size: var(--ui-text-xs);
+}
+
+.aw-review-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: var(--ui-space-5);
+  padding: 4px;
+  border: 1px solid var(--ui-color-border);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-color-surface-muted);
+}
+
+.aw-review-tabs button {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ui-color-ink-muted);
+  font: inherit;
+  font-size: var(--ui-text-sm);
+  font-weight: 680;
+}
+
+.aw-review-tabs button:hover,
+.aw-review-tabs button.is-active {
+  background: var(--ui-color-surface-raised);
+  color: var(--ui-color-ink);
+  box-shadow: var(--ui-shadow-1);
+}
+
+.aw-review-count {
+  display: inline-grid;
+  min-width: 19px;
+  height: 19px;
+  place-items: center;
+  border-radius: var(--ui-radius-pill);
+  background: var(--ui-color-accent);
+  color: var(--ui-color-accent-foreground);
+  font-size: 10px;
+}
+
+.aw-resume-review-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.34fr) minmax(0, 1fr);
+  gap: var(--ui-space-5);
+  align-items: start;
+}
+
+.aw-resume-review-layout > section {
+  min-width: 0;
+  padding: var(--ui-space-5);
+  border: 1px solid var(--ui-color-border);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-color-surface);
+  box-shadow: var(--ui-shadow-1);
+}
+
+.aw-review-timeline,
+.aw-review-proposal-list,
+.aw-proposal-operation-list {
+  display: grid;
+  gap: 8px;
+  margin: var(--ui-space-4) 0;
+  padding: 0;
+  list-style: none;
+}
+
+.aw-review-list-button {
+  display: flex;
+  width: 100%;
+  min-height: 62px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ui-space-3);
+  padding: 11px 12px;
+  border: 1px solid var(--ui-color-border);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-color-surface-muted);
+  color: var(--ui-color-ink);
+  text-align: left;
+}
+
+.aw-review-list-button:hover,
+.aw-review-list-button:focus-visible {
+  border-color: var(--ui-color-border-strong);
+  background: var(--ui-color-surface-raised);
+}
+
+.aw-review-list-button > span {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.aw-review-list-button strong,
+.aw-review-list-button small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.aw-review-list-button small {
+  color: var(--ui-color-ink-muted);
+  font-size: 11px;
+}
+
+.aw-review-status {
+  width: fit-content;
+  padding: 3px 7px;
+  border-radius: var(--ui-radius-pill);
+  background: var(--ui-color-surface-raised);
+  color: var(--ui-color-ink-muted);
+  font-size: 10px;
+  font-weight: 720;
+}
+
+.aw-review-status[data-status='current'],
+.aw-review-status[data-status='accepted'] {
+  background: var(--ui-color-success-subtle);
+  color: var(--ui-color-success);
+}
+
+.aw-review-status[data-status='pending'] {
+  background: var(--ui-color-warning-subtle);
+  color: var(--ui-color-warning);
+}
+
+.aw-review-status[data-status='rejected'],
+.aw-review-status[data-status='expired'] {
+  background: var(--ui-color-danger-subtle);
+  color: var(--ui-color-danger);
+}
+
+.aw-review-status[data-status='partially-accepted'] {
+  background: var(--ui-color-info-subtle);
+  color: var(--ui-color-info);
+}
+
+.aw-review-detail {
+  min-height: 420px;
+}
+
+.aw-review-detail-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--ui-space-4);
+  margin-bottom: var(--ui-space-2);
+}
+
+.aw-review-document {
+  max-height: 680px;
+  margin-top: var(--ui-space-4);
+  overflow: auto;
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-color-surface-muted);
+  padding: var(--ui-space-4);
+}
+
+.aw-review-restore {
+  display: grid;
+  gap: var(--ui-space-3);
+  margin-top: var(--ui-space-4);
+  padding: var(--ui-space-4);
+  border: 1px solid var(--ui-color-border-strong);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-color-surface-muted);
+}
+
+.aw-review-restore > div > p {
+  margin: 5px 0 0;
+  color: var(--ui-color-ink-muted);
+  font-size: var(--ui-text-sm);
+  line-height: var(--ui-leading-normal);
+}
+
+.aw-review-list-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.aw-review-document .aw-paper {
+  width: min(100%, 720px);
+  min-height: auto;
+  margin: 0 auto;
+}
+
+.aw-proposal-fieldset {
+  min-width: 0;
+  margin: var(--ui-space-5) 0;
+  padding: 0;
+  border: 0;
+}
+
+.aw-proposal-fieldset legend {
+  color: var(--ui-color-ink);
+  font-size: var(--ui-text-sm);
+  font-weight: 720;
+}
+
+.aw-proposal-operation {
+  padding: 12px;
+  border: 1px solid var(--ui-color-border);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-color-surface-muted);
+}
+
+.aw-proposal-operation > label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 11px;
+  align-items: start;
+  cursor: pointer;
+}
+
+.aw-proposal-operation input {
+  margin-top: 3px;
+}
+
+.aw-proposal-operation-copy {
+  display: grid;
+  gap: 3px;
+}
+
+.aw-proposal-operation-copy + .aw-proposal-operation-copy {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--ui-color-border);
+}
+
+.aw-proposal-operation-copy strong {
+  font-size: var(--ui-text-sm);
+}
+
+.aw-proposal-operation-copy small {
+  overflow-wrap: anywhere;
+  color: var(--ui-color-ink-muted);
+  line-height: var(--ui-leading-normal);
+}
+
+.aw-review-warning {
+  display: block;
+  margin-top: 10px;
+  color: var(--ui-color-warning);
+  line-height: var(--ui-leading-normal);
+}
+
+.aw-review-evidence {
+  margin: var(--ui-space-4) 0;
+  padding: 11px 13px;
+  border: 1px solid var(--ui-color-border);
+  border-radius: var(--ui-radius-md);
+  color: var(--ui-color-ink-muted);
+  font-size: var(--ui-text-xs);
+}
+
+.aw-review-evidence summary {
+  cursor: pointer;
+  color: var(--ui-color-ink);
+  font-weight: 680;
+}
+
+.aw-review-evidence li {
+  margin-top: 7px;
+  overflow-wrap: anywhere;
+}
+
+.aw-review-decision-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: var(--ui-space-4);
+  border-top: 1px solid var(--ui-color-border);
+}
+
+.aw-review-confirmation {
+  margin-top: var(--ui-space-5);
+  padding: var(--ui-space-4);
+  border: 1px solid var(--ui-color-warning);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-color-warning-subtle);
+}
+
+.aw-review-confirmation p {
+  margin: 7px 0;
+  color: var(--ui-color-ink-muted);
+  line-height: var(--ui-leading-normal);
+}
+
+.aw-success-note {
+  margin-top: var(--ui-space-4);
+  padding: 11px 13px;
+  border: 1px solid var(--ui-color-success);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-color-success-subtle);
+  color: var(--ui-color-success);
+}
+
+.aw-resume-workspace-links {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+}
+
+@media (max-width: 840px) {
+  .aw-review-page-header,
+  .aw-review-detail-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .aw-resume-review-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .aw-review-detail {
+    min-height: 320px;
+  }
+
+  .aw-review-tabs {
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 560px) {
+  .aw-resume-review-page {
+    padding-inline: 16px;
+  }
+
+  .aw-review-page-header {
+    margin-bottom: var(--ui-space-4);
+  }
+
+  .aw-resume-review-layout > section {
+    padding: var(--ui-space-4);
+  }
+
+  .aw-review-decision-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

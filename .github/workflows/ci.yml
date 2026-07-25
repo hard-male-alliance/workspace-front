@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+# OAuth public client ID 会嵌入 CI 构建制品；它不是凭据，生产发布流程必须覆盖为已登记 ID。
+env:
+  AI_JOB_WORKSPACE_OAUTH_CLIENT_ID: workspace-desktop-ci
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

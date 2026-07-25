@@ -16,12 +16,19 @@ describe('application i18n', () => {
     expect(appI18n.t('nav.workspace')).toBe('工作台')
     expect(appI18n.t('template.settings.accentStyle.warm')).toBe('暖棕')
     expect(appI18n.t('knowledge.status.fetching')).toBe('正在获取')
+    expect(appI18n.t('knowledge.v2SourceLibraryTitle')).toBe('知识来源')
+    expect(appI18n.t('knowledge.create.title')).toBe('新建手工笔记来源')
+    expect(appI18n.t('knowledge.edit.recoveryTitle')).toBe('必须先读取最新权威来源')
+    expect(appI18n.t('visibility.regions.private_deployment')).toBe('私有部署')
+    expect(appI18n.t('visibility.operations.write_back')).toBe('写回来源')
+    expect(appI18n.t('knowledge.create.validation.content-required')).toBe('请输入笔记正文。')
     expect(appI18n.t('common.backHome')).toBe('返回工作台')
     expect(appI18n.t('resume.workspace.pdfFrameTitle')).toBe('简历 PDF 预览')
     expect(appI18n.t('resume.semanticPreviewAria')).toBe('简历语义内容预览')
     expect(appI18n.t('resume.workspace.previewWindow')).toBe('预览')
     expect(appI18n.t('resume.workspace.semanticPreviewRegion')).toBe('语义内容预览')
-    expect(appI18n.t('template.layoutIllustration')).toBe('版式示意（非最终模板预览）')
+    expect(appI18n.t('resume.output.title')).toBe('生成与导出')
+    expect(appI18n.t('resume.output.abandonWarning')).toContain('不会取消服务端')
     expect(appI18n.t('errors.authenticationRequired')).toBe(
       '此内容需要登录，但当前应用尚未接通身份认证。请联系管理员完成配置。'
     )
@@ -46,14 +53,21 @@ describe('application i18n', () => {
     expect(appI18n.t('nav.workspace')).toBe('Workspace')
     expect(appI18n.t('template.settings.accentStyle.warm')).toBe('Warm')
     expect(appI18n.t('knowledge.status.fetching')).toBe('Fetching')
+    expect(appI18n.t('knowledge.v2SourceLibraryTitle')).toBe('Knowledge sources')
+    expect(appI18n.t('knowledge.create.title')).toBe('Create a manual-note source')
+    expect(appI18n.t('knowledge.edit.recoveryTitle')).toBe(
+      'Read the latest authoritative source first'
+    )
+    expect(appI18n.t('visibility.regions.private_deployment')).toBe('Private deployment')
+    expect(appI18n.t('visibility.operations.write_back')).toBe('Write back to source')
+    expect(appI18n.t('knowledge.create.validation.content-required')).toBe('Enter the note body.')
     expect(appI18n.t('common.backHome')).toBe('Back to workspace')
     expect(appI18n.t('resume.workspace.pdfFrameTitle')).toBe('Resume PDF preview')
     expect(appI18n.t('resume.semanticPreviewAria')).toBe('Resume semantic-content preview')
     expect(appI18n.t('resume.workspace.previewWindow')).toBe('Preview')
     expect(appI18n.t('resume.workspace.semanticPreviewRegion')).toBe('Semantic-content preview')
-    expect(appI18n.t('template.layoutIllustration')).toBe(
-      'Layout illustration (not the final template preview)'
-    )
+    expect(appI18n.t('resume.output.title')).toBe('Generate and export')
+    expect(appI18n.t('resume.output.abandonWarning')).toContain('does not cancel')
     expect(appI18n.t('errors.authenticationRequired')).toBe(
       'This content requires sign-in, but authentication is not connected in this app. Contact an administrator to finish setup.'
     )

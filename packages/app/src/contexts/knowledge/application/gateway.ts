@@ -1,27 +1,44 @@
-/** @file Knowledge 应用端口 / Knowledge application port. */
+/** @file KnowledgeSource 应用端口 / KnowledgeSource application port. */
 
-import type { UiKnowledgeSourceId, UiWorkspaceId } from '../../../shared-kernel/identity'
-import type { UiKnowledgeVisibilityUpdateInput } from './commands'
-import type { UiKnowledgeSource, UiKnowledgeVisibilityModel } from '../domain/models'
+import type {
+  UiCreateManualKnowledgeNoteCommand,
+  UiKnowledgeSourcePageRead,
+  UiKnowledgeSourceRead,
+  UiUpdateKnowledgeSourceCommand
+} from './commands'
+import type { UiKnowledgeSourceAuthority, UiKnowledgeSourcePage } from '../domain/models'
 
-/** @brief 知识库与可见性页面数据端口 / Knowledge and visibility page-data port. */
+/** @brief Workspace-scoped KnowledgeSource 查询与命令端口 / Workspace-scoped KnowledgeSource query and command port. */
 export interface KnowledgeGateway {
   /**
-   * @brief 列出工作区知识来源 / List workspace knowledge sources.
-   * @param workspaceId 工作区 ID / Workspace ID.
-   * @return 知识来源展示模型列表 / Knowledge-source display models.
+   * @brief 读取一页 KnowledgeSource / Read one page of KnowledgeSources.
+   * @param input Workspace、cursor、页大小与取消信号 / Workspace, cursor, page limit, and cancellation signal.
+   * @return 保留服务端 cursor 关系的单页 / One page preserving the server cursor relation.
    */
-  listKnowledgeSources(workspaceId: UiWorkspaceId): Promise<readonly UiKnowledgeSource[]>
+  listKnowledgeSourcePage(input: UiKnowledgeSourcePageRead): Promise<UiKnowledgeSourcePage>
 
   /**
-   * @brief 获取知识可见性设置页数据 / Get knowledge-visibility settings page data.
-   * @param sourceId 知识来源 ID / Knowledge source ID.
-   * @return 知识可见性页面模型 / Knowledge-visibility page model.
+   * @brief 读取带强 ETag 的单个 KnowledgeSource / Read one KnowledgeSource carrying a strong ETag.
+   * @param input Workspace、source identity 与取消信号 / Workspace, source identity, and cancellation signal.
+   * @return 来源与同一响应的强并发令牌 / Source and strong concurrency token from the same response.
    */
-  getKnowledgeVisibility(sourceId: UiKnowledgeSourceId): Promise<UiKnowledgeVisibilityModel>
+  getKnowledgeSource(input: UiKnowledgeSourceRead): Promise<UiKnowledgeSourceAuthority>
 
-  /** @brief 以乐观并发控制保存知识可见性策略 / Save a knowledge-visibility policy with optimistic concurrency control. */
-  updateKnowledgeVisibility(
-    input: UiKnowledgeVisibilityUpdateInput
-  ): Promise<UiKnowledgeVisibilityModel>
+  /**
+   * @brief 创建手工笔记来源 / Create a manual-note source.
+   * @param command 稳定幂等命令 / Stable idempotent command.
+   * @return 新来源与创建响应的强 ETag / New source and strong ETag from the creation response.
+   */
+  createManualKnowledgeNote(
+    command: UiCreateManualKnowledgeNoteCommand
+  ): Promise<UiKnowledgeSourceAuthority>
+
+  /**
+   * @brief 以强 If-Match 更新名称和/或完整策略 / Update the name and/or complete policy with strong If-Match.
+   * @param command Workspace-scoped conditional command / Workspace-scoped conditional command.
+   * @return 更新后来源与下一强 ETag / Updated source and next strong ETag.
+   */
+  updateKnowledgeSource(
+    command: UiUpdateKnowledgeSourceCommand
+  ): Promise<UiKnowledgeSourceAuthority>
 }

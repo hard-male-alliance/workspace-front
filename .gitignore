@@ -15,6 +15,7 @@ release/
 
 # Tooling / 工具缓存
 .vite/
+.pytest_cache/
 *.tsbuildinfo
 
 # OS and editor files / 操作系统与编辑器文件

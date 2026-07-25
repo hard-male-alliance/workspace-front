@@ -1,13 +1,18 @@
 /** @file Resume 限界上下文的确定性内存数据 / Deterministic in-memory data for the Resume bounded context. */
 
+import {
+  asUiResumePartialDate,
+  type UiResumeDocument,
+  type UiResumeEditorModel
+} from '../../domain/document'
+import type { UiResumeProposal, UiResumeRevision } from '../../domain/review'
 import type {
-  UiResumeCard,
-  UiResumeDocument,
-  UiResumeEditorModel,
+  UiResumeSummary,
   UiTemplateManifest,
   UiTemplateSettingsModel
 } from '../../domain/models'
 import { asUiOpaqueId } from '../../../../shared-kernel/identity'
+import { asUiConcurrencyToken } from '../../../../shared-kernel/concurrency'
 
 /** @brief Resume fixture 所属工作区 ID / Workspace ID owned by Resume fixtures. */
 export const MOCK_RESUME_WORKSPACE_ID = asUiOpaqueId<'workspace'>('ws_mock_klee_career_lab')
@@ -35,21 +40,37 @@ export const MOCK_PROJECT_SECTION_ID = asUiOpaqueId<'resume-section'>('sec_mock_
 /** @brief Mock 简历区段 ID：技能 / Mock resume skills-section ID. */
 export const MOCK_SKILLS_SECTION_ID = asUiOpaqueId<'resume-section'>('sec_mock_skills')
 
+/** @brief Mock 经历条目 ID：AI 平台工程师 / Mock experience-item ID: AI platform engineer. */
+export const MOCK_PLATFORM_ENGINEER_ITEM_ID = asUiOpaqueId<'resume-item'>(
+  'itm_mock_platform_engineer'
+)
+
+/** @brief 包含重复 operation ID 组的待审 Proposal / Pending Proposal containing a duplicate-operation-ID group. */
+export const MOCK_GROUPED_RESUME_PROPOSAL_ID = asUiOpaqueId<'resume-proposal'>(
+  'proposal_mock_platform_impact'
+)
+
+/** @brief 调整项目顺序的待审 Proposal / Pending Proposal for reordering the project section. */
+export const MOCK_MOVE_RESUME_PROPOSAL_ID = asUiOpaqueId<'resume-proposal'>(
+  'proposal_mock_project_priority'
+)
+
 /** @brief Mock 主模板清单 / Mock primary template manifest. */
 export const MOCK_DAWN_TEMPLATE: UiTemplateManifest = {
   id: MOCK_DAWN_TEMPLATE_ID,
   version: '1.0.0',
   name: 'Dawn',
   description: '温暖、紧凑且适合技术求职的单栏模板。',
+  previewUrl: 'https://api.hmalliances.org:8022/api/v2/resume-templates/tpl_mock_dawn/preview',
   supportedLocales: ['zh-SG', 'en-US'],
   supportedOutputFormats: ['pdf'],
   supportedPageSizes: ['A4', 'LETTER'],
-  supportedSectionKinds: ['summary', 'experience', 'education', 'projects', 'skills', 'custom'],
+  supportedSectionKinds: ['experience', 'education', 'projects', 'skills', 'custom'],
   zones: [
     {
       id: 'main',
       labelKey: 'template.zoneMain',
-      acceptedSectionKinds: ['summary', 'experience', 'education', 'projects', 'skills', 'custom'],
+      acceptedSectionKinds: ['experience', 'education', 'projects', 'skills', 'custom'],
       maxSections: null
     },
     {
@@ -120,7 +141,8 @@ export const MOCK_DAWN_TEMPLATE: UiTemplateManifest = {
     supportsCustomSections: true,
     supportsSourceMap: true,
     maxColumns: 2
-  }
+  },
+  publishedAt: '2026-07-01T00:00:00.000Z'
 }
 
 /** @brief Mock 备选模板清单 / Mock alternate template manifest. */
@@ -129,28 +151,29 @@ export const MOCK_EDITORIAL_TEMPLATE: UiTemplateManifest = {
   version: '1.0.0',
   name: 'Editorial',
   description: '强调项目叙事与阅读节奏的单栏模板。',
+  previewUrl: 'https://api.hmalliances.org:8022/api/v2/resume-templates/tpl_mock_editorial/preview',
   supportedLocales: ['zh-SG', 'en-US'],
   supportedOutputFormats: ['pdf'],
   supportedPageSizes: ['A4', 'LETTER', 'LEGAL'],
   supportedSectionKinds: [
-    'summary',
     'experience',
     'education',
     'projects',
     'skills',
-    'publications'
+    'publications',
+    'custom'
   ],
   zones: [
     {
       id: 'main',
       labelKey: 'template.zoneMain',
       acceptedSectionKinds: [
-        'summary',
         'experience',
         'education',
         'projects',
         'skills',
-        'publications'
+        'publications',
+        'custom'
       ],
       maxSections: null
     }
@@ -179,7 +202,8 @@ export const MOCK_EDITORIAL_TEMPLATE: UiTemplateManifest = {
     supportsCustomSections: false,
     supportsSourceMap: true,
     maxColumns: 1
-  }
+  },
+  publishedAt: '2026-07-02T00:00:00.000Z'
 }
 
 /** @brief 所有 Mock 模板清单 / All Mock template manifests. */
@@ -201,10 +225,23 @@ export const MOCK_TEMPLATE_MANIFEST_VERSIONS: readonly UiTemplateManifest[] = [
   MOCK_HISTORICAL_DAWN_TEMPLATE
 ]
 
+/** @brief 与 Mock Resume 初始表示原子配对的强 ETag / Strong ETag atomically paired with the initial Mock Resume representation. */
+export const MOCK_RESUME_CONCURRENCY_TOKEN = asUiConcurrencyToken('"resume-memory-initial"')
+
+/**
+ * @brief 构造无 marks 的 Mock 富文本 / Build Mock rich text without marks.
+ * @param text 纯文本正文 / Plain-text body.
+ * @return 保留正式 RichText 结构的测试值 / Test value preserving the formal RichText shape.
+ */
+function richText(text: string): { readonly text: string; readonly marks: readonly [] } {
+  return { marks: [], text }
+}
+
 /** @brief Mock 简历文档 / Mock resume document. */
 export const MOCK_RESUME_DOCUMENT: UiResumeDocument = {
   id: MOCK_RESUME_ID,
   workspaceId: MOCK_RESUME_WORKSPACE_ID,
+  createdAt: '2026-07-01T02:00:00.000Z',
   revision: 18,
   title: 'AI 平台工程师 · 中文简历',
   locale: 'zh-SG',
@@ -215,20 +252,40 @@ export const MOCK_RESUME_DOCUMENT: UiResumeDocument = {
   profile: {
     fullName: 'Klee Chen',
     headline: 'AI Platform Engineer · Distributed Systems',
-    summary: '面向生产环境构建可靠的 AI 平台与开发者工具，专注检索、推理编排和可观测性。',
+    summary: richText('面向生产环境构建可靠的 AI 平台与开发者工具，专注检索、推理编排和可观测性。'),
     contacts: [
-      { kind: 'email', label: '邮箱', value: 'klee@example.com' },
-      { kind: 'github', label: 'GitHub', value: 'github.com/klee-lab' },
-      { kind: 'location', label: '地点', value: 'Singapore' }
+      {
+        id: asUiOpaqueId<'resume-contact'>('contact_mock_email'),
+        kind: 'email',
+        label: '邮箱',
+        url: 'mailto:klee@example.com',
+        value: 'klee@example.com'
+      },
+      {
+        id: asUiOpaqueId<'resume-contact'>('contact_mock_github'),
+        kind: 'github',
+        label: 'GitHub',
+        url: 'https://github.com/klee-lab',
+        value: 'github.com/klee-lab'
+      },
+      {
+        id: asUiOpaqueId<'resume-contact'>('contact_mock_location'),
+        kind: 'location',
+        label: '地点',
+        url: null,
+        value: 'Singapore'
+      }
     ]
   },
   sections: [
     {
       id: MOCK_SUMMARY_SECTION_ID,
-      kind: 'summary',
+      kind: 'custom',
       title: '职业摘要',
       visible: true,
-      contentPreview: '面向生产环境构建可靠的 AI 平台与开发者工具，专注检索、推理编排和可观测性。',
+      content: richText(
+        '面向生产环境构建可靠的 AI 平台与开发者工具，专注检索、推理编排和可观测性。'
+      ),
       items: []
     },
     {
@@ -236,31 +293,42 @@ export const MOCK_RESUME_DOCUMENT: UiResumeDocument = {
       kind: 'experience',
       title: '工作经历',
       visible: true,
-      contentPreview: null,
+      content: null,
       items: [
         {
-          id: 'itm_mock_platform_engineer',
+          id: MOCK_PLATFORM_ENGINEER_ITEM_ID,
           kind: 'experience',
           title: 'AI 平台工程师',
-          subtitle: 'Arcadia Systems',
-          dateLabel: '2023.03 — 至今',
-          locationLabel: 'Singapore',
+          subtitle: null,
+          organization: 'Arcadia Systems',
+          location: 'Singapore',
+          dateRange: { end: 'present', start: asUiResumePartialDate('2023-03') },
+          summary: null,
           highlights: [
-            '设计多租户 Agent 运行时，将在线推理 p95 延迟降低 31%。',
-            '建立端到端可观测性与评估闭环，缩短生产问题定位时间。'
+            richText('设计多租户 Agent 运行时，将在线推理 p95 延迟降低 31%。'),
+            richText('建立端到端可观测性与评估闭环，缩短生产问题定位时间。')
           ],
+          skills: ['TypeScript', 'Python', 'Kubernetes'],
           tags: ['TypeScript', 'Python', 'Kubernetes'],
+          url: null,
           visible: true
         },
         {
-          id: 'itm_mock_backend_engineer',
+          id: asUiOpaqueId<'resume-item'>('itm_mock_backend_engineer'),
           kind: 'experience',
           title: '后端工程师',
-          subtitle: 'Northwind Labs',
-          dateLabel: '2020.07 — 2023.02',
-          locationLabel: 'Shanghai',
-          highlights: ['负责高并发 API 网关与异步任务平台的演进。'],
+          subtitle: null,
+          organization: 'Northwind Labs',
+          location: 'Shanghai',
+          dateRange: {
+            end: asUiResumePartialDate('2023-02'),
+            start: asUiResumePartialDate('2020-07')
+          },
+          summary: null,
+          highlights: [richText('负责高并发 API 网关与异步任务平台的演进。')],
+          skills: ['Go', 'PostgreSQL'],
           tags: ['Go', 'PostgreSQL'],
+          url: null,
           visible: true
         }
       ]
@@ -270,20 +338,27 @@ export const MOCK_RESUME_DOCUMENT: UiResumeDocument = {
       kind: 'projects',
       title: '代表项目',
       visible: true,
-      contentPreview: null,
+      content: null,
       items: [
         {
-          id: 'itm_mock_resume_workspace',
+          id: asUiOpaqueId<'resume-item'>('itm_mock_resume_workspace'),
           kind: 'project',
           title: 'AI 求职 Workspace',
           subtitle: '个人项目',
-          dateLabel: '2026',
-          locationLabel: null,
+          organization: null,
+          location: null,
+          dateRange: {
+            end: asUiResumePartialDate('2026'),
+            start: asUiResumePartialDate('2026')
+          },
+          summary: richText('面向求职全过程的本地优先 Workspace。'),
           highlights: [
-            '以语义中间表示驱动简历编辑、PDF 渲染与 Agent proposal 审批。',
-            '设计默认拒绝的个人知识可见性模型。'
+            richText('以语义中间表示驱动简历编辑、PDF 渲染与 Agent proposal 审批。'),
+            richText('设计默认拒绝的个人知识可见性模型。')
           ],
+          skills: ['React', 'Electron', 'WebRTC'],
           tags: ['React', 'Electron', 'WebRTC'],
+          url: 'https://example.com/klee/resume-workspace',
           visible: true
         }
       ]
@@ -293,17 +368,25 @@ export const MOCK_RESUME_DOCUMENT: UiResumeDocument = {
       kind: 'skills',
       title: '技能',
       visible: true,
-      contentPreview: null,
+      content: null,
       items: [
         {
-          id: 'itm_mock_core_skills',
+          id: asUiOpaqueId<'resume-item'>('itm_mock_core_skills'),
           kind: 'skill_group',
           title: '核心能力',
           subtitle: null,
-          dateLabel: null,
-          locationLabel: null,
-          highlights: ['分布式系统', 'LLM 应用工程', '数据与可观测性'],
+          organization: null,
+          location: null,
+          dateRange: null,
+          summary: null,
+          highlights: [
+            richText('分布式系统'),
+            richText('LLM 应用工程'),
+            richText('数据与可观测性')
+          ],
+          skills: ['Python', 'TypeScript', 'React', 'PostgreSQL'],
           tags: ['Python', 'TypeScript', 'React', 'PostgreSQL'],
+          url: null,
           visible: true
         }
       ]
@@ -387,34 +470,238 @@ export const MOCK_RESUME_DOCUMENT: UiResumeDocument = {
   updatedAt: '2026-07-15T03:56:00.000Z'
 }
 
-/** @brief Mock 简历卡片 / Mock resume cards. */
-export const MOCK_RESUME_CARDS: readonly UiResumeCard[] = [
+/** @brief Mock 创建者资源引用 / Mock creator resource reference. */
+const MOCK_RESUME_CREATOR_REF = {
+  id: 'user_mock_klee',
+  resourceType: 'user',
+  revision: 3
+} as const
+
+/** @brief Mock Agent 资源引用 / Mock Agent resource reference. */
+const MOCK_RESUME_AGENT_REF = {
+  id: 'agent_mock_career_editor',
+  resourceType: 'agent',
+  revision: 7
+} as const
+
+/** @brief 当前 revision 之前一次聚焦经历的完整历史 SIR / Complete historical SIR before the current impact-focused revision. */
+const MOCK_RESUME_REVISION_17_DOCUMENT: UiResumeDocument = {
+  ...MOCK_RESUME_DOCUMENT,
+  profile: {
+    ...MOCK_RESUME_DOCUMENT.profile,
+    headline: 'AI Platform Engineer'
+  },
+  revision: 17,
+  title: 'AI 平台工程师',
+  updatedAt: '2026-07-12T09:32:00.000Z'
+}
+
+/** @brief 更早使用历史模板版本的完整历史 SIR / Earlier complete historical SIR using a historical template version. */
+const MOCK_RESUME_REVISION_14_DOCUMENT: UiResumeDocument = {
+  ...MOCK_RESUME_REVISION_17_DOCUMENT,
+  revision: 14,
+  template: {
+    templateId: MOCK_HISTORICAL_DAWN_TEMPLATE.id,
+    templateVersion: MOCK_HISTORICAL_DAWN_TEMPLATE.version
+  },
+  title: '平台工程师 · 求职草稿',
+  updatedAt: '2026-07-08T05:10:00.000Z'
+}
+
+/** @brief 按最新优先排序的不可变 Resume revision fixtures / Immutable Resume revision fixtures ordered newest first. */
+export const MOCK_RESUME_REVISIONS: readonly UiResumeRevision[] = [
   {
-    id: MOCK_RESUME_DOCUMENT.id,
-    title: MOCK_RESUME_DOCUMENT.title,
-    templateName: MOCK_DAWN_TEMPLATE.name,
-    revision: MOCK_RESUME_DOCUMENT.revision,
-    updatedAt: MOCK_RESUME_DOCUMENT.updatedAt
+    createdAt: MOCK_RESUME_DOCUMENT.updatedAt,
+    createdBy: MOCK_RESUME_CREATOR_REF,
+    document: MOCK_RESUME_DOCUMENT,
+    resumeId: MOCK_RESUME_ID,
+    revision: MOCK_RESUME_DOCUMENT.revision
   },
   {
+    createdAt: MOCK_RESUME_REVISION_17_DOCUMENT.updatedAt,
+    createdBy: MOCK_RESUME_AGENT_REF,
+    document: MOCK_RESUME_REVISION_17_DOCUMENT,
+    resumeId: MOCK_RESUME_ID,
+    revision: MOCK_RESUME_REVISION_17_DOCUMENT.revision
+  },
+  {
+    createdAt: MOCK_RESUME_REVISION_14_DOCUMENT.updatedAt,
+    createdBy: MOCK_RESUME_CREATOR_REF,
+    document: MOCK_RESUME_REVISION_14_DOCUMENT,
+    resumeId: MOCK_RESUME_ID,
+    revision: MOCK_RESUME_REVISION_14_DOCUMENT.revision
+  }
+]
+
+/** @brief Resume Proposal fixtures，覆盖待审与终态 / Resume Proposal fixtures covering pending and terminal states. */
+export const MOCK_RESUME_PROPOSALS: readonly UiResumeProposal[] = [
+  {
+    baseRevision: MOCK_RESUME_DOCUMENT.revision,
+    createdAt: '2026-07-15T04:00:00.000Z',
+    evidenceRefs: [
+      {
+        id: MOCK_RESUME_KNOWLEDGE_SOURCE_ID,
+        resourceType: 'knowledge-source',
+        revision: 12
+      },
+      {
+        id: 'artifact_mock_career_evidence',
+        resourceType: 'artifact',
+        revision: 1
+      }
+    ],
+    id: MOCK_GROUPED_RESUME_PROPOSAL_ID,
+    operations: [
+      {
+        entityId: MOCK_RESUME_ID,
+        fieldPath: ['title'],
+        kind: 'set-field',
+        operationId: asUiOpaqueId<'resume-proposal-operation'>('proposal_operation_impact_group'),
+        value: '高级 AI 平台工程师 · 分布式系统'
+      },
+      {
+        entityId: MOCK_PLATFORM_ENGINEER_ITEM_ID,
+        fieldPath: ['summary'],
+        kind: 'set-field',
+        operationId: asUiOpaqueId<'resume-proposal-operation'>('proposal_operation_impact_group'),
+        value: {
+          marks: [],
+          text: '负责多租户 Agent 平台的架构、上线与可靠性治理。'
+        }
+      },
+      {
+        entityId: MOCK_RESUME_ID,
+        fieldPath: ['profile', 'headline'],
+        kind: 'set-field',
+        operationId: asUiOpaqueId<'resume-proposal-operation'>('proposal_operation_headline'),
+        value: 'Senior AI Platform Engineer · Reliable Agent Systems'
+      }
+    ],
+    resumeId: MOCK_RESUME_ID,
+    revision: 2,
+    status: 'pending',
+    title: '突出平台影响力与生产可靠性',
+    updatedAt: '2026-07-15T04:02:00.000Z',
+    workspaceId: MOCK_RESUME_WORKSPACE_ID
+  },
+  {
+    baseRevision: MOCK_RESUME_DOCUMENT.revision,
+    createdAt: '2026-07-15T03:58:00.000Z',
+    evidenceRefs: [],
+    id: MOCK_MOVE_RESUME_PROPOSAL_ID,
+    operations: [
+      {
+        afterId: MOCK_SUMMARY_SECTION_ID,
+        entityId: MOCK_PROJECT_SECTION_ID,
+        entityKind: 'section',
+        kind: 'move-entity',
+        operationId: asUiOpaqueId<'resume-proposal-operation'>(
+          'proposal_operation_prioritize_projects'
+        ),
+        parentId: null
+      }
+    ],
+    resumeId: MOCK_RESUME_ID,
+    revision: 1,
+    status: 'pending',
+    title: '把代表项目提前到工作经历之前',
+    updatedAt: '2026-07-15T03:58:00.000Z',
+    workspaceId: MOCK_RESUME_WORKSPACE_ID
+  },
+  {
+    baseRevision: 17,
+    createdAt: '2026-07-14T08:00:00.000Z',
+    evidenceRefs: [{ id: 'knowledge_item_mock_role', resourceType: 'knowledge-item' }],
+    id: asUiOpaqueId<'resume-proposal'>('proposal_mock_accepted_headline'),
+    operations: [
+      {
+        entityId: MOCK_RESUME_ID,
+        fieldPath: ['profile', 'headline'],
+        kind: 'set-field',
+        operationId: asUiOpaqueId<'resume-proposal-operation'>(
+          'proposal_operation_accepted_headline'
+        ),
+        value: MOCK_RESUME_DOCUMENT.profile.headline
+      }
+    ],
+    resumeId: MOCK_RESUME_ID,
+    revision: 2,
+    status: 'accepted',
+    title: '补充分布式系统方向',
+    updatedAt: '2026-07-14T08:05:00.000Z',
+    workspaceId: MOCK_RESUME_WORKSPACE_ID
+  },
+  {
+    baseRevision: 14,
+    createdAt: '2026-07-10T06:30:00.000Z',
+    evidenceRefs: [],
+    id: asUiOpaqueId<'resume-proposal'>('proposal_mock_rejected_template'),
+    operations: [
+      {
+        kind: 'set-template',
+        operationId: asUiOpaqueId<'resume-proposal-operation'>(
+          'proposal_operation_rejected_template'
+        ),
+        settings: { show_rule: true },
+        template: {
+          templateId: MOCK_EDITORIAL_TEMPLATE_ID,
+          templateVersion: MOCK_EDITORIAL_TEMPLATE.version
+        }
+      }
+    ],
+    resumeId: MOCK_RESUME_ID,
+    revision: 3,
+    status: 'rejected',
+    title: '切换为 Editorial 模板',
+    updatedAt: '2026-07-10T06:36:00.000Z',
+    workspaceId: MOCK_RESUME_WORKSPACE_ID
+  }
+]
+
+/** @brief Mock API v2 ResumeSummary 投影 / Mock API v2 ResumeSummary projections. */
+export const MOCK_RESUME_SUMMARIES: readonly UiResumeSummary[] = [
+  {
+    createdAt: '2026-07-01T02:00:00.000Z',
+    id: MOCK_RESUME_DOCUMENT.id,
+    locale: MOCK_RESUME_DOCUMENT.locale,
+    revision: MOCK_RESUME_DOCUMENT.revision,
+    templateId: MOCK_RESUME_DOCUMENT.template.templateId,
+    templateVersion: MOCK_RESUME_DOCUMENT.template.templateVersion,
+    title: MOCK_RESUME_DOCUMENT.title,
+    updatedAt: MOCK_RESUME_DOCUMENT.updatedAt,
+    workspaceId: MOCK_RESUME_DOCUMENT.workspaceId
+  },
+  {
+    createdAt: '2026-07-03T08:12:00.000Z',
     id: asUiOpaqueId<'resume'>('res_mock_english'),
-    title: 'AI Platform Engineer · EN',
-    templateName: MOCK_EDITORIAL_TEMPLATE.name,
+    locale: 'en-US',
     revision: 7,
-    updatedAt: '2026-07-10T10:30:00.000Z'
+    templateId: MOCK_EDITORIAL_TEMPLATE.id,
+    templateVersion: MOCK_EDITORIAL_TEMPLATE.version,
+    title: 'AI Platform Engineer · EN',
+    updatedAt: '2026-07-10T10:30:00.000Z',
+    workspaceId: MOCK_RESUME_WORKSPACE_ID
   }
 ]
 
 /** @brief Mock 简历编辑器数据 / Mock resume-editor data. */
 export const MOCK_RESUME_EDITOR: UiResumeEditorModel = {
+  concurrencyToken: MOCK_RESUME_CONCURRENCY_TOKEN,
   resume: MOCK_RESUME_DOCUMENT
 }
 
 /** @brief Mock 模板设置数据 / Mock template-settings data. */
 export const MOCK_TEMPLATE_SETTINGS: UiTemplateSettingsModel = {
+  concurrencyToken: MOCK_RESUME_CONCURRENCY_TOKEN,
+  locale: MOCK_RESUME_DOCUMENT.locale,
   resumeId: MOCK_RESUME_ID,
   resumeRevision: MOCK_RESUME_DOCUMENT.revision,
+  sections: MOCK_RESUME_DOCUMENT.sections.map((section) => ({
+    id: section.id,
+    kind: section.kind
+  })),
   selectedTemplate: MOCK_DAWN_TEMPLATE,
   availableTemplates: MOCK_TEMPLATE_MANIFESTS,
-  styleIntent: MOCK_RESUME_DOCUMENT.styleIntent
+  styleIntent: MOCK_RESUME_DOCUMENT.styleIntent,
+  workspaceId: MOCK_RESUME_WORKSPACE_ID
 }

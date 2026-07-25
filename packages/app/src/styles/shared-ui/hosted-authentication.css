@@ -1,0 +1,139 @@
+.aw-hosted-auth-shell {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 32px 18px;
+  background: radial-gradient(circle at 18% 10%, rgb(185 145 88 / 12%), transparent 36%), #f6f3ee;
+  color: #26231f;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
+}
+
+.aw-hosted-auth-card {
+  width: min(100%, 440px);
+  padding: 38px;
+  border: 1px solid #dcd4c9;
+  border-radius: 20px;
+  background: rgb(255 255 255 / 92%);
+  box-shadow: 0 20px 60px rgb(57 46 32 / 10%);
+}
+
+.aw-hosted-auth-mark {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  margin-bottom: 22px;
+  border-radius: 12px;
+  background: #7a4d20;
+  color: #fffaf3;
+  font-family: Georgia, serif;
+  font-size: 24px;
+}
+
+.aw-hosted-auth-eyebrow {
+  margin: 0 0 10px;
+  color: #7a6d5e;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.aw-hosted-auth-card h1 {
+  margin: 0;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(28px, 6vw, 38px);
+  font-weight: 500;
+  letter-spacing: -0.025em;
+  line-height: 1.08;
+}
+
+.aw-hosted-auth-description {
+  margin: 18px 0 26px;
+  color: #655d53;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.aw-hosted-auth-error {
+  display: grid;
+  gap: 5px;
+  margin: 0 0 20px;
+  padding: 13px 14px;
+  border: 1px solid #d6a29a;
+  border-radius: 10px;
+  background: #fff3f1;
+  color: #7b3026;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.aw-hosted-auth-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.aw-hosted-auth-primary,
+.aw-hosted-auth-secondary,
+.aw-hosted-auth-recovery {
+  min-height: 44px;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.aw-hosted-auth-primary {
+  border: 1px solid #684019;
+  background: #7a4d20;
+  color: #fff;
+}
+
+.aw-hosted-auth-secondary {
+  border: 1px solid #d4cabc;
+  background: #fff;
+  color: #443b31;
+}
+
+.aw-hosted-auth-recovery {
+  width: 100%;
+  min-height: 36px;
+  margin-top: 12px;
+  border: 0;
+  background: transparent;
+  color: #74512d;
+  font-weight: 600;
+}
+
+.aw-hosted-auth-primary:focus-visible,
+.aw-hosted-auth-secondary:focus-visible,
+.aw-hosted-auth-recovery:focus-visible {
+  outline: 3px solid rgb(122 77 32 / 24%);
+  outline-offset: 2px;
+}
+
+.aw-hosted-auth-primary:disabled,
+.aw-hosted-auth-secondary:disabled,
+.aw-hosted-auth-recovery:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+@media (max-width: 520px) {
+  .aw-hosted-auth-card {
+    padding: 28px 22px;
+  }
+
+  .aw-hosted-auth-actions {
+    grid-template-columns: 1fr;
+  }
+}

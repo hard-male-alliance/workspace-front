@@ -1,4 +1,5 @@
 import type { DiagnosticsConfigurationErrorReason } from './diagnostics'
+import type { DesktopAuthenticationBridge } from './desktop-authentication'
 import type { ArtifactSavePort } from './artifact-save'
 
 /**
@@ -43,12 +44,16 @@ export type RuntimeInfo = ElectronRuntimeInfo | WebRuntimeInfo
  *
  * @note 此接口刻意不暴露 Node.js、Electron IPC 或文件系统对象。
  */
-export interface PlatformBridge extends ArtifactSavePort {
+export interface PlatformBridge {
   /**
    * @brief 获取经过主进程确认的运行时信息 / Get runtime information verified by the main process.
    * @return 异步返回最小运行时信息 / A promise for minimal runtime information.
    */
   readonly getRuntimeInfo: () => Promise<RuntimeInfo>
+  /** @brief 仅 Electron main 可兑现的封闭认证能力 / Closed authentication capability fulfilled only by Electron main. */
+  readonly authentication: DesktopAuthenticationBridge
+  /** @brief 仅 Electron main 可兑现的原生产物保存能力 / Native artifact-save capability fulfilled only by Electron main. */
+  readonly artifactSave: ArtifactSavePort
 }
 
 /** @brief 运行时信息 IPC 通道 / Runtime information IPC channel. */

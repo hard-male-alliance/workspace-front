@@ -1,5 +1,7 @@
 /** @file 页面资源失败的安全用户语义 / Safe user semantics for page-resource failures. */
 
+import { ConfirmedCommandConflictError } from '../shared-kernel/application-error'
+
 /** @brief 页面可恢复失败类别 / Recoverable page-failure categories. */
 export type ResourceFailureKind =
   | 'authentication-required'
@@ -23,6 +25,22 @@ export interface ResourceFailure {
   readonly retryable: boolean
   /** @brief 可安全展示的后端关联编号 / Backend correlation identifier safe to display. */
   readonly referenceId: string | null
+}
+
+/**
+ * @brief 判断失败是否为不代表资源 revision 冲突的幂等状态 / Determine whether a failure is an idempotency state rather than a resource-revision conflict.
+ * @param error 待检查的应用错误 / Application error to inspect.
+ * @return 已验证 API v2 in-progress 或 key-reused Problem 时为 true / True for a validated API v2 in-progress or key-reused Problem.
+ */
+function isCommandIdempotencyConflict(error: unknown): boolean {
+  if (!isRecord(error) || error.name !== 'ApiV2ProblemError' || !isRecord(error.problem)) {
+    return false
+  }
+  return (
+    error.problem.status === 409 &&
+    (error.problem.code === 'idempotency.in_progress' ||
+      error.problem.code === 'idempotency.key_reused')
+  )
 }
 
 /**
@@ -78,41 +96,81 @@ function classifyHttpStatus(
  * @note 后端 title、detail、URL、字段值和响应正文均不会进入此投影 / Backend titles, details, URLs, field values, and response bodies never enter this projection.
  */
 export function classifyResourceFailure(error: unknown): ResourceFailure {
+  if (error instanceof ConfirmedCommandConflictError) {
+    return { kind: 'conflict', referenceId: null, retryable: false }
+  }
   if (isRecord(error)) {
     /** @brief 技术错误的稳定名称 / Stable technical error name. */
     const name = typeof error.name === 'string' ? error.name : ''
 
-    if (name === 'HttpProblemError' && typeof error.status === 'number') {
-      return classifyHttpStatus(
-        error.status,
-        typeof error.retryable === 'boolean' ? error.retryable : false,
-        readReferenceId(error.requestId)
-      )
+    if (name === 'ApiV2AuthenticationRequiredError') {
+      return { kind: 'authentication-required', referenceId: null, retryable: false }
     }
-    if (name === 'HttpContractError') {
+    if (name === 'ApiV2ProblemError' && isRecord(error.problem)) {
+      /** @brief 已验证 API v2 Problem 的安全结构化投影 / Safe structured projection of a validated API v2 Problem. */
+      const problem = error.problem
+      if (typeof problem.status === 'number') {
+        return classifyHttpStatus(
+          problem.status,
+          typeof problem.retryable === 'boolean' ? problem.retryable : false,
+          readReferenceId(problem.request_id)
+        )
+      }
+    }
+    if (name === 'ApiV2ContractError') {
+      if (error.status === null) {
+        return { kind: 'invalid-request', referenceId: null, retryable: false }
+      }
       if (typeof error.status === 'number' && error.status >= 500) {
         return { kind: 'service-unavailable', referenceId: null, retryable: true }
       }
+      return { kind: 'invalid-response', referenceId: null, retryable: false }
+    }
+    if (name === 'ApiV2WriteOutcomeUnknownError') {
+      if (error.kind === 'contract' && typeof error.status === 'number') {
+        return {
+          kind: 'invalid-response',
+          referenceId: readReferenceId(error.requestId),
+          retryable: false
+        }
+      }
       return {
-        kind: 'invalid-response',
-        referenceId: null,
-        retryable: typeof error.status !== 'number' || error.status < 400
+        kind: 'outcome-unknown',
+        referenceId: readReferenceId(error.requestId),
+        retryable: false
       }
     }
-    if (name === 'HttpCommandOutcomeUnknownError') {
-      return { kind: 'outcome-unknown', referenceId: null, retryable: false }
+    if (name === 'ApiV2NetworkError') {
+      return error.kind === 'timeout'
+        ? { kind: 'service-unavailable', referenceId: null, retryable: true }
+        : { kind: 'network', referenceId: null, retryable: true }
+    }
+    if (name === 'ResumeCreationError') {
+      /** @brief 创建用例公开的稳定失败事实 / Stable failure fact published by the creation use case. */
+      const failure = isRecord(error.failure) ? error.failure : null
+      return failure?.kind === 'invalid-template-result' ||
+        failure?.kind === 'invalid-creation-result'
+        ? { kind: 'invalid-response', referenceId: null, retryable: false }
+        : { kind: 'invalid-request', referenceId: null, retryable: false }
+    }
+    if (name === 'ResumeRenderProcessError') {
+      return error.code === 'preview-too-large'
+        ? { kind: 'capability-unavailable', referenceId: null, retryable: false }
+        : { kind: 'invalid-response', referenceId: null, retryable: false }
+    }
+    if (name === 'ResumePdfPreviewError') {
+      return { kind: 'invalid-response', referenceId: null, retryable: false }
+    }
+    if (name === 'WebArtifactSaveError') {
+      if (error.code === 'artifact-too-large' || error.code === 'download-start-failed') {
+        return { kind: 'capability-unavailable', referenceId: null, retryable: false }
+      }
+      return error.code === 'artifact-not-downloadable'
+        ? { kind: 'invalid-request', referenceId: null, retryable: false }
+        : { kind: 'invalid-response', referenceId: null, retryable: false }
     }
     if (name.endsWith('CapabilityError')) {
       return { kind: 'capability-unavailable', referenceId: null, retryable: false }
-    }
-    if (name === 'ResumeOperationRejectedError') {
-      return typeof error.status === 'number'
-        ? classifyHttpStatus(
-            error.status,
-            typeof error.retryable === 'boolean' ? error.retryable : false,
-            null
-          )
-        : { kind: 'invalid-request', referenceId: null, retryable: false }
     }
     if (name === 'TimeoutError') {
       return { kind: 'service-unavailable', referenceId: null, retryable: true }
@@ -134,6 +192,9 @@ export function classifyResourceFailure(error: unknown): ResourceFailure {
  * Even when a 409/412 body violates ProblemDetails, the HTTP status is sufficient to prevent blind replay; user copy remains invalid-response and never trusts the invalid body.
  */
 export function requiresAuthorityReload(error: unknown): boolean {
+  if (error instanceof ConfirmedCommandConflictError) return false
+  if (isCommandIdempotencyConflict(error)) return false
+  if (isRecord(error) && error.name === 'ApiV2WriteOutcomeUnknownError') return true
   /** @brief 已脱敏的通用失败类别 / Sanitized general failure category. */
   const failure = classifyResourceFailure(error)
   if (failure.kind === 'conflict' || failure.kind === 'outcome-unknown') return true

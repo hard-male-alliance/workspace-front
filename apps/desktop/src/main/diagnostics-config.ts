@@ -2,6 +2,7 @@
 
 import { resolveDiagnosticsEndpointConfiguration } from '@ai-job-workspace/platform'
 import type { DiagnosticsConfigurationErrorReason } from '@ai-job-workspace/platform'
+import { API_V2_PRODUCTION_ORIGIN } from '@ai-job-workspace/product-api-v2'
 
 /** @brief 桌面进程可读取的诊断环境变量 / Diagnostics environment variables readable by the desktop process. */
 export interface DesktopDiagnosticsEnvironment {
@@ -49,22 +50,20 @@ export function resolveDesktopDiagnosticsConfiguration(
 /**
  * @brief 生成生产 Electron renderer 的 CSP / Build the production Electron-renderer CSP.
  * @param diagnostics 已由主进程验证的诊断配置 / Diagnostics configuration already validated by the main process.
- * @param apiOrigin 已由主进程验证的产品 API origin / Product API origin already validated by the main process.
  * @return 不使用通配符的最小 CSP / Minimal CSP without wildcards.
- * @note CSP 仅允许诊断 origin，而不是携带路径的 endpoint；PDF frame 只允许产品 API origin / CSP permits only the diagnostics origin, not a path-bearing endpoint; PDF frames are limited to the product API origin.
+ * @note CSP 仅允许诊断 origin，而不是携带路径的 endpoint；PDF frame 只允许已验证内存内容的 Blob URL / CSP permits only the diagnostics origin, not a path-bearing endpoint; PDF frames allow only Blob URLs backed by validated in-memory content.
  */
 export function createProductionContentSecurityPolicy(
-  diagnostics: DesktopDiagnosticsResolution,
-  apiOrigin: string
+  diagnostics: DesktopDiagnosticsResolution
 ): string {
   /** @brief 最小网络连接来源列表 / Minimal network connection source list. */
   const connectSources = [
     "'self'",
-    apiOrigin,
+    API_V2_PRODUCTION_ORIGIN,
     ...(diagnostics.kind === 'enabled' ? [diagnostics.origin] : [])
   ]
   /** @brief 去重后的连接来源 / Deduplicated connection sources. */
   const uniqueConnectSources = [...new Set(connectSources)].join(' ')
 
-  return `default-src 'self'; base-uri 'self'; object-src 'none'; frame-src ${apiOrigin}; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src ${uniqueConnectSources}; media-src 'self' blob:; worker-src 'self' blob:`
+  return `default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'self' blob:; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src ${uniqueConnectSources}; media-src 'self' blob:; worker-src 'self' blob:`
 }

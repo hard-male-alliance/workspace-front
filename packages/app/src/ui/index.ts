@@ -2,3 +2,5 @@
 export * from './components'
 export { HostStartupFailure } from './HostStartupFailure'
 export type { HostStartupFailureProps } from './HostStartupFailure'
+export { HostedAuthenticationScreen } from './HostedAuthenticationScreen'
+export type { HostedAuthenticationScreenProps } from './HostedAuthenticationScreen'
