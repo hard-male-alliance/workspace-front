@@ -339,7 +339,7 @@ function acceptedResponse(data: unknown): ApiV2AcceptedResourceResponse {
     data,
     metadata: {
       entityTag: '"restore-job-revision-1"',
-      location: `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}/jobs/${JOB_ID}`,
+      location: `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ID}/jobs/${JOB_ID}`,
       requestId: REQUEST_ID
     },
     status: 202

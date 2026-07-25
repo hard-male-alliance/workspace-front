@@ -10,31 +10,37 @@
 
 ## 后端公开地址
 
-Web 通过 Gateway 和 HTTP adapter 调用当前项目后端，业务路径统一位于公开 origin 的 `/api/v1` 下。部署时使用以下两种互斥配置之一：
+Web 通过正式 Gateway 和 HTTP adapter 调用 API v2。生产 transport 的公开 Origin 固定为：
 
-```dotenv
-VITE_API_BASE_URL=http://127.0.0.1:8000
+```text
+https://api.hmalliances.org
 ```
 
-或：
+业务路径位于该 Origin 的 `/api/v2` 下；OIDC discovery、OAuth issuer、JWT audience、绝对
+`Location`、artifact URL 和 WebSocket URL 也必须使用同一个标准 HTTPS 主机并省略默认
+443 端口。浏览器构建不接受 `VITE_API_BASE_URL`、`VITE_API_PROTOCOL`、
+`VITE_API_HOSTNAME` 或 `VITE_API_PORT` 覆盖生产目标，避免运行时配置把 issuer、audience
+和资源服务器拆成不一致的地址。
 
-```dotenv
-VITE_API_PROTOCOL=https
-VITE_API_HOSTNAME=api.hmalliances.org
-VITE_API_PORT=443
-```
-
-完整 URL 与拆分配置不能同时出现。四项均未设置时，构建使用 PR #2 确认的默认部署入口 `https://api.hmalliances.org`。配置不能包含凭证、路径、query 或 fragment；公网产品 API 必须使用 HTTPS，明文 HTTP 只允许 `localhost` 或 `127.0.0.1` 本地开发 origin。
-
-配置无效时，组合根不会回退到演示数据或另一个 API。React root 会渲染一个不依赖业务 i18n 初始化的中/英文启动错误，只显示脱敏的管理员建议与用户确认的刷新动作。
+本地后端应用固定监听 `http://127.0.0.1:8000`，它是反向代理上游而不是公开
+Origin。无需生产服务器即可对该上游执行健康检查、metadata、CORS 和 API v2
+契约烟测；浏览器应用仍保持 production transport，不会因 `.env` 静默改成 loopback。
+需要让真实浏览器 OAuth 流量进入本地进程时，应在本机提供受信任的
+`https://api.hmalliances.org` TLS/反向代理映射，再转发至 `127.0.0.1:8000`，不能通过
+修改 issuer 或关闭校验来绕过身份边界。
 
 所有 `VITE_*` 值都会暴露给浏览器，只能保存公开地址。数据库 DSN、模型 API Key、HMAC/JWT 私钥、Dashboard token 和可信代理身份断言不得进入前端配置。
 
 ## 当前联调边界
 
-Web 与 Electron 的 Workspace、Resume、Interview、Knowledge 使用同一组正式 HTTP Gateway。不得为未冻结的上传会话、Agent SSE、WebSocket 或 WebRTC 协议虚构代理规则；对应界面应保持诚实的不可用状态。两种宿主共享业务装配语义，但分别拥有环境配置与安全启动边界。
+Web 与 Electron 的 Workspace、Resume、Interview、Knowledge 使用同一组正式 API v2
+Gateway。Web OAuth public client ID 通过 `VITE_OAUTH_CLIENT_ID` 配置；它不是密钥，但必须
+与 Authorization Server 为当前精确 redirect URI 注册的 client ID 一致。前端不会把
+access token 写入 `VITE_*`、URL query 或持久化存储，也不会回退到 v1 或内存 Mock。
 
-当前 HTTP 边界已统一发送经校验的 `Accept-Language` 与每请求唯一 `X-Request-Id`，但公开配置只确定 API origin，并不提供身份。正式契约要求除公开模板预览外携带 `Authorization: Bearer …`，但授权端点、client ID、scope 与 token 生命周期尚未冻结，所以当前 adapter 不会伪造认证头，受保护的 Resume/Knowledge 请求也不能据此宣称生产联调完成。生产启用条件记录在[契约待确认项](contract-open-questions.md)；任何 `VITE_*` token 方案都不被接受。
+当前 HTTP 边界统一发送经校验的 `Accept-Language`、每请求唯一 `X-Request-Id` 和会话
+提供的 Bearer token。上传会话、Agent SSE、WebSocket 或 WebRTC 仍只按已冻结的契约能力
+启用；未实现的实时帧协议不会由前端虚构。
 
 Resume PDF 保存通过独立宿主端口表达，共享应用只传递 artifact ID 与已净化的建议文件名，Web 边界会再次校验其规范形式。Web adapter 在每次用户动作中以 `credentials: 'omit'` 重新读取权威 artifact metadata，拒绝 30 秒安全窗口内即将过期的 URL，并以统一 60 秒总时限限制 metadata、PDF 响应流与完整性校验。只有最终响应的状态、媒体类型、实际字节数与 SHA-256 全部通过后，才创建一次性 Blob URL 并触发受控 `anchor`。Fetch 会先解码支持的 `Content-Encoding`，因此压缩响应的传输 `Content-Length` 不用于校验解码字节；如果 CORS 没有暴露编码 header，也会跳过这个有歧义的提前检查，但 25 MiB 上限、最终 size 与 SHA-256 仍全部执行。这避免依赖跨源 `download` 属性的不稳定语义；共享应用包不直接操作 `fetch`、Blob 或 `download`。页面仍无法观察浏览器之后的文件写入结果，因此 Web 只播报“下载已开始”，不误报“文件已保存”。该路径仍依赖上游冻结正式 Bearer 传播与 Web CORS；当前不携带 Cookie，也不会用任意 HTTPS URL 替代缺失的信任清单。
 

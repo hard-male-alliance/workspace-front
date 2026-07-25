@@ -51,7 +51,7 @@ const TEMPLATE_MANIFEST: UiTemplateManifest = {
   id: TEMPLATE_ID,
   name: 'Test Template',
   previewUrl:
-    'https://api.hmalliances.org:8022/api/v2/resume-templates/template_resume_creation_0001/preview',
+    'https://api.hmalliances.org/api/v2/resume-templates/template_resume_creation_0001/preview',
   publishedAt: '2026-07-01T00:00:00.000Z',
   settings: [],
   supportedLocales: ['zh-SG', 'en-US'],

@@ -29,20 +29,20 @@ const BOUND_LOOPBACK_ORIGIN = 'http://127.0.0.1:49152'
  */
 function discoveryJson(): Record<string, unknown> {
   return {
-    authorization_endpoint: 'https://api.hmalliances.org:8022/oauth/authorize',
+    authorization_endpoint: 'https://api.hmalliances.org/oauth/authorize',
     authorization_response_iss_parameter_supported: true,
     code_challenge_methods_supported: ['S256'],
     grant_types_supported: ['authorization_code', 'refresh_token'],
     id_token_signing_alg_values_supported: ['ES256', 'RS256'],
-    issuer: 'https://api.hmalliances.org:8022',
-    jwks_uri: 'https://api.hmalliances.org:8022/oauth/jwks',
+    issuer: 'https://api.hmalliances.org',
+    jwks_uri: 'https://api.hmalliances.org/oauth/jwks',
     response_types_supported: ['code'],
-    revocation_endpoint: 'https://api.hmalliances.org:8022/oauth/revoke',
+    revocation_endpoint: 'https://api.hmalliances.org/oauth/revoke',
     scopes_supported: ['openid', 'profile', 'offline_access', 'workspace.read'],
     subject_types_supported: ['public'],
-    token_endpoint: 'https://api.hmalliances.org:8022/oauth/token',
+    token_endpoint: 'https://api.hmalliances.org/oauth/token',
     token_endpoint_auth_methods_supported: ['none'],
-    userinfo_endpoint: 'https://api.hmalliances.org:8022/userinfo'
+    userinfo_endpoint: 'https://api.hmalliances.org/userinfo'
   }
 }
 

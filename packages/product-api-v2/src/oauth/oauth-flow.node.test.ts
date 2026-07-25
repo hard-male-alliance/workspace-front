@@ -45,20 +45,20 @@ const ID_TOKEN = 'id_token_example_only_not_a_real_jwt_4qL9mX'
  */
 function discoveryJson(): Record<string, unknown> {
   return {
-    authorization_endpoint: 'https://api.hmalliances.org:8022/oauth/authorize',
+    authorization_endpoint: 'https://api.hmalliances.org/oauth/authorize',
     authorization_response_iss_parameter_supported: true,
     code_challenge_methods_supported: ['S256'],
     grant_types_supported: ['authorization_code', 'refresh_token'],
     id_token_signing_alg_values_supported: ['ES256', 'RS256'],
-    issuer: 'https://api.hmalliances.org:8022',
-    jwks_uri: 'https://api.hmalliances.org:8022/oauth/jwks',
+    issuer: 'https://api.hmalliances.org',
+    jwks_uri: 'https://api.hmalliances.org/oauth/jwks',
     response_types_supported: ['code'],
-    revocation_endpoint: 'https://api.hmalliances.org:8022/oauth/revoke',
+    revocation_endpoint: 'https://api.hmalliances.org/oauth/revoke',
     scopes_supported: ['openid', 'profile', 'offline_access', 'workspace.read'],
     subject_types_supported: ['public'],
-    token_endpoint: 'https://api.hmalliances.org:8022/oauth/token',
+    token_endpoint: 'https://api.hmalliances.org/oauth/token',
     token_endpoint_auth_methods_supported: ['none'],
-    userinfo_endpoint: 'https://api.hmalliances.org:8022/userinfo'
+    userinfo_endpoint: 'https://api.hmalliances.org/userinfo'
   }
 }
 
@@ -153,14 +153,14 @@ function validClaims(value: WebAuthorizationTransaction): Record<string, unknown
 describe('OIDC discovery', (): void => {
   it('pins issuer, endpoints, public-client auth, PKCE S256, iss response, and asymmetric ID-token algorithms', (): void => {
     expect(discovery()).toEqual({
-      authorizationEndpoint: 'https://api.hmalliances.org:8022/oauth/authorize',
+      authorizationEndpoint: 'https://api.hmalliances.org/oauth/authorize',
       idTokenSigningAlgorithms: ['ES256', 'RS256'],
-      issuer: 'https://api.hmalliances.org:8022',
-      jwksUri: 'https://api.hmalliances.org:8022/oauth/jwks',
-      revocationEndpoint: 'https://api.hmalliances.org:8022/oauth/revoke',
+      issuer: 'https://api.hmalliances.org',
+      jwksUri: 'https://api.hmalliances.org/oauth/jwks',
+      revocationEndpoint: 'https://api.hmalliances.org/oauth/revoke',
       scopesSupported: ['openid', 'profile', 'offline_access', 'workspace.read'],
-      tokenEndpoint: 'https://api.hmalliances.org:8022/oauth/token',
-      userinfoEndpoint: 'https://api.hmalliances.org:8022/userinfo'
+      tokenEndpoint: 'https://api.hmalliances.org/oauth/token',
+      userinfoEndpoint: 'https://api.hmalliances.org/userinfo'
     })
   })
 
@@ -202,7 +202,7 @@ describe('Authorization Code + PKCE request', (): void => {
     })
     /** @brief 解析后的授权 URL / Parsed authorization URL. */
     const url = new URL(request.authorizationUrl)
-    expect(url.origin + url.pathname).toBe('https://api.hmalliances.org:8022/oauth/authorize')
+    expect(url.origin + url.pathname).toBe('https://api.hmalliances.org/oauth/authorize')
     expect([...url.searchParams.keys()]).toEqual([
       'response_type',
       'client_id',
@@ -263,6 +263,37 @@ describe('Authorization Code + PKCE request', (): void => {
     ).rejects.toBeInstanceOf(ApiV2ContractError)
   })
 
+  it.each([
+    'http://127.0.0.1:5173/oauth/callback',
+    'http://localhost:5173/oauth/callback'
+  ] as const)(
+    'allows an explicit loopback HTTP Web redirect for local development: %s',
+    async (redirectUri) => {
+      const request = await createWebAuthorizationRequest({
+        clientId: CLIENT_ID,
+        discovery: discovery(),
+        redirectUri,
+        scopes: ['openid'],
+        screenHint: 'login'
+      })
+
+      expect(request.transaction.redirectUri).toBe(redirectUri)
+      expect(new URL(request.authorizationUrl).searchParams.get('redirect_uri')).toBe(redirectUri)
+    }
+  )
+
+  it('rejects non-loopback HTTP Web redirects', async (): Promise<void> => {
+    await expect(
+      createWebAuthorizationRequest({
+        clientId: CLIENT_ID,
+        discovery: discovery(),
+        redirectUri: 'http://192.168.0.2:5173/oauth/callback',
+        scopes: ['openid'],
+        screenHint: 'login'
+      })
+    ).rejects.toBeInstanceOf(ApiV2ContractError)
+  })
+
   it('round-trips only a strict token-free transaction snapshot across navigation', async (): Promise<void> => {
     /** @brief 原始事务 / Original transaction. */
     const original = await transaction()
@@ -278,9 +309,9 @@ describe('Authorization Code + PKCE request', (): void => {
     )
     expect(restored).toMatchObject({
       clientId: CLIENT_ID,
-      issuer: 'https://api.hmalliances.org:8022',
-      jwksUri: 'https://api.hmalliances.org:8022/oauth/jwks',
-      tokenEndpoint: 'https://api.hmalliances.org:8022/oauth/token'
+      issuer: 'https://api.hmalliances.org',
+      jwksUri: 'https://api.hmalliances.org/oauth/jwks',
+      tokenEndpoint: 'https://api.hmalliances.org/oauth/token'
     })
     expect(parseAuthorizationCallback(callbackUrl(restored), restored, NOW)).toEqual({
       code: 'authorization_code_example_1234567890'
@@ -346,7 +377,7 @@ describe('Token Endpoint', (): void => {
     const value = await transaction()
     /** @brief 捕获请求的 Fetch spy / Fetch spy capturing the request. */
     const fetchImpl = vi.fn<typeof fetch>((_input, init) => {
-      expect(_input).toBe('https://api.hmalliances.org:8022/oauth/token')
+      expect(_input).toBe('https://api.hmalliances.org/oauth/token')
       expect(init?.method).toBe('POST')
       expect(init?.credentials).toBe('omit')
       expect(init?.redirect).toBe('error')
@@ -507,7 +538,7 @@ describe('ID Token and memory-only session', (): void => {
         expect(input).toEqual({
           allowedAlgorithms: ['ES256', 'RS256'],
           idToken: ID_TOKEN,
-          jwksUri: 'https://api.hmalliances.org:8022/oauth/jwks',
+          jwksUri: 'https://api.hmalliances.org/oauth/jwks',
           signal: controller.signal
         })
         return Promise.resolve(validClaims(successfulTransaction))

@@ -46,7 +46,7 @@ function failedProblem(): Record<string, unknown> {
     retryable: true,
     status: 500,
     title: 'Render failed',
-    type: 'https://api.hmalliances.org:8022/problems/job/render-failed'
+    type: 'https://api.hmalliances.org/problems/job/render-failed'
   }
 }
 

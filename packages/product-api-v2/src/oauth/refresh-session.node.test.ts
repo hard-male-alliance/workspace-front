@@ -101,20 +101,20 @@ function refreshJson(
 async function createTransaction(): Promise<WebAuthorizationTransaction> {
   /** @brief 最小可信 discovery / Minimum trusted discovery. */
   const discovery = parseOidcDiscovery({
-    authorization_endpoint: 'https://api.hmalliances.org:8022/oauth/authorize',
+    authorization_endpoint: 'https://api.hmalliances.org/oauth/authorize',
     authorization_response_iss_parameter_supported: true,
     code_challenge_methods_supported: ['S256'],
     grant_types_supported: ['authorization_code', 'refresh_token'],
     id_token_signing_alg_values_supported: ['ES256', 'RS256'],
-    issuer: 'https://api.hmalliances.org:8022',
-    jwks_uri: 'https://api.hmalliances.org:8022/oauth/jwks',
+    issuer: 'https://api.hmalliances.org',
+    jwks_uri: 'https://api.hmalliances.org/oauth/jwks',
     response_types_supported: ['code'],
-    revocation_endpoint: 'https://api.hmalliances.org:8022/oauth/revoke',
+    revocation_endpoint: 'https://api.hmalliances.org/oauth/revoke',
     scopes_supported: SCOPES,
     subject_types_supported: ['public'],
-    token_endpoint: 'https://api.hmalliances.org:8022/oauth/token',
+    token_endpoint: 'https://api.hmalliances.org/oauth/token',
     token_endpoint_auth_methods_supported: ['none'],
-    userinfo_endpoint: 'https://api.hmalliances.org:8022/userinfo'
+    userinfo_endpoint: 'https://api.hmalliances.org/userinfo'
   })
   return (
     await createWebAuthorizationRequest({
@@ -227,7 +227,7 @@ describe('in-memory refresh rotation', (): void => {
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockImplementationOnce((_input, init): Promise<Response> => {
-        expect(_input).toBe('https://api.hmalliances.org:8022/oauth/token')
+        expect(_input).toBe('https://api.hmalliances.org/oauth/token')
         expect(formFields(init)).toEqual({
           client_id: CLIENT_ID,
           grant_type: 'refresh_token',
@@ -267,7 +267,7 @@ describe('in-memory refresh rotation', (): void => {
       aud: CLIENT_ID,
       exp: NOW + 600,
       iat: NOW,
-      iss: 'https://api.hmalliances.org:8022',
+      iss: 'https://api.hmalliances.org',
       sub: 'oidc-subject-refresh-tests'
     })
 
@@ -676,7 +676,7 @@ describe('RFC 7009 logout', (): void => {
     })
     /** @brief 捕获 RFC 7009 form 的 Fetch / Fetch capturing the RFC 7009 form. */
     const fetchImpl = vi.fn<typeof fetch>((input, init) => {
-      expect(input).toBe('https://api.hmalliances.org:8022/oauth/revoke')
+      expect(input).toBe('https://api.hmalliances.org/oauth/revoke')
       expect(init?.method).toBe('POST')
       expect(init?.credentials).toBe('omit')
       expect(init?.redirect).toBe('error')

@@ -13,11 +13,11 @@ describe('Web Content Security Policy', (): void => {
     })
 
     expect(policy).toContain(
-      "connect-src 'self' https://api.hmalliances.org:8022 https://diagnostics.example.test:8443"
+      "connect-src 'self' https://api.hmalliances.org https://diagnostics.example.test:8443"
     )
     expect(policy).toContain("img-src 'self' https: data: blob:")
     expect(policy).toContain("frame-src 'self' blob:")
-    expect(policy).not.toContain("frame-src 'self' https://api.hmalliances.org:8022")
+    expect(policy).not.toContain("frame-src 'self' https://api.hmalliances.org")
     expect(policy).not.toContain('http://dev.hmalliances.org:9000')
     expect(policy).not.toContain('localhost')
     expect(policy).not.toContain('*')

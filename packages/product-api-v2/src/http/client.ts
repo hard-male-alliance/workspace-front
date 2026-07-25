@@ -19,7 +19,7 @@ const BEARER_TOKEN_PATTERN = /^[A-Za-z0-9\-._~+/]+=*$/u
 
 /** @brief v2 401 challenge 固定的 Protected Resource Metadata / Frozen Protected Resource Metadata used by v2 401 challenges. */
 const PROTECTED_RESOURCE_METADATA =
-  'https://api.hmalliances.org:8022/.well-known/oauth-protected-resource'
+  'https://api.hmalliances.org/.well-known/oauth-protected-resource'
 
 /** @brief 默认控制面 GET 截止时间 / Default deadline for control-plane GET requests. */
 const DEFAULT_TIMEOUT_MILLISECONDS = 30_000

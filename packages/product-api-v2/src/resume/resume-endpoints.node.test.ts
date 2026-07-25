@@ -47,7 +47,7 @@ const REQUEST_ID = 'req_create_resume_12345678'
 const ENTITY_TAG = '"resume-revision-1"'
 
 /** @brief 新建 Resume 的规范 Location / Canonical Location of the created Resume. */
-const RESUME_LOCATION = `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}/resumes/${RESUME_ID}`
+const RESUME_LOCATION = `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ID}/resumes/${RESUME_ID}`
 
 /**
  * @brief 构造固定 token 的认证端口 / Build an authentication port with a fixed token.
@@ -298,7 +298,7 @@ describe('API v2 Resume Template catalog endpoints', (): void => {
       page: { has_more: true, next_cursor: 'next-template-page' }
     })
     expect(observedUrl).toBe(
-      'https://api.hmalliances.org:8022/api/v2/resume-templates?cursor=opaque+%2F%2B&limit=17'
+      'https://api.hmalliances.org/api/v2/resume-templates?cursor=opaque+%2F%2B&limit=17'
     )
   })
 
@@ -339,7 +339,7 @@ describe('API v2 Resume Template catalog endpoints', (): void => {
       getResumeTemplate(client, { template_id: TEMPLATE_ID, version })
     ).resolves.toMatchObject({ id: TEMPLATE_ID, version })
     expect(observedUrl).toBe(
-      `https://api.hmalliances.org:8022/api/v2/resume-templates/${TEMPLATE_ID}?version=2026%2F07+%2B+beta%3F`
+      `https://api.hmalliances.org/api/v2/resume-templates/${TEMPLATE_ID}?version=2026%2F07+%2B+beta%3F`
     )
   })
 
@@ -407,7 +407,7 @@ describe('API v2 Workspace Resume creation endpoint', (): void => {
     const request = observedRequest as unknown as Request
     expect(request.method).toBe('POST')
     expect(request.url).toBe(
-      `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}/resumes`
+      `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ID}/resumes`
     )
     expect(request.headers.get('Content-Type')).toBe('application/json')
     expect(request.headers.get('Idempotency-Key')).toBe(IDEMPOTENCY_KEY)
@@ -478,7 +478,7 @@ describe('API v2 Workspace Resume creation endpoint', (): void => {
     await expect(
       createWorkspaceResume(
         fixedCreationClient(resumeDocument(), {
-          location: `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}/resumes/resume_01K0OTHER00000000000001`
+          location: `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ID}/resumes/resume_01K0OTHER00000000000001`
         }),
         createCommand()
       )
@@ -499,7 +499,7 @@ describe('API v2 Workspace Resume creation endpoint', (): void => {
     await expect(
       createWorkspaceResume(
         fixedCreationClient(resumeDocument({ id: CLONE_SOURCE_ID }), {
-          location: `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}/resumes/${CLONE_SOURCE_ID}`
+          location: `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ID}/resumes/${CLONE_SOURCE_ID}`
         }),
         command
       )

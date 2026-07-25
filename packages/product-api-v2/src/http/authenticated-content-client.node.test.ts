@@ -31,7 +31,7 @@ const RESPONSE_REQUEST_ID = 'request_binary_response_1234'
 
 /** @brief API v2 固定 Bearer challenge / Frozen API v2 Bearer challenge. */
 const BEARER_CHALLENGE =
-  'Bearer resource_metadata="https://api.hmalliances.org:8022/.well-known/oauth-protected-resource"'
+  'Bearer resource_metadata="https://api.hmalliances.org/.well-known/oauth-protected-resource"'
 
 /**
  * @brief 构造固定 token 的认证端口 / Build an authentication port with a fixed token.
@@ -113,7 +113,7 @@ function problemResponse(status: 401 | 404, requestId: string): Response {
       retryable: false,
       status,
       title: status === 401 ? 'Unauthorized' : 'Artifact not found',
-      type: `https://api.hmalliances.org:8022/problems/artifact/status-${status}`
+      type: `https://api.hmalliances.org/problems/artifact/status-${status}`
     }),
     { headers, status }
   )
@@ -150,7 +150,7 @@ describe('API v2 authenticated Artifact content transport', (): void => {
 
     await expect(responseBytes(response)).resolves.toEqual(bytes)
     expect(fetchImpl).toHaveBeenCalledWith(
-      `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}/artifacts/${ARTIFACT_ID}/content`,
+      `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ID}/artifacts/${ARTIFACT_ID}/content`,
       expect.objectContaining({
         credentials: 'omit',
         headers: {

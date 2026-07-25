@@ -328,8 +328,13 @@ function webRedirectUri(value: string): string {
   try {
     /** @brief 已解析 redirect URL / Parsed redirect URL. */
     const url = new URL(value)
+    /** @brief 本地 Vite 开发允许的显式 loopback HTTP redirect / Explicit loopback HTTP redirect allowed for local Vite development. */
+    const isLoopbackHttp =
+      url.protocol === 'http:' &&
+      url.port !== '' &&
+      (url.hostname === 'localhost' || url.hostname === '127.0.0.1')
     if (
-      url.protocol !== 'https:' ||
+      (url.protocol !== 'https:' && !isLoopbackHttp) ||
       url.username !== '' ||
       url.password !== '' ||
       url.hash !== '' ||
@@ -343,7 +348,9 @@ function webRedirectUri(value: string): string {
     if (value !== value.trim()) throw new Error()
     return value
   } catch {
-    throw new ApiV2ContractError('Web OAuth redirect URI must be an unambiguous HTTPS URI.')
+    throw new ApiV2ContractError(
+      'Web OAuth redirect URI must be an unambiguous HTTPS URI or an explicit loopback HTTP development URI.'
+    )
   }
 }
 

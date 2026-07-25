@@ -49,7 +49,7 @@ describe('API v2 Artifact metadata consumer', (): void => {
     ['content_url', 'https://objects.example.invalid/file.pdf'],
     [
       'content_url',
-      `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}/artifacts/other_artifact_123456/content`
+      `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ID}/artifacts/other_artifact_123456/content`
     ],
     ['media_type', 'application/pdf; charset=binary'],
     ['sha256', 'A'.repeat(64)],

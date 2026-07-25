@@ -41,7 +41,7 @@ const NEXT_ENTITY_TAG = '"knowledge-source-revision-2"'
 
 /** @brief 新资源规范 Location / Canonical Location of the created source. */
 const SOURCE_LOCATION =
-  `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}` +
+  `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ID}` +
   `/knowledge-sources/${SOURCE_ID}`
 
 /** @brief 构造 canonical 可见性策略 / Build a canonical visibility policy. */

@@ -19,14 +19,14 @@ import { NativeOAuthSystemBrowserError } from './native-oauth-system-browser'
 
 /** @brief API STANDARD V2 discovery fixture / API STANDARD V2 discovery fixture. */
 const DISCOVERY: OidcDiscoveryDocument = {
-  authorizationEndpoint: 'https://api.hmalliances.org:8022/oauth/authorize',
+  authorizationEndpoint: 'https://api.hmalliances.org/oauth/authorize',
   idTokenSigningAlgorithms: ['ES256', 'RS256'],
-  issuer: 'https://api.hmalliances.org:8022',
-  jwksUri: 'https://api.hmalliances.org:8022/oauth/jwks',
-  revocationEndpoint: 'https://api.hmalliances.org:8022/oauth/revoke',
+  issuer: 'https://api.hmalliances.org',
+  jwksUri: 'https://api.hmalliances.org/oauth/jwks',
+  revocationEndpoint: 'https://api.hmalliances.org/oauth/revoke',
   scopesSupported: ['openid', 'profile', 'offline_access', 'workspace.read'],
-  tokenEndpoint: 'https://api.hmalliances.org:8022/oauth/token',
-  userinfoEndpoint: 'https://api.hmalliances.org:8022/userinfo'
+  tokenEndpoint: 'https://api.hmalliances.org/oauth/token',
+  userinfoEndpoint: 'https://api.hmalliances.org/userinfo'
 }
 
 /** @brief 测试授权命令 / Test authorization command. */
