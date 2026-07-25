@@ -221,7 +221,7 @@ describe('API v2 Workspace Resume single-document query', (): void => {
     const request = observedRequest as unknown as Request
     expect(request.method).toBe('GET')
     expect(request.url).toBe(
-      `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}/resumes/${RESUME_ID}`
+      `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ID}/resumes/${RESUME_ID}`
     )
     expect(request.headers.get('Authorization')).toBe(`Bearer ${ACCESS_TOKEN}`)
   })

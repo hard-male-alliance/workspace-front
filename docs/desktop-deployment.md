@@ -4,7 +4,7 @@ Electron 是独立 OAuth public client 与安全宿主。main 进程拥有系统
 
 ## 冻结 API v2 目标
 
-生产 transport、运行时信息和 Content Security Policy（CSP）共同引用 `API_V2_PRODUCTION_ORIGIN`，固定为 `https://api.hmalliances.org:8022`。桌面构建不再接受 `AI_JOB_WORKSPACE_API_BASE_URL`、`AI_JOB_WORKSPACE_API_PROTOCOL`、`AI_JOB_WORKSPACE_API_HOSTNAME` 或 `AI_JOB_WORKSPACE_API_PORT`；运行时注入这些旧变量不会改变请求目标，也不会放宽 CSP。
+生产 transport、运行时信息和 Content Security Policy（CSP）共同引用 `API_V2_PRODUCTION_ORIGIN`，固定为 `https://api.hmalliances.org`。桌面构建不再接受 `AI_JOB_WORKSPACE_API_BASE_URL`、`AI_JOB_WORKSPACE_API_PROTOCOL`、`AI_JOB_WORKSPACE_API_HOSTNAME` 或 `AI_JOB_WORKSPACE_API_PORT`；运行时注入这些旧变量不会改变请求目标，也不会放宽 CSP。
 
 生产 renderer 的 `connect-src` 与 PDF `frame-src` 精确包含该 origin。产品 gateway 只创建 `{ kind: 'production' }` transport profile；受控测试 profile 不进入生产桌面组合根。API 必须允许 `ai-job-workspace://renderer` 发起带 Bearer token 的跨源请求，不能依赖 Cookie、可信代理断言或 v1 fallback。
 

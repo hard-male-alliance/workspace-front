@@ -20,7 +20,7 @@ const PRIOR_ISSUED_AT = NOW - 600
 const CLIENT_ID = 'workspace-web'
 
 /** @brief 固定 issuer / Fixed issuer. */
-const ISSUER = 'https://api.hmalliances.org:8022'
+const ISSUER = 'https://api.hmalliances.org'
 
 /** @brief 固定 refresh ID Token / Fixed refresh ID Token. */
 const REFRESH_ID_TOKEN = 'refresh_id_token_example_only_not_a_real_jwt_7xN3pQ'

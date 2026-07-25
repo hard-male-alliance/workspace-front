@@ -19,7 +19,7 @@ const REQUEST_ID = 'req_response_12345678'
 
 /** @brief API v2 固定的完整 Bearer challenge / Frozen complete API v2 Bearer challenge. */
 const BEARER_CHALLENGE =
-  'Bearer resource_metadata="https://api.hmalliances.org:8022/.well-known/oauth-protected-resource"'
+  'Bearer resource_metadata="https://api.hmalliances.org/.well-known/oauth-protected-resource"'
 
 /**
  * @brief 构造固定 token 的完整认证端口 / Build a complete authentication port with a fixed token.
@@ -73,7 +73,7 @@ function problemDetails(
     retryable: true,
     status: 429,
     title: 'Rate limit exceeded',
-    type: 'https://api.hmalliances.org:8022/problems/quota/rate-limited',
+    type: 'https://api.hmalliances.org/problems/quota/rate-limited',
     ...overrides
   }
 }
@@ -127,7 +127,7 @@ describe('createApiV2Client', (): void => {
     })
 
     expect(fetchImpl).toHaveBeenCalledWith(
-      'https://api.hmalliances.org:8022/api/v2/workspaces/ws_12345678/resumes?limit=200',
+      'https://api.hmalliances.org/api/v2/workspaces/ws_12345678/resumes?limit=200',
       expect.objectContaining({
         credentials: 'omit',
         headers: {
@@ -510,7 +510,7 @@ describe('createApiV2Client', (): void => {
     const headers = new Headers({
       'Content-Type': 'application/problem+json',
       'WWW-Authenticate':
-        'Basic realm="legacy", Bearer error="invalid_token", resource_metadata="https://api.hmalliances.org:8022/.well-known/oauth-protected-resource"',
+        'Basic realm="legacy", Bearer error="invalid_token", resource_metadata="https://api.hmalliances.org/.well-known/oauth-protected-resource"',
       'X-Request-Id': REQUEST_ID
     })
     /** @brief 返回多 challenge 401 的网络替身 / Network double returning a multi-challenge 401. */
@@ -544,7 +544,7 @@ describe('createApiV2Client', (): void => {
     const headers = new Headers({
       'Content-Type': 'application/problem+json',
       'WWW-Authenticate':
-        'Basic resource_metadata="https://api.hmalliances.org:8022/.well-known/oauth-protected-resource", Bearer error="invalid_token"',
+        'Basic resource_metadata="https://api.hmalliances.org/.well-known/oauth-protected-resource", Bearer error="invalid_token"',
       'X-Request-Id': REQUEST_ID
     })
     /** @brief 返回错误绑定 challenge 的网络替身 / Network double returning misbound challenges. */
@@ -721,7 +721,7 @@ describe('createApiV2PublicClient', (): void => {
 
     expect(fetchImpl).toHaveBeenCalledOnce()
     expect(fetchImpl).toHaveBeenCalledWith(
-      'https://api.hmalliances.org:8022/api/v2/resume-templates?limit=24',
+      'https://api.hmalliances.org/api/v2/resume-templates?limit=24',
       expect.objectContaining({
         credentials: 'omit',
         headers: {

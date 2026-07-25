@@ -207,7 +207,7 @@ export class InMemoryWorkspaceOperationsStore {
         updatedAt: '2026-07-18T00:00:00.000Z',
         workspaceId: input.workspaceId
       },
-      location: `https://api.hmalliances.org:8022/api/v2/workspaces/${input.workspaceId}/jobs/${jobId}`,
+      location: `https://api.hmalliances.org/api/v2/workspaces/${input.workspaceId}/jobs/${jobId}`,
       requestId: `request_${input.commandId}`
     }
     this.jobs.set(jobId, authority)
@@ -262,7 +262,7 @@ export class InMemoryWorkspaceOperationsStore {
         updatedAt: '2026-07-18T00:00:00.000Z',
         workspaceId: input.workspaceId
       },
-      location: `https://api.hmalliances.org:8022/api/v2/workspaces/${input.workspaceId}/jobs/${jobId}`,
+      location: `https://api.hmalliances.org/api/v2/workspaces/${input.workspaceId}/jobs/${jobId}`,
       requestId: `request_${input.commandId}`
     }
     this.jobs.set(jobId, authority)

@@ -40,7 +40,7 @@ const NEXT_ENTITY_TAG = '"knowledge-source-revision-2"'
 
 /** @brief 新来源规范 Location / Canonical Location of the new source. */
 const SOURCE_LOCATION =
-  `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}` +
+  `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ID}` +
   `/knowledge-sources/${SOURCE_ID}`
 
 /**
@@ -299,7 +299,7 @@ describe('API v2 Workspace KnowledgeSource writes', (): void => {
     const postJson = vi.fn<KnowledgeSourceCreationHttpClient['postJson']>().mockResolvedValue(
       createdResponse(knowledgeSource(), {
         location:
-          `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}` +
+          `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ID}` +
           '/knowledge-sources/knowledge_01K0OTHER0000000001'
       })
     )

@@ -129,7 +129,7 @@ function memoryTimestamp(ordinal: number): string {
  * @return 公开 API v2 Location / Public API v2 Location.
  */
 function jobLocation(workspaceId: UiWorkspaceId, jobId: string): string {
-  return `https://api.hmalliances.org:8022/api/v2/workspaces/${workspaceId}/jobs/${jobId}`
+  return `https://api.hmalliances.org/api/v2/workspaces/${workspaceId}/jobs/${jobId}`
 }
 
 /**
@@ -443,7 +443,7 @@ export class InMemoryInterviewGateway implements InterviewGateway {
       sessionId: command.sessionId,
       transport,
       signalingUrl:
-        `wss://api.hmalliances.org:8022/realtime/interview/` +
+        `wss://api.hmalliances.org/realtime/interview/` +
         `${command.sessionId}/connections/${ordinal}`,
       ephemeralToken: `memory_ephemeral_connection_token_${ordinal}_not_a_real_secret`,
       iceServers:

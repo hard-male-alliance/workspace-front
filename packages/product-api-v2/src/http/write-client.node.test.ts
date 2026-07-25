@@ -20,7 +20,7 @@ const RESPONSE_REQUEST_ID = 'req_write_response_12345678'
 
 /** @brief API v2 固定 Bearer challenge / Frozen API v2 Bearer challenge. */
 const BEARER_CHALLENGE =
-  'Bearer resource_metadata="https://api.hmalliances.org:8022/.well-known/oauth-protected-resource"'
+  'Bearer resource_metadata="https://api.hmalliances.org/.well-known/oauth-protected-resource"'
 
 /**
  * @brief 构造固定 token 的认证端口 / Build an authentication port with a fixed token.
@@ -59,7 +59,7 @@ function problemDetails(status: number, requestId = RESPONSE_REQUEST_ID): Record
     retryable: status >= 500,
     status,
     title: status === 401 ? 'Unauthorized' : 'Write failed',
-    type: `https://api.hmalliances.org:8022/problems/write/status-${status}`
+    type: `https://api.hmalliances.org/problems/write/status-${status}`
   }
 }
 
@@ -85,7 +85,7 @@ function writeJsonResponse(
   if ((status === 201 || status === 202) && !headers.has('Location')) {
     headers.set(
       'Location',
-      `https://api.hmalliances.org:8022/api/v2/workspaces/ws_12345678/${
+      `https://api.hmalliances.org/api/v2/workspaces/ws_12345678/${
         status === 201 ? 'resumes/res_12345678' : 'jobs/job_12345678'
       }`
     )
@@ -216,7 +216,7 @@ describe('API v2 write transport', (): void => {
     })
 
     expect(fetchImpl).toHaveBeenCalledWith(
-      'https://api.hmalliances.org:8022/api/v2/workspaces/ws_12345678/resumes',
+      'https://api.hmalliances.org/api/v2/workspaces/ws_12345678/resumes',
       expect.objectContaining({
         body: JSON.stringify(body),
         credentials: 'omit',
@@ -236,8 +236,7 @@ describe('API v2 write transport', (): void => {
       data: { id: 'res_12345678' },
       metadata: {
         entityTag: '"write-entity-2"',
-        location:
-          'https://api.hmalliances.org:8022/api/v2/workspaces/ws_12345678/resumes/res_12345678',
+        location: 'https://api.hmalliances.org/api/v2/workspaces/ws_12345678/resumes/res_12345678',
         requestId: RESPONSE_REQUEST_ID
       },
       status: 201
@@ -347,8 +346,7 @@ describe('API v2 write transport', (): void => {
       data: { id: 'job_12345678' },
       metadata: {
         entityTag: '"write-entity-2"',
-        location:
-          'https://api.hmalliances.org:8022/api/v2/workspaces/ws_12345678/jobs/job_12345678',
+        location: 'https://api.hmalliances.org/api/v2/workspaces/ws_12345678/jobs/job_12345678',
         requestId: RESPONSE_REQUEST_ID
       },
       status: 202
@@ -1024,43 +1022,42 @@ describe('API v2 write transport', (): void => {
     ],
     [
       'out-of-boundary Location',
-      new Headers({ Location: 'https://api.hmalliances.org:8022/oauth/token' })
+      new Headers({ Location: 'https://api.hmalliances.org/oauth/token' })
     ],
     [
       'an empty query suffix',
       new Headers({
-        Location: 'https://api.hmalliances.org:8022/api/v2/workspaces/ws_12345678/resumes/res_1?'
+        Location: 'https://api.hmalliances.org/api/v2/workspaces/ws_12345678/resumes/res_1?'
       })
     ],
     [
       'an empty fragment suffix',
       new Headers({
-        Location: 'https://api.hmalliances.org:8022/api/v2/workspaces/ws_12345678/resumes/res_1#'
+        Location: 'https://api.hmalliances.org/api/v2/workspaces/ws_12345678/resumes/res_1#'
       })
     ],
     [
       'userinfo',
       new Headers({
-        Location:
-          'https://operator@api.hmalliances.org:8022/api/v2/workspaces/ws_12345678/resumes/res_1'
+        Location: 'https://operator@api.hmalliances.org/api/v2/workspaces/ws_12345678/resumes/res_1'
       })
     ],
     [
       'a backslash',
       new Headers({
-        Location: 'https://api.hmalliances.org:8022/api/v2/workspaces/ws_12345678\\resumes/res_1'
+        Location: 'https://api.hmalliances.org/api/v2/workspaces/ws_12345678\\resumes/res_1'
       })
     ],
     [
       'a dot segment',
       new Headers({
-        Location: 'https://api.hmalliances.org:8022/api/v2/workspaces/ws_12345678/./resumes/res_1'
+        Location: 'https://api.hmalliances.org/api/v2/workspaces/ws_12345678/./resumes/res_1'
       })
     ],
     [
       'a normalized host spelling',
       new Headers({
-        Location: 'https://API.HMALLIANCES.ORG:8022/api/v2/workspaces/ws_12345678/resumes/res_1'
+        Location: 'https://API.HMALLIANCES.ORG/api/v2/workspaces/ws_12345678/resumes/res_1'
       })
     ]
   ] as const)(
@@ -1108,7 +1105,7 @@ describe('API v2 write transport', (): void => {
       /** @brief 只有 Location 而缺少 ETag 的响应头 / Response headers carrying Location but missing ETag. */
       const headers = new Headers({
         'Content-Type': 'application/json',
-        Location: `https://api.hmalliances.org:8022/api/v2/workspaces/ws_12345678/${
+        Location: `https://api.hmalliances.org/api/v2/workspaces/ws_12345678/${
           status === 201 ? 'resumes/res_12345678' : 'jobs/job_12345678'
         }`,
         'X-Request-Id': RESPONSE_REQUEST_ID

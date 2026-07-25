@@ -309,7 +309,7 @@ function acceptedResponse(data: unknown): ApiV2AcceptedResourceResponse {
     data,
     metadata: {
       entityTag: ENTITY_TAG,
-      location: `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}/jobs/${JOB_ID}`,
+      location: `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ID}/jobs/${JOB_ID}`,
       requestId: REQUEST_ID
     },
     status: 202
@@ -364,7 +364,7 @@ describe('API v2 InterviewScenario endpoints', (): void => {
       .mockResolvedValue(
         createdResponse(
           scenario(),
-          `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}/interview-scenarios/${SCENARIO_ID}`
+          `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ID}/interview-scenarios/${SCENARIO_ID}`
         )
       )
     await createWorkspaceInterviewScenario(
@@ -427,7 +427,7 @@ describe('API v2 InterviewScenario endpoints', (): void => {
       .mockResolvedValue(
         createdResponse(
           scenario({ workspace_id: OTHER_WORKSPACE_ID }),
-          `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}/interview-scenarios/${SCENARIO_ID}`
+          `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ID}/interview-scenarios/${SCENARIO_ID}`
         )
       )
     await expect(
@@ -487,7 +487,7 @@ describe('API v2 InterviewSession, Connection, EndRequest, and Transcript endpoi
       .mockResolvedValue(
         createdResponse(
           session(),
-          `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}/interview-sessions/${SESSION_ID}`
+          `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ID}/interview-sessions/${SESSION_ID}`
         )
       )
     await createWorkspaceInterviewSession(
@@ -522,7 +522,7 @@ describe('API v2 InterviewSession, Connection, EndRequest, and Transcript endpoi
       .mockResolvedValue(
         createdResponse(
           connection,
-          `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}/interview-sessions/${SESSION_ID}/connections/${CONNECTION_ID}`
+          `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ID}/interview-sessions/${SESSION_ID}/connections/${CONNECTION_ID}`
         )
       )
     await createWorkspaceInterviewRealtimeConnection(
@@ -581,7 +581,7 @@ describe('API v2 InterviewSession, Connection, EndRequest, and Transcript endpoi
           started_at: '2026-07-22T12:01:00Z',
           status: 'active'
         }),
-        `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}/interview-sessions/${SESSION_ID}`
+        `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ID}/interview-sessions/${SESSION_ID}`
       )
     )
     await expect(
@@ -606,7 +606,7 @@ describe('API v2 InterviewSession, Connection, EndRequest, and Transcript endpoi
             signaling_url: 'wss://realtime.example.com/interview',
             transport: 'webrtc'
           },
-          `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}/interview-sessions/${SESSION_ID}/connections/${CONNECTION_ID}`
+          `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ID}/interview-sessions/${SESSION_ID}/connections/${CONNECTION_ID}`
         )
       )
     await expect(

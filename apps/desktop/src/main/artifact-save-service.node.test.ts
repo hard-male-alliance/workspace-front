@@ -50,7 +50,7 @@ async function createTemporaryDirectory(): Promise<string> {
  */
 function pdfArtifact(overrides: Partial<Artifact> = {}): Artifact {
   return {
-    content_url: `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}/artifacts/${ARTIFACT_ID}/content`,
+    content_url: `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ID}/artifacts/${ARTIFACT_ID}/content`,
     created_at: '2026-07-23T00:00:00Z',
     expires_at: null,
     id: ARTIFACT_ID,

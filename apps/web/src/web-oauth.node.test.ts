@@ -19,20 +19,20 @@ const CONFIGURATION: WebOAuthConfiguration = {
 
 /** @brief API v2 OIDC discovery 响应 / API v2 OIDC discovery response. */
 const DISCOVERY = {
-  authorization_endpoint: 'https://api.hmalliances.org:8022/oauth/authorize',
+  authorization_endpoint: 'https://api.hmalliances.org/oauth/authorize',
   authorization_response_iss_parameter_supported: true,
   code_challenge_methods_supported: ['S256'],
   grant_types_supported: ['authorization_code', 'refresh_token'],
   id_token_signing_alg_values_supported: ['ES256', 'RS256'],
-  issuer: 'https://api.hmalliances.org:8022',
-  jwks_uri: 'https://api.hmalliances.org:8022/oauth/jwks',
+  issuer: 'https://api.hmalliances.org',
+  jwks_uri: 'https://api.hmalliances.org/oauth/jwks',
   response_types_supported: ['code'],
-  revocation_endpoint: 'https://api.hmalliances.org:8022/oauth/revoke',
+  revocation_endpoint: 'https://api.hmalliances.org/oauth/revoke',
   scopes_supported: WEB_OAUTH_SCOPES,
   subject_types_supported: ['public'],
-  token_endpoint: 'https://api.hmalliances.org:8022/oauth/token',
+  token_endpoint: 'https://api.hmalliances.org/oauth/token',
   token_endpoint_auth_methods_supported: ['none'],
-  userinfo_endpoint: 'https://api.hmalliances.org:8022/userinfo'
+  userinfo_endpoint: 'https://api.hmalliances.org/userinfo'
 } as const
 
 /** @brief 可观察的当前 tab 存储 / Observable current-tab storage. */
@@ -87,7 +87,7 @@ describe('beginWebAuthorization', (): void => {
     /** @brief discovery Fetch / Discovery fetch. */
     const fetchImpl = vi.fn<typeof fetch>((input, init): Promise<Response> => {
       events.push('discovery')
-      expect(input).toBe('https://api.hmalliances.org:8022/.well-known/openid-configuration')
+      expect(input).toBe('https://api.hmalliances.org/.well-known/openid-configuration')
       expect(init).toMatchObject({
         cache: 'no-store',
         credentials: 'omit',
@@ -101,7 +101,7 @@ describe('beginWebAuthorization', (): void => {
       events.push('navigate')
       /** @brief Hosted authorize URL / Hosted authorization URL. */
       const url = new URL(destination)
-      expect(url.origin).toBe('https://api.hmalliances.org:8022')
+      expect(url.origin).toBe('https://api.hmalliances.org')
       expect(url.pathname).toBe('/oauth/authorize')
       expect(url.searchParams.get('response_type')).toBe('code')
       expect(url.searchParams.get('client_id')).toBe(CONFIGURATION.clientId)

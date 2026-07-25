@@ -19,7 +19,7 @@ const CLAIMS = {
   aud: 'workspace-web',
   exp: 1_800_000_600,
   iat: 1_800_000_000,
-  iss: 'https://api.hmalliances.org:8022',
+  iss: 'https://api.hmalliances.org',
   nonce: 'nonce_example_123456789012345678901234567890',
   sub: 'oidc-subject-01K0EXAMPLE0001'
 }

@@ -78,7 +78,7 @@ function queuedJob(
  */
 function acceptedResponse(
   data: unknown,
-  location = `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}/jobs/${JOB_ID}`
+  location = `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ID}/jobs/${JOB_ID}`
 ): ApiV2AcceptedResourceResponse {
   return {
     data,
@@ -167,7 +167,7 @@ describe('API v2 Resume Job commands', (): void => {
       })
     ).resolves.toMatchObject({
       entityTag: JOB_ETAG,
-      location: `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}/jobs/${JOB_ID}`,
+      location: `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ID}/jobs/${JOB_ID}`,
       requestId: REQUEST_ID,
       value: { id: JOB_ID, workspace_id: WORKSPACE_ID }
     })
@@ -283,13 +283,13 @@ describe('API v2 Resume Job commands', (): void => {
       acceptedResponse(queuedJob(RESUME_ID, 8)),
       acceptedResponse(
         queuedJob(RESUME_ID, 7),
-        `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}/jobs/job_01K0OTHER0000000000001`
+        `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ID}/jobs/job_01K0OTHER0000000000001`
       ),
       {
         ...acceptedResponse(queuedJob(RESUME_ID, 7)),
         metadata: {
           entityTag: 'W/"job-revision-1"',
-          location: `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}/jobs/${JOB_ID}`,
+          location: `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ID}/jobs/${JOB_ID}`,
           requestId: REQUEST_ID
         }
       }

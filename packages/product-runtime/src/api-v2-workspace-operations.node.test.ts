@@ -67,7 +67,7 @@ const CANCELLED_JOB = {
 
 /** @brief Resume PDF Artifact wire fixture / Wire fixture for a Resume PDF Artifact. */
 const PDF_ARTIFACT = {
-  content_url: `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}/artifacts/${ARTIFACT_ID}/content`,
+  content_url: `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ID}/artifacts/${ARTIFACT_ID}/content`,
   created_at: '2026-07-23T00:00:03Z',
   expires_at: null,
   id: ARTIFACT_ID,
@@ -121,7 +121,7 @@ describe('API v2 Workspace Operations ACL', (): void => {
         retryable: true,
         status: 503,
         title: 'Index failed',
-        type: 'https://api.hmalliances.org:8022/problems/knowledge/index-failed'
+        type: 'https://api.hmalliances.org/problems/knowledge/index-failed'
       },
       revision: 3,
       started_at: '2026-07-23T00:00:01Z',
@@ -346,7 +346,7 @@ describe('API v2 Workspace Operations ACL', (): void => {
           data: QUEUED_JOB,
           metadata: {
             entityTag: '"job-etag-1"',
-            location: `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}/jobs/${JOB_ID}`,
+            location: `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ID}/jobs/${JOB_ID}`,
             requestId: 'request_render_accept_0001'
           },
           status: 202
@@ -394,7 +394,7 @@ describe('API v2 Workspace Operations ACL', (): void => {
           },
           metadata: {
             entityTag: '"job-etag-sparse-subject"',
-            location: `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}/jobs/${JOB_ID}`,
+            location: `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ID}/jobs/${JOB_ID}`,
             requestId: 'request_render_sparse_subject_0001'
           },
           status: 202
@@ -430,7 +430,7 @@ describe('API v2 Workspace Operations ACL', (): void => {
           data: { ...QUEUED_JOB, kind: 'resume.restore' },
           metadata: {
             entityTag: '"job-etag-1"',
-            location: `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ID}/jobs/${JOB_ID}`,
+            location: `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ID}/jobs/${JOB_ID}`,
             requestId: 'request_render_wrong_kind_0001'
           },
           status: 202

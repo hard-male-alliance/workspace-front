@@ -569,7 +569,7 @@ describe('createProductGateways', (): void => {
     expect(observation).toMatchObject({
       authorization: `Bearer ${ACCESS_TOKEN}`,
       credentials: 'omit',
-      url: 'https://api.hmalliances.org:8022/api/v2/me'
+      url: 'https://api.hmalliances.org/api/v2/me'
     })
     expect(observation?.signal).toBeInstanceOf(AbortSignal)
   })
@@ -642,7 +642,7 @@ describe('createProductGateways', (): void => {
     expect(observation).toMatchObject({
       authorization: `Bearer ${ACCESS_TOKEN}`,
       signal,
-      url: `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ACCESS.workspace.id}/knowledge-sources?limit=50`
+      url: `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ACCESS.workspace.id}/knowledge-sources?limit=50`
     })
   })
 
@@ -714,7 +714,7 @@ describe('createProductGateways', (): void => {
     expect(observation).toMatchObject({
       authorization: `Bearer ${ACCESS_TOKEN}`,
       signal,
-      url: `https://api.hmalliances.org:8022/api/v2/workspaces/${WORKSPACE_ACCESS.workspace.id}/interview-scenarios?limit=50`
+      url: `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ACCESS.workspace.id}/interview-scenarios?limit=50`
     })
   })
 })
@@ -1891,7 +1891,7 @@ describe('API v2 Resume creation ACL', (): void => {
           data: createdResumeDocument(),
           metadata: {
             entityTag: '"resume-created-1"',
-            location: `https://api.hmalliances.org:8022/api/v2/workspaces/${RESUME_SUMMARY.workspace_id}/resumes/resume_01K0CREATED000000000001`,
+            location: `https://api.hmalliances.org/api/v2/workspaces/${RESUME_SUMMARY.workspace_id}/resumes/resume_01K0CREATED000000000001`,
             requestId: 'req_runtime_create_12345678'
           },
           status: 201
@@ -1964,7 +1964,7 @@ describe('API v2 Resume creation ACL', (): void => {
           data: createdResumeDocument(),
           metadata: {
             entityTag: '"resume-created-1"',
-            location: `https://api.hmalliances.org:8022/api/v2/workspaces/${RESUME_SUMMARY.workspace_id}/resumes/resume_01K0CREATED000000000001`,
+            location: `https://api.hmalliances.org/api/v2/workspaces/${RESUME_SUMMARY.workspace_id}/resumes/resume_01K0CREATED000000000001`,
             requestId: 'req_runtime_create_12345678'
           },
           status: 201

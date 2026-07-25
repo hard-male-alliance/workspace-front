@@ -157,7 +157,7 @@ describe('API v2 Artifact collection consumer', (): void => {
     /** @brief 其他 Workspace 中自洽的 Artifact / Self-consistent Artifact in another Workspace. */
     const artifact = mutableRecord(await readCanonicalExample('resume_pdf_artifact'))
     artifact.workspace_id = OTHER_WORKSPACE_ID
-    artifact.content_url = `https://api.hmalliances.org:8022/api/v2/workspaces/${OTHER_WORKSPACE_ID}/artifacts/artifact_01K0EXAMPLE000000001/content`
+    artifact.content_url = `https://api.hmalliances.org/api/v2/workspaces/${OTHER_WORKSPACE_ID}/artifacts/artifact_01K0EXAMPLE000000001/content`
     /** @brief 返回跨 Workspace Artifact 的 GET / GET returning a cross-Workspace Artifact. */
     const getJson = vi.fn<ApiV2Client['getJson']>().mockResolvedValue({
       data: { items: [artifact], page: { has_more: false, next_cursor: null } },
