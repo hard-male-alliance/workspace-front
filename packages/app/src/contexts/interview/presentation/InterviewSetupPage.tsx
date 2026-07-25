@@ -9,12 +9,14 @@ import { runDiagnosticCommand, useDiagnostics } from '../../../app/Diagnostics'
 import { ResourceErrorState, ResourceFailureMessage } from '../../../app/ResourceErrorState'
 import { classifyResourceFailure } from '../../../app/resource-errors'
 import { createUiCommandId } from '../../../shared-kernel/command'
-import type { UiWorkspaceId } from '../../../shared-kernel/identity'
+import { asUiOpaqueId, type UiWorkspaceId } from '../../../shared-kernel/identity'
 import { EmptyState, LoadingState } from '../../../ui'
 import type { UiCreateInterviewSessionCommand } from '../application/requests'
 import {
+  asUiInterviewType,
   asUiInterviewPageLimit,
   type UiInterviewScenario,
+  type UiInterviewScenarioInput,
   type UiInterviewScenarioPage
 } from '../domain/models'
 
@@ -23,6 +25,45 @@ const INTERVIEW_SCENARIO_PAGE_LIMIT = asUiInterviewPageLimit(50)
 
 /** @brief 当前转录同意文案版本 / Current transcript-consent copy version. */
 const INTERVIEW_TRANSCRIPT_CONSENT_VERSION = 'interview-transcript-retention-2026-07'
+/** @brief 空工作区自动补齐的本地 Demo 场景名称 / Local Demo scenario name provisioned for an empty workspace. */
+const DEMO_SCENARIO_NAME = '本地 Demo 通用面试'
+/** @brief 本地 Demo 后端实际配置的模型执行区域 / Model execution region configured by the local Demo backend. */
+const DEMO_MODEL_DATA_REGION = 'global'
+
+/**
+ * @brief 构造开箱即用的本地 Demo 面试场景 / Build the ready-to-use local Demo interview scenario.
+ * @return 完整、隐私保守的场景输入 / Complete privacy-conservative scenario input.
+ */
+function demoInterviewScenarioInput(): UiInterviewScenarioInput {
+  return {
+    allowBargeIn: true,
+    allowFollowups: true,
+    description: '围绕项目经历、技术判断和协作方式进行通用岗位练习。',
+    difficulty: 'intermediate',
+    durationMinutes: 20,
+    focusAreas: ['项目经历', '问题解决', '沟通协作'],
+    interviewType: asUiInterviewType('general'),
+    locale: 'zh-CN',
+    name: DEMO_SCENARIO_NAME,
+    rubric: {
+      dimensions: [
+        {
+          description: '回答是否具体、结构清楚，并能够说明个人贡献。',
+          dimensionId: asUiOpaqueId<'interview-rubric-dimension'>('rubric_dimension_demo_clarity'),
+          name: '表达与证据',
+          observableIndicators: ['使用具体经历回答', '清楚说明行动与结果'],
+          scoringScale: { maximum: 100, minimum: 0 },
+          weight: 1
+        }
+      ],
+      name: '本地 Demo 面试量表',
+      overallScale: { maximum: 100, minimum: 0 },
+      rubricId: asUiOpaqueId<'interview-rubric'>('rubric_demo_general'),
+      rubricVersion: '1.0'
+    },
+    targetQuestionCount: 4
+  }
+}
 
 /** @brief 创建命令不包含单次调用 AbortSignal 的冻结快照 / Frozen creation command without a per-call AbortSignal. */
 type FrozenInterviewSessionCreation = Omit<UiCreateInterviewSessionCommand, 'signal'>
@@ -82,8 +123,6 @@ function creationRequiresExactConfirmation(error: unknown): boolean {
 
 /** @brief Session 创建表单属性 / Session-creation form properties. */
 interface InterviewSetupFormProps {
-  /** @brief 当前 Workspace 模型数据区域 / Current Workspace model-data region. */
-  readonly dataRegion: 'cn' | 'global' | 'private_deployment'
   /** @brief 已加载场景首页 / Loaded first scenario page. */
   readonly initialPage: UiInterviewScenarioPage
   /** @brief 当前 Workspace ID / Current Workspace ID. */
@@ -96,7 +135,6 @@ interface InterviewSetupFormProps {
  * @return 可精确确认未知结果的创建表单 / Creation form capable of exactly confirming an unknown result.
  */
 function InterviewSetupForm({
-  dataRegion,
   initialPage,
   workspaceId
 }: InterviewSetupFormProps): React.JSX.Element {
@@ -241,7 +279,7 @@ function InterviewSetupForm({
           allowExternalModelProcessing: false,
           allowProviderFallback: false,
           costTier: 'standard',
-          dataRegion,
+          dataRegion: DEMO_MODEL_DATA_REGION,
           latencyBudgetMs: null,
           qualityTier: 'balanced'
         },
@@ -525,12 +563,49 @@ export function InterviewSetupPage(): React.JSX.Element {
       const current = access.currentWorkspaceAccess
       if (current === undefined) return { kind: 'no-workspace' }
       /** @brief 当前 Workspace 的场景首页 / First scenario page in the current Workspace. */
-      const page = await gateway.listInterviewScenarioPage({
+      let page = await gateway.listInterviewScenarioPage({
         cursor: null,
         limit: INTERVIEW_SCENARIO_PAGE_LIMIT,
         signal,
         workspaceId: current.workspace.id
       })
+      if (!page.items.some((scenario) => scenario.status === 'active')) {
+        /** @brief 已存在但尚未发布的 Demo 场景，或刚创建的场景 / Existing draft Demo scenario, or newly created scenario. */
+        const draft =
+          page.items.find((scenario) => scenario.name === DEMO_SCENARIO_NAME) ??
+          (
+            await gateway.createInterviewScenario({
+              commandId: createUiCommandId(),
+              input: demoInterviewScenarioInput(),
+              signal,
+              workspaceId: current.workspace.id
+            })
+          ).scenario
+        signal.throwIfAborted()
+        /** @brief 发布后的可选择 Demo 场景 / Selectable Demo scenario after activation. */
+        const active =
+          draft.status === 'active'
+            ? draft
+            : (
+                await gateway.updateInterviewScenario({
+                  concurrencyToken: (
+                    await gateway.getInterviewScenario({
+                      scenarioId: draft.id,
+                      signal,
+                      workspaceId: current.workspace.id
+                    })
+                  ).concurrencyToken,
+                  patch: { status: 'active' },
+                  scenarioId: draft.id,
+                  signal,
+                  workspaceId: current.workspace.id
+                })
+              ).scenario
+        page = {
+          ...page,
+          items: [active, ...page.items.filter((scenario) => scenario.id !== active.id)]
+        }
+      }
       return {
         dataRegion: current.workspace.dataRegion,
         kind: 'workspace',
@@ -592,7 +667,6 @@ export function InterviewSetupPage(): React.JSX.Element {
         </div>
       </div>
       <InterviewSetupForm
-        dataRegion={authority.data.dataRegion}
         initialPage={authority.data.page}
         key={`${selectionRevision}:${authority.data.workspaceId}`}
         workspaceId={authority.data.workspaceId}

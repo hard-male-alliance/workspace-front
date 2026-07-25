@@ -1748,7 +1748,7 @@ function prepareApiV2Transport(options: ApiV2TransportOptions): PreparedApiV2Tra
   /** @brief 已验证 API v2 基址 / Validated API v2 base URL. */
   const apiBaseUrl = resolveApiBaseUrl(options.transportProfile)
   /** @brief 网络实现 / Network implementation. */
-  const fetchImpl = options.fetchImpl ?? fetch
+  const fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis)
   if (typeof fetchImpl !== 'function') {
     throw new ApiV2ContractError('API v2 requires a fetch implementation.')
   }

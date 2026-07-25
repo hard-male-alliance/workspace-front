@@ -418,7 +418,7 @@ export class WebCryptoJwksIdTokenVerifier implements IdTokenSignatureVerifier {
    * @param options 可替换 runtime 与资源限制 / Replaceable runtime and resource limits.
    */
   constructor(options: WebCryptoJwksIdTokenVerifierOptions = {}) {
-    this.fetchImpl = options.fetchImpl ?? fetch
+    this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis)
     this.cryptoImpl = options.crypto ?? globalThis.crypto
     this.nowMilliseconds = options.nowMilliseconds ?? Date.now
     this.cacheTtlMilliseconds = options.cacheTtlMilliseconds ?? DEFAULT_CACHE_TTL_MILLISECONDS

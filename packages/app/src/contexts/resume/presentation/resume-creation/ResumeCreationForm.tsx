@@ -71,8 +71,6 @@ export function ResumeCreationForm({
   const diagnostics = useDiagnostics()
   /** @brief 用户输入的 Resume 标题 / User-entered Resume title. */
   const [title, setTitle] = useState('')
-  /** @brief 用户输入的 Resume 内容语言 / User-entered Resume-content locale. */
-  const [localeInput, setLocaleInput] = useState(() => i18n.resolvedLanguage ?? i18n.language)
   /** @brief 绑定到当前目录代际的显式 Template 选择 / Explicit Template selection bound to the current catalog generation. */
   const [templateSelection, setTemplateSelection] = useState<ResumeTemplateSelection | null>(null)
   /** @brief 是否应显示表单校验反馈 / Whether form-validation feedback should be shown. */
@@ -85,10 +83,14 @@ export function ResumeCreationForm({
   const creationController = useRef<AbortController | null>(null)
   /** @brief 当前表单意图绑定的稳定命令 ID / Stable command ID bound to the current form intent. */
   const creationAttempt = useRef<ResumeCreationAttempt | null>(null)
-  /** @brief 去除用户偶然首尾空白后的内容语言 / Content locale without accidental surrounding whitespace. */
-  const normalizedLocale = localeInput.trim()
-  /** @brief 当前内容语言是否满足契约 / Whether the current content locale satisfies the contract. */
-  const localeIsValid = isContentLocale(normalizedLocale)
+  /** @brief Demo 创建页从界面语言推导的内部内容语言 / Internal content locale derived from the Demo UI language. */
+  const applicationLanguage = (i18n.resolvedLanguage ?? i18n.language).toLowerCase()
+  const normalizedLocale =
+    applicationLanguage === 'zh-sg'
+      ? 'zh-SG'
+      : applicationLanguage.startsWith('en')
+        ? 'en-US'
+        : 'zh-CN'
   /** @brief 去除首尾空白后的提交标题 / Submitted title without surrounding whitespace. */
   const normalizedTitle = title.trim()
   /** @brief 标题的 JSON Schema code-point 数 / JSON Schema code-point count of the title. */
@@ -152,13 +154,6 @@ export function ResumeCreationForm({
   /** @brief 更新标题并开始新的创建意图 / Update the title and begin a new creation intent. */
   const changeTitle = (event: ChangeEvent<HTMLInputElement>): void => {
     setTitle(event.currentTarget.value)
-    invalidateCreationIntent()
-  }
-
-  /** @brief 更新内容语言、清除旧选择并开始新的创建意图 / Update the content locale, clear the old selection, and begin a new creation intent. */
-  const changeLocale = (event: ChangeEvent<HTMLInputElement>): void => {
-    setLocaleInput(event.currentTarget.value)
-    setTemplateSelection(null)
     invalidateCreationIntent()
   }
 
@@ -257,7 +252,7 @@ export function ResumeCreationForm({
             </h2>
             <p className="aw-card-description">
               {t('resume.creation.basicsDescription', {
-                defaultValue: '标题和内容语言会成为新简历的权威元数据。'
+                defaultValue: '输入一个便于识别的简历标题。'
               })}
             </p>
           </div>
@@ -290,44 +285,6 @@ export function ResumeCreationForm({
               {showValidation && !titleIsValid
                 ? t('resume.creation.titleError', {
                     defaultValue: '请输入 1 至 300 个字符的标题。'
-                  })
-                : ''}
-            </span>
-          </div>
-
-          <div className="aw-resume-create-field">
-            <label htmlFor="resume-create-locale">
-              {t('resume.creation.localeLabel', { defaultValue: '内容语言' })}
-            </label>
-            <input
-              aria-describedby="resume-create-locale-help resume-create-locale-error"
-              aria-invalid={!localeIsValid ? 'true' : undefined}
-              autoCapitalize="none"
-              autoComplete="off"
-              disabled={submission.status === 'submitting'}
-              id="resume-create-locale"
-              list="resume-create-common-locales"
-              onChange={changeLocale}
-              required
-              spellCheck={false}
-              type="text"
-              value={localeInput}
-            />
-            <datalist id="resume-create-common-locales">
-              <option value="zh-SG" />
-              <option value="zh-CN" />
-              <option value="en-US" />
-              <option value="en-GB" />
-            </datalist>
-            <span className="aw-resume-create-field-help" id="resume-create-locale-help">
-              {t('resume.creation.localeHelp', {
-                defaultValue: '使用 BCP 47 语言标签；模板支持范围会随之更新。'
-              })}
-            </span>
-            <span className="aw-resume-create-field-error" id="resume-create-locale-error">
-              {!localeIsValid
-                ? t('resume.creation.localeError', {
-                    defaultValue: '请输入有效的 BCP 47 语言标签，例如 zh-SG 或 en-US。'
                   })
                 : ''}
             </span>

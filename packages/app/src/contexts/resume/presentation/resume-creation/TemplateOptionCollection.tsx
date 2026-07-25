@@ -1,6 +1,6 @@
 /** @file Resume 创建页的 Template 选项集合 / Template-option collection for Resume creation. */
 
-import { FileText, ImageOff } from 'lucide-react'
+import { FileText } from 'lucide-react'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -82,7 +82,7 @@ class ResumeTemplateCursorLoopError extends Error {
 }
 
 /**
- * @brief 呈现真实预览图或明确的无图状态 / Present a real preview image or an explicit unavailable-image state.
+ * @brief 呈现真实预览图或不依赖远端文件的模板示意 / Present a real preview image or a file-independent template sketch.
  * @param props Template 与替代文本 / Template and alternative text.
  * @return 不泄漏页面 referrer 的图片或无图 fallback / Image that leaks no page referrer, or a no-image fallback.
  */
@@ -98,9 +98,21 @@ function TemplatePreview({
 
   if (template.previewUrl === null || failed) {
     return (
-      <span className="aw-resume-create-template-preview aw-resume-create-template-preview--empty">
-        <ImageOff aria-hidden="true" size={22} strokeWidth={1.6} />
-        <span>{t('resume.creation.previewUnavailable', { defaultValue: '暂无模板预览' })}</span>
+      <span
+        aria-label={t('resume.creation.previewSketch', {
+          defaultValue: '{{name}} 模板示意',
+          name: template.name
+        })}
+        className="aw-resume-create-template-preview aw-resume-create-template-preview--sketch"
+        role="img"
+      >
+        <span className="aw-resume-create-template-sketch-name" />
+        <span className="aw-resume-create-template-sketch-heading" />
+        <span className="aw-resume-create-template-sketch-line" />
+        <span className="aw-resume-create-template-sketch-line aw-resume-create-template-sketch-line--short" />
+        <span className="aw-resume-create-template-sketch-heading" />
+        <span className="aw-resume-create-template-sketch-line" />
+        <span className="aw-resume-create-template-sketch-line aw-resume-create-template-sketch-line--short" />
       </span>
     )
   }

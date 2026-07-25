@@ -322,14 +322,31 @@ describe('WorkspaceApp Resume editor', (): void => {
     expect(content).toHaveValue('安全正文草稿')
   })
 
-  it('keeps the assistant composer unavailable until the Agent message contract is connected', async (): Promise<void> => {
+  it('provides an interactive local Demo resume assistant', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
 
     render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
     await screen.findByRole('heading', { name: 'Klee Chen' })
 
-    expect(screen.getByRole('textbox', { name: '询问简历助手' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled()
+    const composer = screen.getByRole('textbox', { name: '询问简历助手' })
+    const send = screen.getByRole('button', { name: '发送消息' })
+    expect(composer).toBeEnabled()
+    expect(send).toBeDisabled()
+
+    fireEvent.change(composer, { target: { value: '请检查简历结构' } })
+    fireEvent.click(send)
+
+    expect(screen.getByText('请检查简历结构')).toBeInTheDocument()
+    expect(screen.getByText(/当前简历共有.*个板块/u)).toBeInTheDocument()
+    expect(composer).toHaveValue('')
+
+    fireEvent.change(composer, { target: { value: '项目经历应该怎么写？' } })
+    fireEvent.click(send)
+    expect(screen.getByText(/项目板块要回答四个问题/u)).toBeInTheDocument()
+
+    fireEvent.change(composer, { target: { value: '你觉得我最需要先处理什么？' } })
+    fireEvent.click(send)
+    expect(screen.getByText(/针对“你觉得我最需要先处理什么？”/u)).toBeInTheDocument()
   })
 
   it.each([412, 409] as const)(

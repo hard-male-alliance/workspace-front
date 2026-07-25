@@ -187,13 +187,40 @@
   object-fit: contain;
 }
 
-.aw-resume-create-template-preview--empty {
+.aw-resume-create-template-preview--sketch {
+  align-content: start;
   gap: 7px;
-  padding: 9px;
-  color: var(--ui-color-ink-subtle);
-  font-size: 10px;
-  line-height: 1.35;
-  text-align: center;
+  padding: 14px 12px;
+  background: #fff;
+  box-shadow: 0 3px 12px rgb(15 23 42 / 8%);
+}
+
+.aw-resume-create-template-sketch-name,
+.aw-resume-create-template-sketch-heading,
+.aw-resume-create-template-sketch-line {
+  display: block;
+  width: 100%;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--ui-color-border);
+}
+
+.aw-resume-create-template-sketch-name {
+  width: 62%;
+  height: 6px;
+  margin: 2px auto 8px;
+  background: var(--ui-color-ink);
+}
+
+.aw-resume-create-template-sketch-heading {
+  width: 42%;
+  height: 4px;
+  margin-top: 4px;
+  background: var(--ui-color-accent);
+}
+
+.aw-resume-create-template-sketch-line--short {
+  width: 76%;
 }
 
 .aw-resume-create-template-copy {

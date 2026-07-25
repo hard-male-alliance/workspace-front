@@ -111,6 +111,31 @@ function unauthorizedResponse(
 }
 
 describe('createApiV2Client', (): void => {
+  it('binds the default browser fetch implementation to globalThis', async (): Promise<void> => {
+    const originalFetch = globalThis.fetch
+    const fetchImpl: typeof fetch = function (
+      this: unknown,
+      ...args: Parameters<typeof fetch>
+    ): Promise<Response> {
+      expect(this).toBe(globalThis)
+      expect(args[0]).toBe('https://api.hmalliances.org/api/v2/me')
+      return Promise.resolve(jsonResponse({ id: 'usr_example' }))
+    }
+    globalThis.fetch = fetchImpl
+    try {
+      const client = createApiV2Client({
+        authentication: fixedAuthentication(ACCESS_TOKEN),
+        createRequestId: (): string => 'req_bound_fetch_12345678'
+      })
+      await expect(client.getJson('/me')).resolves.toMatchObject({
+        data: { id: 'usr_example' },
+        status: 200
+      })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
   it('sends Bearer and correlation headers only to the workspace-scoped v2 URL', async (): Promise<void> => {
     /** @brief 返回成功 JSON 的网络替身 / Network double returning successful JSON. */
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ items: [] }))

@@ -84,7 +84,7 @@ describe('WorkspaceApp Knowledge API v2 workflow', (): void => {
       visibility: {
         agentGrants: [],
         allowExternalModelProcessing: false,
-        allowedModelRegions: ['cn'],
+        allowedModelRegions: ['global'],
         defaultEffect: 'deny',
         policyVersion: 1,
         retentionDays: 365,
