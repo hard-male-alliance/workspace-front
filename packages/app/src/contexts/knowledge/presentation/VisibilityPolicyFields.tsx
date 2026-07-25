@@ -3,7 +3,6 @@
 import { Plus, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-import type { UiWorkspaceDataRegion } from '../../workspace'
 import type {
   UiAgentScopeGrant,
   UiKnowledgeModelRegion,
@@ -52,17 +51,14 @@ export type VisibilityPolicyValidationError =
 
 /**
  * @brief 构造明确标注的安全表单起点 / Construct an explicitly labelled safe form starting point.
- * @param dataRegion 当前 Workspace 的数据驻留区域 / Data-residency region of the current Workspace.
  * @return 默认拒绝、无 Agent grant 的完整策略 / Complete default-deny policy without Agent grants.
  * @note 这是前端产品预设，不冒充服务端默认值 / This is a frontend product preset, not a claimed service default.
  */
-export function createSafeKnowledgeVisibilityPolicy(
-  dataRegion: UiWorkspaceDataRegion
-): UiKnowledgeVisibilityPolicy {
+export function createSafeKnowledgeVisibilityPolicy(): UiKnowledgeVisibilityPolicy {
   return {
     agentGrants: [],
     allowExternalModelProcessing: false,
-    allowedModelRegions: [dataRegion],
+    allowedModelRegions: ['global'],
     defaultEffect: 'deny',
     policyVersion: 1,
     retentionDays: 365,

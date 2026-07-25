@@ -133,7 +133,7 @@ function ManualNoteCreateContent({
       ? {
           content: '',
           name: '',
-          visibility: createSafeKnowledgeVisibilityPolicy(workspace.dataRegion)
+          visibility: createSafeKnowledgeVisibilityPolicy()
         }
       : {
           content: initialPending.command.content,
@@ -175,8 +175,7 @@ function ManualNoteCreateContent({
     (pending !== null ||
       draft.name.length > 0 ||
       draft.content.length > 0 ||
-      JSON.stringify(draft.visibility) !==
-        JSON.stringify(createSafeKnowledgeVisibilityPolicy(workspace.dataRegion)))
+      JSON.stringify(draft.visibility) !== JSON.stringify(createSafeKnowledgeVisibilityPolicy()))
 
   useUnsavedChanges('knowledge.manual-note-create', hasUnsavedState)
 

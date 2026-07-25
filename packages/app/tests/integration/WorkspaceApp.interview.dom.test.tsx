@@ -114,6 +114,7 @@ describe('WorkspaceApp interview workflow', (): void => {
         inference: {
           allowExternalModelProcessing: false,
           allowProviderFallback: false,
+          dataRegion: 'global',
           qualityTier: 'balanced'
         },
         jobTarget: { company: 'Northstar', title: '前端平台工程师' },
@@ -170,17 +171,23 @@ describe('WorkspaceApp interview workflow', (): void => {
     expect(createInterviewSession.mock.calls[1]?.[0]).toStrictEqual(firstCommand)
   })
 
-  it('统一 Session 路由不伪造未冻结的 realtime 产品能力', async (): Promise<void> => {
+  it('统一 Session 路由提供不依赖 realtime 的本地 Demo 练习', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
 
     render(<WorkspaceApp initialPath={`/interviews/${DEMO_LIVE_INTERVIEW_SESSION.id}`} />)
 
     expect(await screen.findByRole('heading', { name: 'AI Platform Engineer' })).toBeInTheDocument()
     expect(screen.getByText('进行中')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: '会话尚未完成' })).toBeInTheDocument()
-    expect(screen.getByText(/未冻结的 realtime 帧协议不会在浏览器里伪造/u)).toBeInTheDocument()
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
-    expect(screen.queryByText(/持续监听|正在聆听/u)).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '本地 Demo 模拟面试' })).toBeInTheDocument()
+    fireEvent.change(screen.getByRole('textbox', { name: '你的回答' }), {
+      target: {
+        value:
+          '我负责过一个面向 20 人团队的平台项目，通过梳理流程、拆分里程碑并推动协作，最终将交付时间缩短了 30%。'
+      }
+    })
+    fireEvent.click(screen.getByRole('button', { name: '提交并进入下一题' }))
+    expect(screen.getByText(/回答结构清楚且包含量化信息/u)).toBeInTheDocument()
+    expect(screen.getByText('2 / 4')).toBeInTheDocument()
   })
 
   it('在同一 Session 路由呈现报告、真实转录和已核验证据', async (): Promise<void> => {

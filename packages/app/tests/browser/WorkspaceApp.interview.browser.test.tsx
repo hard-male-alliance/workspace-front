@@ -30,7 +30,14 @@ describe('WorkspaceApp Interview browser behaviour', (): void => {
       .element(screen.getByRole('heading', { name: 'Frontend Platform Engineer' }))
       .toBeVisible()
     await expect.element(screen.getByText('已创建', { exact: true })).toBeVisible()
-    await expect.element(screen.getByRole('heading', { name: '会话尚未完成' })).toBeVisible()
+    await expect.element(screen.getByRole('heading', { name: '本地 Demo 模拟面试' })).toBeVisible()
+    await screen
+      .getByRole('textbox', { name: '你的回答' })
+      .fill(
+        '我负责过一个面向 20 人团队的平台项目，通过梳理流程、拆分里程碑并推动协作，最终将交付时间缩短了 30%。'
+      )
+    await screen.getByRole('button', { name: '提交并进入下一题' }).click()
+    await expect.element(screen.getByText(/回答结构清楚且包含量化信息/)).toBeVisible()
     await expect.element(screen.getByText('保存 30 天')).toBeVisible()
 
     await screen.getByRole('link', { name: '返回会话记录' }).click()

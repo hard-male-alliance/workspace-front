@@ -357,6 +357,7 @@
 
 .aw-interview-live-transcript {
   display: block;
+  width: 100%;
   min-height: 74px;
   margin: 14px 0;
   padding: 13px 14px;
@@ -366,6 +367,60 @@
   color: var(--ui-color-ink);
   font-size: 14px;
   line-height: 1.65;
+  resize: vertical;
+}
+
+.aw-interview-demo {
+  display: grid;
+  gap: 16px;
+}
+
+.aw-interview-demo .aw-section-heading {
+  align-items: flex-start;
+}
+
+.aw-interview-demo .aw-section-heading p:last-child {
+  margin: 6px 0 0;
+  color: var(--ui-color-ink-muted);
+}
+
+.aw-interview-demo-feedback {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 10px 0 0;
+  color: var(--ui-color-success);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.aw-interview-demo-feedback svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.aw-interview-demo-complete {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--ui-color-border);
+  border-radius: 10px;
+  background: var(--ui-color-surface-muted);
+}
+
+.aw-interview-demo-complete h3,
+.aw-interview-demo-complete p {
+  margin: 0;
+}
+
+.aw-interview-demo-complete p {
+  margin-top: 4px;
+  color: var(--ui-color-ink-muted);
+}
+
+.aw-interview-demo-complete .aw-quiet-button {
+  margin-left: auto;
 }
 
 .aw-interview-answer-actions {

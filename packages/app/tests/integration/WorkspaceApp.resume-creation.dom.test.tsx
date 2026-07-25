@@ -1,6 +1,6 @@
 /** @file API v2 Resume 创建页 DOM 集成测试 / API v2 Resume-creation page DOM integration tests. */
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { I18nextProvider } from 'react-i18next'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -37,32 +37,6 @@ import { asUiOpaqueId } from '../../src/shared-kernel/identity'
 
 /** @brief 第二个测试 Workspace ID / Second test Workspace ID. */
 const SECOND_WORKSPACE_ID = asUiOpaqueId<'workspace'>('ws_resume_creation_second')
-
-/** @brief 可由测试精确兑现的异步值 / Asynchronous value precisely settled by a test. */
-interface Deferred<TValue> {
-  /** @brief 受控 Promise / Controlled promise. */
-  readonly promise: Promise<TValue>
-  /** @brief 以成功值兑现 Promise / Fulfil the promise with a successful value. */
-  readonly resolve: (value: TValue) => void
-}
-
-/**
- * @brief 创建测试控制的 Promise / Create a Promise controlled by a test.
- * @template TValue 成功值类型 / Successful value type.
- * @return Promise 与精确 resolver / Promise and precise resolver.
- */
-function createDeferred<TValue>(): Deferred<TValue> {
-  /** @brief 底层 Promise resolver / Underlying Promise resolver. */
-  let resolvePromise: ((value: TValue) => void) | undefined
-  /** @brief 等待测试兑现的 Promise / Promise waiting for test settlement. */
-  const promise = new Promise<TValue>((resolve): void => {
-    resolvePromise = resolve
-  })
-  return {
-    promise,
-    resolve: (value): void => resolvePromise?.(value)
-  }
-}
 
 /**
  * @brief 创建一页终止 Template 目录 / Create one terminal Template-catalog page.
@@ -205,44 +179,24 @@ describe('ResumeCreationPage', (): void => {
     expect(preview).toHaveAttribute('decoding', 'async')
 
     fireEvent.error(preview)
-    expect(screen.getByText('暂无模板预览')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Dawn 模板示意' })).toBeInTheDocument()
   })
 
-  it('aborts a stale Locale request and ignores its late page', async (): Promise<void> => {
-    /** @brief 延迟返回的旧 Locale 页面 / Delayed page for the old Locale. */
-    const stalePage = createDeferred<UiResumeTemplatePage>()
-    /** @brief 每次目录读取收到的 signal / Signal received by each catalog read. */
-    const signals: AbortSignal[] = []
-    /** @brief 新 Locale 立即返回的 Template / Template returned immediately for the new Locale. */
+  it('derives the content locale from the UI language without exposing a locale field', async (): Promise<void> => {
+    /** @brief 支持当前 zh-SG 界面语言的 Template / Template supporting the current zh-SG UI language. */
     const currentTemplate = createTemplate('tpl_creation_current_locale', 'Current Locale', [
-      'en-US'
+      'zh-SG'
     ])
-    /** @brief 故意不响应 abort 的目录，用于验证页面仍丢弃迟到结果 / Catalog intentionally ignoring abort to verify that the page still discards a late result. */
-    const listTemplatePage = vi.fn<ResumeTemplateCatalogPort['listTemplatePage']>((input) => {
-      signals.push(input.signal)
-      return signals.length === 1
-        ? stalePage.promise
-        : Promise.resolve(terminalTemplatePage([currentTemplate]))
-    })
     /** @brief 可观察 Template 目录 / Observable Template catalog. */
+    const listTemplatePage = vi.fn<ResumeTemplateCatalogPort['listTemplatePage']>(() =>
+      Promise.resolve(terminalTemplatePage([currentTemplate]))
+    )
     const catalog: ResumeTemplateCatalogPort = { getTemplate: vi.fn(), listTemplatePage }
 
     render(<ResumeCreationTestRoot gateways={createGateways({ catalog })} />)
 
-    /** @brief 可在目录加载期间编辑的 Locale 字段 / Locale field editable while the catalog is loading. */
-    const locale = await screen.findByRole('combobox', { name: '内容语言' })
-    fireEvent.change(locale, { target: { value: 'en-US' } })
-
     expect(await screen.findByRole('radio', { name: /Current Locale/u })).toBeChecked()
-    expect(signals[0]?.aborted).toBe(true)
-
-    await act(async (): Promise<void> => {
-      stalePage.resolve(terminalTemplatePage([MOCK_DAWN_TEMPLATE]))
-      await stalePage.promise
-    })
-
-    expect(screen.getByRole('radio', { name: /Current Locale/u })).toBeChecked()
-    expect(screen.queryByRole('radio', { name: /Dawn/u })).not.toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: '内容语言' })).not.toBeInTheDocument()
   })
 
   it('stops a repeated cursor without issuing another continuation request', async (): Promise<void> => {

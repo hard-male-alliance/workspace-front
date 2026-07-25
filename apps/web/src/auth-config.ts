@@ -6,8 +6,12 @@ export const WEB_OAUTH_SCOPES = Object.freeze([
   'profile',
   'offline_access',
   'workspace.read',
+  'workspace.write',
   'resume.read',
-  'resume.write'
+  'resume.write',
+  'resume.render',
+  'interview.read',
+  'interview.write'
 ] as const)
 
 /** @brief Web OAuth 公开构建配置 / Public Web OAuth build configuration. */

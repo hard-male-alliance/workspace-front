@@ -167,6 +167,29 @@ function verifierInput(token: string, signal?: AbortSignal): IdTokenSignatureVer
 }
 
 describe('WebCryptoJwksIdTokenVerifier', (): void => {
+  it('binds the default browser fetch implementation to globalThis', async (): Promise<void> => {
+    const key = await createSigningKey('RS256', 'rsa-bound-fetch')
+    const signed = await signToken(key)
+    const originalFetch = globalThis.fetch
+    const fetchImpl: typeof fetch = function (
+      this: unknown,
+      input: RequestInfo | URL,
+      init?: RequestInit
+    ): Promise<Response> {
+      expect(this).toBe(globalThis)
+      expect(input).toBe(API_V2_OAUTH_JWKS_URI)
+      expect(init).toMatchObject({ cache: 'no-store', credentials: 'omit', redirect: 'error' })
+      return Promise.resolve(jwksResponse([key.publicJwk]))
+    }
+    globalThis.fetch = fetchImpl
+    try {
+      const verifier = new WebCryptoJwksIdTokenVerifier()
+      await expect(verifier.verifySignature(verifierInput(signed.token))).resolves.toEqual(CLAIMS)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
   it.each(['RS256', 'ES256'] as const)(
     'verifies a real %s Web Crypto signature and returns claims only afterwards',
     async (algorithm): Promise<void> => {
