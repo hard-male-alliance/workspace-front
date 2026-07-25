@@ -12,6 +12,8 @@ const API_V2_PRODUCTION_ORIGIN = 'https://api.hmalliances.org:8022'
 /** @brief smoke 注入但必须被构建期配置忽略的运行时 client ID / Runtime client ID injected by the smoke but required to be ignored by build-time configuration. */
 const DESKTOP_RUNTIME_OAUTH_OVERRIDE = 'runtime-override-must-be-ignored'
 
+const TRANSIENT_REMOVAL_ERROR_CODES = new Set(['EBUSY', 'ENOTEMPTY', 'EPERM'])
+
 /** @brief CSP 必须阻止的外部网络地址 / External network URL that CSP must block. */
 const BLOCKED_NETWORK_URL = 'https://blocked.desktop-smoke.invalid/csp-probe'
 
@@ -45,6 +47,39 @@ async function reserveLoopbackPort() {
     })
   })
   return address.port
+}
+
+function isTransientRemovalError(error) {
+  return (
+    error !== null &&
+    typeof error === 'object' &&
+    'code' in error &&
+    TRANSIENT_REMOVAL_ERROR_CODES.has(error.code)
+  )
+}
+
+export async function removeTemporaryDirectory(
+  directory,
+  {
+    maxAttempts = 6,
+    remove = rm,
+    sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
+  } = {}
+) {
+  let delayMilliseconds = 100
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      await remove(directory, { force: true, recursive: true })
+      return
+    } catch (error) {
+      if (attempt === maxAttempts || !isTransientRemovalError(error)) {
+        throw error
+      }
+      await sleep(delayMilliseconds)
+      delayMilliseconds *= 2
+    }
+  }
 }
 
 /**
@@ -572,6 +607,6 @@ export async function runDesktopRuntimeSmoke(launch) {
       child.kill()
       await exited
     }
-    await rm(userDataDirectory, { force: true, recursive: true })
+    await removeTemporaryDirectory(userDataDirectory)
   }
 }
