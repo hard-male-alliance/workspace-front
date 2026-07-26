@@ -9,6 +9,9 @@ import { chromium } from 'playwright'
 /** @brief API STANDARD V2 冻结的生产产品 origin / Frozen production product origin from API STANDARD V2. */
 const API_V2_PRODUCTION_ORIGIN = 'https://api.hmalliances.org'
 
+/** @brief Interview realtime 冻结的生产 WebSocket origin / Frozen production WebSocket origin for Interview realtime. */
+const INTERVIEW_REALTIME_PRODUCTION_ORIGIN = 'wss://api.hmalliances.org'
+
 /** @brief smoke 注入但必须被构建期配置忽略的运行时 client ID / Runtime client ID injected by the smoke but required to be ignored by build-time configuration. */
 const DESKTOP_RUNTIME_OAUTH_OVERRIDE = 'runtime-override-must-be-ignored'
 
@@ -546,7 +549,7 @@ async function verifyContentSecurityPolicy(page) {
     ['style-src', ["'self'", "'unsafe-inline'"]],
     ['img-src', ["'self'", 'data:', 'blob:']],
     ['font-src', ["'self'", 'data:']],
-    ['connect-src', ["'self'", API_V2_PRODUCTION_ORIGIN]],
+    ['connect-src', ["'self'", API_V2_PRODUCTION_ORIGIN, INTERVIEW_REALTIME_PRODUCTION_ORIGIN]],
     ['media-src', ["'self'", 'blob:']],
     ['worker-src', ["'self'", 'blob:']]
   ])

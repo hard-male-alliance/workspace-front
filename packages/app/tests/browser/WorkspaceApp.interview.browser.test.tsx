@@ -23,9 +23,7 @@ describe('WorkspaceApp Interview browser behaviour', (): void => {
     await expect.element(screen.getByRole('heading', { name: '创建练习会话' })).toBeVisible()
     await screen.getByRole('textbox', { name: '目标岗位' }).fill('Frontend Platform Engineer')
     await screen.getByRole('textbox', { name: '目标公司（可选）' }).fill('InkWell Labs')
-    await expect
-      .element(screen.getByRole('checkbox', { name: /保存文字转录 30 天/ }))
-      .toBeChecked()
+    await expect.element(screen.getByRole('checkbox', { name: /保存文字转录 30 天/ })).toBeChecked()
     await expect
       .element(screen.getByRole('checkbox', { name: /保存文字转录 30 天/ }))
       .toBeDisabled()
