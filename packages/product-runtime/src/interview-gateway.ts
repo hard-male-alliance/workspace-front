@@ -40,6 +40,7 @@ import {
   asUiInterviewType,
   asUiOpaqueId,
   type InterviewGateway,
+  type UiConnectTextInterviewCommand,
   type UiCreateInterviewSessionInput,
   type UiInterviewAvatarPreferences,
   type UiInterviewEvidenceClaim,
@@ -55,6 +56,7 @@ import {
   type UiInterviewSession,
   type UiInterviewSessionAuthority,
   type UiInterviewTranscriptSegment,
+  type UiInterviewTextChannel,
   type UiRealtimeConnection,
   type UiResourceReference,
   type UiInterviewRecordingConsent
@@ -628,6 +630,172 @@ function mapInterviewJob(
   return authority
 }
 
+const INTERVIEW_REALTIME_PROTOCOL = 'aiws.interview.realtime.v2'
+const INTERVIEW_CONNECT_TIMEOUT_MILLISECONDS = 15_000
+
+/** @brief 使用短期凭据建立不含音视频的面试 WebSocket / Open a text-only Interview WebSocket with an ephemeral grant. */
+function openTextInterviewChannel(
+  connection: UiRealtimeConnection,
+  command: UiConnectTextInterviewCommand
+): Promise<UiInterviewTextChannel> {
+  command.signal?.throwIfAborted()
+  if (connection.transport !== 'websocket') {
+    return Promise.reject(new ApiV2ContractError('Text Interview requires WebSocket transport.'))
+  }
+  return new Promise<UiInterviewTextChannel>((resolve, reject) => {
+    const socket = new globalThis.WebSocket(connection.signalingUrl, INTERVIEW_REALTIME_PROTOCOL)
+    const activationId = `input_${globalThis.crypto.randomUUID()}`
+    let settled = false
+    let intentionalClose = false
+    let pending:
+      | {
+          readonly id: string
+          readonly resolve: () => void
+          readonly reject: (error: unknown) => void
+        }
+      | undefined
+    const timeout = globalThis.setTimeout((): void => {
+      if (settled) return
+      intentionalClose = true
+      socket.close(4408, 'connection_timeout')
+      reject(new Error('interview.realtime_connection_timeout'))
+    }, INTERVIEW_CONNECT_TIMEOUT_MILLISECONDS)
+
+    const finishConnection = (channel: UiInterviewTextChannel): void => {
+      if (settled) return
+      settled = true
+      globalThis.clearTimeout(timeout)
+      resolve(channel)
+    }
+    const failConnection = (error: unknown): void => {
+      const failure = error instanceof Error ? error : new Error('interview.realtime_failed')
+      if (!settled) {
+        settled = true
+        globalThis.clearTimeout(timeout)
+        reject(failure)
+      }
+      pending?.reject(failure)
+      pending = undefined
+    }
+    const close = (): void => {
+      intentionalClose = true
+      globalThis.clearTimeout(timeout)
+      socket.close(1000, 'page_closed')
+    }
+    const channel: UiInterviewTextChannel = {
+      close,
+      submitAnswer: (answer): Promise<void> => {
+        if (socket.readyState !== globalThis.WebSocket.OPEN) {
+          return Promise.reject(new Error('interview.realtime_not_connected'))
+        }
+        if (pending !== undefined) {
+          return Promise.reject(new Error('interview.answer_already_pending'))
+        }
+        return new Promise<void>((resolveAnswer, rejectAnswer) => {
+          pending = {
+            id: answer.clientMessageId,
+            reject: rejectAnswer,
+            resolve: resolveAnswer
+          }
+          socket.send(
+            JSON.stringify({
+              end_ms: answer.endMs,
+              input_id: answer.clientMessageId,
+              start_ms: answer.startMs,
+              text: answer.text,
+              type: 'candidate_utterance'
+            })
+          )
+        })
+      }
+    }
+
+    socket.addEventListener('open', (): void => {
+      socket.send(
+        JSON.stringify({
+          audience_id: command.audienceId,
+          ephemeral_token: connection.ephemeralToken,
+          session_id: command.sessionId,
+          type: 'authenticate',
+          workspace_id: command.workspaceId
+        })
+      )
+    })
+    socket.addEventListener('message', (event): void => {
+      if (typeof event.data !== 'string') return
+      let message: unknown
+      try {
+        message = JSON.parse(event.data)
+      } catch {
+        failConnection(new Error('interview.realtime_invalid_message'))
+        return
+      }
+      if (typeof message !== 'object' || message === null) return
+      const frame = message as Record<string, unknown>
+      if (frame.type === 'authenticated') {
+        socket.send(
+          JSON.stringify({
+            control: 'media_started',
+            input_id: activationId,
+            type: 'control'
+          })
+        )
+        return
+      }
+      if (frame.type === 'ack' && frame.input_id === activationId) {
+        finishConnection(channel)
+        return
+      }
+      if (frame.type === 'ack' && frame.input_id === pending?.id) {
+        command.onTranscriptChanged()
+        return
+      }
+      if (frame.type === 'interviewer_followup') {
+        command.onTranscriptChanged()
+        const current = pending
+        if (current !== undefined && frame.in_reply_to === current.id) {
+          current.resolve()
+          pending = undefined
+        }
+        return
+      }
+      const current = pending
+      if (frame.type === 'turn_error' && current !== undefined && frame.input_id === current.id) {
+        current.reject(
+          new Error(typeof frame.code === 'string' ? frame.code : 'interview.turn_failed')
+        )
+        pending = undefined
+        return
+      }
+      if (frame.type === 'error') {
+        failConnection(
+          new Error(typeof frame.code === 'string' ? frame.code : 'interview.realtime_failed')
+        )
+      }
+    })
+    socket.addEventListener('error', (): void => {
+      failConnection(new Error('interview.realtime_connection_failed'))
+    })
+    socket.addEventListener('close', (): void => {
+      const error = new Error('interview.realtime_disconnected')
+      failConnection(error)
+      if (!intentionalClose && command.signal?.aborted !== true) command.onDisconnected(error)
+    })
+    command.signal?.addEventListener(
+      'abort',
+      (): void => {
+        close()
+        failConnection(
+          command.signal?.reason instanceof Error
+            ? command.signal.reason
+            : new DOMException('Interview connection was cancelled.', 'AbortError')
+        )
+      },
+      { once: true }
+    )
+  })
+}
+
 /**
  * @brief 创建只使用 canonical API v2 的 Interview runtime gateway / Create an Interview runtime gateway using only canonical API v2.
  * @param client 已认证的 v2-only 产品 API client / Authenticated v2-only product API client.
@@ -782,6 +950,24 @@ export function createApiV2InterviewGateway(client: ApiV2HttpClient): InterviewG
         ...(command.signal === undefined ? {} : { signal: command.signal })
       })
       return mapRealtimeConnection(representation.value, command.sessionId)
+    },
+
+    async connectTextInterview(command) {
+      const representation = await createWorkspaceInterviewRealtimeConnection(client, {
+        idempotencyKey: command.commandId,
+        request: {
+          audio_codecs: [],
+          supported_transports: ['websocket'],
+          video_codecs: []
+        },
+        sessionId: command.sessionId,
+        workspaceId: command.workspaceId,
+        ...(command.signal === undefined ? {} : { signal: command.signal })
+      })
+      return openTextInterviewChannel(
+        mapRealtimeConnection(representation.value, command.sessionId),
+        command
+      )
     },
 
     async requestInterviewSessionEnd(command) {

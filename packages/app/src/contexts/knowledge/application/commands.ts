@@ -78,3 +78,33 @@ export interface UiUpdateKnowledgeSourceCommand {
   /** @brief 当前调用生命周期的取消信号 / Cancellation signal for the current call lifecycle. */
   readonly signal?: AbortSignal
 }
+
+/** @brief 文件摄取阶段 / File-ingestion phase. */
+export type UiKnowledgeFileIngestionPhase =
+  | 'hashing'
+  | 'creating-upload'
+  | 'uploading'
+  | 'verifying'
+  | 'creating-source'
+  | 'queued'
+  | 'processing'
+  | 'completed'
+
+/** @brief 文件上传、Source 创建和摄取的单一用户意图 / One user intent covering file upload, Source creation, and ingestion. */
+export interface UiIngestKnowledgeFileCommand {
+  readonly workspaceId: UiWorkspaceId
+  readonly name: string
+  readonly filename: string
+  readonly mediaType: string
+  readonly bytes: ArrayBuffer
+  readonly signal?: AbortSignal
+  readonly onProgress?: (phase: UiKnowledgeFileIngestionPhase) => void
+}
+
+/** @brief Workspace 内真实 Knowledge 搜索请求 / Real Knowledge search request in a Workspace. */
+export interface UiSearchKnowledgeCommand {
+  readonly workspaceId: UiWorkspaceId
+  readonly query: string
+  readonly sourceIds: readonly UiKnowledgeSourceId[]
+  readonly signal?: AbortSignal
+}

@@ -1048,7 +1048,6 @@ export function ResumePreviewPanel({
               onLoad={(): void =>
                 setInlinePreviewStatus((current) => (current === 'loading' ? 'ready' : current))
               }
-              sandbox=""
               src={previewLease.url}
               title={t('resume.workspace.pdfFrameTitle', { defaultValue: '简历 PDF 预览' })}
             />

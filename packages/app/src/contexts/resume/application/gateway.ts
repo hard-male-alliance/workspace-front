@@ -13,8 +13,41 @@ import type {
   UiStartResumeRenderInput
 } from '../domain/models'
 
+/** @brief Resume 助手展示的一条服务端消息 / One server-backed Resume-assistant message. */
+export interface UiResumeAssistantMessage {
+  readonly id: string
+  readonly author: 'assistant' | 'user' | 'system'
+  readonly text: string
+}
+
+/** @brief 可刷新恢复的 Resume 助手会话 / Refresh-recoverable Resume-assistant thread. */
+export interface UiResumeAssistantThread {
+  readonly conversationId: string
+  readonly messages: readonly UiResumeAssistantMessage[]
+}
+
+/** @brief 绑定精确 Resume revision 的助手请求 / Assistant request bound to an exact Resume revision. */
+export interface UiResumeAssistantRequest {
+  readonly workspaceId: UiWorkspaceId
+  readonly resumeId: UiResumeId
+  readonly resumeRevision: number
+  readonly resumeTitle: string
+  readonly locale: string
+  readonly signal?: AbortSignal
+}
+
+/** @brief 只读 Resume Agent 产品端口 / Read-only Resume Agent product port. */
+export interface ResumeAssistantGateway {
+  load(input: UiResumeAssistantRequest): Promise<UiResumeAssistantThread>
+  ask(
+    input: UiResumeAssistantRequest & { readonly question: string }
+  ): Promise<UiResumeAssistantThread>
+}
+
 /** @brief 简历与模板页面数据端口 / Resume and template page-data port. */
 export interface ResumeGateway {
+  /** @brief 真实 Conversation/Message/Run 支持的只读助手 / Read-only assistant backed by real Conversation/Message/Run resources. */
+  readonly assistant: ResumeAssistantGateway
   /**
    * @brief 读取 Workspace 中的一页 ResumeSummary / Read one ResumeSummary page in a Workspace.
    * @param input 显式 Workspace、不透明 cursor、页大小与取消信号 / Explicit Workspace, opaque cursor, page size, and cancellation signal.

@@ -235,6 +235,22 @@ export interface UiKnowledgeSourceAuthority {
   readonly concurrencyToken: UiConcurrencyToken
 }
 
+/** @brief 可追踪到具体 Source version 的搜索命中 / Search hit traceable to an exact Source version. */
+export interface UiKnowledgeSearchHit {
+  readonly sourceId: UiKnowledgeSourceId
+  readonly versionId: UiKnowledgeSourceVersionId
+  readonly locator: string
+  readonly quote: string
+  readonly score: number
+}
+
+/** @brief Knowledge 混合搜索结果 / Knowledge hybrid-search result. */
+export interface UiKnowledgeSearchResult {
+  readonly query: string
+  readonly hits: readonly UiKnowledgeSearchHit[]
+  readonly policyVersion: number
+}
+
 /** @brief Workspace-scoped KnowledgeSource cursor 页 / Workspace-scoped KnowledgeSource cursor page. */
 export type UiKnowledgeSourcePage =
   | {

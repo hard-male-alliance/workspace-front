@@ -32,7 +32,7 @@ import {
   ResumeBatchConflictError,
   type ResumeConflictStatus
 } from '../application/errors'
-import type { ResumeGateway } from '../application/gateway'
+import type { ResumeGateway, UiResumeAssistantMessage } from '../application/gateway'
 import type { ResumeTemplateCatalogPort } from '../application/resume-creation'
 import { loadPinnedResumeTemplate } from '../application/template-catalog'
 import {
@@ -343,98 +343,81 @@ function ResumePaneSeparator({
   )
 }
 
-/**
- * @brief 根据问题和当前简历生成本地 Demo 建议 / Generate local Demo guidance from the question and current Resume.
- * @param editor 当前简历编辑权威 / Current Resume editor authority.
- * @param question 用户问题 / User question.
- * @return 与常见简历意图对应的可操作回复 / Actionable reply matched to common Resume intents.
- */
-function createDemoResumeAssistantReply(editor: UiResumeEditorModel, question: string): string {
-  const normalized = question.toLocaleLowerCase()
-  const sections = editor.resume.sections
-  const populatedSections = sections.filter(
-    (section) =>
-      selectResumePlainText(section.content).trim().length > 0 || section.items.length > 0
-  )
-  const sectionNames = sections
-    .map((section) => section.title.trim())
-    .filter((title) => title.length > 0)
-  const availableSections =
-    sectionNames.length === 0 ? '当前还没有命名板块' : `当前板块包括：${sectionNames.join('、')}`
-
-  if (/你好|你是谁|能做什么|怎么用|帮助/u.test(normalized)) {
-    return `我可以结合《${editor.resume.title}》检查结构、个人简介、经历、项目、技能和岗位匹配，也可以给出改写示例。你可以直接粘贴一段文字，或问“这段经历怎么改得更有说服力”。`
-  }
-  if (/量化|数据|数字|指标|成果|结果/u.test(normalized)) {
-    return '量化时优先补充四类真实信息：处理规模、完成周期、效率变化和业务结果。例如把“优化页面性能”改成“将首屏时间从 3.2 秒降至 1.8 秒”。没有可靠数据时使用范围或客观结果，不要虚构。'
-  }
-  if (/结构|完整|顺序|缺少|检查/u.test(normalized)) {
-    return `当前简历共有 ${sections.length} 个板块，其中 ${populatedSections.length} 个已有内容。${availableSections}。建议顺序为：个人概要 → 核心经历 → 相关项目 → 技能 → 教育；空白或与岗位无关的板块可以暂时隐藏。`
-  }
-  if (/简介|自我介绍|概要|summary|profile|职业目标/u.test(normalized)) {
-    return '个人概要建议控制在 2–4 句：先写目标岗位和经验定位，再写最相关的技术或行业能力，最后放一个有证据的代表成果。避免“认真负责、学习能力强”等无法验证的形容词。'
-  }
-  if (/项目|作品|project|案例/u.test(normalized)) {
-    return '项目板块要回答四个问题：项目解决什么问题、你负责什么、采用了什么关键方案、结果如何。Demo 简历中建议保留 2–3 个与目标岗位最相关的项目，并明确个人贡献，避免只罗列技术栈。'
-  }
-  if (/经历|工作|实习|职责|experience/u.test(normalized)) {
-    return '经历内容建议每条只讲一件事，并使用“行动动词 + 解决的问题 + 方法 + 结果”。例如：“主导结算页重构，拆分 6 个高耦合模块，使回归缺陷下降 35%。”职责描述应少于成果描述。'
-  }
-  if (/技能|技术栈|框架|语言|skill|technology/u.test(normalized)) {
-    return '技能建议按“熟练使用 / 有项目经验 / 了解”分层，优先展示目标岗位招聘要求中的关键词。删除无法在经历或项目中证明的技能，并避免用进度条表示熟练度。'
-  }
-  if (/岗位|职位|jd|招聘|匹配|前端|后端|产品/u.test(normalized)) {
-    return '岗位匹配应先提取招聘描述中的 5–8 个核心要求，再检查它们是否出现在个人概要、最近经历和项目成果中。关键词需要放进真实语境，不能只在技能列表里堆叠。'
-  }
-  if (/润色|优化|改写|表达|措辞|语句|文案/u.test(normalized)) {
-    return '改写时请删除“参与、负责相关、协助完成”等模糊表达，改用“设计、实现、主导、推动、交付”等主动动词。把需要修改的原文直接粘贴过来，我会按“原句问题 → 改写示例 → 需要补充的数据”给建议。'
-  }
-  if (/太长|精简|删除|一页|篇幅|字数/u.test(normalized)) {
-    return '精简时先删重复职责和与目标岗位无关的早期经历，再把相近成果合并。一般每段经历保留 3–5 条要点，每条尽量控制在两行内；重要信息放在句首。'
-  }
-  if (/教育|学历|学校|专业|education/u.test(normalized)) {
-    return '教育经历通常保留学校、专业、学位和时间即可。应届生可以补充相关课程、奖项或重要实践；有较多工作经验后，不必展开无关课程。'
-  }
-  if (/错别字|语法|拼写|英文|中文|标点/u.test(normalized)) {
-    return '语言检查建议统一时态、日期格式、中英文标点和专有名词写法。英文要点使用过去式描述已完成经历；中文要点避免连续使用“了”，并保持每条句式一致。'
-  }
-
-  const shortQuestion = question.length > 48 ? `${question.slice(0, 48)}…` : question
-  return `针对“${shortQuestion}”，建议先明确目标岗位，再用简历中的具体事实回答。${availableSections}。你可以继续指出具体板块，或粘贴原文，我会给出更具体的修改建议。`
-}
-
 /** @brief AI 对话窗口 / Resume-assistant pane. */
 function ResumeAssistantPanel({
   editor,
+  gateway,
   onCloseMobile
 }: {
   readonly editor: UiResumeEditorModel
+  readonly gateway: ResumeGateway
   readonly onCloseMobile: () => void
 }): React.JSX.Element {
   const { t } = useTranslation()
   const [draft, setDraft] = useState('')
-  const [messages, setMessages] = useState<
-    readonly { readonly author: 'assistant' | 'user'; readonly id: number; readonly text: string }[]
-  >([
-    {
-      author: 'assistant',
-      id: 0,
-      text: '你好，我是本地 Demo 简历助手。你可以让我检查结构、优化表达或提供量化建议。'
-    }
-  ])
+  const [messages, setMessages] = useState<readonly UiResumeAssistantMessage[]>([])
+  const [isLoading, setLoading] = useState(true)
+  const [isSending, setSending] = useState(false)
+  const [error, setError] = useState<unknown>(null)
+  const controllerRef = useRef<AbortController | null>(null)
+  const assistantInput = useMemo(
+    () => ({
+      workspaceId: editor.resume.workspaceId,
+      resumeId: editor.resume.id,
+      resumeRevision: editor.resume.revision,
+      resumeTitle: editor.resume.title,
+      locale: editor.resume.locale
+    }),
+    [
+      editor.resume.id,
+      editor.resume.locale,
+      editor.resume.revision,
+      editor.resume.title,
+      editor.resume.workspaceId
+    ]
+  )
+
+  useEffect((): (() => void) => {
+    const controller = new AbortController()
+    controllerRef.current = controller
+    globalThis.queueMicrotask((): void => {
+      if (controller.signal.aborted) return
+      setLoading(true)
+      setError(null)
+      void gateway.assistant
+        .load({ ...assistantInput, signal: controller.signal })
+        .then((thread): void => setMessages(thread.messages))
+        .catch((loadError: unknown): void => {
+          if (!controller.signal.aborted) setError(loadError)
+        })
+        .finally((): void => {
+          if (!controller.signal.aborted) setLoading(false)
+        })
+    })
+    return (): void => controller.abort(new DOMException('Resume assistant changed.', 'AbortError'))
+  }, [assistantInput, gateway.assistant])
 
   const submitMessage = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault()
     const question = draft.trim()
-    if (question.length === 0) return
-    const response = createDemoResumeAssistantReply(editor, question)
-    const nextId = messages.length
-    setMessages([
-      ...messages,
-      { author: 'user', id: nextId, text: question },
-      { author: 'assistant', id: nextId + 1, text: response }
-    ])
+    if (question.length === 0 || isSending) return
+    controllerRef.current?.abort(new DOMException('A new assistant request started.', 'AbortError'))
+    const controller = new AbortController()
+    controllerRef.current = controller
+    const optimisticId = `pending-${Date.now()}`
+    setMessages([...messages, { author: 'user', id: optimisticId, text: question }])
     setDraft('')
+    setSending(true)
+    setError(null)
+    void gateway.assistant
+      .ask({ ...assistantInput, question, signal: controller.signal })
+      .then((thread): void => setMessages(thread.messages))
+      .catch((sendError: unknown): void => {
+        if (!controller.signal.aborted) setError(sendError)
+      })
+      .finally((): void => {
+        if (!controller.signal.aborted) setSending(false)
+      })
   }
 
   return (
@@ -452,6 +435,11 @@ function ResumeAssistantPanel({
         </button>
       </div>
       <div className="aw-chat-messages" aria-live="polite">
+        {!isLoading && messages.length === 0 ? (
+          <div className="aw-message">
+            <p>我会读取当前简历版本并提供结构、表达和量化建议，但不会直接修改简历。</p>
+          </div>
+        ) : null}
         {messages.map((message) => (
           <div
             className={`aw-message${message.author === 'user' ? ' aw-message--user' : ''}`}
@@ -460,6 +448,16 @@ function ResumeAssistantPanel({
             <p>{message.text}</p>
           </div>
         ))}
+        {isLoading || isSending ? (
+          <div className="aw-message">
+            <p>{isSending ? '正在结合当前简历生成建议…' : '正在恢复简历助手会话…'}</p>
+          </div>
+        ) : null}
+        {error === null ? null : (
+          <div className="aw-message" role="alert">
+            <p>简历助手请求失败，请稍后重试。当前简历没有被修改。</p>
+          </div>
+        )}
       </div>
       <form
         aria-label={t('resume.assistantMessageForm', { defaultValue: '简历助手消息' })}
@@ -479,7 +477,7 @@ function ResumeAssistantPanel({
         <button
           aria-label={t('resume.sendMessage', { defaultValue: '发送消息' })}
           className="aw-icon-button aw-send-button"
-          disabled={draft.trim().length === 0}
+          disabled={draft.trim().length === 0 || isLoading || isSending}
           type="submit"
         >
           <Send aria-hidden="true" size={16} />
@@ -1495,6 +1493,7 @@ export function ResumeWorkspace({
     assistant: (
       <ResumeAssistantPanel
         editor={editor}
+        gateway={gateway}
         onCloseMobile={(): void => setMobileAssistantOpen(false)}
       />
     ),

@@ -7,6 +7,7 @@ import type {
   UiInterviewScenarioPage,
   UiInterviewSessionAuthority,
   UiInterviewSessionPage,
+  UiInterviewTextChannel,
   UiInterviewTranscriptPage,
   UiRealtimeConnection
 } from '../domain/models'
@@ -14,6 +15,7 @@ import type {
   UiCreateInterviewReportJobCommand,
   UiCreateInterviewScenarioCommand,
   UiCreateInterviewSessionCommand,
+  UiConnectTextInterviewCommand,
   UiCreateRealtimeConnectionCommand,
   UiEndInterviewSessionCommand,
   UiInterviewReportRead,
@@ -61,6 +63,9 @@ export interface InterviewSessionGateway {
   createRealtimeConnection(
     command: UiCreateRealtimeConnectionCommand
   ): Promise<UiRealtimeConnection>
+
+  /** @brief 建立使用后端短期凭据的纯文字 WebSocket 通道 / Open a text-only WebSocket channel using a backend-issued lease. */
+  connectTextInterview(command: UiConnectTextInterviewCommand): Promise<UiInterviewTextChannel>
 
   /** @brief 幂等请求结束会话并返回通用 Workspace Job / Idempotently request session ending and return a generic Workspace Job. */
   requestInterviewSessionEnd(

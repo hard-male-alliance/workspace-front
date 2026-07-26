@@ -11,6 +11,7 @@ import { classifyResourceFailure } from '../../../app/resource-errors'
 import { createUiCommandId } from '../../../shared-kernel/command'
 import { asUiOpaqueId, type UiWorkspaceId } from '../../../shared-kernel/identity'
 import { EmptyState, LoadingState } from '../../../ui'
+import type { InterviewGateway } from '../application/gateway'
 import type { UiCreateInterviewSessionCommand } from '../application/requests'
 import {
   asUiInterviewType,
@@ -63,6 +64,69 @@ function demoInterviewScenarioInput(): UiInterviewScenarioInput {
     },
     targetQuestionCount: 4
   }
+}
+
+/**
+ * @brief 同一 Gateway 内共享本地 Demo 场景补齐流程 / Share local Demo Scenario provisioning within one Gateway.
+ * @remarks Provisioning is a durable mutation and must finish even when a StrictMode probe unmounts its reader.
+ */
+const demoScenarioProvisioning = new WeakMap<
+  InterviewGateway,
+  Map<UiWorkspaceId, Promise<UiInterviewScenario>>
+>()
+
+/**
+ * @brief 幂等创建并发布本地 Demo 场景 / Idempotently create and activate the local Demo Scenario.
+ * @param gateway Interview Gateway.
+ * @param workspaceId 当前工作区 / Current Workspace.
+ * @param existingDraft 首次读取发现的草稿 / Draft found by the initial read.
+ * @return 已发布场景 / Active Scenario.
+ */
+function provisionDemoInterviewScenario(
+  gateway: InterviewGateway,
+  workspaceId: UiWorkspaceId,
+  existingDraft: UiInterviewScenario | undefined
+): Promise<UiInterviewScenario> {
+  let workspaceProvisioning = demoScenarioProvisioning.get(gateway)
+  if (workspaceProvisioning === undefined) {
+    workspaceProvisioning = new Map()
+    demoScenarioProvisioning.set(gateway, workspaceProvisioning)
+  }
+  const existing = workspaceProvisioning.get(workspaceId)
+  if (existing !== undefined) return existing
+
+  const provisioning = (async (): Promise<UiInterviewScenario> => {
+    const draft =
+      existingDraft ??
+      (
+        await gateway.createInterviewScenario({
+          commandId: createUiCommandId(),
+          input: demoInterviewScenarioInput(),
+          workspaceId
+        })
+      ).scenario
+    if (draft.status === 'active') return draft
+    const authority = await gateway.getInterviewScenario({
+      scenarioId: draft.id,
+      workspaceId
+    })
+    if (authority.scenario.status === 'active') return authority.scenario
+    return (
+      await gateway.updateInterviewScenario({
+        concurrencyToken: authority.concurrencyToken,
+        patch: { status: 'active' },
+        scenarioId: draft.id,
+        workspaceId
+      })
+    ).scenario
+  })()
+  workspaceProvisioning.set(workspaceId, provisioning)
+  void provisioning.catch((): void => {
+    if (workspaceProvisioning?.get(workspaceId) === provisioning) {
+      workspaceProvisioning.delete(workspaceId)
+    }
+  })
+  return provisioning
 }
 
 /** @brief 创建命令不包含单次调用 AbortSignal 的冻结快照 / Frozen creation command without a per-call AbortSignal. */
@@ -165,7 +229,7 @@ function InterviewSetupForm({
   /** @brief 公司名称 / Company name. */
   const [company, setCompany] = useState('')
   /** @brief 是否保存文字转录 / Whether to retain a transcript. */
-  const [storeTranscript, setStoreTranscript] = useState(false)
+  const storeTranscript = true
   /** @brief 当前是否发送创建请求 / Whether a creation request is in flight. */
   const [isSubmitting, setSubmitting] = useState(false)
   /** @brief 最近一次创建失败 / Latest creation failure. */
@@ -276,7 +340,7 @@ function InterviewSetupForm({
       commandId: createUiCommandId(),
       input: {
         inference: {
-          allowExternalModelProcessing: false,
+          allowExternalModelProcessing: true,
           allowProviderFallback: false,
           costTier: 'standard',
           dataRegion: DEMO_MODEL_DATA_REGION,
@@ -305,8 +369,8 @@ function InterviewSetupForm({
             avatarId: null,
             includeExpressionCues: false,
             includeVisemes: false,
-            outputMode: 'audio_only',
-            preferredAudioCodecs: ['opus'],
+            outputMode: 'none',
+            preferredAudioCodecs: [],
             preferredVideoCodecs: [],
             voiceId: null
           },
@@ -315,7 +379,7 @@ function InterviewSetupForm({
           maxVideoHeight: 720,
           maxVideoWidth: 1280,
           screenShare: false,
-          userAudio: true,
+          userAudio: false,
           userVideo: false
         },
         recording: {
@@ -449,18 +513,13 @@ function InterviewSetupForm({
             </h2>
             <p>
               {t('interviewSetup.privacyDescription', {
-                defaultValue: '音频和视频默认不录制；是否保存文字转录由你单独决定。'
+                defaultValue: '纯文字面试不录制音频或视频；问题和回答会保存为权威转录。'
               })}
             </p>
           </div>
         </div>
         <label className="aw-interview-consent-option">
-          <input
-            checked={storeTranscript}
-            disabled={locked}
-            onChange={(event): void => setStoreTranscript(event.currentTarget.checked)}
-            type="checkbox"
-          />
+          <input checked={storeTranscript} disabled readOnly type="checkbox" />
           <span>
             <strong>
               {t('interviewSetup.storeTranscript', {
@@ -469,7 +528,7 @@ function InterviewSetupForm({
             </strong>
             <small>
               {t('interviewSetup.storeTranscriptDescription', {
-                defaultValue: '用于生成报告并逐条核验评分证据；可以不勾选。'
+                defaultValue: '文字转录用于断线恢复、会话回看，以及后续可选的面试报告。'
               })}
             </small>
           </span>
@@ -571,36 +630,12 @@ export function InterviewSetupPage(): React.JSX.Element {
       })
       if (!page.items.some((scenario) => scenario.status === 'active')) {
         /** @brief 已存在但尚未发布的 Demo 场景，或刚创建的场景 / Existing draft Demo scenario, or newly created scenario. */
-        const draft =
-          page.items.find((scenario) => scenario.name === DEMO_SCENARIO_NAME) ??
-          (
-            await gateway.createInterviewScenario({
-              commandId: createUiCommandId(),
-              input: demoInterviewScenarioInput(),
-              signal,
-              workspaceId: current.workspace.id
-            })
-          ).scenario
+        const active = await provisionDemoInterviewScenario(
+          gateway,
+          current.workspace.id,
+          page.items.find((scenario) => scenario.name === DEMO_SCENARIO_NAME)
+        )
         signal.throwIfAborted()
-        /** @brief 发布后的可选择 Demo 场景 / Selectable Demo scenario after activation. */
-        const active =
-          draft.status === 'active'
-            ? draft
-            : (
-                await gateway.updateInterviewScenario({
-                  concurrencyToken: (
-                    await gateway.getInterviewScenario({
-                      scenarioId: draft.id,
-                      signal,
-                      workspaceId: current.workspace.id
-                    })
-                  ).concurrencyToken,
-                  patch: { status: 'active' },
-                  scenarioId: draft.id,
-                  signal,
-                  workspaceId: current.workspace.id
-                })
-              ).scenario
         page = {
           ...page,
           items: [active, ...page.items.filter((scenario) => scenario.id !== active.id)]

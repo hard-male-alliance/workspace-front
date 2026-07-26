@@ -25,7 +25,7 @@ export type ResumePdfContentProgress = (completedBytes: number, totalBytes: numb
 
 /** @brief 只含已验证内存内容的 PDF 预览租约 / PDF-preview lease containing only validated in-memory content. */
 export interface ResumePdfPreviewLease {
-  /** @brief 可安全交给 sandboxed iframe 的 Blob URL / Blob URL safe to give to a sandboxed iframe. */
+  /** @brief 可安全交给浏览器原生 PDF 查看器的 Blob URL / Blob URL safe to give to the browser's native PDF viewer. */
   readonly url: string
   /** @brief 完整 PDF 字节数 / Complete PDF byte length. */
   readonly byteLength: number

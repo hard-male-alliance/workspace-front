@@ -15,6 +15,8 @@ export type {
   UiKnowledgeOperation,
   UiKnowledgeProblem,
   UiKnowledgeProblemFieldError,
+  UiKnowledgeSearchHit,
+  UiKnowledgeSearchResult,
   UiKnowledgeSensitivity,
   UiKnowledgeSource,
   UiKnowledgeSourceAuthority,
@@ -29,9 +31,12 @@ export type {
 } from './domain/models'
 export type {
   UiCreateManualKnowledgeNoteCommand,
+  UiIngestKnowledgeFileCommand,
+  UiKnowledgeFileIngestionPhase,
   UiKnowledgeSourcePageRead,
   UiKnowledgeSourcePatch,
   UiKnowledgeSourceRead,
+  UiSearchKnowledgeCommand,
   UiUpdateKnowledgeSourceCommand
 } from './application/commands'
 export type { KnowledgeGateway } from './application/gateway'
@@ -59,6 +64,8 @@ export type {
   UiKnowledgeUpdateRecovery
 } from './application/update-recovery'
 export { KnowledgePage } from './presentation/KnowledgePage'
+export { KnowledgeSearchPage } from './presentation/KnowledgeSearchPage'
+export { KnowledgeUploadPage } from './presentation/KnowledgeUploadPage'
 export { KnowledgeSourceDetailPage } from './presentation/KnowledgeSourceDetailPage'
 export { KnowledgeSourceEditPage } from './presentation/KnowledgeSourceEditPage'
 export { ManualNoteCreatePage } from './presentation/ManualNoteCreatePage'

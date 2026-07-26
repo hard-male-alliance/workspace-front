@@ -2,11 +2,17 @@
 
 import type {
   UiCreateManualKnowledgeNoteCommand,
+  UiIngestKnowledgeFileCommand,
   UiKnowledgeSourcePageRead,
   UiKnowledgeSourceRead,
+  UiSearchKnowledgeCommand,
   UiUpdateKnowledgeSourceCommand
 } from './commands'
-import type { UiKnowledgeSourceAuthority, UiKnowledgeSourcePage } from '../domain/models'
+import type {
+  UiKnowledgeSearchResult,
+  UiKnowledgeSourceAuthority,
+  UiKnowledgeSourcePage
+} from '../domain/models'
 
 /** @brief Workspace-scoped KnowledgeSource 查询与命令端口 / Workspace-scoped KnowledgeSource query and command port. */
 export interface KnowledgeGateway {
@@ -41,4 +47,10 @@ export interface KnowledgeGateway {
   updateKnowledgeSource(
     command: UiUpdateKnowledgeSourceCommand
   ): Promise<UiKnowledgeSourceAuthority>
+
+  /** @brief 上传本地文件并等待后端摄取完成 / Upload a local file and await backend ingestion. */
+  ingestKnowledgeFile(command: UiIngestKnowledgeFileCommand): Promise<UiKnowledgeSourceAuthority>
+
+  /** @brief 对明确选择的当前有效 Source 执行真实混合搜索 / Execute real hybrid search over selected active Sources. */
+  searchKnowledge(command: UiSearchKnowledgeCommand): Promise<UiKnowledgeSearchResult>
 }

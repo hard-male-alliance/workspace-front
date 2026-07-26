@@ -1331,9 +1331,18 @@ function createResumeTemplateStyleOperations(
 export function createApiV2ResumeGateway(
   client: ApiV2Client,
   operationsClient: ResumeOperationsHttpClient,
-  jobClient: ResumeJobCommandHttpClient
+  jobClient: ResumeJobCommandHttpClient,
+  assistant: AppGateways['resume']['assistant'] = {
+    ask(): Promise<never> {
+      return Promise.reject(new Error('Resume assistant is not configured.'))
+    },
+    load(): Promise<never> {
+      return Promise.reject(new Error('Resume assistant is not configured.'))
+    }
+  }
 ): AppGateways['resume'] {
   return {
+    assistant,
     async deleteResumeSection(input): Promise<UiResumeEditorModel> {
       return applyResumeCommand(
         operationsClient,

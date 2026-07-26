@@ -438,6 +438,38 @@ function applyMemoryProposalOperations(
 export class InMemoryResumeGateway
   implements ResumeGateway, ResumeCreationPort, ResumeReviewPort, ResumeTemplateCatalogPort
 {
+  /** @brief 仅供自动化测试的显式内存助手，不进入产品组合根 / Explicit in-memory assistant for tests only, never used by the product composition root. */
+  readonly assistant: ResumeGateway['assistant'] = {
+    load: () =>
+      Promise.resolve({
+        conversationId: 'conversation_memory_resume_assistant',
+        messages: this.assistantMessages
+      }),
+    ask: (input) => {
+      const sequence = this.assistantMessages.length
+      this.assistantMessages = [
+        ...this.assistantMessages,
+        { id: `message_memory_user_${sequence}`, author: 'user', text: input.question },
+        {
+          id: `message_memory_assistant_${sequence + 1}`,
+          author: 'assistant',
+          text: `测试助手已收到：${input.question}`
+        }
+      ]
+      return Promise.resolve({
+        conversationId: 'conversation_memory_resume_assistant',
+        messages: this.assistantMessages
+      })
+    }
+  }
+
+  /** @brief 当前测试实例的内存会话消息 / In-memory conversation messages for this test instance. */
+  private assistantMessages: readonly {
+    readonly id: string
+    readonly author: 'assistant' | 'user'
+    readonly text: string
+  }[] = []
+
   /** @brief 当前 adapter 的确定性行为选项 / Deterministic behavior options for this adapter. */
   private readonly options: InMemoryGatewayOptions
   /** @brief 当前实例内的简历编辑器投影 / Resume-editor projection owned by this instance. */

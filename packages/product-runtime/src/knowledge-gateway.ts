@@ -1,11 +1,15 @@
 /** @file API v2 KnowledgeSource 生产防腐层 / Production anti-corruption layer for API v2 KnowledgeSource. */
 
 import {
+  cancelWorkspaceJob,
+  createKnowledgeWorkflowApi,
   createWorkspaceKnowledgeSource,
   getWorkspaceKnowledgeSource,
   listWorkspaceKnowledgeSourcePage,
   updateWorkspaceKnowledgeSource,
   type ApiV2HttpClient,
+  type Job,
+  type KnowledgeWorkflowApi,
   type KnowledgeSource,
   type KnowledgeSourceRepresentation,
   type KnowledgeVisibilityPolicy,
@@ -21,6 +25,8 @@ import {
   cloneUiJsonValue,
   type KnowledgeGateway,
   type UiCreateManualKnowledgeNoteCommand,
+  type UiIngestKnowledgeFileCommand,
+  type UiKnowledgeSearchResult,
   type UiKnowledgeSourcePageRead,
   type UiKnowledgeSourceRead,
   type UiKnowledgeSourcePatch,
@@ -30,10 +36,83 @@ import {
   type UiKnowledgeSource,
   type UiKnowledgeSourceAuthority,
   type UiKnowledgeSourcePage,
+  type UiSearchKnowledgeCommand,
   type UiKnowledgeVisibilityPolicy,
   type UiOpaqueId,
   type UiPublicKnowledgeSourceConfig
 } from '@ai-job-workspace/app/application'
+
+const MAXIMUM_KNOWLEDGE_FILE_BYTES = 10 * 1024 * 1024
+const MAXIMUM_INGESTION_WAIT_MILLISECONDS = 120_000
+
+function knowledgeCommandId(kind: string): string {
+  return `${kind}_${globalThis.crypto.randomUUID()}`
+}
+
+async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
+  if (bytes.byteLength < 1 || bytes.byteLength > MAXIMUM_KNOWLEDGE_FILE_BYTES) {
+    throw new RangeError('Knowledge files must contain between 1 byte and 10 MiB.')
+  }
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes)
+  return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, '0')).join('')
+}
+
+async function uploadBytes(
+  session: Awaited<ReturnType<KnowledgeWorkflowApi['createUploadSession']>>,
+  bytes: ArrayBuffer,
+  signal?: AbortSignal
+): Promise<void> {
+  const headers = new Headers()
+  for (const [name, value] of Object.entries(session.requiredHeaders)) {
+    if (name.toLowerCase() !== 'content-length') headers.set(name, value)
+  }
+  const response = await globalThis.fetch(session.uploadUrl, {
+    body: bytes,
+    headers,
+    method: 'PUT',
+    ...(signal === undefined ? {} : { signal })
+  })
+  if (response.status !== 204) {
+    throw new Error(`knowledge.upload_failed.${response.status}`)
+  }
+}
+
+async function ingestionDelay(milliseconds: number, signal?: AbortSignal): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const timer = globalThis.setTimeout(resolve, milliseconds)
+    signal?.addEventListener(
+      'abort',
+      (): void => {
+        globalThis.clearTimeout(timer)
+        reject(
+          signal.reason instanceof Error
+            ? signal.reason
+            : new DOMException('Knowledge ingestion was cancelled.', 'AbortError')
+        )
+      },
+      { once: true }
+    )
+  })
+}
+
+function uploadVisibility(): KnowledgeVisibilityPolicy {
+  return {
+    agent_grants: [
+      {
+        agent_scope: 'general_chat',
+        allowed_operations: ['retrieve', 'quote', 'summarize'],
+        effect: 'allow'
+      }
+    ],
+    allow_external_model_processing: true,
+    allowed_model_regions: ['global'],
+    default_effect: 'deny',
+    policy_version: 1,
+    retention_days: 365,
+    sensitivity: 'normal',
+    session_override_allowed: false
+  }
+}
 
 /**
  * @brief 将已严格解码的 extensions 映射到 UI JSON / Map strictly decoded extensions into UI JSON.
@@ -211,6 +290,7 @@ function mapUpdateRequest(patch: UiKnowledgeSourcePatch): UpdateKnowledgeSourceR
 export class ApiV2KnowledgeGateway implements KnowledgeGateway {
   /** @brief 由产品组合根注入的完整 v2 HTTP client / Complete v2 HTTP client injected by the product composition root. */
   readonly #client: ApiV2HttpClient
+  readonly #workflow: KnowledgeWorkflowApi
 
   /**
    * @brief 构造正式 Knowledge Gateway / Construct the production Knowledge gateway.
@@ -218,6 +298,7 @@ export class ApiV2KnowledgeGateway implements KnowledgeGateway {
    */
   constructor(client: ApiV2HttpClient) {
     this.#client = client
+    this.#workflow = createKnowledgeWorkflowApi(client)
   }
 
   /** @inheritdoc */
@@ -284,4 +365,111 @@ export class ApiV2KnowledgeGateway implements KnowledgeGateway {
       })
     )
   }
+
+  /** @inheritdoc */
+  async ingestKnowledgeFile(
+    command: UiIngestKnowledgeFileCommand
+  ): Promise<UiKnowledgeSourceAuthority> {
+    command.onProgress?.('hashing')
+    const digest = await sha256Hex(command.bytes)
+    command.signal?.throwIfAborted()
+    command.onProgress?.('creating-upload')
+    const upload = await this.#workflow.createUploadSession({
+      filename: command.filename,
+      idempotencyKey: knowledgeCommandId('knowledge_upload'),
+      mediaType: command.mediaType,
+      sha256: digest,
+      ...(command.signal === undefined ? {} : { signal: command.signal }),
+      sizeBytes: command.bytes.byteLength,
+      workspaceId: command.workspaceId
+    })
+    if (upload.workspaceId !== command.workspaceId || upload.status !== 'created') {
+      throw new Error('knowledge.upload_session_invalid')
+    }
+    command.onProgress?.('uploading')
+    await uploadBytes(upload, command.bytes, command.signal)
+    command.onProgress?.('verifying')
+    const completed = await this.#workflow.completeUploadSession({
+      idempotencyKey: knowledgeCommandId('knowledge_upload_complete'),
+      sha256: digest,
+      ...(command.signal === undefined ? {} : { signal: command.signal }),
+      sizeBytes: command.bytes.byteLength,
+      uploadId: upload.id,
+      workspaceId: command.workspaceId
+    })
+    if (completed.status !== 'completed' || completed.artifactRef === null) {
+      throw new Error('knowledge.upload_verification_failed')
+    }
+    command.onProgress?.('creating-source')
+    const source = await this.#workflow.createFileSource({
+      idempotencyKey: knowledgeCommandId('knowledge_source'),
+      name: command.name,
+      ...(command.signal === undefined ? {} : { signal: command.signal }),
+      uploadId: upload.id,
+      visibility: uploadVisibility(),
+      workspaceId: command.workspaceId
+    })
+    command.onProgress?.('queued')
+    let current = await this.#workflow.createIngestionJob({
+      idempotencyKey: knowledgeCommandId('knowledge_ingestion'),
+      ...(command.signal === undefined ? {} : { signal: command.signal }),
+      sourceId: source.value.id,
+      workspaceId: command.workspaceId
+    })
+    const deadline = Date.now() + MAXIMUM_INGESTION_WAIT_MILLISECONDS
+    let interval = 800
+    try {
+      while (current.job.status === 'queued' || current.job.status === 'running') {
+        command.onProgress?.(current.job.status === 'queued' ? 'queued' : 'processing')
+        if (Date.now() >= deadline) throw new Error('knowledge.ingestion_timeout')
+        await ingestionDelay(interval, command.signal)
+        current = await this.#workflow.getJob(command.workspaceId, current.job.id, command.signal)
+        interval = Math.min(Math.round(interval * 1.5), 3_000)
+      }
+    } catch (error: unknown) {
+      if (command.signal?.aborted === true) {
+        await cancelWorkspaceJob(this.#client, {
+          idempotencyKey: knowledgeCommandId('knowledge_ingestion_cancel'),
+          ifMatch: current.entityTag,
+          jobId: current.job.id,
+          workspaceId: command.workspaceId
+        }).catch((): void => undefined)
+      }
+      throw error
+    }
+    assertKnowledgeJobSucceeded(current.job)
+    command.onProgress?.('completed')
+    return this.getKnowledgeSource({
+      signal: new AbortController().signal,
+      sourceId: asUiOpaqueId<'knowledge-source'>(source.value.id),
+      workspaceId: command.workspaceId
+    })
+  }
+
+  /** @inheritdoc */
+  async searchKnowledge(command: UiSearchKnowledgeCommand): Promise<UiKnowledgeSearchResult> {
+    const result = await this.#workflow.search({
+      query: command.query,
+      ...(command.signal === undefined ? {} : { signal: command.signal }),
+      sourceIds: command.sourceIds,
+      workspaceId: command.workspaceId
+    })
+    return {
+      hits: result.citations.map((citation) => ({
+        locator: citation.locator,
+        quote: citation.quote,
+        score: citation.score,
+        sourceId: asUiOpaqueId<'knowledge-source'>(citation.sourceId),
+        versionId: asUiOpaqueId<'knowledge-source-version'>(citation.versionId)
+      })),
+      policyVersion: result.policyVersion,
+      query: result.query
+    }
+  }
+}
+
+function assertKnowledgeJobSucceeded(job: Job): void {
+  if (job.status === 'succeeded') return
+  if (job.status === 'failed') throw new Error(job.problem.code)
+  throw new Error(`knowledge.ingestion_${job.status}`)
 }

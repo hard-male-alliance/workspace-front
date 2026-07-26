@@ -322,14 +322,17 @@ describe('WorkspaceApp Resume editor', (): void => {
     expect(content).toHaveValue('安全正文草稿')
   })
 
-  it('provides an interactive local Demo resume assistant', async (): Promise<void> => {
+  it('drives the resume assistant through its injected async gateway', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
 
     render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
     await screen.findByRole('heading', { name: 'Klee Chen' })
 
     const composer = screen.getByRole('textbox', { name: '询问简历助手' })
-    const send = screen.getByRole('button', { name: '发送消息' })
+    const send = await screen.findByRole('button', { name: '发送消息' })
+    await vi.waitFor((): void => {
+      expect(composer).toBeEnabled()
+    })
     expect(composer).toBeEnabled()
     expect(send).toBeDisabled()
 
@@ -337,16 +340,24 @@ describe('WorkspaceApp Resume editor', (): void => {
     fireEvent.click(send)
 
     expect(screen.getByText('请检查简历结构')).toBeInTheDocument()
-    expect(screen.getByText(/当前简历共有.*个板块/u)).toBeInTheDocument()
+    expect(await screen.findByText('测试助手已收到：请检查简历结构')).toBeInTheDocument()
     expect(composer).toHaveValue('')
 
     fireEvent.change(composer, { target: { value: '项目经历应该怎么写？' } })
+    await vi.waitFor((): void => {
+      expect(send).toBeEnabled()
+    })
     fireEvent.click(send)
-    expect(screen.getByText(/项目板块要回答四个问题/u)).toBeInTheDocument()
+    expect(await screen.findByText('测试助手已收到：项目经历应该怎么写？')).toBeInTheDocument()
 
     fireEvent.change(composer, { target: { value: '你觉得我最需要先处理什么？' } })
+    await vi.waitFor((): void => {
+      expect(send).toBeEnabled()
+    })
     fireEvent.click(send)
-    expect(screen.getByText(/针对“你觉得我最需要先处理什么？”/u)).toBeInTheDocument()
+    expect(
+      await screen.findByText('测试助手已收到：你觉得我最需要先处理什么？')
+    ).toBeInTheDocument()
   })
 
   it.each([412, 409] as const)(

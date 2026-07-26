@@ -5,6 +5,7 @@ import type {
   UiCreateInterviewReportJobCommand,
   UiCreateInterviewScenarioCommand,
   UiCreateInterviewSessionCommand,
+  UiConnectTextInterviewCommand,
   UiCreateRealtimeConnectionCommand,
   UiEndInterviewSessionCommand,
   UiInterviewReportRead,
@@ -29,6 +30,7 @@ import {
   type UiInterviewSessionId,
   type UiInterviewSessionPage,
   type UiInterviewTranscriptPage,
+  type UiInterviewTextChannel,
   type UiRealtimeConnection
 } from '../../domain/models'
 import type { UiWorkspaceJobAuthority } from '../../../workspace-operations'
@@ -464,6 +466,19 @@ export class InMemoryInterviewGateway implements InterviewGateway {
       result: cloneMemoryValue(connection)
     })
     return cloneMemoryValue(connection)
+  }
+
+  /** @inheritdoc */
+  connectTextInterview(command: UiConnectTextInterviewCommand): Promise<UiInterviewTextChannel> {
+    command.signal?.throwIfAborted()
+    return Promise.resolve({
+      close: (): void => undefined,
+      submitAnswer: (): Promise<void> => {
+        command.signal?.throwIfAborted()
+        command.onTranscriptChanged()
+        return Promise.resolve()
+      }
+    })
   }
 
   /** @inheritdoc */

@@ -1,9 +1,11 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { StrictMode } from 'react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
   DEMO_INTERVIEW_SESSION,
   DEMO_INTERVIEW_SESSION_ID,
+  DEMO_INTERVIEW_TRANSCRIPT,
   DEMO_LIVE_INTERVIEW_SESSION,
   InMemoryInterviewGateway
 } from '@ai-job-workspace/app/testing'
@@ -102,7 +104,8 @@ describe('WorkspaceApp interview workflow', (): void => {
     fireEvent.change(screen.getByRole('textbox', { name: '目标公司（可选）' }), {
       target: { value: 'Northstar' }
     })
-    fireEvent.click(screen.getByRole('checkbox', { name: /保存文字转录 30 天/u }))
+    expect(screen.getByRole('checkbox', { name: /保存文字转录 30 天/u })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /保存文字转录 30 天/u })).toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: '创建练习会话' }))
 
     expect(await screen.findByRole('heading', { name: '前端平台工程师' })).toBeInTheDocument()
@@ -112,14 +115,14 @@ describe('WorkspaceApp interview workflow', (): void => {
     expect(command).toMatchObject({
       input: {
         inference: {
-          allowExternalModelProcessing: false,
+          allowExternalModelProcessing: true,
           allowProviderFallback: false,
           dataRegion: 'global',
           qualityTier: 'balanced'
         },
         jobTarget: { company: 'Northstar', title: '前端平台工程师' },
         knowledge: { mode: 'policy_default' },
-        media: { userAudio: true, userVideo: false },
+        media: { userAudio: false, userVideo: false },
         recording: {
           recordAudio: false,
           recordVideo: false,
@@ -133,6 +136,35 @@ describe('WorkspaceApp interview workflow', (): void => {
     expect(command?.commandId).toMatch(/^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/u)
     expect(command?.input.recording.consentVersion).toBeTruthy()
     expect(command?.input.recording.consentedAt).toBeTruthy()
+  })
+
+  it('在 StrictMode 重挂载期间只补齐一次本地 Demo 场景且不显示瞬时错误', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    const interview = new InMemoryInterviewGateway()
+    vi.spyOn(interview, 'listInterviewScenarioPage').mockResolvedValue({
+      hasMore: false,
+      items: [],
+      nextCursor: null
+    })
+    const createScenario = vi.spyOn(interview, 'createInterviewScenario')
+    const updateScenario = vi.spyOn(interview, 'updateInterviewScenario')
+
+    render(
+      <StrictMode>
+        <WorkspaceApp gateways={createTestGateways({ interview })} initialPath="/interviews/new" />
+      </StrictMode>
+    )
+
+    expect(await screen.findByRole('heading', { name: '创建练习会话' })).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    const scenarioSelect = screen.getByRole('combobox', { name: '练习场景' })
+    expect(scenarioSelect).toBeInstanceOf(HTMLSelectElement)
+    if (!(scenarioSelect instanceof HTMLSelectElement)) {
+      throw new Error('Expected the Scenario control to be a select element.')
+    }
+    expect(scenarioSelect.value).toMatch(/^scn_/u)
+    expect(createScenario).toHaveBeenCalledOnce()
+    expect(updateScenario).toHaveBeenCalledOnce()
   })
 
   it('创建结果未知时锁定设置，并用完全相同的命令确认', async (): Promise<void> => {
@@ -171,23 +203,51 @@ describe('WorkspaceApp interview workflow', (): void => {
     expect(createInterviewSession.mock.calls[1]?.[0]).toStrictEqual(firstCommand)
   })
 
-  it('统一 Session 路由提供不依赖 realtime 的本地 Demo 练习', async (): Promise<void> => {
+  it('统一 Session 路由通过 realtime 通道提交回答且只展示权威转录', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
+    const interview = new InMemoryInterviewGateway()
+    const interviewerQuestion = DEMO_INTERVIEW_TRANSCRIPT.find(
+      (segment) => segment.speaker === 'interviewer'
+    )!
+    vi.spyOn(interview, 'listInterviewTranscriptPage').mockResolvedValue({
+      hasMore: false,
+      items: [interviewerQuestion],
+      nextCursor: null
+    })
+    const submitAnswer = vi.fn().mockResolvedValue(undefined)
+    vi.spyOn(interview, 'connectTextInterview').mockResolvedValue({
+      close: vi.fn(),
+      submitAnswer
+    })
 
-    render(<WorkspaceApp initialPath={`/interviews/${DEMO_LIVE_INTERVIEW_SESSION.id}`} />)
+    render(
+      <WorkspaceApp
+        gateways={createTestGateways({ interview })}
+        initialPath={`/interviews/${DEMO_LIVE_INTERVIEW_SESSION.id}`}
+      />
+    )
 
     expect(await screen.findByRole('heading', { name: 'AI Platform Engineer' })).toBeInTheDocument()
     expect(screen.getByText('进行中')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: '本地 Demo 模拟面试' })).toBeInTheDocument()
-    fireEvent.change(screen.getByRole('textbox', { name: '你的回答' }), {
+    expect(screen.getByRole('heading', { name: '后端文字面试' })).toBeInTheDocument()
+    expect(await screen.findByText(interviewerQuestion.text)).toBeInTheDocument()
+    const answer = screen.getByRole('textbox', { name: '你的回答' })
+    expect(answer).toBeEnabled()
+    fireEvent.change(answer, {
       target: {
         value:
           '我负责过一个面向 20 人团队的平台项目，通过梳理流程、拆分里程碑并推动协作，最终将交付时间缩短了 30%。'
       }
     })
-    fireEvent.click(screen.getByRole('button', { name: '提交并进入下一题' }))
-    expect(screen.getByText(/回答结构清楚且包含量化信息/u)).toBeInTheDocument()
-    expect(screen.getByText('2 / 4')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '提交回答' }))
+    await waitFor((): void => {
+      expect(submitAnswer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: '我负责过一个面向 20 人团队的平台项目，通过梳理流程、拆分里程碑并推动协作，最终将交付时间缩短了 30%。'
+        })
+      )
+    })
+    expect(document.body).not.toHaveTextContent('回答结构清楚且包含量化信息')
   })
 
   it('在同一 Session 路由呈现报告、真实转录和已核验证据', async (): Promise<void> => {

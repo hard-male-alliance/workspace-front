@@ -2,8 +2,10 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 
 import {
   KnowledgePage,
+  KnowledgeSearchPage,
   KnowledgeSourceDetailPage,
   KnowledgeSourceEditPage,
+  KnowledgeUploadPage,
   ManualNoteCreatePage
 } from '../../contexts/knowledge'
 
@@ -17,6 +19,8 @@ export default function KnowledgeRoutes(): React.JSX.Element {
     <Routes>
       <Route element={<KnowledgePage />} index />
       <Route element={<ManualNoteCreatePage />} path="new" />
+      <Route element={<KnowledgeUploadPage />} path="upload" />
+      <Route element={<KnowledgeSearchPage />} path="search" />
       <Route element={<KnowledgeSourceDetailPage />} path=":sourceId" />
       <Route element={<KnowledgeSourceEditPage />} path=":sourceId/edit" />
       <Route element={<Navigate replace to="/" />} path="*" />
