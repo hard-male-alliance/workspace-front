@@ -3,7 +3,6 @@ import {
   CheckCircle2,
   Clock3,
   FileText,
-  MessageSquareText,
   Quote,
   RefreshCw,
   RotateCcw,
@@ -27,9 +26,10 @@ import type {
   InterviewReportRecovery
 } from '../../../app/InterviewReportProcess'
 import { ResourceErrorState, ResourceFailureMessage } from '../../../app/ResourceErrorState'
+import { createUiCommandId } from '../../../shared-kernel/command'
 import { asUiOpaqueId, type UiWorkspaceId } from '../../../shared-kernel/identity'
 import { EmptyState, LoadingState } from '../../../ui'
-import type { UiPrincipalSubject } from '../../identity'
+import type { UiCurrentUserId, UiPrincipalSubject } from '../../identity'
 import type { InterviewGateway } from '../application/gateway'
 import {
   asUiInterviewPageLimit,
@@ -39,6 +39,7 @@ import {
   type UiInterviewScenario,
   type UiInterviewSessionAuthority,
   type UiInterviewSessionId,
+  type UiInterviewTextChannel,
   type UiInterviewTranscriptCursor,
   type UiInterviewTranscriptPage,
   type UiInterviewTranscriptSegment
@@ -49,6 +50,8 @@ const INTERVIEW_TRANSCRIPT_PAGE_LIMIT = asUiInterviewPageLimit(50)
 
 /** @brief Session 路由加载后的完整权威 / Complete authority loaded for a Session route. */
 interface InterviewSessionRouteAuthority {
+  /** @brief 短期 realtime 凭据绑定的用户资源 identity / User resource identity bound by realtime credentials. */
+  readonly currentUserId: UiCurrentUserId
   /** @brief 当前 principal subject，用于写恢复隔离 / Current principal subject for write-recovery isolation. */
   readonly principalSubject: UiPrincipalSubject
   /** @brief 当前场景 / Current Scenario resource. */
@@ -93,156 +96,289 @@ type EvidenceVerification =
   | { readonly status: 'missing' }
   | { readonly status: 'invalid-range'; readonly segment: UiInterviewTranscriptSegment }
 
-/** @brief 本地 Demo 面试的一次作答 / One answer in the local Demo interview. */
-interface DemoInterviewAnswer {
-  readonly answer: string
-  readonly feedback: string
-  readonly question: string
-}
+/** @brief 真实文字面试连接状态 / Real text-interview connection state. */
+type TextInterviewConnectionState =
+  | { readonly status: 'connecting' }
+  | { readonly status: 'connected'; readonly channel: UiInterviewTextChannel }
+  | { readonly status: 'error'; readonly error: unknown }
 
-/** @brief 不依赖 realtime 服务的 Demo 问题 / Demo questions independent of realtime services. */
-const DEMO_INTERVIEW_QUESTIONS = [
-  '请用两分钟介绍一下自己，并说明你为什么适合这个岗位。',
-  '请讲一个你解决复杂问题的具体经历。你当时采取了哪些行动？',
-  '当项目进度和质量发生冲突时，你会如何判断和沟通？',
-  '如果加入新的团队，你会如何在前 30 天快速熟悉业务并产生价值？'
-] as const
-
-/**
- * @brief 根据文字回答提供确定性的 Demo 反馈 / Give deterministic Demo feedback for a text answer.
- * @param answer 候选人的回答 / Candidate answer.
- * @return 可立即用于下一题的建议 / Immediately actionable advice for the next question.
- */
-function demoAnswerFeedback(answer: string): string {
-  if (answer.length < 40) {
-    return '建议再补充背景、你的具体行动和最终结果，让回答形成完整的 STAR 结构。'
-  }
-  if (!/\d/u.test(answer)) {
-    return '回答已经比较完整；如果能加入时间、规模、效率或结果等数字，可信度会更高。'
-  }
-  return '回答结构清楚且包含量化信息。下一题继续突出你的个人判断、行动和影响。'
-}
-
-/**
- * @brief 本地可运行的文字模拟面试 / Locally runnable text mock interview.
- * @param props 当前岗位标题 / Current job title.
- * @return 逐题作答、即时建议和完成总结 / Sequential answers, instant guidance, and completion summary.
- */
-function DemoInterviewPractice({ jobTitle }: { readonly jobTitle: string }): React.JSX.Element {
-  /** @brief 已提交的问答 / Submitted question-answer pairs. */
-  const [answers, setAnswers] = useState<readonly DemoInterviewAnswer[]>([])
-  /** @brief 当前回答草稿 / Current answer draft. */
+/** @brief 使用后端 Transcript 作为唯一展示事实的文字面试 / Text Interview whose only displayed facts come from the backend Transcript. */
+function RealTextInterviewPractice({
+  authority,
+  onRefresh
+}: {
+  readonly authority: InterviewSessionRouteAuthority
+  readonly onRefresh: () => void
+}): React.JSX.Element {
+  const gateway = useInterviewGateway()
+  const session = authority.sessionAuthority.session
+  const [segments, setSegments] = useState<readonly UiInterviewTranscriptSegment[]>([])
   const [draft, setDraft] = useState('')
-  /** @brief 是否已完成全部问题 / Whether every question is complete. */
-  const completed = answers.length === DEMO_INTERVIEW_QUESTIONS.length
-  /** @brief 当前问题 / Current question. */
-  const currentQuestion = completed ? null : (DEMO_INTERVIEW_QUESTIONS[answers.length] ?? null)
+  const [connection, setConnection] = useState<TextInterviewConnectionState>({
+    status: 'connecting'
+  })
+  const [isSubmitting, setSubmitting] = useState(false)
+  const [isEnding, setEnding] = useState(false)
+  const [error, setError] = useState<unknown>(null)
+  const controllerRef = useRef<AbortController | null>(null)
+  const pendingAnswerRef = useRef<{
+    readonly id: string
+    readonly text: string
+    readonly startMs: number
+    readonly endMs: number
+  } | null>(null)
+  const pendingEndCommandRef = useRef<{
+    readonly commandId: ReturnType<typeof createUiCommandId>
+    readonly concurrencyToken: UiInterviewSessionAuthority['concurrencyToken']
+  } | null>(null)
 
-  /** @brief 提交当前文字回答 / Submit the current text answer. */
-  const submit = (event: FormEvent<HTMLFormElement>): void => {
+  const refreshTranscript = useCallback(async (): Promise<void> => {
+    const accepted: UiInterviewTranscriptSegment[] = []
+    let cursor: UiInterviewTranscriptCursor | null = null
+    const seen = new Set<UiInterviewTranscriptCursor>()
+    do {
+      const page = await gateway.listInterviewTranscriptPage({
+        cursor,
+        limit: asUiInterviewPageLimit(200),
+        sessionId: session.id,
+        workspaceId: authority.workspaceId
+      })
+      accepted.push(...page.items)
+      if (!page.hasMore) {
+        break
+      }
+      if (seen.has(page.nextCursor)) throw new Error('Interview transcript cursor did not advance.')
+      seen.add(page.nextCursor)
+      cursor = page.nextCursor
+    } while (accepted.length < 2_000)
+    setSegments(mergeTranscript([], accepted))
+  }, [authority.workspaceId, gateway, session.id])
+
+  const connect = useCallback((): void => {
+    controllerRef.current?.abort()
+    const controller = new AbortController()
+    controllerRef.current = controller
+    setConnection({ status: 'connecting' })
+    setError(null)
+    void refreshTranscript()
+      .then(() =>
+        gateway.connectTextInterview({
+          audienceId: authority.currentUserId,
+          commandId: createUiCommandId(),
+          onDisconnected: (disconnectError): void => {
+            setConnection({ error: disconnectError, status: 'error' })
+          },
+          onTranscriptChanged: (): void => {
+            void refreshTranscript().catch(setError)
+          },
+          sessionId: session.id,
+          signal: controller.signal,
+          workspaceId: authority.workspaceId
+        })
+      )
+      .then((channel): void => {
+        if (!controller.signal.aborted) setConnection({ channel, status: 'connected' })
+      })
+      .catch((connectionError: unknown): void => {
+        if (!controller.signal.aborted) {
+          setConnection({ error: connectionError, status: 'error' })
+        }
+      })
+  }, [authority.currentUserId, authority.workspaceId, gateway, refreshTranscript, session.id])
+
+  useEffect((): (() => void) => {
+    const timer = globalThis.setTimeout(connect, 0)
+    return (): void => {
+      globalThis.clearTimeout(timer)
+      controllerRef.current?.abort()
+    }
+  }, [connect])
+
+  const lastSegment = segments.at(-1)
+  const canAnswer =
+    connection.status === 'connected' &&
+    lastSegment?.speaker === 'interviewer' &&
+    !isSubmitting &&
+    !isEnding
+
+  const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault()
-    /** @brief 去除首尾空白的回答 / Trimmed answer. */
-    const answer = draft.trim()
-    /** @brief 本次提交冻结的问题 / Question frozen for this submission. */
-    const question = currentQuestion
-    if (question === null || answer.length === 0) return
-    setAnswers((current) => [
-      ...current,
-      { answer, feedback: demoAnswerFeedback(answer), question }
-    ])
-    setDraft('')
+    const text = draft.trim()
+    if (!canAnswer || text.length === 0 || connection.status !== 'connected') return
+    setSubmitting(true)
+    setError(null)
+    const elapsed = Math.max(0, Date.now() - Date.parse(session.startedAt ?? session.createdAt))
+    const frozen =
+      pendingAnswerRef.current?.text === text
+        ? pendingAnswerRef.current
+        : {
+            endMs: elapsed,
+            id: createUiCommandId(),
+            startMs: elapsed,
+            text
+          }
+    pendingAnswerRef.current = frozen
+    try {
+      await connection.channel.submitAnswer({
+        clientMessageId: frozen.id,
+        endMs: frozen.endMs,
+        startMs: frozen.startMs,
+        text: frozen.text
+      })
+      pendingAnswerRef.current = null
+      setDraft('')
+      await refreshTranscript()
+    } catch (submitError: unknown) {
+      setError(submitError)
+    } finally {
+      setSubmitting(false)
+    }
   }
 
-  /** @brief 重新开始当前 Demo / Restart the current Demo. */
-  const restart = (): void => {
-    setAnswers([])
-    setDraft('')
+  const endInterview = async (): Promise<void> => {
+    if (isEnding) return
+    setEnding(true)
+    setError(null)
+    let frozen = pendingEndCommandRef.current
+    try {
+      if (frozen === null) {
+        const latest = await gateway.getInterviewSession({
+          sessionId: session.id,
+          workspaceId: authority.workspaceId
+        })
+        frozen = {
+          commandId: createUiCommandId(),
+          concurrencyToken: latest.concurrencyToken
+        }
+        pendingEndCommandRef.current = frozen
+      }
+      await gateway.requestInterviewSessionEnd({
+        commandId: frozen.commandId,
+        concurrencyToken: frozen.concurrencyToken,
+        reason: 'completed',
+        sessionId: session.id,
+        workspaceId: authority.workspaceId
+      })
+      pendingEndCommandRef.current = null
+      if (connection.status === 'connected') connection.channel.close()
+      onRefresh()
+    } catch (endError: unknown) {
+      setError(endError)
+      setEnding(false)
+      return
+    }
+    try {
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        await new Promise<void>((resolve) => {
+          globalThis.setTimeout(resolve, 500)
+        })
+        const latest = await gateway.getInterviewSession({
+          sessionId: session.id,
+          workspaceId: authority.workspaceId
+        })
+        if (latest.session.status !== 'ending') break
+      }
+    } catch {
+      // The accepted End Request remains authoritative; a later route refresh recovers its status.
+    } finally {
+      onRefresh()
+    }
   }
 
   return (
-    <section className="aw-interview-demo" aria-labelledby="demo-interview-heading">
+    <section aria-labelledby="text-interview-heading" className="aw-interview-demo">
       <div className="aw-section-heading">
         <div>
-          <p className="aw-eyebrow">LOCAL DEMO</p>
-          <h2 id="demo-interview-heading">本地 Demo 模拟面试</h2>
-          <p>围绕“{jobTitle}”完成 4 道文字练习题，无需连接实时音视频服务。</p>
+          <p className="aw-eyebrow">REAL TEXT INTERVIEW</p>
+          <h2 id="text-interview-heading">后端文字面试</h2>
+          <p>问题由后端模型生成，当前页面只展示服务端已经确认并保存的转录。</p>
         </div>
         <span className="aw-status">
-          {completed
-            ? '已完成'
-            : `${String(answers.length + 1)} / ${String(DEMO_INTERVIEW_QUESTIONS.length)}`}
+          {connection.status === 'connected'
+            ? '已连接'
+            : connection.status === 'connecting'
+              ? '正在连接'
+              : '连接已断开'}
         </span>
       </div>
 
       <div className="aw-interview-conversation">
-        <div className="aw-interview-conversation-inner" aria-live="polite">
-          {answers.map((item, index) => (
-            <div key={item.question}>
-              <article className="aw-interview-message">
-                <span className="aw-interview-speaker">面试官 · 第 {String(index + 1)} 题</span>
-                <p>{item.question}</p>
-              </article>
-              <article className="aw-interview-message aw-interview-message--candidate">
-                <span className="aw-interview-speaker">你的回答</span>
-                <p>{item.answer}</p>
-              </article>
-              <p className="aw-interview-demo-feedback">
-                <CheckCircle2 aria-hidden="true" size={15} />
-                {item.feedback}
-              </p>
-            </div>
-          ))}
-
-          {currentQuestion !== null ? (
-            <article className="aw-interview-message">
-              <span className="aw-interview-speaker">
-                面试官 · 第 {String(answers.length + 1)} 题
-              </span>
-              <p>{currentQuestion}</p>
-            </article>
+        <div aria-live="polite" className="aw-interview-conversation-inner">
+          {segments.length === 0 ? (
+            <LoadingState label="正在等待面试官生成第一道问题…" />
           ) : (
-            <div className="aw-interview-demo-complete" role="status">
-              <MessageSquareText aria-hidden="true" size={22} />
-              <div>
-                <h3>本轮练习已完成</h3>
-                <p>
-                  你已完成 {String(answers.length)} 道题。建议复盘每条即时反馈，再进行下一轮练习。
-                </p>
-              </div>
-              <button className="aw-quiet-button" onClick={restart} type="button">
-                <RotateCcw aria-hidden="true" size={15} />
-                重新练习
-              </button>
-            </div>
+            segments.map((segment) => (
+              <article
+                className={
+                  segment.speaker === 'candidate'
+                    ? 'aw-interview-message aw-interview-message--candidate'
+                    : 'aw-interview-message'
+                }
+                key={segment.id}
+              >
+                <span className="aw-interview-speaker">
+                  {segment.speaker === 'candidate'
+                    ? '你的回答'
+                    : segment.speaker === 'interviewer'
+                      ? '面试官'
+                      : '系统'}
+                </span>
+                <p>{segment.text}</p>
+              </article>
+            ))
           )}
         </div>
       </div>
 
-      {currentQuestion !== null ? (
-        <form className="aw-interview-answer" onSubmit={submit}>
-          <label htmlFor="demo-interview-answer">你的回答</label>
-          <textarea
-            className="aw-interview-live-transcript"
-            id="demo-interview-answer"
-            maxLength={3000}
-            onChange={(event) => setDraft(event.currentTarget.value)}
-            placeholder="请输入回答；建议包含背景、行动和结果……"
-            rows={4}
-            value={draft}
-          />
-          <div className="aw-interview-answer-actions">
-            <span className="aw-interview-privacy">内容仅保留在当前页面，不调用音视频服务。</span>
-            <button
-              className="aw-primary-button"
-              disabled={draft.trim().length === 0}
-              type="submit"
-            >
-              <Send aria-hidden="true" size={15} />
-              提交并进入下一题
-            </button>
-          </div>
-        </form>
+      <form className="aw-interview-answer" onSubmit={(event): void => void submit(event)}>
+        <label htmlFor="real-interview-answer">你的回答</label>
+        <textarea
+          className="aw-interview-live-transcript"
+          disabled={!canAnswer}
+          id="real-interview-answer"
+          maxLength={20_000}
+          onChange={(event): void => {
+            setDraft(event.currentTarget.value)
+            if (pendingAnswerRef.current?.text !== event.currentTarget.value.trim()) {
+              pendingAnswerRef.current = null
+            }
+          }}
+          placeholder="请输入回答；提交后将写入后端权威转录……"
+          rows={5}
+          value={draft}
+        />
+        <div className="aw-interview-answer-actions">
+          <span className="aw-interview-privacy">纯文字模式，不使用麦克风、摄像头或 WebRTC。</span>
+          <button
+            className="aw-primary-button"
+            disabled={!canAnswer || draft.trim().length === 0}
+            type="submit"
+          >
+            <Send aria-hidden="true" size={15} />
+            {isSubmitting ? '正在提交…' : '提交回答'}
+          </button>
+          <button
+            className="aw-quiet-button"
+            disabled={isEnding || segments.length === 0}
+            onClick={(): void => void endInterview()}
+            type="button"
+          >
+            {isEnding ? '正在结束…' : '结束面试'}
+          </button>
+        </div>
+      </form>
+
+      {connection.status === 'error' ? (
+        <button className="aw-quiet-button" onClick={connect} type="button">
+          <RefreshCw aria-hidden="true" size={15} />
+          重新连接
+        </button>
       ) : null}
+      {error === null ? null : (
+        <div className="aw-inline-error" role="alert">
+          <ResourceFailureMessage error={error} />
+        </div>
+      )}
     </section>
   )
 }
@@ -1240,7 +1376,7 @@ function InterviewSessionExperience({
           visual={<ShieldAlert aria-hidden="true" size={22} />}
         />
       ) : (
-        <DemoInterviewPractice jobTitle={session.jobTarget.title} />
+        <RealTextInterviewPractice authority={authority} onRefresh={onRefresh} />
       )}
 
       <footer className="aw-summary-actions">
@@ -1304,6 +1440,7 @@ export function InterviewRoomPage(): React.JSX.Element {
       })
       signal.throwIfAborted()
       return {
+        currentUserId: access.currentUser.id,
         principalSubject: access.currentUser.subject,
         scenario: scenarioAuthority.scenario,
         sessionAuthority,

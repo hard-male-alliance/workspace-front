@@ -510,6 +510,19 @@ export interface UiRealtimeConnection {
   readonly heartbeatIntervalMs: number
 }
 
+/** @brief 已建立的纯文字实时面试通道 / Established text-only realtime interview channel. */
+export interface UiInterviewTextChannel {
+  /** @brief 提交一个具有稳定客户端 identity 的候选人回答 / Submit one candidate answer with a stable client identity. */
+  submitAnswer(command: {
+    readonly clientMessageId: string
+    readonly text: string
+    readonly startMs: number
+    readonly endMs: number
+  }): Promise<void>
+  /** @brief 主动关闭当前短期连接；不会结束持久 Session / Close the short-lived connection without ending the persistent Session. */
+  close(): void
+}
+
 /** @brief 已持久化的权威转录片段 / Persisted authoritative transcript segment. */
 export interface UiInterviewTranscriptSegment {
   /** @brief 片段身份 / Segment identity. */

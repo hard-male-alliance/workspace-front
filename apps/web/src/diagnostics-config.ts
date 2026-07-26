@@ -4,7 +4,9 @@ import { resolveDiagnosticsEndpointConfiguration } from '@ai-job-workspace/platf
 import type { DiagnosticsEndpointConfiguration } from '@ai-job-workspace/platform'
 import {
   API_V2_CONTROLLED_TEST_ORIGIN,
-  API_V2_PRODUCTION_ORIGIN
+  API_V2_PRODUCTION_ORIGIN,
+  INTERVIEW_REALTIME_CONTROLLED_TEST_ORIGIN,
+  INTERVIEW_REALTIME_PRODUCTION_ORIGIN
 } from '@ai-job-workspace/product-api-v2'
 
 /** @brief 固定的前端诊断批量上传路径 / Fixed frontend-diagnostics batch upload path. */
@@ -60,7 +62,11 @@ export function createWebContentSecurityPolicy(options: WebContentSecurityPolicy
   /** @brief 已校验的生产产品 API 源 / Validated production Product API origin. */
   const apiOrigin = API_V2_PRODUCTION_ORIGIN
   /** @brief 去重后的 connect-src allowlist / Deduplicated connect-src allowlist. */
-  const connectSources = new Set<string>(["'self'", apiOrigin])
+  const connectSources = new Set<string>([
+    "'self'",
+    apiOrigin,
+    INTERVIEW_REALTIME_PRODUCTION_ORIGIN
+  ])
   /** @brief TemplateManifest NetworkUrl 所需的图片源 / Image sources required by TemplateManifest NetworkUrl. */
   const imageSources = new Set<string>(["'self'", 'https:', 'data:', 'blob:'])
   /** @brief 诊断上传的三态解析结果 / Three-state diagnostics-upload resolution. */
@@ -69,6 +75,7 @@ export function createWebContentSecurityPolicy(options: WebContentSecurityPolicy
   if (diagnostics.kind === 'enabled') connectSources.add(diagnostics.origin)
   if (options.includeDevelopmentSources) {
     connectSources.add(API_V2_CONTROLLED_TEST_ORIGIN)
+    connectSources.add(INTERVIEW_REALTIME_CONTROLLED_TEST_ORIGIN)
     connectSources.add('http://localhost:5173')
     connectSources.add('http://127.0.0.1:5173')
     connectSources.add('ws://localhost:5173')

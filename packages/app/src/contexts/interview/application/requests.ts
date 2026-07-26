@@ -2,7 +2,7 @@
 
 import type { UiCommandId } from '../../../shared-kernel/command'
 import type { UiConcurrencyToken } from '../../../shared-kernel/concurrency'
-import type { UiWorkspaceId } from '../../../shared-kernel/identity'
+import type { UiOpaqueId, UiWorkspaceId } from '../../../shared-kernel/identity'
 import type {
   UiCreateInterviewSessionInput,
   UiInterviewEndReason,
@@ -140,6 +140,24 @@ export interface UiCreateRealtimeConnectionCommand {
   /** @brief 客户端视频 codec / Client video codecs. */
   readonly videoCodecs: readonly string[]
   /** @brief 当前调用取消信号 / Current-call cancellation signal. */
+  readonly signal?: AbortSignal
+}
+
+/** @brief 建立纯文字 WebSocket 面试连接 / Establish a text-only WebSocket interview connection. */
+export interface UiConnectTextInterviewCommand {
+  /** @brief 创建短期连接的稳定幂等 identity / Stable idempotency identity for issuing the lease. */
+  readonly commandId: UiCommandId
+  /** @brief path 中的显式授权 Workspace / Explicit authorization Workspace in the path. */
+  readonly workspaceId: UiWorkspaceId
+  /** @brief path 中的会话 identity / Session identity in the path. */
+  readonly sessionId: UiInterviewSessionId
+  /** @brief 短期凭据绑定的当前用户资源 identity / Current user resource identity bound by the lease. */
+  readonly audienceId: UiOpaqueId<'user'>
+  /** @brief 有新权威转录可读取时通知页面 / Notify the page when authoritative transcript may have changed. */
+  readonly onTranscriptChanged: () => void
+  /** @brief 非主动断线通知 / Unexpected-disconnection notification. */
+  readonly onDisconnected: (error: unknown) => void
+  /** @brief 页面生命周期取消信号 / Page-lifecycle cancellation signal. */
   readonly signal?: AbortSignal
 }
 

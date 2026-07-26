@@ -4,6 +4,7 @@ import type { AppGateways } from '@ai-job-workspace/app/application'
 import {
   createApiV2Client,
   createApiV2PublicClient,
+  createResumeAssistantAgentApi,
   type ApiV2AuthenticationPort,
   type ApiV2TransportProfile
 } from '@ai-job-workspace/product-api-v2'
@@ -19,6 +20,7 @@ import {
 import { createApiV2InterviewGateway } from './interview-gateway'
 import { ApiV2KnowledgeGateway } from './knowledge-gateway'
 import { createApiV2ResumeReviewGateway } from './resume-review-gateway'
+import { createApiV2ResumeAssistantGateway } from './resume-assistant-gateway'
 
 export { createApiV2InterviewGateway } from './interview-gateway'
 
@@ -54,12 +56,13 @@ export function createProductGateways(options: ProductGatewayOptions): AppGatewa
       ? {}
       : { transportProfile: options.transportProfile })
   })
+  const resumeAssistant = createApiV2ResumeAssistantGateway(createResumeAssistantAgentApi(client))
 
   return {
     identity: createApiV2IdentityGateway(client),
     interview: createApiV2InterviewGateway(client),
     knowledge: new ApiV2KnowledgeGateway(client),
-    resume: createApiV2ResumeGateway(client, client, client),
+    resume: createApiV2ResumeGateway(client, client, client, resumeAssistant),
     resumeReview: createApiV2ResumeReviewGateway(client, client, client),
     resumeCreation: createApiV2ResumeCreationGateway(client),
     resumeTemplates: createApiV2ResumeTemplateCatalog(publicClient),

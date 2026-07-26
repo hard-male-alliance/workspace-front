@@ -1,6 +1,11 @@
 /** @file API v2 防腐层公共入口 / Public entrypoint for the API v2 anti-corruption layer. */
 
-export { API_V2_CONTROLLED_TEST_ORIGIN, API_V2_PRODUCTION_ORIGIN } from './origin'
+export {
+  API_V2_CONTROLLED_TEST_ORIGIN,
+  API_V2_PRODUCTION_ORIGIN,
+  INTERVIEW_REALTIME_CONTROLLED_TEST_ORIGIN,
+  INTERVIEW_REALTIME_PRODUCTION_ORIGIN
+} from './origin'
 export { createApiV2Client, createApiV2PublicClient } from './http/client'
 export type { ApiV2AccessTokenRefreshRequest, ApiV2AuthenticationPort } from './http/authentication'
 export type {
@@ -99,6 +104,16 @@ export type {
 } from './artifacts/pdf-source-map'
 export { parseResourceReference, resourceType } from './resources/resource-reference'
 export type { ResourceReference } from './resources/resource-reference'
+export { createResumeAssistantAgentApi } from './agent/resume-assistant'
+export type {
+  AgentConversation,
+  AgentMessage,
+  AgentRole,
+  AgentRun,
+  AgentRunStatus,
+  ResumeAssistantAgentApi,
+  VersionedAgentConversation
+} from './agent/resume-assistant'
 export {
   encodeCreateKnowledgeSourceRequest,
   encodeKnowledgeSourceInput,
@@ -136,6 +151,13 @@ export {
   listWorkspaceKnowledgeSourcePage,
   updateWorkspaceKnowledgeSource
 } from './knowledge/knowledge-source-client'
+export { createKnowledgeWorkflowApi } from './knowledge/knowledge-workflow'
+export type {
+  KnowledgeCitationResult,
+  KnowledgeSearchResult,
+  KnowledgeUploadSession,
+  KnowledgeWorkflowApi
+} from './knowledge/knowledge-workflow'
 export type {
   CreatedKnowledgeSourceRepresentation,
   CreateWorkspaceKnowledgeSourceCommand,

@@ -718,10 +718,20 @@ export function KnowledgePage(): React.JSX.Element {
             })}
           </p>
         </div>
-        <Link className="aw-primary-button" to="/knowledge/new">
-          <Plus aria-hidden="true" size={15} />
-          {t('knowledge.createManualNote', { defaultValue: '新建手动笔记' })}
-        </Link>
+        <div className="aw-inline-actions">
+          <Link className="aw-quiet-button" to="/knowledge/search">
+            <Search aria-hidden="true" size={15} />
+            搜索知识库
+          </Link>
+          <Link className="aw-quiet-button" to="/knowledge/upload">
+            <FileText aria-hidden="true" size={15} />
+            上传文件
+          </Link>
+          <Link className="aw-primary-button" to="/knowledge/new">
+            <Plus aria-hidden="true" size={15} />
+            {t('knowledge.createManualNote', { defaultValue: '新建手动笔记' })}
+          </Link>
+        </div>
       </header>
 
       <KnowledgeSourceCollection

@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import { API_V2_PRODUCTION_ORIGIN, createApiV2PublicClient } from '@ai-job-workspace/product-api-v2'
+import {
+  API_V2_PRODUCTION_ORIGIN,
+  createApiV2PublicClient,
+  INTERVIEW_REALTIME_PRODUCTION_ORIGIN
+} from '@ai-job-workspace/product-api-v2'
 
 import {
   createProductionContentSecurityPolicy,
@@ -90,7 +94,7 @@ describe('createProductionContentSecurityPolicy', (): void => {
     const policy = createProductionContentSecurityPolicy(configuration)
 
     expect(policy).toContain(
-      `connect-src 'self' ${API_V2_PRODUCTION_ORIGIN} https://diagnostics.example.test:8443;`
+      `connect-src 'self' ${API_V2_PRODUCTION_ORIGIN} ${INTERVIEW_REALTIME_PRODUCTION_ORIGIN} https://diagnostics.example.test:8443;`
     )
     expect(policy).toContain("frame-src 'self' blob:;")
     expect(policy).not.toContain('frame-src https://diagnostics.example.test:8443')
@@ -103,7 +107,9 @@ describe('createProductionContentSecurityPolicy', (): void => {
     /** @brief 未配置诊断服务时的 CSP / CSP when no diagnostics service is configured. */
     const policy = createProductionContentSecurityPolicy({ kind: 'disabled' })
 
-    expect(policy).toContain(`connect-src 'self' ${API_V2_PRODUCTION_ORIGIN};`)
+    expect(policy).toContain(
+      `connect-src 'self' ${API_V2_PRODUCTION_ORIGIN} ${INTERVIEW_REALTIME_PRODUCTION_ORIGIN};`
+    )
     expect(policy).toContain("frame-src 'self' blob:;")
     expect(policy).not.toContain('*')
   })
@@ -116,7 +122,9 @@ describe('createProductionContentSecurityPolicy', (): void => {
       origin: API_V2_PRODUCTION_ORIGIN
     })
 
-    expect(policy).toContain(`connect-src 'self' ${API_V2_PRODUCTION_ORIGIN};`)
+    expect(policy).toContain(
+      `connect-src 'self' ${API_V2_PRODUCTION_ORIGIN} ${INTERVIEW_REALTIME_PRODUCTION_ORIGIN};`
+    )
     expect(policy).not.toContain(`${API_V2_PRODUCTION_ORIGIN} ${API_V2_PRODUCTION_ORIGIN}`)
   })
 
@@ -138,7 +146,9 @@ describe('createProductionContentSecurityPolicy', (): void => {
     const policy = createProductionContentSecurityPolicy({ kind: 'disabled' })
 
     expect(transportOrigin).toBe(API_V2_PRODUCTION_ORIGIN)
-    expect(policy).toContain(`connect-src 'self' ${transportOrigin};`)
+    expect(policy).toContain(
+      `connect-src 'self' ${transportOrigin} ${INTERVIEW_REALTIME_PRODUCTION_ORIGIN};`
+    )
     expect(policy).toContain("frame-src 'self' blob:;")
     expect(policy).not.toContain(`frame-src ${transportOrigin};`)
   })

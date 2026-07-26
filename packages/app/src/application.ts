@@ -73,6 +73,8 @@ export type {
   UiKnowledgeOperation,
   UiKnowledgeProblem,
   UiKnowledgeProblemFieldError,
+  UiKnowledgeSearchHit,
+  UiKnowledgeSearchResult,
   UiKnowledgeSensitivity,
   UiKnowledgeSource,
   UiKnowledgeSourceAuthority,
@@ -87,9 +89,12 @@ export type {
 } from './contexts/knowledge/domain/models'
 export type {
   UiCreateManualKnowledgeNoteCommand,
+  UiIngestKnowledgeFileCommand,
+  UiKnowledgeFileIngestionPhase,
   UiKnowledgeSourcePageRead,
   UiKnowledgeSourcePatch,
   UiKnowledgeSourceRead,
+  UiSearchKnowledgeCommand,
   UiUpdateKnowledgeSourceCommand
 } from './contexts/knowledge/application/commands'
 export type { KnowledgeGateway } from './contexts/knowledge/application/gateway'
@@ -251,6 +256,12 @@ export type {
   ResumeBatchConflict,
   ResumeBatchConflictRecovery
 } from './contexts/resume/application/errors'
+export type {
+  ResumeAssistantGateway,
+  UiResumeAssistantMessage,
+  UiResumeAssistantRequest,
+  UiResumeAssistantThread
+} from './contexts/resume/application/gateway'
 
 /** @brief 产品应用依赖的上下文端口集合 / Context ports required by the product application. */
 export interface AppGateways {

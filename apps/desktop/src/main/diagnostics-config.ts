@@ -2,7 +2,10 @@
 
 import { resolveDiagnosticsEndpointConfiguration } from '@ai-job-workspace/platform'
 import type { DiagnosticsConfigurationErrorReason } from '@ai-job-workspace/platform'
-import { API_V2_PRODUCTION_ORIGIN } from '@ai-job-workspace/product-api-v2'
+import {
+  API_V2_PRODUCTION_ORIGIN,
+  INTERVIEW_REALTIME_PRODUCTION_ORIGIN
+} from '@ai-job-workspace/product-api-v2'
 
 /** @brief 桌面进程可读取的诊断环境变量 / Diagnostics environment variables readable by the desktop process. */
 export interface DesktopDiagnosticsEnvironment {
@@ -60,6 +63,7 @@ export function createProductionContentSecurityPolicy(
   const connectSources = [
     "'self'",
     API_V2_PRODUCTION_ORIGIN,
+    INTERVIEW_REALTIME_PRODUCTION_ORIGIN,
     ...(diagnostics.kind === 'enabled' ? [diagnostics.origin] : [])
   ]
   /** @brief 去重后的连接来源 / Deduplicated connection sources. */

@@ -117,10 +117,10 @@ describe('WorkspaceApp Resume artifact', (): void => {
     fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
 
     expect(await screen.findByRole('progressbar', { name: 'PDF 生成进度' })).toBeInTheDocument()
-    /** @brief 只接收内存 Blob URL 的严格 sandbox 预览 / Strict sandbox preview receiving only an in-memory Blob URL. */
+    /** @brief 只接收已验证内存 Blob URL 的原生 PDF 预览 / Native PDF preview receiving only a validated in-memory Blob URL. */
     const preview = await screen.findByTitle('简历 PDF 预览', {}, { timeout: 4_000 })
     expect(preview).toHaveAttribute('src', 'blob:resume-pdf-preview')
-    expect(preview).toHaveAttribute('sandbox', '')
+    expect(preview).not.toHaveAttribute('sandbox')
     expect(objectUrls.createObjectURL).toHaveBeenCalledTimes(1)
     expect(objectUrls.createObjectURL.mock.calls[0]?.[0]).toBeInstanceOf(Blob)
     expect(preview).not.toHaveAttribute('src', expect.stringContaining('/api/v2/'))

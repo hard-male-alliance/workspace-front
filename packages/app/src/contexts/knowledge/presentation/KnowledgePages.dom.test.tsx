@@ -25,7 +25,9 @@ import {
 } from '../../../testing'
 import { createTestGateways } from '../../../../tests/integration/WorkspaceApp.dom-test-harness'
 import { KnowledgePage } from './KnowledgePage'
+import { KnowledgeSearchPage } from './KnowledgeSearchPage'
 import { KnowledgeSourceDetailPage } from './KnowledgeSourceDetailPage'
+import { KnowledgeUploadPage } from './KnowledgeUploadPage'
 
 /** @brief 测试可精确兑现的 Promise / Promise settled precisely by a test. */
 interface Deferred<TValue> {
@@ -67,7 +69,9 @@ function createKnowledgeGateway(overrides: Partial<KnowledgeGateway>): Knowledge
   return {
     createManualKnowledgeNote: unexpected,
     getKnowledgeSource: unexpected,
+    ingestKnowledgeFile: unexpected,
     listKnowledgeSourcePage: unexpected,
+    searchKnowledge: unexpected,
     updateKnowledgeSource: unexpected,
     ...overrides
   }
@@ -152,6 +156,8 @@ function renderKnowledgeRoute(
         <MemoryRouter initialEntries={[path]}>
           <Routes>
             <Route element={element} path="/knowledge" />
+            <Route element={element} path="/knowledge/upload" />
+            <Route element={element} path="/knowledge/search" />
             <Route element={element} path="/knowledge/:sourceId" />
           </Routes>
         </MemoryRouter>
@@ -196,6 +202,105 @@ afterEach((): void => {
 
 /** @brief Knowledge API v2 列表与详情产品行为 / Knowledge API v2 list and detail product behaviour. */
 describe('Knowledge API v2 presentation', (): void => {
+  it('submits a selected file to the real ingestion gateway contract', async (): Promise<void> => {
+    const created = createSource('阶段三文件', 'stage-three-file', MOCK_KNOWLEDGE_WORKSPACE_ID, {
+      currentVersionId: asUiOpaqueId<'knowledge-source-version'>('version-stage-three'),
+      ingestion: {
+        chunkCount: 1,
+        documentCount: 1,
+        lastProblem: null,
+        lastSuccessAt: '2026-07-26T00:00:00Z',
+        status: 'ready'
+      },
+      sourceType: 'file'
+    })
+    const ingest = vi.fn<KnowledgeGateway['ingestKnowledgeFile']>((command) => {
+      command.onProgress?.('uploading')
+      command.onProgress?.('completed')
+      return Promise.resolve({
+        concurrencyToken: asUiConcurrencyToken('"knowledge-stage-three-2"'),
+        source: created
+      })
+    })
+    renderKnowledgeRoute(
+      <KnowledgeUploadPage />,
+      '/knowledge/upload',
+      createTestGateways({ knowledge: createKnowledgeGateway({ ingestKnowledgeFile: ingest }) })
+    )
+
+    fireEvent.change(screen.getByLabelText('来源名称'), { target: { value: '阶段三文件' } })
+    fireEvent.change(screen.getByLabelText('选择文件'), {
+      target: {
+        files: [
+          new File(['stage3-marker'], 'stage3.txt', {
+            type: 'text/plain'
+          })
+        ]
+      }
+    })
+    fireEvent.submit(screen.getByRole('button', { name: '上传并摄取' }).closest('form')!)
+
+    await waitFor((): void => expect(ingest).toHaveBeenCalledTimes(1))
+    expect(ingest.mock.calls[0]?.[0]).toMatchObject({
+      filename: 'stage3.txt',
+      mediaType: 'text/plain',
+      name: '阶段三文件',
+      workspaceId: MOCK_KNOWLEDGE_WORKSPACE_ID
+    })
+  })
+
+  it('renders traceable citations returned by the hybrid-search gateway', async (): Promise<void> => {
+    const source = createSource(
+      '可搜索文件',
+      'searchable-stage-three',
+      MOCK_KNOWLEDGE_WORKSPACE_ID,
+      {
+        currentVersionId: asUiOpaqueId<'knowledge-source-version'>(
+          'version-searchable-stage-three'
+        ),
+        ingestion: {
+          chunkCount: 1,
+          documentCount: 1,
+          lastProblem: null,
+          lastSuccessAt: '2026-07-26T00:00:00Z',
+          status: 'ready'
+        }
+      }
+    )
+    const search = vi.fn<KnowledgeGateway['searchKnowledge']>((command) =>
+      Promise.resolve({
+        hits: [
+          {
+            locator: 'paragraph/1#chunk=0',
+            quote: '阶段三唯一检索标记',
+            score: 0.91,
+            sourceId: source.id,
+            versionId: source.currentVersionId!
+          }
+        ],
+        policyVersion: 1,
+        query: command.query
+      })
+    )
+    const knowledge = createKnowledgeGateway({
+      listKnowledgeSourcePage: () => Promise.resolve(terminalPage([source])),
+      searchKnowledge: search
+    })
+    renderKnowledgeRoute(
+      <KnowledgeSearchPage />,
+      '/knowledge/search',
+      createTestGateways({ knowledge })
+    )
+
+    fireEvent.change(await screen.findByLabelText('搜索内容'), {
+      target: { value: '唯一检索标记' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: '搜索' }))
+
+    expect(await screen.findByText('阶段三唯一检索标记')).toBeVisible()
+    expect(screen.getByText(/paragraph\/1#chunk=0/u)).toBeVisible()
+  })
+
   it('keeps accepted items and retries a rejected duplicate page with the identical cursor', async (): Promise<void> => {
     /** @brief 首页来源 / First-page source. */
     const sourceA = createSource('第一页来源', 'source-a')

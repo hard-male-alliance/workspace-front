@@ -5,14 +5,17 @@ import { ApiV2WriteOutcomeUnknownError } from '@ai-job-workspace/product-api-v2'
 import type { KnowledgeGateway } from '../../application/gateway'
 import type {
   UiCreateManualKnowledgeNoteCommand,
+  UiIngestKnowledgeFileCommand,
   UiKnowledgeSourcePageRead,
   UiKnowledgeSourceRead,
+  UiSearchKnowledgeCommand,
   UiUpdateKnowledgeSourceCommand
 } from '../../application/commands'
 import {
   asUiKnowledgeSourceCursor,
   type UiKnowledgeSource,
   type UiKnowledgeSourceAuthority,
+  type UiKnowledgeSearchResult,
   type UiKnowledgeSourcePage
 } from '../../domain/models'
 import {
@@ -285,6 +288,60 @@ export class InMemoryKnowledgeGateway implements KnowledgeGateway {
     this.#sources[sourceIndex] = updated
     this.#entityTags.set(updated.id, concurrencyToken)
     return cloneMemoryValue({ concurrencyToken, source: updated })
+  }
+
+  /** @inheritdoc */
+  ingestKnowledgeFile(command: UiIngestKnowledgeFileCommand): Promise<UiKnowledgeSourceAuthority> {
+    command.signal?.throwIfAborted()
+    command.onProgress?.('completed')
+    const sourceId = asUiOpaqueId<'knowledge-source'>(
+      `knowledge_memory_file_${String(this.#sources.length + 1).padStart(6, '0')}`
+    )
+    const source: UiKnowledgeSource = {
+      createdAt: '2026-07-23T00:00:00.000Z',
+      currentVersionId: asUiOpaqueId<'knowledge-source-version'>(
+        `knowledge_memory_version_${String(this.#sources.length + 1).padStart(6, '0')}`
+      ),
+      enabled: true,
+      id: sourceId,
+      ingestion: {
+        chunkCount: 1,
+        documentCount: 1,
+        lastProblem: null,
+        lastSuccessAt: '2026-07-23T00:00:01.000Z',
+        status: 'ready'
+      },
+      name: command.name,
+      publicConfig: { filename: command.filename, mediaType: command.mediaType },
+      revision: 2,
+      sourceType: 'file',
+      updatedAt: '2026-07-23T00:00:01.000Z',
+      visibility: {
+        agentGrants: [],
+        allowExternalModelProcessing: false,
+        allowedModelRegions: ['global'],
+        defaultEffect: 'deny',
+        policyVersion: 1,
+        retentionDays: 365,
+        sensitivity: 'normal',
+        sessionOverrideAllowed: false
+      },
+      workspaceId: command.workspaceId
+    }
+    const concurrencyToken = this.#nextEntityTag(source.id, source.revision)
+    this.#sources.push(source)
+    this.#entityTags.set(source.id, concurrencyToken)
+    return Promise.resolve(cloneMemoryValue({ concurrencyToken, source }))
+  }
+
+  /** @inheritdoc */
+  searchKnowledge(command: UiSearchKnowledgeCommand): Promise<UiKnowledgeSearchResult> {
+    command.signal?.throwIfAborted()
+    return Promise.resolve({
+      hits: [],
+      policyVersion: 1,
+      query: command.query
+    })
   }
 
   /**
