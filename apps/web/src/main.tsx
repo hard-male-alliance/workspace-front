@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { HostStartupFailure, WorkspaceApp } from '@ai-job-workspace/app'
 import { APPLICATION_VERSION } from '@ai-job-workspace/platform'
 import {
+  API_V2_CONTROLLED_TEST_ORIGIN,
   completeWebAuthorization,
   InMemoryWebTokenSession,
   logoutWebTokenSession,
@@ -19,6 +20,11 @@ import {
 import { createWebArtifactSave } from './artifact-save'
 import { createWebDiagnostics } from './create-web-observability'
 import { resolveDiagnosticsUploadConfiguration } from './diagnostics-config'
+import {
+  createLocalDevelopmentFetch,
+  createLocalDevelopmentProductFetch,
+  localDevelopmentUrl
+} from './local-development-transport'
 import { WebAuthenticationScreen } from './WebAuthenticationScreen'
 import { consumeWebOAuthCallback, type ConsumedWebOAuthCallback } from './oauth-transaction'
 import { createWebApiV2Authentication } from './web-authentication'
@@ -36,6 +42,14 @@ const applicationRoot = createRoot(rootElement)
 
 /** @brief 当前页面唯一、永不持久化的 Web token 会话 / Sole current-page Web token session that is never persisted. */
 const tokenSession = new InMemoryWebTokenSession()
+/** @brief 开发态显式改写 OAuth 网络；生产态保持冻结 origin / Explicit OAuth rewrite in development; frozen origin in production. */
+const oauthFetch: typeof fetch = import.meta.env.DEV
+  ? createLocalDevelopmentFetch(globalThis.fetch.bind(globalThis))
+  : globalThis.fetch.bind(globalThis)
+/** @brief 产品 API 开发态传输；生产态不改写网络或响应 / Product API development transport; production performs no rewriting. */
+const productFetch: typeof fetch = import.meta.env.DEV
+  ? createLocalDevelopmentProductFetch(globalThis.fetch.bind(globalThis))
+  : globalThis.fetch.bind(globalThis)
 
 /** @brief 在任何异步工作前消费并清理可能含 code 的 callback / Callback consumed and scrubbed before any asynchronous work. */
 let consumedCallback: ConsumedWebOAuthCallback | null = null
@@ -61,9 +75,14 @@ function renderAuthentication(configuration: WebOAuthConfiguration, error?: unkn
   const authorize = (screenHint: AuthorizationScreenHint): Promise<void> =>
     beginWebAuthorization(configuration, screenHint, {
       crypto: globalThis.crypto,
-      fetchImpl: globalThis.fetch,
+      fetchImpl: oauthFetch,
       location: globalThis.location,
-      storage: globalThis.sessionStorage
+      storage: globalThis.sessionStorage,
+      ...(import.meta.env.DEV
+        ? {
+            resolveAuthorizationUrl: (url: string): URL => localDevelopmentUrl(url)
+          }
+        : {})
     })
 
   applicationRoot.render(
@@ -118,7 +137,8 @@ async function bootstrapWebApplication(): Promise<void> {
     const callbackSignal = AbortSignal.timeout(60_000)
     await completeWebAuthorization({
       callbackUrl: consumedCallback.callbackUrl,
-      idTokenVerifier: new WebCryptoJwksIdTokenVerifier(),
+      fetchImpl: oauthFetch,
+      idTokenVerifier: new WebCryptoJwksIdTokenVerifier({ fetchImpl: oauthFetch }),
       session: tokenSession,
       signal: callbackSignal,
       transaction: consumedCallback.transaction
@@ -135,6 +155,7 @@ async function bootstrapWebApplication(): Promise<void> {
   let artifactSaveLifecycle: ReturnType<typeof createWebArtifactSave> | null = null
   /** @brief 将资源服务器 401 与私有 token 轮换组合的 Web 认证端口 / Web authentication port composing resource-server 401 handling with private token rotation. */
   const authentication = createWebApiV2Authentication({
+    fetchImpl: oauthFetch,
     onAuthenticationLost: (error: unknown): void => {
       /** @brief 先静止敏感下载再切换认证页面 / Quiesce sensitive downloads before switching to authentication. */
       const transition = async (): Promise<void> => {
@@ -148,8 +169,11 @@ async function bootstrapWebApplication(): Promise<void> {
   /** @brief 仅指向契约 HTTP adapter 的产品网关 / Product gateways backed only by contract HTTP adapters. */
   const gateways = createProductGateways({
     authentication,
+    fetchImpl: productFetch,
     locale: navigator.language,
-    transportProfile: { kind: 'production' }
+    transportProfile: import.meta.env.DEV
+      ? { apiOrigin: API_V2_CONTROLLED_TEST_ORIGIN, kind: 'controlled-test' }
+      : { kind: 'production' }
   })
   /** @brief 通过权威 API v2 metadata 与 Bearer 内容流实现的 Web Artifact 保存端口 / Web Artifact-save port backed by authoritative API v2 metadata and Bearer content streams. */
   const artifactSave = createWebArtifactSave({
@@ -166,7 +190,7 @@ async function bootstrapWebApplication(): Promise<void> {
         onSignOut={async (): Promise<void> => {
           await artifactSave.suspendAndQuiesce()
           try {
-            await logoutWebTokenSession({ session: tokenSession })
+            await logoutWebTokenSession({ fetchImpl: oauthFetch, session: tokenSession })
             renderAuthentication(oauthConfiguration)
           } catch (error: unknown) {
             artifactSave.resume()

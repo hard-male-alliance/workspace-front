@@ -3,7 +3,14 @@
 
 import { describe, expect, it, vi } from 'vitest'
 
-import { asUiOpaqueId } from '@ai-job-workspace/app/application'
+import {
+  asUiOpaqueId,
+  type KnowledgeGateway,
+  type ResumeReviewPort,
+  type UiKnowledgeSource,
+  type UiResumeEditorModel,
+  type UiResumeProposalAuthority
+} from '@ai-job-workspace/app/application'
 import type {
   AgentConversation,
   AgentMessage,
@@ -18,6 +25,7 @@ const RESUME_ID = 'resume_01K0ASSISTANT00000001'
 const CONVERSATION_ID = 'conversation_01K0ASSISTANT001'
 const MESSAGE_ID = 'message_01K0ASSISTANT000001'
 const RUN_ID = 'run_01K0ASSISTANT00000000001'
+const PROPOSAL_ID = 'proposal_01K0ASSISTANT0000001'
 
 function conversation(): AgentConversation {
   return {
@@ -36,14 +44,67 @@ function run(overrides: Partial<AgentRun> = {}): AgentRun {
     id: RUN_ID,
     inputMessageId: MESSAGE_ID,
     outputMessageId: null,
+    proposalIds: [],
     problem: null,
     status: 'succeeded',
     ...overrides
   }
 }
 
+function reviewDouble(): ResumeReviewPort {
+  const unavailable = () => vi.fn(() => Promise.reject(new Error('unexpected Resume review call')))
+  return {
+    decideResumeProposal: unavailable(),
+    getResumeProposal: unavailable(),
+    getResumeRevision: unavailable(),
+    listResumeProposalPage: unavailable(),
+    listResumeRevisionPage: unavailable(),
+    startResumeRestore: unavailable()
+  }
+}
+
+function knowledgeDouble(items: readonly UiKnowledgeSource[] = []): KnowledgeGateway {
+  const unavailable = () => vi.fn(() => Promise.reject(new Error('unexpected Knowledge call')))
+  return {
+    createManualKnowledgeNote: unavailable(),
+    getKnowledgeSource: unavailable(),
+    ingestKnowledgeFile: unavailable(),
+    listKnowledgeSourcePage: vi.fn(() =>
+      Promise.resolve({ hasMore: false as const, items, nextCursor: null })
+    ),
+    searchKnowledge: unavailable(),
+    updateKnowledgeSource: unavailable()
+  }
+}
+
+function eligibleKnowledgeSource(): UiKnowledgeSource {
+  return {
+    currentVersionId: asUiOpaqueId<'knowledge-source-version'>('version_assistant_eligible_01'),
+    enabled: true,
+    id: asUiOpaqueId<'knowledge-source'>('source_assistant_eligible_01'),
+    ingestion: { status: 'ready' },
+    visibility: {
+      agentGrants: [
+        {
+          agentScope: 'resume_assistant',
+          allowedOperations: ['derive'],
+          effect: 'allow'
+        }
+      ],
+      allowExternalModelProcessing: true,
+      allowedModelRegions: ['global']
+    }
+  } as unknown as UiKnowledgeSource
+}
+
 function message(role: AgentMessage['role'], text: string): AgentMessage {
-  return { conversationId: CONVERSATION_ID, id: `${MESSAGE_ID}_${role}`, role, text }
+  return {
+    citationSourceIds: [],
+    conversationId: CONVERSATION_ID,
+    id: `${MESSAGE_ID}_${role}`,
+    role,
+    text
+  }
 }
 
 function request(question = '请检查项目经历') {
@@ -87,13 +148,19 @@ function apiDouble(): ResumeAssistantAgentApi {
 describe('Resume assistant gateway', () => {
   it('binds every run to the exact Resume revision and returns persisted messages', async () => {
     const api = apiDouble()
-    const thread = await createApiV2ResumeAssistantGateway(api).ask(request())
+    const thread = await createApiV2ResumeAssistantGateway(
+      api,
+      reviewDouble(),
+      knowledgeDouble()
+    ).ask(request())
 
     expect(api.createRun).toHaveBeenCalledWith(
       expect.objectContaining({
         conversationId: CONVERSATION_ID,
         inputMessageId: `${MESSAGE_ID}_user`,
+        knowledgeSourceIds: [],
         resumeId: RESUME_ID,
+        allowedOutputModes: ['text', 'resume_operations'],
         resumeRevision: 7,
         workspaceId: WORKSPACE_ID
       })
@@ -102,6 +169,116 @@ describe('Resume assistant gateway', () => {
       '请检查项目经历',
       '项目成果需要补充量化指标。'
     ])
+  })
+
+  it('selects only ready explicitly authorized Knowledge sources for the Resume run', async () => {
+    const api = apiDouble()
+    const source = eligibleKnowledgeSource()
+
+    await createApiV2ResumeAssistantGateway(api, reviewDouble(), knowledgeDouble([source])).ask(
+      request()
+    )
+
+    expect(api.createRun).toHaveBeenCalledWith(
+      expect.objectContaining({ knowledgeSourceIds: [source.id] })
+    )
+  })
+
+  it('exposes the generated Proposal and waits for a user decision', async () => {
+    const api = apiDouble()
+    const review = reviewDouble()
+    const authority = {
+      concurrencyToken: '"proposal-1"',
+      proposal: {
+        id: asUiOpaqueId<'resume-proposal'>(PROPOSAL_ID),
+        status: 'pending'
+      }
+    } as UiResumeProposalAuthority
+    vi.mocked(api.createRun).mockResolvedValue(
+      run({
+        outputMessageId: 'message_waiting_01',
+        proposalIds: [PROPOSAL_ID],
+        status: 'waiting_for_proposal_decision'
+      })
+    )
+    vi.mocked(api.getRun)
+      .mockResolvedValueOnce(
+        run({
+          outputMessageId: 'message_waiting_01',
+          proposalIds: [PROPOSAL_ID],
+          status: 'waiting_for_proposal_decision'
+        })
+      )
+      .mockResolvedValue(run())
+    vi.mocked(review.getResumeProposal).mockResolvedValue(authority)
+    const thread = await createApiV2ResumeAssistantGateway(api, review, knowledgeDouble()).ask(
+      request('请帮我修改这份简历的项目经历')
+    )
+
+    expect(api.createRun).toHaveBeenCalledWith(
+      expect.objectContaining({ allowedOutputModes: ['text', 'resume_operations'] })
+    )
+    expect(review.decideResumeProposal).not.toHaveBeenCalled()
+    expect(thread.pendingProposal).toBe(authority)
+  })
+
+  it('submits an explicit ProposalDecision only after the user chooses', async () => {
+    const api = apiDouble()
+    const review = reviewDouble()
+    const authority = {
+      concurrencyToken: '"proposal-generation-1"',
+      proposal: {
+        id: asUiOpaqueId<'resume-proposal'>(PROPOSAL_ID),
+        status: 'pending'
+      }
+    } as UiResumeProposalAuthority
+    vi.mocked(api.createRun).mockResolvedValue(
+      run({
+        outputMessageId: 'message_waiting_01',
+        proposalIds: [PROPOSAL_ID],
+        status: 'waiting_for_proposal_decision'
+      })
+    )
+    vi.mocked(api.getRun)
+      .mockResolvedValueOnce(
+        run({
+          outputMessageId: 'message_waiting_01',
+          proposalIds: [PROPOSAL_ID],
+          status: 'waiting_for_proposal_decision'
+        })
+      )
+      .mockResolvedValueOnce(
+        run({
+          outputMessageId: 'message_waiting_01',
+          proposalIds: [PROPOSAL_ID],
+          status: 'waiting_for_proposal_decision'
+        })
+      )
+      .mockResolvedValue(run({ outputMessageId: 'message_final_01', proposalIds: [PROPOSAL_ID] }))
+    vi.mocked(review.getResumeProposal).mockResolvedValue(authority)
+    const result = {
+      appliedOperationIds: [],
+      conflicts: [],
+      editor: { resume: { revision: 8 } } as UiResumeEditorModel
+    }
+    vi.mocked(review.decideResumeProposal).mockResolvedValue(result)
+
+    const gateway = createApiV2ResumeAssistantGateway(api, review, knowledgeDouble())
+    const thread = await gateway.ask(request('根据目前的信息生成简历'))
+    const decision = await gateway.decideProposal({
+      ...request(''),
+      authority: thread.pendingProposal!,
+      decision: { kind: 'accept-all' }
+    })
+
+    expect(review.decideResumeProposal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        decision: { kind: 'accept-all' },
+        proposal: authority.proposal
+      })
+    )
+    expect(decision.decision).toBe(result)
+    expect(decision.thread.messages).toHaveLength(2)
   })
 
   it('retries one retryable provider failure without creating a duplicate user message', async () => {
@@ -126,7 +303,7 @@ describe('Resume assistant gateway', () => {
       )
       .mockResolvedValueOnce(run({ id: `${RUN_ID}_retry` }))
 
-    await createApiV2ResumeAssistantGateway(api).ask(request())
+    await createApiV2ResumeAssistantGateway(api, reviewDouble(), knowledgeDouble()).ask(request())
 
     expect(api.createMessage).toHaveBeenCalledTimes(1)
     expect(api.createRun).toHaveBeenCalledTimes(2)
@@ -136,14 +313,45 @@ describe('Resume assistant gateway', () => {
     const api = apiDouble()
     vi.mocked(api.createRun).mockResolvedValue(run({ status: 'running' }))
     vi.mocked(api.getRun).mockRejectedValueOnce(new Error('page closed'))
-    const firstGateway = createApiV2ResumeAssistantGateway(api)
+    const firstGateway = createApiV2ResumeAssistantGateway(api, reviewDouble(), knowledgeDouble())
 
     await expect(firstGateway.ask(request())).rejects.toThrow('page closed')
 
     vi.mocked(api.getRun).mockResolvedValue(run({ outputMessageId: `${MESSAGE_ID}_assistant` }))
-    const restored = await createApiV2ResumeAssistantGateway(api).load(request(''))
+    const restored = await createApiV2ResumeAssistantGateway(
+      api,
+      reviewDouble(),
+      knowledgeDouble()
+    ).load(request(''))
 
     expect(api.getRun).toHaveBeenLastCalledWith(WORKSPACE_ID, RUN_ID, undefined)
     expect(restored.messages.at(-1)?.text).toBe('项目成果需要补充量化指标。')
+  })
+
+  it('keeps polling beyond the former 90-second client deadline', async () => {
+    vi.useFakeTimers()
+    try {
+      const api = apiDouble()
+      let polls = 0
+      vi.mocked(api.createRun).mockResolvedValue(run({ status: 'running' }))
+      vi.mocked(api.getRun).mockImplementation(() =>
+        Promise.resolve(run({ status: ++polls <= 38 ? 'running' : 'succeeded' }))
+      )
+
+      const result = createApiV2ResumeAssistantGateway(api, reviewDouble(), knowledgeDouble()).ask(
+        request()
+      )
+
+      await vi.advanceTimersByTimeAsync(100_000)
+
+      await expect(result).resolves.toEqual(
+        expect.objectContaining({
+          messages: expect.any(Array) as unknown
+        })
+      )
+      expect(polls).toBe(40)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

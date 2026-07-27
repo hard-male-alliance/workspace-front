@@ -34,6 +34,7 @@ describe('Web Content Security Policy', (): void => {
     expect(policy).toContain('http://localhost:5173')
     expect(policy).toContain('http://127.0.0.1:5173')
     expect(policy).toContain('http://dev.hmalliances.org:9000')
+    expect(policy).toContain('http://localhost:9000')
     expect(policy).toContain('ws://dev.hmalliances.org:9000')
     expect(policy).toContain('ws://localhost:5173')
     expect(policy).toContain('ws://127.0.0.1:5173')

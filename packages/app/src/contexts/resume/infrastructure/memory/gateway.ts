@@ -443,30 +443,40 @@ export class InMemoryResumeGateway
     load: () =>
       Promise.resolve({
         conversationId: 'conversation_memory_resume_assistant',
-        messages: this.assistantMessages
+        messages: this.assistantMessages,
+        pendingProposal: null
       }),
     ask: (input) => {
       const sequence = this.assistantMessages.length
       this.assistantMessages = [
         ...this.assistantMessages,
-        { id: `message_memory_user_${sequence}`, author: 'user', text: input.question },
+        {
+          id: `message_memory_user_${sequence}`,
+          author: 'user',
+          referenceSourceIds: [],
+          text: input.question
+        },
         {
           id: `message_memory_assistant_${sequence + 1}`,
           author: 'assistant',
+          referenceSourceIds: [],
           text: `测试助手已收到：${input.question}`
         }
       ]
       return Promise.resolve({
         conversationId: 'conversation_memory_resume_assistant',
-        messages: this.assistantMessages
+        messages: this.assistantMessages,
+        pendingProposal: null
       })
-    }
+    },
+    decideProposal: () => Promise.reject(new Error('No memory Agent Proposal is pending.'))
   }
 
   /** @brief 当前测试实例的内存会话消息 / In-memory conversation messages for this test instance. */
   private assistantMessages: readonly {
     readonly id: string
     readonly author: 'assistant' | 'user'
+    readonly referenceSourceIds: readonly string[]
     readonly text: string
   }[] = []
 

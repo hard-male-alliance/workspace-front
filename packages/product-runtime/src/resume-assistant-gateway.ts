@@ -1,10 +1,19 @@
 /** @file 真实 API v2 Resume 助手产品流程 / Real API v2 Resume-assistant product process. */
 
 import type {
+  KnowledgeGateway,
+  ResumeReviewPort,
   ResumeAssistantGateway,
+  UiKnowledgeSource,
   UiResumeAssistantMessage,
   UiResumeAssistantRequest,
-  UiResumeAssistantThread
+  UiResumeAssistantThread,
+  UiResumeProposalAuthority
+} from '@ai-job-workspace/app/application'
+import {
+  asUiKnowledgeSourcePageLimit,
+  asUiOpaqueId,
+  createUiCommandId
 } from '@ai-job-workspace/app/application'
 import type {
   AgentConversation,
@@ -13,7 +22,6 @@ import type {
   ResumeAssistantAgentApi
 } from '@ai-job-workspace/product-api-v2'
 
-const MAXIMUM_RUN_WAIT_MILLISECONDS = 90_000
 const RECOVERY_PREFIX = 'aiws.resume-assistant.run.v1'
 const processRecovery = new Map<string, string>()
 
@@ -48,6 +56,44 @@ function conversationTitle(resumeId: string): string {
   return `resume-assistant:${resumeId}`
 }
 
+function allowsResumeAssistant(source: UiKnowledgeSource): boolean {
+  if (
+    !source.enabled ||
+    source.ingestion.status !== 'ready' ||
+    source.currentVersionId === null ||
+    !source.visibility.allowedModelRegions.includes('global') ||
+    !source.visibility.allowExternalModelProcessing
+  ) {
+    return false
+  }
+  const grants = source.visibility.agentGrants.filter(
+    (grant) => grant.agentScope === 'resume_assistant' && grant.allowedOperations.includes('derive')
+  )
+  return (
+    grants.some((grant) => grant.effect === 'allow') &&
+    !grants.some((grant) => grant.effect === 'deny')
+  )
+}
+
+async function resumeKnowledgeSourceIds(
+  knowledge: KnowledgeGateway,
+  input: UiResumeAssistantRequest
+): Promise<readonly string[]> {
+  const result: string[] = []
+  let cursor = null
+  for (;;) {
+    const page = await knowledge.listKnowledgeSourcePage({
+      cursor,
+      limit: asUiKnowledgeSourcePageLimit(200),
+      signal: input.signal ?? new AbortController().signal,
+      workspaceId: input.workspaceId
+    })
+    result.push(...page.items.filter(allowsResumeAssistant).map((source) => source.id))
+    if (!page.hasMore) return result
+    cursor = page.nextCursor
+  }
+}
+
 function mapMessages(messages: readonly AgentMessage[]): readonly UiResumeAssistantMessage[] {
   return messages
     .filter((message) => message.text.trim().length > 0)
@@ -55,25 +101,30 @@ function mapMessages(messages: readonly AgentMessage[]): readonly UiResumeAssist
       id: message.id,
       author:
         message.role === 'assistant' ? 'assistant' : message.role === 'user' ? 'user' : 'system',
+      referenceSourceIds: message.citationSourceIds,
       text: message.text
     }))
 }
 
 async function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
   await new Promise<void>((resolve, reject) => {
-    const timer = globalThis.setTimeout(resolve, milliseconds)
-    signal?.addEventListener(
-      'abort',
-      (): void => {
-        globalThis.clearTimeout(timer)
-        reject(
-          signal.reason instanceof Error
-            ? signal.reason
-            : new DOMException('Resume assistant request was aborted.', 'AbortError')
-        )
-      },
-      { once: true }
-    )
+    const abortError = (): Error =>
+      signal?.reason instanceof Error
+        ? signal.reason
+        : new DOMException('Resume assistant request was aborted.', 'AbortError')
+    if (signal?.aborted === true) {
+      reject(abortError())
+      return
+    }
+    const onAbort = (): void => {
+      globalThis.clearTimeout(timer)
+      reject(abortError())
+    }
+    const timer = globalThis.setTimeout((): void => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, milliseconds)
+    signal?.addEventListener('abort', onAbort, { once: true })
   })
 }
 
@@ -84,9 +135,7 @@ async function waitForRun(
 ): Promise<AgentRun> {
   let run = initial
   let interval = 700
-  const deadline = Date.now() + MAXIMUM_RUN_WAIT_MILLISECONDS
   while (run.status === 'queued' || run.status === 'running') {
-    if (Date.now() >= deadline) throw new Error('resume.assistant_run_timeout')
     const hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden'
     await delay(hidden ? Math.max(interval, 4_000) : interval, input.signal)
     run = await api.getRun(input.workspaceId, run.id, input.signal)
@@ -120,32 +169,71 @@ async function resolveConversation(
 
 async function loadThread(
   api: ResumeAssistantAgentApi,
+  review: ResumeReviewPort,
   input: UiResumeAssistantRequest,
   conversation: AgentConversation
 ): Promise<UiResumeAssistantThread> {
   const key = recoveryKey(input)
   const recoveredRunId = recoveryRead(key)
+  let pendingProposal: UiResumeProposalAuthority | null = null
   if (recoveredRunId !== null) {
-    const run = await api.getRun(input.workspaceId, recoveredRunId, input.signal)
+    let run = await api.getRun(input.workspaceId, recoveredRunId, input.signal)
     if (run.status === 'queued' || run.status === 'running') {
-      await waitForRun(api, input, run)
+      run = await waitForRun(api, input, run)
     }
-    recoveryWrite(key, null)
+    if (run.proposalIds.length === 1) {
+      const authority = await review.getResumeProposal(
+        input.workspaceId,
+        input.resumeId,
+        asUiOpaqueId<'resume-proposal'>(run.proposalIds[0]!),
+        input.signal ?? new AbortController().signal
+      )
+      if (authority.proposal.status === 'pending') pendingProposal = authority
+    }
+    if (pendingProposal === null) recoveryWrite(key, null)
   }
   const messages = await api.listMessages(input.workspaceId, conversation.id, input.signal)
-  return { conversationId: conversation.id, messages: mapMessages(messages) }
+  return {
+    pendingProposal,
+    conversationId: conversation.id,
+    messages: mapMessages(messages)
+  }
 }
 
-/** @brief 将真实 Agent API 编排成 Resume 页面的只读助手 / Compose the real Agent API into the Resume page's read-only assistant. */
+async function waitForProposalContinuation(
+  api: ResumeAssistantAgentApi,
+  input: UiResumeAssistantRequest,
+  runId: string,
+  waitingOutputMessageId: string | null
+): Promise<AgentRun> {
+  let run = await api.getRun(input.workspaceId, runId, input.signal)
+  let interval = 400
+  while (
+    run.status === 'queued' ||
+    run.status === 'running' ||
+    run.status === 'waiting_for_proposal_decision' ||
+    (run.status === 'succeeded' && run.outputMessageId === waitingOutputMessageId)
+  ) {
+    await delay(interval, input.signal)
+    run = await api.getRun(input.workspaceId, runId, input.signal)
+    interval = Math.min(Math.round(interval * 1.5), 2_500)
+  }
+  return run
+}
+
+/** @brief 将真实 Agent API 与 Proposal decision 编排成读写分离的 Resume 助手 / Compose Agent API and Proposal decisions into a read/write-separated Resume assistant. */
 export function createApiV2ResumeAssistantGateway(
-  api: ResumeAssistantAgentApi
+  api: ResumeAssistantAgentApi,
+  review: ResumeReviewPort,
+  knowledge: KnowledgeGateway
 ): ResumeAssistantGateway {
   return {
     async load(input): Promise<UiResumeAssistantThread> {
       const conversation = await resolveConversation(api, input)
-      return loadThread(api, input, conversation)
+      return loadThread(api, review, input, conversation)
     },
     async ask(input): Promise<UiResumeAssistantThread> {
+      const knowledgeSourceIds = await resumeKnowledgeSourceIds(knowledge, input)
       const conversation = await resolveConversation(api, input)
       const current = await api.getConversation(input.workspaceId, conversation.id, input.signal)
       const message = await api.createMessage(
@@ -166,20 +254,75 @@ export function createApiV2ResumeAssistantGateway(
           resumeId: input.resumeId,
           resumeRevision: input.resumeRevision,
           locale: input.locale,
+          knowledgeSourceIds,
+          allowedOutputModes: [
+            'text',
+            ...(knowledgeSourceIds.length === 0 ? [] : (['citations'] as const)),
+            'resume_operations'
+          ],
           idempotencyKey: commandId('resume_assistant_run'),
           ...(input.signal === undefined ? {} : { signal: input.signal })
         })
         recoveryWrite(key, run.id)
         terminalRun = await waitForRun(api, input, run)
-        recoveryWrite(key, null)
-        if (terminalRun.status === 'succeeded') break
+        if (
+          terminalRun.status === 'succeeded' ||
+          terminalRun.status === 'waiting_for_proposal_decision'
+        ) {
+          break
+        }
         if (attempt === 0 && terminalRun.problem?.retryable === true) continue
         throw new Error(terminalRun.problem?.code ?? `resume.assistant_run_${terminalRun.status}`)
       }
-      if (terminalRun?.status !== 'succeeded') {
+      if (
+        terminalRun?.status !== 'succeeded' &&
+        terminalRun?.status !== 'waiting_for_proposal_decision'
+      ) {
         throw new Error('resume.assistant_run_failed')
       }
-      return loadThread(api, input, conversation)
+      if (terminalRun.proposalIds.length > 0) recoveryWrite(key, terminalRun.id)
+      const thread = await loadThread(api, review, input, conversation)
+      if (terminalRun.proposalIds.length === 0) return thread
+      if (terminalRun.proposalIds.length !== 1) {
+        throw new Error('resume.assistant_proposal_count_invalid')
+      }
+      const proposalId = asUiOpaqueId<'resume-proposal'>(terminalRun.proposalIds[0]!)
+      if (thread.pendingProposal?.proposal.id !== proposalId) {
+        throw new Error('resume.assistant_proposal_not_pending')
+      }
+      return thread
+    },
+    async decideProposal(input) {
+      if (input.authority.proposal.status !== 'pending') {
+        throw new Error('resume.assistant_proposal_not_pending')
+      }
+      const key = recoveryKey(input)
+      const runId = recoveryRead(key)
+      if (runId === null) throw new Error('resume.assistant_pending_run_missing')
+      const waitingRun = await api.getRun(input.workspaceId, runId, input.signal)
+      const decision = await review.decideResumeProposal({
+        commandId: createUiCommandId(),
+        concurrencyToken: input.authority.concurrencyToken,
+        decision: input.decision,
+        proposal: input.authority.proposal,
+        ...(input.signal === undefined ? {} : { signal: input.signal })
+      })
+      const terminalRun = await waitForProposalContinuation(
+        api,
+        input,
+        runId,
+        waitingRun.outputMessageId
+      )
+      recoveryWrite(key, null)
+      const conversation = await resolveConversation(api, input)
+      return {
+        continuationProblemCode:
+          terminalRun.status === 'succeeded'
+            ? null
+            : (terminalRun.problem?.code ?? `resume.assistant_run_${terminalRun.status}`),
+        decision,
+        thread: await loadThread(api, review, input, conversation)
+      }
     }
   }
 }

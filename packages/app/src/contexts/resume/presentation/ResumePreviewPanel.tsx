@@ -49,12 +49,16 @@ function supportsInlinePdfPreview(): boolean {
 
 /** @brief PDF 视觉预览面板属性 / PDF visual-preview panel properties. */
 export interface ResumePreviewPanelProps {
+  /** @brief AI 修改或撤销完成后自动启动当前 revision 的一次预览 / Automatically start one preview after an AI edit or undo. */
+  readonly autoStart?: boolean
   /** @brief 当前完整 Resume 权威 / Current complete Resume authority. */
   readonly editor: UiResumeEditorModel
   /** @brief Resume/template/revision 变化时更新的预览代际 / Preview generation updated with Resume/template/revision changes. */
   readonly generation: string
   /** @brief 文档权威状态未恢复时禁止创建新 Job / Prevent new Job creation until document authority is recovered. */
   readonly isWriteLocked: boolean
+  /** @brief 自动启动意图已被当前组件消费 / Current component consumed the auto-start intent. */
+  readonly onAutoStartConsumed?: () => void
   /** @brief 当前固定模板是否支持 PDF / Whether the pinned Template supports PDF. */
   readonly pdfSupported: boolean
 }
@@ -81,9 +85,11 @@ interface ResumeRenderCancelIntent {
  * @return 只将已验证 Blob URL 交给 iframe 的产品面板 / Product panel giving the iframe only a validated Blob URL.
  */
 export function ResumePreviewPanel({
+  autoStart = false,
   editor,
   generation,
   isWriteLocked,
+  onAutoStartConsumed,
   pdfSupported
 }: ResumePreviewPanelProps): React.JSX.Element {
   const { t, i18n } = useTranslation()
@@ -481,6 +487,14 @@ export function ResumePreviewPanel({
       if (isCurrentGeneration(expectedGeneration)) setRendering(false)
     }
   }
+
+  useEffect((): void => {
+    if (!autoStart) return
+    onAutoStartConsumed?.()
+    void renderPdf()
+    // `generation` is the immutable Resume revision/template identity that owns this one-shot.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStart, generation])
 
   /**
    * @brief 查询但不自动认领当前 Resume revision 的 Render Job 候选 / Find Render Jobs for the current Resume revision without automatically claiming one.

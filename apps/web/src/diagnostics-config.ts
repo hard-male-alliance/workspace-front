@@ -78,6 +78,8 @@ export function createWebContentSecurityPolicy(options: WebContentSecurityPolicy
     connectSources.add(INTERVIEW_REALTIME_CONTROLLED_TEST_ORIGIN)
     connectSources.add('http://localhost:5173')
     connectSources.add('http://127.0.0.1:5173')
+    connectSources.add('http://localhost:8000')
+    connectSources.add('http://localhost:9000')
     connectSources.add('ws://localhost:5173')
     connectSources.add('ws://127.0.0.1:5173')
     imageSources.add(API_V2_CONTROLLED_TEST_ORIGIN)

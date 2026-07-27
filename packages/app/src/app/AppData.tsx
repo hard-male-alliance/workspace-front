@@ -179,6 +179,16 @@ export function useWorkspaceHomeQuery(): AppQueries['workspaceHome'] {
 }
 
 /**
+ * @brief 读取 Interview 设置命名查询 / Read the named Interview-setup query.
+ * @return 隔离 Interview 页面与 Knowledge gateway 的最小投影 / Minimal projection isolating Interview presentation from Knowledge.
+ */
+export function useInterviewSetupQuery(): AppQueries['interviewSetup'] {
+  const queries = useContext(AppQueriesContext)
+  if (queries === null) throw new Error('Interview pages require AppDataProvider.')
+  return queries.interviewSetup
+}
+
+/**
  * @brief 读取 Resume 上下文端口 / Read the Resume context port.
  * @return 已注入的 Resume gateway / Injected Resume gateway.
  * @throws 未被 AppDataProvider 包裹时抛出错误 / Throws when not wrapped by AppDataProvider.

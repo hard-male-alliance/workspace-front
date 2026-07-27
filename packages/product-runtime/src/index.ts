@@ -30,6 +30,8 @@ export interface ProductGatewayOptions {
   readonly locale: string
   /** @brief 当前内存会话的 Access Token 生命周期端口 / Access-token lifecycle port for the current in-memory session. */
   readonly authentication: ApiV2AuthenticationPort
+  /** @brief 宿主提供的受控网络实现 / Controlled network implementation supplied by the host. */
+  readonly fetchImpl?: typeof fetch | undefined
   /** @brief 默认固定生产；受控测试直连必须显式选择 / Production is fixed by default; controlled direct testing must be selected explicitly. */
   readonly transportProfile?: ApiV2TransportProfile
 }
@@ -45,6 +47,7 @@ export function createProductGateways(options: ProductGatewayOptions): AppGatewa
   const client = createApiV2Client({
     acceptLanguage: options.locale,
     authentication: options.authentication,
+    ...(options.fetchImpl === undefined ? {} : { fetchImpl: options.fetchImpl }),
     ...(options.transportProfile === undefined
       ? {}
       : { transportProfile: options.transportProfile })
@@ -52,18 +55,25 @@ export function createProductGateways(options: ProductGatewayOptions): AppGatewa
   /** @brief 不读取或发送 Bearer 的全局公开 API v2 客户端 / Global public API v2 client that neither reads nor sends a Bearer token. */
   const publicClient = createApiV2PublicClient({
     acceptLanguage: options.locale,
+    ...(options.fetchImpl === undefined ? {} : { fetchImpl: options.fetchImpl }),
     ...(options.transportProfile === undefined
       ? {}
       : { transportProfile: options.transportProfile })
   })
-  const resumeAssistant = createApiV2ResumeAssistantGateway(createResumeAssistantAgentApi(client))
+  const knowledge = new ApiV2KnowledgeGateway(client, options.fetchImpl)
+  const resumeReview = createApiV2ResumeReviewGateway(client, client, client)
+  const resumeAssistant = createApiV2ResumeAssistantGateway(
+    createResumeAssistantAgentApi(client),
+    resumeReview,
+    knowledge
+  )
 
   return {
     identity: createApiV2IdentityGateway(client),
     interview: createApiV2InterviewGateway(client),
-    knowledge: new ApiV2KnowledgeGateway(client),
+    knowledge,
     resume: createApiV2ResumeGateway(client, client, client, resumeAssistant),
-    resumeReview: createApiV2ResumeReviewGateway(client, client, client),
+    resumeReview,
     resumeCreation: createApiV2ResumeCreationGateway(client),
     resumeTemplates: createApiV2ResumeTemplateCatalog(publicClient),
     workspace: createApiV2WorkspaceGateway(client),

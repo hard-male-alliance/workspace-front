@@ -4,12 +4,18 @@ import type { FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate } from 'react-router-dom'
 
-import { useAsyncResource, useInterviewGateway, useWorkspaceSession } from '../../../app/AppData'
+import {
+  useAsyncResource,
+  useInterviewGateway,
+  useInterviewSetupQuery,
+  useWorkspaceSession
+} from '../../../app/AppData'
+import type { InterviewKnowledgeMaterial } from '../../../app/AppQueries'
 import { runDiagnosticCommand, useDiagnostics } from '../../../app/Diagnostics'
 import { ResourceErrorState, ResourceFailureMessage } from '../../../app/ResourceErrorState'
 import { classifyResourceFailure } from '../../../app/resource-errors'
 import { createUiCommandId } from '../../../shared-kernel/command'
-import { asUiOpaqueId, type UiWorkspaceId } from '../../../shared-kernel/identity'
+import type { UiWorkspaceId } from '../../../shared-kernel/identity'
 import { EmptyState, LoadingState } from '../../../ui'
 import type { InterviewGateway } from '../application/gateway'
 import type { UiCreateInterviewSessionCommand } from '../application/requests'
@@ -20,6 +26,11 @@ import {
   type UiInterviewScenarioInput,
   type UiInterviewScenarioPage
 } from '../domain/models'
+import {
+  SIX_DIMENSION_IDS,
+  SIX_DIMENSION_RUBRIC_ID,
+  SIX_DIMENSION_RUBRIC_VERSION
+} from './six-dimension-rubric'
 
 /** @brief 配置页一次读取的场景数量 / Number of scenarios read per setup page. */
 const INTERVIEW_SCENARIO_PAGE_LIMIT = asUiInterviewPageLimit(50)
@@ -27,7 +38,7 @@ const INTERVIEW_SCENARIO_PAGE_LIMIT = asUiInterviewPageLimit(50)
 /** @brief 当前转录同意文案版本 / Current transcript-consent copy version. */
 const INTERVIEW_TRANSCRIPT_CONSENT_VERSION = 'interview-transcript-retention-2026-07'
 /** @brief 空工作区自动补齐的本地 Demo 场景名称 / Local Demo scenario name provisioned for an empty workspace. */
-const DEMO_SCENARIO_NAME = '本地 Demo 通用面试'
+const DEMO_SCENARIO_NAME = '本地 Demo 六维面试'
 /** @brief 本地 Demo 后端实际配置的模型执行区域 / Model execution region configured by the local Demo backend. */
 const DEMO_MODEL_DATA_REGION = 'global'
 
@@ -39,30 +50,70 @@ function demoInterviewScenarioInput(): UiInterviewScenarioInput {
   return {
     allowBargeIn: true,
     allowFollowups: true,
-    description: '围绕项目经历、技术判断和协作方式进行通用岗位练习。',
+    description: '围绕岗位能力、问题解决、项目证据、沟通、协作与成长进行六维练习。',
     difficulty: 'intermediate',
     durationMinutes: 20,
-    focusAreas: ['项目经历', '问题解决', '沟通协作'],
+    focusAreas: ['专业能力', '问题解决', '项目证据', '沟通表达', '协作推动', '学习成长'],
     interviewType: asUiInterviewType('general'),
     locale: 'zh-CN',
     name: DEMO_SCENARIO_NAME,
     rubric: {
       dimensions: [
         {
-          description: '回答是否具体、结构清楚，并能够说明个人贡献。',
-          dimensionId: asUiOpaqueId<'interview-rubric-dimension'>('rubric_dimension_demo_clarity'),
-          name: '表达与证据',
-          observableIndicators: ['使用具体经历回答', '清楚说明行动与结果'],
+          description: '专业知识、技能和实践深度是否符合目标岗位。',
+          dimensionId: SIX_DIMENSION_IDS[0],
+          name: '专业能力与岗位匹配',
+          observableIndicators: ['正确使用岗位相关概念', '说明实践边界与方案取舍'],
           scoringScale: { maximum: 100, minimum: 0 },
-          weight: 1
+          weight: 0.25
+        },
+        {
+          description: '能否拆解问题、识别约束并形成可验证的解决方案。',
+          dimensionId: SIX_DIMENSION_IDS[1],
+          name: '问题分析与解决能力',
+          observableIndicators: ['澄清目标和约束', '比较方案并说明验证方法'],
+          scoringScale: { maximum: 100, minimum: 0 },
+          weight: 0.2
+        },
+        {
+          description: '是否提供具体场景、个人行动和可核验的项目结果。',
+          dimensionId: SIX_DIMENSION_IDS[2],
+          name: '项目经历与成果证据',
+          observableIndicators: ['区分个人贡献与团队成果', '给出结果、指标或复盘'],
+          scoringScale: { maximum: 100, minimum: 0 },
+          weight: 0.15
+        },
+        {
+          description: '回答是否直接、清晰、有层次并能够回应追问。',
+          dimensionId: SIX_DIMENSION_IDS[3],
+          name: '沟通表达与结构',
+          observableIndicators: ['直接回答并保持结构清楚', '追问后补充有效信息'],
+          scoringScale: { maximum: 100, minimum: 0 },
+          weight: 0.15
+        },
+        {
+          description: '能否与他人协作、处理分歧并推动结果落地。',
+          dimensionId: SIX_DIMENSION_IDS[4],
+          name: '协作与推动能力',
+          observableIndicators: ['说明协作角色和分歧处理', '主动同步风险并推动行动'],
+          scoringScale: { maximum: 100, minimum: 0 },
+          weight: 0.15
+        },
+        {
+          description: '面对陌生问题、变化和失败时能否学习、调整和复盘。',
+          dimensionId: SIX_DIMENSION_IDS[5],
+          name: '学习适应与成长性',
+          observableIndicators: ['识别知识缺口并主动验证', '根据反馈调整并迁移经验'],
+          scoringScale: { maximum: 100, minimum: 0 },
+          weight: 0.1
         }
       ],
-      name: '本地 Demo 面试量表',
+      name: '本地 Demo 六维面试量表',
       overallScale: { maximum: 100, minimum: 0 },
-      rubricId: asUiOpaqueId<'interview-rubric'>('rubric_demo_general'),
-      rubricVersion: '1.0'
+      rubricId: SIX_DIMENSION_RUBRIC_ID,
+      rubricVersion: SIX_DIMENSION_RUBRIC_VERSION
     },
-    targetQuestionCount: 4
+    targetQuestionCount: 6
   }
 }
 
@@ -208,6 +259,7 @@ function InterviewSetupForm({
   const navigate = useNavigate()
   /** @brief Interview REST 端口 / Interview REST port. */
   const gateway = useInterviewGateway()
+  const interviewSetupQuery = useInterviewSetupQuery()
   /** @brief 应用诊断端口 / Application diagnostics port. */
   const diagnostics = useDiagnostics()
   /** @brief 已加载场景 / Loaded scenarios. */
@@ -228,6 +280,14 @@ function InterviewSetupForm({
   const [jobTitle, setJobTitle] = useState('')
   /** @brief 公司名称 / Company name. */
   const [company, setCompany] = useState('')
+  const [knowledgeSources, setKnowledgeSources] = useState<readonly InterviewKnowledgeMaterial[]>(
+    []
+  )
+  const [selectedKnowledgeSourceIds, setSelectedKnowledgeSourceIds] = useState<
+    ReadonlySet<InterviewKnowledgeMaterial['id']>
+  >(new Set())
+  const [knowledgeError, setKnowledgeError] = useState<unknown>(null)
+  const [isLoadingKnowledge, setLoadingKnowledge] = useState(true)
   /** @brief 是否保存文字转录 / Whether to retain a transcript. */
   const storeTranscript = true
   /** @brief 当前是否发送创建请求 / Whether a creation request is in flight. */
@@ -261,6 +321,27 @@ function InterviewSetupForm({
     },
     []
   )
+
+  useEffect((): (() => void) => {
+    const controller = new AbortController()
+    void (async (): Promise<void> => {
+      setLoadingKnowledge(true)
+      setKnowledgeError(null)
+      try {
+        const items = await interviewSetupQuery.listKnowledgeMaterials(
+          workspaceId,
+          controller.signal
+        )
+        if (!controller.signal.aborted) setKnowledgeSources(items)
+      } catch (error: unknown) {
+        if (!controller.signal.aborted) setKnowledgeError(error)
+      } finally {
+        if (!controller.signal.aborted) setLoadingKnowledge(false)
+      }
+    })()
+    return (): void =>
+      controller.abort(new DOMException('Interview Knowledge selection changed.', 'AbortError'))
+  }, [interviewSetupQuery, workspaceId])
 
   /** @brief 读取更多场景且精确复用失败 cursor / Load more scenarios while exactly reusing a failed cursor. */
   const loadMoreScenarios = useCallback(async (): Promise<void> => {
@@ -359,8 +440,8 @@ function InterviewSetupForm({
         knowledge: {
           agentScope: 'interview_coach',
           excludeSourceIds: [],
-          includeSourceIds: [],
-          mode: 'policy_default',
+          includeSourceIds: [...selectedKnowledgeSourceIds],
+          mode: selectedKnowledgeSourceIds.size === 0 ? 'none' : 'explicit',
           pinnedVersions: []
         },
         locale: selectedScenario.locale,
@@ -507,6 +588,47 @@ function InterviewSetupForm({
       <section className="aw-interview-setup-section">
         <div className="aw-section-heading">
           <div>
+            <h2>参考材料（可选）</h2>
+            <p>只显示已完成摄取并明确授权给面试助手的材料；会话创建后本次版本将被冻结。</p>
+          </div>
+        </div>
+        {isLoadingKnowledge ? <p className="aw-muted-copy">正在加载可用材料…</p> : null}
+        {knowledgeError === null ? null : (
+          <div className="aw-inline-error" role="alert">
+            <ResourceFailureMessage error={knowledgeError} />
+          </div>
+        )}
+        {!isLoadingKnowledge && knowledgeError === null && knowledgeSources.length === 0 ? (
+          <p className="aw-muted-copy">当前没有可用于面试的已授权材料，可以直接开始通用面试。</p>
+        ) : null}
+        <div className="aw-interview-material-list">
+          {knowledgeSources.map((source) => (
+            <label className="aw-interview-consent-option" key={source.id}>
+              <input
+                checked={selectedKnowledgeSourceIds.has(source.id)}
+                disabled={locked}
+                onChange={(event): void => {
+                  setSelectedKnowledgeSourceIds((current) => {
+                    const next = new Set(current)
+                    if (event.currentTarget.checked) next.add(source.id)
+                    else next.delete(source.id)
+                    return next
+                  })
+                }}
+                type="checkbox"
+              />
+              <span>
+                <strong>{source.name}</strong>
+                <small>{source.sourceType}</small>
+              </span>
+            </label>
+          ))}
+        </div>
+      </section>
+
+      <section className="aw-interview-setup-section">
+        <div className="aw-section-heading">
+          <div>
             <h2>
               <ShieldCheck aria-hidden="true" size={18} />
               {t('interviewSetup.privacy', { defaultValue: '转录与隐私' })}
@@ -628,18 +750,21 @@ export function InterviewSetupPage(): React.JSX.Element {
         signal,
         workspaceId: current.workspace.id
       })
-      if (!page.items.some((scenario) => scenario.status === 'active')) {
-        /** @brief 已存在但尚未发布的 Demo 场景，或刚创建的场景 / Existing draft Demo scenario, or newly created scenario. */
-        const active = await provisionDemoInterviewScenario(
-          gateway,
-          current.workspace.id,
-          page.items.find((scenario) => scenario.name === DEMO_SCENARIO_NAME)
+      /** @brief 已存在但尚未发布的六维 Demo 场景，或刚创建的场景 / Existing draft six-dimension Demo scenario, or newly created scenario. */
+      const active = await provisionDemoInterviewScenario(
+        gateway,
+        current.workspace.id,
+        page.items.find(
+          (scenario) =>
+            scenario.name === DEMO_SCENARIO_NAME &&
+            scenario.rubric.rubricId === SIX_DIMENSION_RUBRIC_ID &&
+            scenario.rubric.rubricVersion === SIX_DIMENSION_RUBRIC_VERSION
         )
-        signal.throwIfAborted()
-        page = {
-          ...page,
-          items: [active, ...page.items.filter((scenario) => scenario.id !== active.id)]
-        }
+      )
+      signal.throwIfAborted()
+      page = {
+        ...page,
+        items: [active, ...page.items.filter((scenario) => scenario.id !== active.id)]
       }
       return {
         dataRegion: current.workspace.dataRegion,

@@ -4,6 +4,11 @@ import type { UiWorkspaceId } from '../../../shared-kernel/identity'
 import type { UiWorkspaceJobAuthority } from '../../workspace-operations'
 import type { UiResumeEditorModel, UiResumeId } from '../domain/document'
 import type {
+  UiResumeProposalAuthority,
+  UiResumeProposalDecision,
+  UiResumeProposalDecisionResult
+} from '../domain/review'
+import type {
   UiResumeSectionDeleteInput,
   UiResumeSectionsReorderInput,
   UiResumeSectionUpdateInput,
@@ -18,12 +23,22 @@ export interface UiResumeAssistantMessage {
   readonly id: string
   readonly author: 'assistant' | 'user' | 'system'
   readonly text: string
+  /** @brief 本条回复实际引用的 Knowledge Source identities / Knowledge Source identities actually cited by this response. */
+  readonly referenceSourceIds: readonly string[]
 }
 
 /** @brief 可刷新恢复的 Resume 助手会话 / Refresh-recoverable Resume-assistant thread. */
 export interface UiResumeAssistantThread {
   readonly conversationId: string
   readonly messages: readonly UiResumeAssistantMessage[]
+  /** @brief Agent 等待用户决定的 Proposal；前端只负责展示和回传决定 / Proposal awaiting the user's decision. */
+  readonly pendingProposal: UiResumeProposalAuthority | null
+}
+
+export interface UiResumeAssistantProposalDecisionResult {
+  readonly decision: UiResumeProposalDecisionResult
+  readonly thread: UiResumeAssistantThread
+  readonly continuationProblemCode: string | null
 }
 
 /** @brief 绑定精确 Resume revision 的助手请求 / Assistant request bound to an exact Resume revision. */
@@ -36,17 +51,23 @@ export interface UiResumeAssistantRequest {
   readonly signal?: AbortSignal
 }
 
-/** @brief 只读 Resume Agent 产品端口 / Read-only Resume Agent product port. */
+/** @brief 区分只读问答与显式修改的 Resume Agent 产品端口 / Resume Agent product port separating read-only questions from explicit edits. */
 export interface ResumeAssistantGateway {
   load(input: UiResumeAssistantRequest): Promise<UiResumeAssistantThread>
   ask(
     input: UiResumeAssistantRequest & { readonly question: string }
   ): Promise<UiResumeAssistantThread>
+  decideProposal(
+    input: UiResumeAssistantRequest & {
+      readonly authority: UiResumeProposalAuthority
+      readonly decision: UiResumeProposalDecision
+    }
+  ): Promise<UiResumeAssistantProposalDecisionResult>
 }
 
 /** @brief 简历与模板页面数据端口 / Resume and template page-data port. */
 export interface ResumeGateway {
-  /** @brief 真实 Conversation/Message/Run 支持的只读助手 / Read-only assistant backed by real Conversation/Message/Run resources. */
+  /** @brief 真实 Conversation/Message/Run/Proposal 支持的助手 / Assistant backed by real Conversation, Message, Run, and Proposal resources. */
   readonly assistant: ResumeAssistantGateway
   /**
    * @brief 读取 Workspace 中的一页 ResumeSummary / Read one ResumeSummary page in a Workspace.

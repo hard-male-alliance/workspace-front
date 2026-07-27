@@ -60,13 +60,14 @@ async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
 async function uploadBytes(
   session: Awaited<ReturnType<KnowledgeWorkflowApi['createUploadSession']>>,
   bytes: ArrayBuffer,
+  fetchImpl: typeof fetch,
   signal?: AbortSignal
 ): Promise<void> {
   const headers = new Headers()
   for (const [name, value] of Object.entries(session.requiredHeaders)) {
     if (name.toLowerCase() !== 'content-length') headers.set(name, value)
   }
-  const response = await globalThis.fetch(session.uploadUrl, {
+  const response = await fetchImpl(session.uploadUrl, {
     body: bytes,
     headers,
     method: 'PUT',
@@ -101,6 +102,16 @@ function uploadVisibility(): KnowledgeVisibilityPolicy {
       {
         agent_scope: 'general_chat',
         allowed_operations: ['retrieve', 'quote', 'summarize'],
+        effect: 'allow'
+      },
+      {
+        agent_scope: 'resume_assistant',
+        allowed_operations: ['retrieve', 'quote', 'summarize', 'derive'],
+        effect: 'allow'
+      },
+      {
+        agent_scope: 'interview_coach',
+        allowed_operations: ['retrieve', 'quote', 'summarize', 'derive'],
         effect: 'allow'
       }
     ],
@@ -290,14 +301,19 @@ function mapUpdateRequest(patch: UiKnowledgeSourcePatch): UpdateKnowledgeSourceR
 export class ApiV2KnowledgeGateway implements KnowledgeGateway {
   /** @brief 由产品组合根注入的完整 v2 HTTP client / Complete v2 HTTP client injected by the product composition root. */
   readonly #client: ApiV2HttpClient
+  readonly #fetchImpl: typeof fetch
   readonly #workflow: KnowledgeWorkflowApi
 
   /**
    * @brief 构造正式 Knowledge Gateway / Construct the production Knowledge gateway.
    * @param client 带当前内存 Bearer session 的 API v2 client / API v2 client carrying the current in-memory Bearer session.
    */
-  constructor(client: ApiV2HttpClient) {
+  constructor(
+    client: ApiV2HttpClient,
+    fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis)
+  ) {
     this.#client = client
+    this.#fetchImpl = fetchImpl
     this.#workflow = createKnowledgeWorkflowApi(client)
   }
 
@@ -387,7 +403,7 @@ export class ApiV2KnowledgeGateway implements KnowledgeGateway {
       throw new Error('knowledge.upload_session_invalid')
     }
     command.onProgress?.('uploading')
-    await uploadBytes(upload, command.bytes, command.signal)
+    await uploadBytes(upload, command.bytes, this.#fetchImpl, command.signal)
     command.onProgress?.('verifying')
     const completed = await this.#workflow.completeUploadSession({
       idempotencyKey: knowledgeCommandId('knowledge_upload_complete'),

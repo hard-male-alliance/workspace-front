@@ -166,4 +166,37 @@ describe('beginWebAuthorization', (): void => {
     expect(storage.getItem(WEB_OAUTH_TRANSACTION_STORAGE_KEY)).toBeNull()
     expect(assign).not.toHaveBeenCalled()
   })
+
+  it('applies an explicit host navigation mapping only after persisting the transaction', async (): Promise<void> => {
+    const events: string[] = []
+    const storage = new ObservableStorage(events)
+    const assign = vi.fn((destination: string | URL): void => {
+      events.push('navigate')
+      expect(new URL(destination).origin).toBe('http://localhost:8000')
+    })
+    const resolveAuthorizationUrl = vi.fn((url: string): URL => {
+      events.push('map')
+      const source = new URL(url)
+      return new URL(`${source.pathname}${source.search}`, 'http://localhost:8000')
+    })
+
+    await beginWebAuthorization(CONFIGURATION, 'login', {
+      crypto: webcrypto as unknown as Crypto,
+      fetchImpl: (): Promise<Response> => {
+        events.push('discovery')
+        return Promise.resolve(discoveryResponse())
+      },
+      location: {
+        assign,
+        origin: 'http://localhost:5173',
+        pathname: '/',
+        search: ''
+      },
+      resolveAuthorizationUrl,
+      storage
+    })
+
+    expect(events).toEqual(['discovery', 'persist', 'map', 'navigate'])
+    expect(resolveAuthorizationUrl).toHaveBeenCalledTimes(1)
+  })
 })
