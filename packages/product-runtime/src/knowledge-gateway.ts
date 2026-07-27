@@ -102,6 +102,16 @@ function uploadVisibility(): KnowledgeVisibilityPolicy {
         agent_scope: 'general_chat',
         allowed_operations: ['retrieve', 'quote', 'summarize'],
         effect: 'allow'
+      },
+      {
+        agent_scope: 'resume_assistant',
+        allowed_operations: ['retrieve', 'quote', 'summarize', 'derive'],
+        effect: 'allow'
+      },
+      {
+        agent_scope: 'interview_coach',
+        allowed_operations: ['retrieve', 'quote', 'summarize', 'derive'],
+        effect: 'allow'
       }
     ],
     allow_external_model_processing: true,
