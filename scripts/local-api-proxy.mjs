@@ -2,13 +2,14 @@ import http from 'node:http'
 
 /**
  * @param {http.IncomingMessage} request
+ * @param {string} upstreamHost
  * @param {number} upstreamPort
  * @return {http.OutgoingHttpHeaders}
  */
-function createUpstreamHeaders(request, upstreamPort) {
+function createUpstreamHeaders(request, upstreamHost, upstreamPort) {
   return {
     ...request.headers,
-    host: `127.0.0.1:${String(upstreamPort)}`
+    host: `${upstreamHost}:${String(upstreamPort)}`
   }
 }
 
@@ -56,7 +57,7 @@ function proxyWebSocketUpgrade({
 }) {
   let upgradedSocket
   const upstream = http.request({
-    headers: createUpstreamHeaders(request, upstreamPort),
+    headers: createUpstreamHeaders(request, upstreamHost, upstreamPort),
     hostname: upstreamHost,
     method: request.method,
     path: request.url,
@@ -110,7 +111,7 @@ function proxyWebSocketUpgrade({
 function proxyHttpRequest({ request, response, upstreamHost, upstreamPort }) {
   const upstream = http.request(
     {
-      headers: createUpstreamHeaders(request, upstreamPort),
+      headers: createUpstreamHeaders(request, upstreamHost, upstreamPort),
       hostname: upstreamHost,
       method: request.method,
       path: request.url,

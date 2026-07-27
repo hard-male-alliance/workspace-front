@@ -8,8 +8,8 @@ import { describe, expect, it } from 'vitest'
  * @param {http.Server} server
  * @return {Promise<number>}
  */
-async function listenOnLoopback(server) {
-  server.listen(0, '127.0.0.1')
+async function listenOnLoopback(server, host = '127.0.0.1') {
+  server.listen(0, host)
   await once(server, 'listening')
   const address = server.address()
   if (address === null || typeof address === 'string') {
@@ -79,7 +79,7 @@ describe('local API proxy', () => {
       return
     }
 
-    /** @type {{ origin: string | undefined, path: string | undefined, protocol: string | undefined } | undefined} */
+    /** @type {{ host: string | undefined, origin: string | undefined, path: string | undefined, protocol: string | undefined } | undefined} */
     let upstreamRequest
     /** @type {net.Socket | undefined} */
     let upstreamSocket
@@ -91,6 +91,7 @@ describe('local API proxy', () => {
     const upstream = http.createServer()
     upstream.on('upgrade', (request, socket) => {
       upstreamRequest = {
+        host: request.headers.host,
         origin: request.headers.origin,
         path: request.url,
         protocol: request.headers['sec-websocket-protocol']
@@ -112,9 +113,9 @@ describe('local API proxy', () => {
     /** @type {net.Socket | undefined} */
     let client
     try {
-      const upstreamPort = await listenOnLoopback(upstream)
+      const upstreamPort = await listenOnLoopback(upstream, 'localhost')
       proxy = proxyModule.createLocalApiProxy({
-        upstreamHost: '127.0.0.1',
+        upstreamHost: 'localhost',
         upstreamPort
       })
       const proxyPort = await listenOnLoopback(proxy)
@@ -138,6 +139,7 @@ describe('local API proxy', () => {
       expect(handshake).toContain('HTTP/1.1 101 Switching Protocols')
       expect(handshake).toContain('Sec-WebSocket-Protocol: aiws.interview.realtime.v2')
       expect(upstreamRequest).toEqual({
+        host: `localhost:${String(upstreamPort)}`,
         origin: 'http://dev.hmalliances.org:5173',
         path: '/realtime/v2/interview?token=test',
         protocol: 'aiws.interview.realtime.v2'
@@ -150,6 +152,83 @@ describe('local API proxy', () => {
       upstreamSocket?.destroy()
       if (proxy !== undefined) await closeServer(proxy)
       await closeServer(upstream)
+    }
+  })
+
+  it('relays a non-101 upstream upgrade response before closing the client socket', async () => {
+    const { createLocalApiProxy } = await import('./local-api-proxy.mjs')
+    const upstream = http.createServer()
+    upstream.on('upgrade', (_request, socket) => {
+      socket.end(
+        'HTTP/1.1 426 Upgrade Required\r\n' +
+          'Content-Type: text/plain; charset=utf-8\r\n' +
+          'Connection: close\r\n\r\n' +
+          'WebSocket upgrade rejected.'
+      )
+    })
+
+    /** @type {http.Server | undefined} */
+    let proxy
+    /** @type {net.Socket | undefined} */
+    let client
+    try {
+      const upstreamPort = await listenOnLoopback(upstream)
+      proxy = createLocalApiProxy({ upstreamHost: '127.0.0.1', upstreamPort })
+      const proxyPort = await listenOnLoopback(proxy)
+      client = net.createConnection({ host: '127.0.0.1', port: proxyPort })
+      await once(client, 'connect')
+      const observedClient = observeSocket(client)
+      client.write(
+        'GET /realtime/v2/interview HTTP/1.1\r\n' +
+          'Host: dev.hmalliances.org:9000\r\n' +
+          'Connection: Upgrade\r\n' +
+          'Upgrade: websocket\r\n' +
+          'Sec-WebSocket-Version: 13\r\n' +
+          'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n'
+      )
+
+      const response = await observedClient.waitFor('WebSocket upgrade rejected.')
+      expect(response).toContain('HTTP/1.1 426 Upgrade Required')
+      expect(response).toContain('Connection: close')
+    } finally {
+      client?.destroy()
+      if (proxy !== undefined) await closeServer(proxy)
+      await closeServer(upstream)
+    }
+  })
+
+  it('returns a complete 502 response when the upstream upgrade connection is unavailable', async () => {
+    const { createLocalApiProxy } = await import('./local-api-proxy.mjs')
+    const reserved = http.createServer()
+    const unavailablePort = await listenOnLoopback(reserved)
+    await closeServer(reserved)
+
+    const proxy = createLocalApiProxy({
+      upstreamHost: '127.0.0.1',
+      upstreamPort: unavailablePort
+    })
+    /** @type {net.Socket | undefined} */
+    let client
+    try {
+      const proxyPort = await listenOnLoopback(proxy)
+      client = net.createConnection({ host: '127.0.0.1', port: proxyPort })
+      await once(client, 'connect')
+      const observedClient = observeSocket(client)
+      client.write(
+        'GET /realtime/v2/interview HTTP/1.1\r\n' +
+          'Host: dev.hmalliances.org:9000\r\n' +
+          'Connection: Upgrade\r\n' +
+          'Upgrade: websocket\r\n' +
+          'Sec-WebSocket-Version: 13\r\n' +
+          'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n'
+      )
+
+      const response = await observedClient.waitFor('Local backend is unavailable.')
+      expect(response).toContain('HTTP/1.1 502 Bad Gateway')
+      expect(response).toContain('Connection: close')
+    } finally {
+      client?.destroy()
+      await closeServer(proxy)
     }
   })
 })
