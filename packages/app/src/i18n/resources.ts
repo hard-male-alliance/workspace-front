@@ -787,6 +787,20 @@ export const zhSGTranslation = {
     depth: '专业深度',
     evidenceDimension: '案例与证据',
     delivery: '表达与节奏',
+    sixDimension: {
+      title: '六维能力图',
+      description: '分数来自本次面试的持久化转录和冻结评分量表。',
+      chartTitle: '本次面试六维能力雷达图',
+      scoreList: '六项能力分数',
+      short: {
+        roleCompetency: '专业能力',
+        problemSolving: '问题解决',
+        projectEvidence: '项目证据',
+        communication: '沟通表达',
+        collaboration: '协作推动',
+        growth: '学习成长'
+      }
+    },
     strengths: '做得好的地方',
     improvements: '优先改进',
     evidence: '评分证据',
@@ -1959,6 +1973,21 @@ export const enUSTranslation = {
     depth: 'Professional depth',
     evidenceDimension: 'Examples and evidence',
     delivery: 'Delivery and pacing',
+    sixDimension: {
+      title: 'Six-dimension capability chart',
+      description:
+        'Scores come from the persisted transcript and frozen rubric for this interview.',
+      chartTitle: 'Six-dimension capability radar for this interview',
+      scoreList: 'Six capability scores',
+      short: {
+        roleCompetency: 'Role skills',
+        problemSolving: 'Problem solving',
+        projectEvidence: 'Project evidence',
+        communication: 'Communication',
+        collaboration: 'Collaboration',
+        growth: 'Learning'
+      }
+    },
     strengths: 'What worked well',
     improvements: 'Priority improvements',
     evidence: 'Scoring evidence',

@@ -44,6 +44,7 @@ import {
   type UiInterviewTranscriptPage,
   type UiInterviewTranscriptSegment
 } from '../domain/models'
+import { InterviewSixDimensionRadar } from './InterviewSixDimensionRadar'
 
 /** @brief Transcript 每次读取的固定页大小 / Fixed page size for Transcript reads. */
 const INTERVIEW_TRANSCRIPT_PAGE_LIMIT = asUiInterviewPageLimit(50)
@@ -892,6 +893,7 @@ function LoadedTranscriptEvidence({
           </p>
         )}
       </section>
+      <InterviewSixDimensionRadar report={report} scenario={scenario} />
     </>
   )
 }

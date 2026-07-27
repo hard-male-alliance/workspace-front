@@ -90,6 +90,7 @@ describe('WorkspaceApp interview workflow', (): void => {
     await setWorkspaceAppTestLocale('zh-SG')
     /** @brief 可观察创建命令的 Interview 端口 / Interview port exposing the creation command. */
     const interview = new InMemoryInterviewGateway()
+    const createInterviewScenario = vi.spyOn(interview, 'createInterviewScenario')
     const createInterviewSession = vi.spyOn(interview, 'createInterviewSession')
 
     render(
@@ -97,7 +98,27 @@ describe('WorkspaceApp interview workflow', (): void => {
     )
 
     expect(await screen.findByRole('heading', { name: '创建练习会话' })).toBeInTheDocument()
-    expect(screen.getByRole('combobox', { name: '练习场景' })).toHaveValue('scn_mock_system_design')
+    const scenarioSelect = screen.getByRole('combobox', { name: '练习场景' })
+    expect(scenarioSelect).toHaveDisplayValue('本地 Demo 六维面试')
+    expect(createInterviewScenario).toHaveBeenCalledOnce()
+    const scenarioInput = createInterviewScenario.mock.calls[0]?.[0].input
+    expect(scenarioInput).toMatchObject({
+      name: '本地 Demo 六维面试',
+      rubric: {
+        rubricId: 'rubric_demo_general_six_dimension',
+        rubricVersion: '1.0'
+      },
+      targetQuestionCount: 6
+    })
+    expect(scenarioInput?.rubric.dimensions).toHaveLength(6)
+    expect(scenarioInput?.rubric.dimensions[0]).toMatchObject({
+      name: '专业能力与岗位匹配',
+      weight: 0.25
+    })
+    expect(scenarioInput?.rubric.dimensions[5]).toMatchObject({
+      name: '学习适应与成长性',
+      weight: 0.1
+    })
     fireEvent.change(screen.getByRole('textbox', { name: '目标岗位' }), {
       target: { value: '前端平台工程师' }
     })
@@ -121,19 +142,19 @@ describe('WorkspaceApp interview workflow', (): void => {
           qualityTier: 'balanced'
         },
         jobTarget: { company: 'Northstar', title: '前端平台工程师' },
-        knowledge: { mode: 'policy_default' },
+        knowledge: { mode: 'none' },
         media: { userAudio: false, userVideo: false },
         recording: {
           recordAudio: false,
           recordVideo: false,
           retentionDays: 30,
           storeTranscript: true
-        },
-        scenarioId: 'scn_mock_system_design'
+        }
       },
       workspaceId: 'ws_mock_klee_career_lab'
     })
     expect(command?.commandId).toMatch(/^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/u)
+    expect(command?.input.scenarioId).toBe((scenarioSelect as HTMLSelectElement).value)
     expect(command?.input.recording.consentVersion).toBeTruthy()
     expect(command?.input.recording.consentedAt).toBeTruthy()
   })

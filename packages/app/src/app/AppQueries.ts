@@ -57,8 +57,33 @@ export interface WorkspaceHomeQuery {
   readonly load: (signal: AbortSignal) => Promise<WorkspaceHomeQueryResult>
 }
 
+/** @brief 面试设置页可选择的已授权知识材料投影 / Authorized knowledge material selectable by Interview setup. */
+export interface InterviewKnowledgeMaterial {
+  /** @brief 用于 Session 显式授权的 KnowledgeSource identity / KnowledgeSource identity retained for the Session grant. */
+  readonly id: Awaited<
+    ReturnType<AppGateways['knowledge']['listKnowledgeSourcePage']>
+  >['items'][number]['id']
+  /** @brief 用户可见名称 / User-facing source name. */
+  readonly name: string
+  /** @brief 供设置页说明来源种类的稳定代码 / Stable source-kind code shown by setup. */
+  readonly sourceType: Awaited<
+    ReturnType<AppGateways['knowledge']['listKnowledgeSourcePage']>
+  >['items'][number]['sourceType']
+}
+
+/** @brief Interview 设置页跨 Knowledge 上下文的只读反腐查询 / Interview-setup read query across Knowledge. */
+export interface InterviewSetupQuery {
+  /** @brief 读取可授权给 interview_coach 的当前材料 / Read current materials grantable to interview_coach. */
+  readonly listKnowledgeMaterials: (
+    workspaceId: Parameters<AppGateways['knowledge']['listKnowledgeSourcePage']>[0]['workspaceId'],
+    signal: AbortSignal
+  ) => Promise<readonly InterviewKnowledgeMaterial[]>
+}
+
 /** @brief 仅向页面暴露的命名应用查询集合 / Named application queries exposed to pages. */
 export interface AppQueries {
+  /** @brief Interview 设置查询 / Interview-setup query. */
+  readonly interviewSetup: InterviewSetupQuery
   /** @brief Workspace 首页查询 / Workspace-home query. */
   readonly workspaceHome: WorkspaceHomeQuery
 }
@@ -105,6 +130,48 @@ export function createAppQueries(
   gateways: AppGateways,
   workspaceSession: WorkspaceSession
 ): AppQueries {
+  /** @brief KnowledgeSource API v2 最大分页数量 / KnowledgeSource API v2 maximum page size. */
+  const knowledgePageLimit = 200 as Parameters<
+    AppGateways['knowledge']['listKnowledgeSourcePage']
+  >[0]['limit']
+  /** @brief 只向 Interview 展示层返回最小投影的查询 / Query returning only a minimal Interview projection. */
+  const interviewSetup: InterviewSetupQuery = {
+    async listKnowledgeMaterials(workspaceId, signal) {
+      const materials: InterviewKnowledgeMaterial[] = []
+      let cursor: Parameters<AppGateways['knowledge']['listKnowledgeSourcePage']>[0]['cursor'] =
+        null
+      for (;;) {
+        const page = await gateways.knowledge.listKnowledgeSourcePage({
+          cursor,
+          limit: knowledgePageLimit,
+          signal,
+          workspaceId
+        })
+        signal.throwIfAborted()
+        for (const source of page.items) {
+          const grants = source.visibility.agentGrants.filter(
+            (grant) =>
+              grant.agentScope === 'interview_coach' && grant.allowedOperations.includes('derive')
+          )
+          if (
+            source.enabled &&
+            source.ingestion.status === 'ready' &&
+            source.currentVersionId !== null &&
+            source.visibility.allowedModelRegions.includes('global') &&
+            source.visibility.allowExternalModelProcessing &&
+            grants.some((grant) => grant.effect === 'allow') &&
+            !grants.some((grant) => grant.effect === 'deny')
+          ) {
+            materials.push({ id: source.id, name: source.name, sourceType: source.sourceType })
+          }
+        }
+        if (!page.hasMore) break
+        cursor = page.nextCursor
+      }
+      return materials
+    }
+  }
+
   /** @brief Workspace 首页聚合查询 / Workspace-home aggregate query. */
   const workspaceHome: WorkspaceHomeQuery = {
     async load(signal): Promise<WorkspaceHomeQueryResult> {
@@ -142,5 +209,5 @@ export function createAppQueries(
     }
   }
 
-  return { workspaceHome }
+  return { interviewSetup, workspaceHome }
 }
