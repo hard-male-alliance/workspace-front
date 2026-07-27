@@ -558,9 +558,7 @@ function ResumeAssistantPanel({
         {pendingProposal === null ? null : (
           <div className="aw-message" role="status">
             <strong>{pendingProposal.proposal.title}</strong>
-            <p>
-              Agent 准备了 {pendingProposal.proposal.operations.length} 项修改，等待你的决定。
-            </p>
+            <p>Agent 准备了 {pendingProposal.proposal.operations.length} 项修改，等待你的决定。</p>
             <div className="aw-inline-actions">
               <button
                 className="aw-primary-button"
