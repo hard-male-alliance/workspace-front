@@ -3,7 +3,11 @@
 import type { UiWorkspaceId } from '../../../shared-kernel/identity'
 import type { UiWorkspaceJobAuthority } from '../../workspace-operations'
 import type { UiResumeEditorModel, UiResumeId } from '../domain/document'
-import type { UiResumeProposalId } from '../domain/review'
+import type {
+  UiResumeProposalAuthority,
+  UiResumeProposalDecision,
+  UiResumeProposalDecisionResult
+} from '../domain/review'
 import type {
   UiResumeSectionDeleteInput,
   UiResumeSectionsReorderInput,
@@ -27,12 +31,14 @@ export interface UiResumeAssistantMessage {
 export interface UiResumeAssistantThread {
   readonly conversationId: string
   readonly messages: readonly UiResumeAssistantMessage[]
-  /** @brief 本次明确修改已原子应用后的权威简历；普通问答为 null / Authoritative Resume after an explicitly requested atomic edit; null for read-only questions. */
-  readonly appliedEditor: UiResumeEditorModel | null
-  /** @brief 可用于阶段三撤销的修改前 revision / Pre-edit revision available to Stage-3 undo. */
-  readonly previousRevision: number | null
-  /** @brief 已自动接受的 Proposal identity / Automatically accepted Proposal identity. */
-  readonly appliedProposalId: UiResumeProposalId | null
+  /** @brief Agent 等待用户决定的 Proposal；前端只负责展示和回传决定 / Proposal awaiting the user's decision. */
+  readonly pendingProposal: UiResumeProposalAuthority | null
+}
+
+export interface UiResumeAssistantProposalDecisionResult {
+  readonly decision: UiResumeProposalDecisionResult
+  readonly thread: UiResumeAssistantThread
+  readonly continuationProblemCode: string | null
 }
 
 /** @brief 绑定精确 Resume revision 的助手请求 / Assistant request bound to an exact Resume revision. */
@@ -51,6 +57,12 @@ export interface ResumeAssistantGateway {
   ask(
     input: UiResumeAssistantRequest & { readonly question: string }
   ): Promise<UiResumeAssistantThread>
+  decideProposal(
+    input: UiResumeAssistantRequest & {
+      readonly authority: UiResumeProposalAuthority
+      readonly decision: UiResumeProposalDecision
+    }
+  ): Promise<UiResumeAssistantProposalDecisionResult>
 }
 
 /** @brief 简历与模板页面数据端口 / Resume and template page-data port. */

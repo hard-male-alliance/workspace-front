@@ -442,11 +442,9 @@ export class InMemoryResumeGateway
   readonly assistant: ResumeGateway['assistant'] = {
     load: () =>
       Promise.resolve({
-        appliedEditor: null,
-        appliedProposalId: null,
         conversationId: 'conversation_memory_resume_assistant',
         messages: this.assistantMessages,
-        previousRevision: null
+        pendingProposal: null
       }),
     ask: (input) => {
       const sequence = this.assistantMessages.length
@@ -466,13 +464,12 @@ export class InMemoryResumeGateway
         }
       ]
       return Promise.resolve({
-        appliedEditor: null,
-        appliedProposalId: null,
         conversationId: 'conversation_memory_resume_assistant',
         messages: this.assistantMessages,
-        previousRevision: null
+        pendingProposal: null
       })
-    }
+    },
+    decideProposal: () => Promise.reject(new Error('No memory Agent Proposal is pending.'))
   }
 
   /** @brief 当前测试实例的内存会话消息 / In-memory conversation messages for this test instance. */

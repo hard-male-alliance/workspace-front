@@ -18,7 +18,13 @@ import { parseResourceReference } from '../resources/resource-reference'
 
 export type AgentRole = 'user' | 'assistant' | 'system_notice'
 export type AgentRunStatus =
-  'queued' | 'running' | 'waiting_for_approval' | 'succeeded' | 'failed' | 'cancelled'
+  | 'queued'
+  | 'running'
+  | 'waiting_for_approval'
+  | 'waiting_for_proposal_decision'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled'
 
 export interface AgentConversation {
   readonly id: string
@@ -89,12 +95,14 @@ export interface ResumeAssistantAgentApi {
     readonly resumeRevision: number
     readonly locale: string
     readonly knowledgeSourceIds: readonly string[]
-    readonly requestResumeOperations: boolean
+    readonly allowedOutputModes: readonly AgentOutputMode[]
     readonly idempotencyKey: string
     readonly signal?: AbortSignal
   }): Promise<AgentRun>
   getRun(workspaceId: string, runId: string, signal?: AbortSignal): Promise<AgentRun>
 }
+
+export type AgentOutputMode = 'citations' | 'resume_operations' | 'text'
 
 function parseConversation(value: unknown, path = 'conversation'): AgentConversation {
   const input = exactRecord(value, path, [
@@ -214,6 +222,7 @@ function parseRun(value: unknown, path = 'agent_run'): AgentRun {
     status !== 'queued' &&
     status !== 'running' &&
     status !== 'waiting_for_approval' &&
+    status !== 'waiting_for_proposal_decision' &&
     status !== 'succeeded' &&
     status !== 'failed' &&
     status !== 'cancelled'
@@ -372,11 +381,7 @@ export function createResumeAssistantAgentApi(
             allow_provider_fallback: false,
             allow_external_model_processing: true
           },
-          output_modes: [
-            'text',
-            ...(knowledgeSourceIds.length === 0 ? [] : ['citations']),
-            ...(input.requestResumeOperations ? ['resume_operations'] : [])
-          ],
+          output_modes: input.allowedOutputModes,
           response_locale: input.locale
         },
         {

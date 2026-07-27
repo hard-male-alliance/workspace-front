@@ -18,11 +18,7 @@ import type {
   ResumeAssistantAgentApi
 } from '@ai-job-workspace/product-api-v2'
 
-import {
-  classifyResumeAssistantIntent,
-  createApiV2ResumeAssistantGateway,
-  requestsResumeModification
-} from './resume-assistant-gateway'
+import { createApiV2ResumeAssistantGateway } from './resume-assistant-gateway'
 
 const WORKSPACE_ID = 'workspace_01K0ASSISTANT000001'
 const RESUME_ID = 'resume_01K0ASSISTANT00000001'
@@ -164,7 +160,7 @@ describe('Resume assistant gateway', () => {
         inputMessageId: `${MESSAGE_ID}_user`,
         knowledgeSourceIds: [],
         resumeId: RESUME_ID,
-        requestResumeOperations: false,
+        allowedOutputModes: ['text', 'resume_operations'],
         resumeRevision: 7,
         workspaceId: WORKSPACE_ID
       })
@@ -173,24 +169,6 @@ describe('Resume assistant gateway', () => {
       '请检查项目经历',
       '项目成果需要补充量化指标。'
     ])
-  })
-
-  it('keeps advice questions read-only and recognizes only explicit edit commands', () => {
-    expect(requestsResumeModification('这份简历有什么需要修改的地方？')).toBe(false)
-    expect(requestsResumeModification('请检查项目经历并给我建议')).toBe(false)
-    expect(requestsResumeModification('请帮我修改这份简历的项目经历')).toBe(true)
-    expect(requestsResumeModification('把项目经历改写成更专业的表达')).toBe(true)
-    expect(requestsResumeModification('Please rewrite my resume summary')).toBe(true)
-  })
-
-  it('maps natural generation wording to one generate_resume intent', () => {
-    expect(classifyResumeAssistantIntent('现在开始生成简历')).toBe('generate_resume')
-    expect(classifyResumeAssistantIntent('请根据以上内容帮我写一份简历')).toBe('generate_resume')
-    expect(classifyResumeAssistantIntent('Please create a resume from this information')).toBe(
-      'generate_resume'
-    )
-    expect(classifyResumeAssistantIntent('把项目经历改写得更专业')).toBe('edit_resume')
-    expect(classifyResumeAssistantIntent('先检查一下结构')).toBe('advice')
   })
 
   it('selects only ready explicitly authorized Knowledge sources for the Resume run', async () => {
@@ -206,10 +184,9 @@ describe('Resume assistant gateway', () => {
     )
   })
 
-  it('requests operations and atomically accepts the single generated Proposal', async () => {
+  it('exposes the generated Proposal and waits for a user decision', async () => {
     const api = apiDouble()
     const review = reviewDouble()
-    const editor = { resume: { revision: 8 } } as UiResumeEditorModel
     const authority = {
       concurrencyToken: '"proposal-1"',
       proposal: {
@@ -217,33 +194,35 @@ describe('Resume assistant gateway', () => {
         status: 'pending'
       }
     } as UiResumeProposalAuthority
-    vi.mocked(api.createRun).mockResolvedValue(run({ proposalIds: [PROPOSAL_ID] }))
+    vi.mocked(api.createRun).mockResolvedValue(
+      run({
+        outputMessageId: 'message_waiting_01',
+        proposalIds: [PROPOSAL_ID],
+        status: 'waiting_for_proposal_decision'
+      })
+    )
+    vi.mocked(api.getRun)
+      .mockResolvedValueOnce(
+        run({
+          outputMessageId: 'message_waiting_01',
+          proposalIds: [PROPOSAL_ID],
+          status: 'waiting_for_proposal_decision'
+        })
+      )
+      .mockResolvedValue(run())
     vi.mocked(review.getResumeProposal).mockResolvedValue(authority)
-    vi.mocked(review.decideResumeProposal).mockResolvedValue({
-      appliedOperationIds: [],
-      conflicts: [],
-      editor
-    })
-
     const thread = await createApiV2ResumeAssistantGateway(api, review, knowledgeDouble()).ask(
       request('请帮我修改这份简历的项目经历')
     )
 
     expect(api.createRun).toHaveBeenCalledWith(
-      expect.objectContaining({ requestResumeOperations: true })
+      expect.objectContaining({ allowedOutputModes: ['text', 'resume_operations'] })
     )
-    expect(review.decideResumeProposal).toHaveBeenCalledWith(
-      expect.objectContaining({
-        decision: { kind: 'accept-all' },
-        proposal: authority.proposal
-      })
-    )
-    expect(thread.appliedEditor).toBe(editor)
-    expect(thread.appliedProposalId).toBe(PROPOSAL_ID)
-    expect(thread.previousRevision).toBe(7)
+    expect(review.decideResumeProposal).not.toHaveBeenCalled()
+    expect(thread.pendingProposal).toBe(authority)
   })
 
-  it('requests the same safe Proposal flow for whole-resume generation', async () => {
+  it('submits an explicit ProposalDecision only after the user chooses', async () => {
     const api = apiDouble()
     const review = reviewDouble()
     const authority = {
@@ -253,21 +232,53 @@ describe('Resume assistant gateway', () => {
         status: 'pending'
       }
     } as UiResumeProposalAuthority
-    vi.mocked(api.createRun).mockResolvedValue(run({ proposalIds: [PROPOSAL_ID] }))
+    vi.mocked(api.createRun).mockResolvedValue(
+      run({
+        outputMessageId: 'message_waiting_01',
+        proposalIds: [PROPOSAL_ID],
+        status: 'waiting_for_proposal_decision'
+      })
+    )
+    vi.mocked(api.getRun)
+      .mockResolvedValueOnce(
+        run({
+          outputMessageId: 'message_waiting_01',
+          proposalIds: [PROPOSAL_ID],
+          status: 'waiting_for_proposal_decision'
+        })
+      )
+      .mockResolvedValueOnce(
+        run({
+          outputMessageId: 'message_waiting_01',
+          proposalIds: [PROPOSAL_ID],
+          status: 'waiting_for_proposal_decision'
+        })
+      )
+      .mockResolvedValue(run({ outputMessageId: 'message_final_01', proposalIds: [PROPOSAL_ID] }))
     vi.mocked(review.getResumeProposal).mockResolvedValue(authority)
-    vi.mocked(review.decideResumeProposal).mockResolvedValue({
+    const result = {
       appliedOperationIds: [],
       conflicts: [],
       editor: { resume: { revision: 8 } } as UiResumeEditorModel
+    }
+    vi.mocked(review.decideResumeProposal).mockResolvedValue(result)
+
+    const gateway = createApiV2ResumeAssistantGateway(api, review, knowledgeDouble())
+    const thread = await gateway.ask(request('根据目前的信息生成简历'))
+    const decision = await gateway.decideProposal({
+      ...request(''),
+      authority: thread.pendingProposal!,
+      decision: { kind: 'accept-all' }
     })
 
-    await createApiV2ResumeAssistantGateway(api, review, knowledgeDouble()).ask(
-      request('根据目前的信息生成简历')
+    expect(review.decideResumeProposal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        decision: { kind: 'accept-all' },
+        proposal: authority.proposal
+      })
     )
-
-    expect(api.createRun).toHaveBeenCalledWith(
-      expect.objectContaining({ requestResumeOperations: true })
-    )
+    expect(decision.decision).toBe(result)
+    expect(decision.thread.messages).toHaveLength(2)
   })
 
   it('retries one retryable provider failure without creating a duplicate user message', async () => {
@@ -315,5 +326,32 @@ describe('Resume assistant gateway', () => {
 
     expect(api.getRun).toHaveBeenLastCalledWith(WORKSPACE_ID, RUN_ID, undefined)
     expect(restored.messages.at(-1)?.text).toBe('项目成果需要补充量化指标。')
+  })
+
+  it('keeps polling beyond the former 90-second client deadline', async () => {
+    vi.useFakeTimers()
+    try {
+      const api = apiDouble()
+      let polls = 0
+      vi.mocked(api.createRun).mockResolvedValue(run({ status: 'running' }))
+      vi.mocked(api.getRun).mockImplementation(() =>
+        Promise.resolve(run({ status: ++polls <= 38 ? 'running' : 'succeeded' }))
+      )
+
+      const result = createApiV2ResumeAssistantGateway(api, reviewDouble(), knowledgeDouble()).ask(
+        request()
+      )
+
+      await vi.advanceTimersByTimeAsync(100_000)
+
+      await expect(result).resolves.toEqual(
+        expect.objectContaining({
+          messages: expect.any(Array) as unknown
+        })
+      )
+      expect(polls).toBe(40)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

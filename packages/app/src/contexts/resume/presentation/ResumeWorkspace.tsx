@@ -50,6 +50,7 @@ import type {
   UiResumeSectionUpdateInput,
   UiTemplateManifest
 } from '../domain/models'
+import type { UiResumeProposalAuthority } from '../domain/review'
 import { ResumePreviewPanel } from './ResumePreviewPanel'
 import { selectResumePlainText } from './resume-document-selectors'
 
@@ -403,6 +404,7 @@ function ResumeAssistantPanel({
   const { t } = useTranslation()
   const [draft, setDraft] = useState('')
   const [messages, setMessages] = useState<readonly UiResumeAssistantMessage[]>([])
+  const [pendingProposal, setPendingProposal] = useState<UiResumeProposalAuthority | null>(null)
   const [isLoading, setLoading] = useState(true)
   const [isSending, setSending] = useState(false)
   const [error, setError] = useState<unknown>(null)
@@ -433,7 +435,10 @@ function ResumeAssistantPanel({
       setError(null)
       void gateway.assistant
         .load({ ...assistantInput, signal: controller.signal })
-        .then((thread): void => setMessages(thread.messages))
+        .then((thread): void => {
+          setMessages(thread.messages)
+          setPendingProposal(thread.pendingProposal)
+        })
         .catch((loadError: unknown): void => {
           if (!controller.signal.aborted) setError(loadError)
         })
@@ -463,12 +468,45 @@ function ResumeAssistantPanel({
       .ask({ ...assistantInput, question, signal: controller.signal })
       .then((thread): void => {
         setMessages(thread.messages)
-        if (thread.appliedEditor !== null && thread.previousRevision !== null) {
-          onEditorChange(thread.appliedEditor, thread.previousRevision)
-        }
+        setPendingProposal(thread.pendingProposal)
       })
       .catch((sendError: unknown): void => {
         if (!controller.signal.aborted) setError(sendError)
+      })
+      .finally((): void => {
+        if (!controller.signal.aborted) setSending(false)
+      })
+  }
+
+  const decideProposal = (decision: 'accept-all' | 'reject'): void => {
+    const authority = pendingProposal
+    if (authority === null || isSending) return
+    const controller = new AbortController()
+    controllerRef.current = controller
+    setSending(true)
+    setError(null)
+    void gateway.assistant
+      .decideProposal({
+        ...assistantInput,
+        authority,
+        decision: { kind: decision },
+        signal: controller.signal
+      })
+      .then((result): void => {
+        if (result.decision.conflicts.length > 0) {
+          throw new Error('resume.assistant_proposal_conflict')
+        }
+        setMessages(result.thread.messages)
+        setPendingProposal(result.thread.pendingProposal)
+        if (decision === 'accept-all') {
+          onEditorChange(result.decision.editor, assistantInput.resumeRevision)
+        }
+        if (result.continuationProblemCode !== null) {
+          throw new Error(result.continuationProblemCode)
+        }
+      })
+      .catch((decisionError: unknown): void => {
+        if (!controller.signal.aborted) setError(decisionError)
       })
       .finally((): void => {
         if (!controller.signal.aborted) setSending(false)
@@ -517,6 +555,32 @@ function ResumeAssistantPanel({
             </p>
           </div>
         ) : null}
+        {pendingProposal === null ? null : (
+          <div className="aw-message" role="status">
+            <strong>{pendingProposal.proposal.title}</strong>
+            <p>
+              Agent 准备了 {pendingProposal.proposal.operations.length} 项修改，等待你的决定。
+            </p>
+            <div className="aw-inline-actions">
+              <button
+                className="aw-primary-button"
+                disabled={isSending}
+                onClick={(): void => decideProposal('accept-all')}
+                type="button"
+              >
+                接受修改
+              </button>
+              <button
+                className="aw-quiet-button"
+                disabled={isSending}
+                onClick={(): void => decideProposal('reject')}
+                type="button"
+              >
+                拒绝
+              </button>
+            </div>
+          </div>
+        )}
         {error === null ? null : (
           <div className="aw-message" role="alert">
             <p>简历助手请求失败，请稍后重试。当前简历没有被修改。</p>

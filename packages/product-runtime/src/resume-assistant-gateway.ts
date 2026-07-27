@@ -7,7 +7,8 @@ import type {
   UiKnowledgeSource,
   UiResumeAssistantMessage,
   UiResumeAssistantRequest,
-  UiResumeAssistantThread
+  UiResumeAssistantThread,
+  UiResumeProposalAuthority
 } from '@ai-job-workspace/app/application'
 import {
   asUiKnowledgeSourcePageLimit,
@@ -21,12 +22,8 @@ import type {
   ResumeAssistantAgentApi
 } from '@ai-job-workspace/product-api-v2'
 
-const MAXIMUM_RUN_WAIT_MILLISECONDS = 90_000
 const RECOVERY_PREFIX = 'aiws.resume-assistant.run.v1'
 const processRecovery = new Map<string, string>()
-
-/** @brief 简历助手的三个产品意图 / Three product intents understood by the Resume assistant. */
-export type ResumeAssistantIntent = 'advice' | 'edit_resume' | 'generate_resume'
 
 function recoveryKey(input: UiResumeAssistantRequest): string {
   return `${RECOVERY_PREFIX}:${input.workspaceId}:${input.resumeId}`
@@ -97,35 +94,6 @@ async function resumeKnowledgeSourceIds(
   }
 }
 
-/** @brief 将多种自然表达收敛为单一生成意图，同时保留修改与只读咨询 / Map natural wording to one generation intent while retaining edits and advice. */
-export function classifyResumeAssistantIntent(question: string): ResumeAssistantIntent {
-  const normalized = question.trim().replace(/\s+/g, ' ')
-  if (normalized.length === 0) return 'advice'
-  const chineseGeneration =
-    /(?:生成|创建|制作|撰写|写)(?:一份|一个|这份|我的|完整的|基础版|初版)?[^，。！？]{0,20}简历|简历[^，。！？]{0,12}(?:生成|创建|制作|撰写)/u
-  const englishGeneration =
-    /^(?:please\s+)?(?:create|generate|draft|write|build)\b[\s\S]{0,60}\b(?:resume|cv)\b/iu
-  if (chineseGeneration.test(normalized) || englishGeneration.test(normalized)) {
-    return 'generate_resume'
-  }
-  const chineseExplicit =
-    /(?:请|帮我|替我|直接|现在)(?:根据[^，。！？]{0,40})?(?:修改|改写|重写|优化|调整|更新)(?:这份|我的|一下|简历|项目|经历|内容|表述|整份)/u
-  const chineseTransform =
-    /(?:把|将)(?:这份|我的)?[^，。！？]{0,60}(?:改成|改写(?:成|得)?|修改为|调整为|替换为|优化成)/u
-  const englishExplicit =
-    /^(?:please\s+)?(?:edit|rewrite|revise|update|optimi[sz]e|modify)\b[\s\S]{0,80}\b(?:resume|cv|section|experience|project|summary)\b/iu
-  return chineseExplicit.test(normalized) ||
-    chineseTransform.test(normalized) ||
-    englishExplicit.test(normalized)
-    ? 'edit_resume'
-    : 'advice'
-}
-
-/** @brief 判断当前意图是否需要安全 Resume Proposal / Test whether an intent requires a safe Resume Proposal. */
-export function requestsResumeModification(question: string): boolean {
-  return classifyResumeAssistantIntent(question) !== 'advice'
-}
-
 function mapMessages(messages: readonly AgentMessage[]): readonly UiResumeAssistantMessage[] {
   return messages
     .filter((message) => message.text.trim().length > 0)
@@ -140,19 +108,23 @@ function mapMessages(messages: readonly AgentMessage[]): readonly UiResumeAssist
 
 async function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
   await new Promise<void>((resolve, reject) => {
-    const timer = globalThis.setTimeout(resolve, milliseconds)
-    signal?.addEventListener(
-      'abort',
-      (): void => {
-        globalThis.clearTimeout(timer)
-        reject(
-          signal.reason instanceof Error
-            ? signal.reason
-            : new DOMException('Resume assistant request was aborted.', 'AbortError')
-        )
-      },
-      { once: true }
-    )
+    const abortError = (): Error =>
+      signal?.reason instanceof Error
+        ? signal.reason
+        : new DOMException('Resume assistant request was aborted.', 'AbortError')
+    if (signal?.aborted === true) {
+      reject(abortError())
+      return
+    }
+    const onAbort = (): void => {
+      globalThis.clearTimeout(timer)
+      reject(abortError())
+    }
+    const timer = globalThis.setTimeout((): void => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, milliseconds)
+    signal?.addEventListener('abort', onAbort, { once: true })
   })
 }
 
@@ -163,9 +135,7 @@ async function waitForRun(
 ): Promise<AgentRun> {
   let run = initial
   let interval = 700
-  const deadline = Date.now() + MAXIMUM_RUN_WAIT_MILLISECONDS
   while (run.status === 'queued' || run.status === 'running') {
-    if (Date.now() >= deadline) throw new Error('resume.assistant_run_timeout')
     const hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden'
     await delay(hidden ? Math.max(interval, 4_000) : interval, input.signal)
     run = await api.getRun(input.workspaceId, run.id, input.signal)
@@ -199,26 +169,56 @@ async function resolveConversation(
 
 async function loadThread(
   api: ResumeAssistantAgentApi,
+  review: ResumeReviewPort,
   input: UiResumeAssistantRequest,
   conversation: AgentConversation
 ): Promise<UiResumeAssistantThread> {
   const key = recoveryKey(input)
   const recoveredRunId = recoveryRead(key)
+  let pendingProposal: UiResumeProposalAuthority | null = null
   if (recoveredRunId !== null) {
-    const run = await api.getRun(input.workspaceId, recoveredRunId, input.signal)
+    let run = await api.getRun(input.workspaceId, recoveredRunId, input.signal)
     if (run.status === 'queued' || run.status === 'running') {
-      await waitForRun(api, input, run)
+      run = await waitForRun(api, input, run)
     }
-    recoveryWrite(key, null)
+    if (run.proposalIds.length === 1) {
+      const authority = await review.getResumeProposal(
+        input.workspaceId,
+        input.resumeId,
+        asUiOpaqueId<'resume-proposal'>(run.proposalIds[0]!),
+        input.signal ?? new AbortController().signal
+      )
+      if (authority.proposal.status === 'pending') pendingProposal = authority
+    }
+    if (pendingProposal === null) recoveryWrite(key, null)
   }
   const messages = await api.listMessages(input.workspaceId, conversation.id, input.signal)
   return {
-    appliedEditor: null,
-    appliedProposalId: null,
+    pendingProposal,
     conversationId: conversation.id,
-    messages: mapMessages(messages),
-    previousRevision: null
+    messages: mapMessages(messages)
   }
+}
+
+async function waitForProposalContinuation(
+  api: ResumeAssistantAgentApi,
+  input: UiResumeAssistantRequest,
+  runId: string,
+  waitingOutputMessageId: string | null
+): Promise<AgentRun> {
+  let run = await api.getRun(input.workspaceId, runId, input.signal)
+  let interval = 400
+  while (
+    run.status === 'queued' ||
+    run.status === 'running' ||
+    run.status === 'waiting_for_proposal_decision' ||
+    (run.status === 'succeeded' && run.outputMessageId === waitingOutputMessageId)
+  ) {
+    await delay(interval, input.signal)
+    run = await api.getRun(input.workspaceId, runId, input.signal)
+    interval = Math.min(Math.round(interval * 1.5), 2_500)
+  }
+  return run
 }
 
 /** @brief 将真实 Agent API 与 Proposal decision 编排成读写分离的 Resume 助手 / Compose Agent API and Proposal decisions into a read/write-separated Resume assistant. */
@@ -230,10 +230,9 @@ export function createApiV2ResumeAssistantGateway(
   return {
     async load(input): Promise<UiResumeAssistantThread> {
       const conversation = await resolveConversation(api, input)
-      return loadThread(api, input, conversation)
+      return loadThread(api, review, input, conversation)
     },
     async ask(input): Promise<UiResumeAssistantThread> {
-      const requestResumeOperations = requestsResumeModification(input.question)
       const knowledgeSourceIds = await resumeKnowledgeSourceIds(knowledge, input)
       const conversation = await resolveConversation(api, input)
       const current = await api.getConversation(input.workspaceId, conversation.id, input.signal)
@@ -256,51 +255,73 @@ export function createApiV2ResumeAssistantGateway(
           resumeRevision: input.resumeRevision,
           locale: input.locale,
           knowledgeSourceIds,
-          requestResumeOperations,
+          allowedOutputModes: [
+            'text',
+            ...(knowledgeSourceIds.length === 0 ? [] : (['citations'] as const)),
+            'resume_operations'
+          ],
           idempotencyKey: commandId('resume_assistant_run'),
           ...(input.signal === undefined ? {} : { signal: input.signal })
         })
         recoveryWrite(key, run.id)
         terminalRun = await waitForRun(api, input, run)
-        recoveryWrite(key, null)
-        if (terminalRun.status === 'succeeded') break
+        if (
+          terminalRun.status === 'succeeded' ||
+          terminalRun.status === 'waiting_for_proposal_decision'
+        ) {
+          break
+        }
         if (attempt === 0 && terminalRun.problem?.retryable === true) continue
         throw new Error(terminalRun.problem?.code ?? `resume.assistant_run_${terminalRun.status}`)
       }
-      if (terminalRun?.status !== 'succeeded') {
+      if (
+        terminalRun?.status !== 'succeeded' &&
+        terminalRun?.status !== 'waiting_for_proposal_decision'
+      ) {
         throw new Error('resume.assistant_run_failed')
       }
-      const thread = await loadThread(api, input, conversation)
-      if (!requestResumeOperations || terminalRun.proposalIds.length === 0) return thread
+      if (terminalRun.proposalIds.length > 0) recoveryWrite(key, terminalRun.id)
+      const thread = await loadThread(api, review, input, conversation)
+      if (terminalRun.proposalIds.length === 0) return thread
       if (terminalRun.proposalIds.length !== 1) {
         throw new Error('resume.assistant_proposal_count_invalid')
       }
       const proposalId = asUiOpaqueId<'resume-proposal'>(terminalRun.proposalIds[0]!)
-      const signal = input.signal ?? new AbortController().signal
-      const authority = await review.getResumeProposal(
-        input.workspaceId,
-        input.resumeId,
-        proposalId,
-        signal
-      )
-      if (authority.proposal.status !== 'pending') {
+      if (thread.pendingProposal?.proposal.id !== proposalId) {
         throw new Error('resume.assistant_proposal_not_pending')
       }
+      return thread
+    },
+    async decideProposal(input) {
+      if (input.authority.proposal.status !== 'pending') {
+        throw new Error('resume.assistant_proposal_not_pending')
+      }
+      const key = recoveryKey(input)
+      const runId = recoveryRead(key)
+      if (runId === null) throw new Error('resume.assistant_pending_run_missing')
+      const waitingRun = await api.getRun(input.workspaceId, runId, input.signal)
       const decision = await review.decideResumeProposal({
         commandId: createUiCommandId(),
-        concurrencyToken: authority.concurrencyToken,
-        decision: { kind: 'accept-all' },
-        proposal: authority.proposal,
+        concurrencyToken: input.authority.concurrencyToken,
+        decision: input.decision,
+        proposal: input.authority.proposal,
         ...(input.signal === undefined ? {} : { signal: input.signal })
       })
-      if (decision.conflicts.length > 0) {
-        throw new Error('resume.assistant_proposal_conflict')
-      }
+      const terminalRun = await waitForProposalContinuation(
+        api,
+        input,
+        runId,
+        waitingRun.outputMessageId
+      )
+      recoveryWrite(key, null)
+      const conversation = await resolveConversation(api, input)
       return {
-        ...thread,
-        appliedEditor: decision.editor,
-        appliedProposalId: proposalId,
-        previousRevision: input.resumeRevision
+        continuationProblemCode:
+          terminalRun.status === 'succeeded'
+            ? null
+            : (terminalRun.problem?.code ?? `resume.assistant_run_${terminalRun.status}`),
+        decision,
+        thread: await loadThread(api, review, input, conversation)
       }
     }
   }

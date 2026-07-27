@@ -31,6 +31,8 @@ export interface BeginWebAuthorizationDependencies {
   readonly location: WebOAuthNavigationLocation
   /** @brief 当前 tab 的 sessionStorage / Current tab's sessionStorage. */
   readonly storage: OAuthTransactionStorage
+  /** @brief 受控开发宿主可提供的授权导航映射 / Authorization-navigation mapping provided by a controlled development host. */
+  readonly resolveAuthorizationUrl?: ((url: string) => string | URL) | undefined
 }
 
 /** @brief 授权准备最长时间 / Maximum authorization-preparation time. */
@@ -76,5 +78,7 @@ export async function beginWebAuthorization(
     returnPath,
     dependencies.location.origin
   )
-  dependencies.location.assign(request.authorizationUrl)
+  dependencies.location.assign(
+    dependencies.resolveAuthorizationUrl?.(request.authorizationUrl) ?? request.authorizationUrl
+  )
 }
