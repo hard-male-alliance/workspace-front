@@ -14,6 +14,7 @@ import {
 } from '../http/contract'
 import { ApiV2ContractError } from '../http/errors'
 import { parseProblemDetails, type ProblemDetails } from '../http/problem'
+import { parseResourceReference } from '../resources/resource-reference'
 
 export type AgentRole = 'user' | 'assistant' | 'system_notice'
 export type AgentRunStatus =
@@ -33,6 +34,7 @@ export interface AgentMessage {
   readonly conversationId: string
   readonly role: AgentRole
   readonly text: string
+  readonly citationSourceIds: readonly string[]
 }
 
 export interface AgentRun {
@@ -41,6 +43,7 @@ export interface AgentRun {
   readonly inputMessageId: string
   readonly status: AgentRunStatus
   readonly outputMessageId: string | null
+  readonly proposalIds: readonly string[]
   readonly problem: ProblemDetails | null
 }
 
@@ -85,6 +88,8 @@ export interface ResumeAssistantAgentApi {
     readonly resumeId: string
     readonly resumeRevision: number
     readonly locale: string
+    readonly knowledgeSourceIds: readonly string[]
+    readonly requestResumeOperations: boolean
     readonly idempotencyKey: string
     readonly signal?: AbortSignal
   }): Promise<AgentRun>
@@ -145,20 +150,36 @@ function parseMessage(value: unknown, path = 'message'): AgentMessage {
     throw new ApiV2ContractError(`API v2 field ${path}.role is invalid.`)
   }
   const parts = arrayBetween(input.content, `${path}.content`, 1, 100)
-  const text = parts
-    .map((part, index): string => {
-      const content = exactRecord(part, `${path}.content[${index}]`, [
-        'type',
-        'text',
-        'citation',
-        'proposal_ref'
-      ])
+  const decodedParts = parts.map((part, index) =>
+    exactRecord(part, `${path}.content[${index}]`, ['type', 'text', 'citation', 'proposal_ref'])
+  )
+  const text = decodedParts
+    .map((content, index): string => {
       if (content.type !== 'text') return ''
       return boundedString(content.text, `${path}.content[${index}].text`, 1, 200_000)
     })
     .filter(Boolean)
     .join('\n')
   return {
+    citationSourceIds: decodedParts.flatMap((content, index) => {
+      if (content.type !== 'citation') return []
+      const citation = exactRecord(content.citation, `${path}.content[${index}].citation`, [
+        'source_id',
+        'version_id',
+        'locator',
+        'quote',
+        'score'
+      ])
+      opaqueId(citation.version_id, `${path}.content[${index}].citation.version_id`)
+      boundedString(citation.locator, `${path}.content[${index}].citation.locator`, 0, 4000)
+      boundedString(citation.quote, `${path}.content[${index}].citation.quote`, 1, 20_000)
+      if (typeof citation.score !== 'number' || !Number.isFinite(citation.score)) {
+        throw new ApiV2ContractError(
+          `API v2 field ${path}.content[${index}].citation.score is invalid.`
+        )
+      }
+      return [opaqueId(citation.source_id, `${path}.content[${index}].citation.source_id`)]
+    }),
     id: resource.id,
     conversationId: opaqueId(input.conversation_id, `${path}.conversation_id`),
     role,
@@ -208,6 +229,17 @@ function parseRun(value: unknown, path = 'agent_run'): AgentRun {
       input.output_message_id === null
         ? null
         : opaqueId(input.output_message_id, `${path}.output_message_id`),
+    proposalIds: arrayBetween(input.proposal_refs, `${path}.proposal_refs`, 0, 200).map(
+      (reference, index) => {
+        const parsed = parseResourceReference(reference, `${path}.proposal_refs[${index}]`)
+        if (parsed.resource_type !== 'resume_proposal') {
+          throw new ApiV2ContractError(
+            `API v2 field ${path}.proposal_refs[${index}] must reference a Resume Proposal.`
+          )
+        }
+        return parsed.id
+      }
+    ),
     problem:
       input.problem === null
         ? null
@@ -301,6 +333,17 @@ export function createResumeAssistantAgentApi(
       return parseMessage(response.data)
     },
     async createRun(input) {
+      const knowledgeSourceIds = input.knowledgeSourceIds.map((sourceId, index) =>
+        opaqueId(sourceId, `request.knowledge_source_ids[${index}]`)
+      )
+      if (
+        knowledgeSourceIds.length > 200 ||
+        new Set(knowledgeSourceIds).size !== knowledgeSourceIds.length
+      ) {
+        throw new ApiV2ContractError(
+          'Resume assistant Knowledge sources must be unique and at most 200.'
+        )
+      }
       const response = await client.postJson(
         `/workspaces/${encodeURIComponent(opaqueId(input.workspaceId, 'request.workspace_id'))}/agent-runs`,
         {
@@ -315,11 +358,11 @@ export function createResumeAssistantAgentApi(
             }
           ],
           knowledge: {
-            mode: 'none',
-            include_source_ids: [],
+            mode: knowledgeSourceIds.length === 0 ? 'none' : 'explicit',
+            include_source_ids: knowledgeSourceIds,
             exclude_source_ids: [],
             pinned_versions: [],
-            agent_scope: 'resume_agent'
+            agent_scope: 'resume_assistant'
           },
           inference: {
             quality_tier: 'balanced',
@@ -329,7 +372,11 @@ export function createResumeAssistantAgentApi(
             allow_provider_fallback: false,
             allow_external_model_processing: true
           },
-          output_modes: ['text'],
+          output_modes: [
+            'text',
+            ...(knowledgeSourceIds.length === 0 ? [] : ['citations']),
+            ...(input.requestResumeOperations ? ['resume_operations'] : [])
+          ],
           response_locale: input.locale
         },
         {

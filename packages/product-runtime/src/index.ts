@@ -56,14 +56,20 @@ export function createProductGateways(options: ProductGatewayOptions): AppGatewa
       ? {}
       : { transportProfile: options.transportProfile })
   })
-  const resumeAssistant = createApiV2ResumeAssistantGateway(createResumeAssistantAgentApi(client))
+  const knowledge = new ApiV2KnowledgeGateway(client)
+  const resumeReview = createApiV2ResumeReviewGateway(client, client, client)
+  const resumeAssistant = createApiV2ResumeAssistantGateway(
+    createResumeAssistantAgentApi(client),
+    resumeReview,
+    knowledge
+  )
 
   return {
     identity: createApiV2IdentityGateway(client),
     interview: createApiV2InterviewGateway(client),
-    knowledge: new ApiV2KnowledgeGateway(client),
+    knowledge,
     resume: createApiV2ResumeGateway(client, client, client, resumeAssistant),
-    resumeReview: createApiV2ResumeReviewGateway(client, client, client),
+    resumeReview,
     resumeCreation: createApiV2ResumeCreationGateway(client),
     resumeTemplates: createApiV2ResumeTemplateCatalog(publicClient),
     workspace: createApiV2WorkspaceGateway(client),

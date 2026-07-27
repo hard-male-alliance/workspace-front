@@ -16,6 +16,8 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
+import { useResumeRestoreProcess } from '../../../app/AppData'
+import type { ResumeRestoreTarget } from '../../../app/AppProcesses'
 import { runDiagnosticCommand, useDiagnostics } from '../../../app/Diagnostics'
 import { ResourceErrorState, ResourceFailureMessage } from '../../../app/ResourceErrorState'
 import { useUnsavedChanges } from '../../../app/UnsavedChanges'
@@ -56,6 +58,49 @@ type ResumePane = 'assistant' | 'editor' | 'preview'
 
 /** @brief 紧凑布局当前窗口 / Current pane in compact layouts. */
 type MobileResumePane = 'edit' | 'preview'
+
+/** @brief 最近一次 AI 修改可恢复的 revision 对 / Revision pair for the latest undoable AI edit. */
+interface ResumeAiUndoState {
+  readonly previousRevision: number
+  readonly currentRevision: number
+}
+
+function aiUndoStorageKey(resumeId: string): string {
+  return `aiws.resume-ai-undo.v1:${resumeId}`
+}
+
+function readAiUndoState(editor: UiResumeEditorModel): ResumeAiUndoState | null {
+  try {
+    const encoded = globalThis.sessionStorage?.getItem(aiUndoStorageKey(editor.resume.id))
+    if (encoded === null || encoded === undefined) return null
+    const value = JSON.parse(encoded) as Partial<ResumeAiUndoState>
+    const previousRevision = value.previousRevision
+    const currentRevision = value.currentRevision
+    if (
+      typeof previousRevision === 'number' &&
+      typeof currentRevision === 'number' &&
+      Number.isSafeInteger(previousRevision) &&
+      Number.isSafeInteger(currentRevision) &&
+      previousRevision > 0 &&
+      currentRevision === editor.resume.revision &&
+      previousRevision < currentRevision
+    ) {
+      return { currentRevision, previousRevision }
+    }
+  } catch {
+    // A stale or unavailable session store never grants a restore action.
+  }
+  return null
+}
+
+function writeAiUndoState(resumeId: string, state: ResumeAiUndoState | null): void {
+  try {
+    if (state === null) globalThis.sessionStorage?.removeItem(aiUndoStorageKey(resumeId))
+    else globalThis.sessionStorage?.setItem(aiUndoStorageKey(resumeId), JSON.stringify(state))
+  } catch {
+    // The current page still retains the safe revision pair in memory.
+  }
+}
 
 /** @brief 尚未由服务端确认的板块草稿 / Section draft not yet confirmed by the server. */
 interface ResumeSectionDraft {
@@ -347,10 +392,12 @@ function ResumePaneSeparator({
 function ResumeAssistantPanel({
   editor,
   gateway,
+  onEditorChange,
   onCloseMobile
 }: {
   readonly editor: UiResumeEditorModel
   readonly gateway: ResumeGateway
+  readonly onEditorChange: (editor: UiResumeEditorModel, previousRevision: number) => void
   readonly onCloseMobile: () => void
 }): React.JSX.Element {
   const { t } = useTranslation()
@@ -405,13 +452,21 @@ function ResumeAssistantPanel({
     const controller = new AbortController()
     controllerRef.current = controller
     const optimisticId = `pending-${Date.now()}`
-    setMessages([...messages, { author: 'user', id: optimisticId, text: question }])
+    setMessages([
+      ...messages,
+      { author: 'user', id: optimisticId, referenceSourceIds: [], text: question }
+    ])
     setDraft('')
     setSending(true)
     setError(null)
     void gateway.assistant
       .ask({ ...assistantInput, question, signal: controller.signal })
-      .then((thread): void => setMessages(thread.messages))
+      .then((thread): void => {
+        setMessages(thread.messages)
+        if (thread.appliedEditor !== null && thread.previousRevision !== null) {
+          onEditorChange(thread.appliedEditor, thread.previousRevision)
+        }
+      })
       .catch((sendError: unknown): void => {
         if (!controller.signal.aborted) setError(sendError)
       })
@@ -437,7 +492,7 @@ function ResumeAssistantPanel({
       <div className="aw-chat-messages" aria-live="polite">
         {!isLoading && messages.length === 0 ? (
           <div className="aw-message">
-            <p>我会读取当前简历版本并提供结构、表达和量化建议，但不会直接修改简历。</p>
+            <p>普通问题只返回建议；明确要求修改时，我会通过安全审批流程更新简历。</p>
           </div>
         ) : null}
         {messages.map((message) => (
@@ -446,11 +501,20 @@ function ResumeAssistantPanel({
             key={message.id}
           >
             <p>{message.text}</p>
+            {message.referenceSourceIds.length === 0 ? null : (
+              <small className="aw-muted-copy">
+                参考知识来源：{message.referenceSourceIds.join('、')}
+              </small>
+            )}
           </div>
         ))}
         {isLoading || isSending ? (
           <div className="aw-message">
-            <p>{isSending ? '正在结合当前简历生成建议…' : '正在恢复简历助手会话…'}</p>
+            <p>
+              {isSending
+                ? '正在分析请求；明确修改指令将安全应用到当前简历…'
+                : '正在恢复简历助手会话…'}
+            </p>
           </div>
         ) : null}
         {error === null ? null : (
@@ -1229,6 +1293,7 @@ export function ResumeWorkspace({
 }): React.JSX.Element {
   const { t } = useTranslation()
   const diagnostics = useDiagnostics()
+  const restoreProcess = useResumeRestoreProcess()
   const [editor, setEditor] = useState(initialEditor)
   const [visiblePanes, setVisiblePanes] = useState<Readonly<Record<ResumePane, boolean>>>({
     assistant: true,
@@ -1254,6 +1319,94 @@ export function ResumeWorkspace({
   const [authorityReloadRevision, setAuthorityReloadRevision] = useState(0)
   const [mobilePane, setMobilePane] = useState<MobileResumePane>('preview')
   const [mobileAssistantOpen, setMobileAssistantOpen] = useState(false)
+  const [aiUndo, setAiUndo] = useState<ResumeAiUndoState | null>(() =>
+    readAiUndoState(initialEditor)
+  )
+  const [aiUndoError, setAiUndoError] = useState<unknown>(null)
+  const [isUndoingAiEdit, setUndoingAiEdit] = useState(false)
+  const [autoRenderRevision, setAutoRenderRevision] = useState<number | null>(null)
+  const aiUndoAbortRef = useRef<AbortController | null>(null)
+
+  useEffect(
+    (): (() => void) => (): void =>
+      aiUndoAbortRef.current?.abort(new DOMException('Resume workspace closed.', 'AbortError')),
+    []
+  )
+
+  const applyAssistantEditor = (
+    nextEditor: UiResumeEditorModel,
+    previousRevision: number
+  ): void => {
+    const state = {
+      currentRevision: nextEditor.resume.revision,
+      previousRevision
+    }
+    setEditor(nextEditor)
+    setAiUndo(state)
+    writeAiUndoState(nextEditor.resume.id, state)
+    setAiUndoError(null)
+    setAutoRenderRevision(nextEditor.resume.revision)
+  }
+
+  const undoLatestAiEdit = async (): Promise<void> => {
+    if (aiUndo === null || isUndoingAiEdit) return
+    if (editor.resume.revision !== aiUndo.currentRevision) {
+      setAiUndo(null)
+      writeAiUndoState(editor.resume.id, null)
+      setAiUndoError(new Error('resume.ai_undo_revision_changed'))
+      return
+    }
+    aiUndoAbortRef.current?.abort(new DOMException('A newer AI undo started.', 'AbortError'))
+    const controller = new AbortController()
+    aiUndoAbortRef.current = controller
+    setUndoingAiEdit(true)
+    setAiUndoError(null)
+    const target: ResumeRestoreTarget = {
+      currentRevision: aiUndo.currentRevision,
+      resumeId: editor.resume.id,
+      sourceRevision: aiUndo.previousRevision,
+      workspaceId: editor.resume.workspaceId
+    }
+    try {
+      let authority = await runDiagnosticCommand(
+        diagnostics,
+        { operation: 'resume.restore', scope: 'resume' },
+        () =>
+          restoreProcess.start({
+            ...target,
+            commandId: createUiCommandId(),
+            concurrencyToken: editor.concurrencyToken,
+            signal: controller.signal
+          })
+      )
+      if (authority.job.status === 'queued' || authority.job.status === 'running') {
+        authority = await restoreProcess.watchToTerminal(
+          target,
+          authority,
+          controller.signal,
+          (): void => undefined
+        )
+      }
+      if (authority.job.status !== 'succeeded') {
+        throw new Error('resume.ai_undo_job_failed')
+      }
+      const restored = await restoreProcess.readRestoredResume(
+        target,
+        authority.job,
+        controller.signal
+      )
+      controller.signal.throwIfAborted()
+      setEditor(restored)
+      setAiUndo(null)
+      writeAiUndoState(restored.resume.id, null)
+      setAutoRenderRevision(restored.resume.revision)
+    } catch (error: unknown) {
+      if (!controller.signal.aborted) setAiUndoError(error)
+    } finally {
+      if (aiUndoAbortRef.current === controller) aiUndoAbortRef.current = null
+      if (!controller.signal.aborted) setUndoingAiEdit(false)
+    }
+  }
 
   const visiblePaneOrder = useMemo(
     () => RESUME_PANES.filter((pane) => visiblePanes[pane]),
@@ -1267,7 +1420,7 @@ export function ResumeWorkspace({
   /** @brief 当前 PDF 预览的完整代际键 / Complete generation key for the current PDF preview. */
   const previewGeneration = `${authorityReloadRevision}:${createResumePreviewIdentity(editor)}`
   /** @brief 是否必须完成权威读取后才能继续修改简历 / Whether an authoritative read is required before further Resume writes. */
-  const isWriteLocked = authorityRecovery !== null || isMutatingResume
+  const isWriteLocked = authorityRecovery !== null || isMutatingResume || isUndoingAiEdit
   useUnsavedChanges(
     `resume.aggregate-command:${editor.resume.id}`,
     authorityRecovery !== null || isMutatingResume || isReloadingAuthority
@@ -1494,6 +1647,7 @@ export function ResumeWorkspace({
       <ResumeAssistantPanel
         editor={editor}
         gateway={gateway}
+        onEditorChange={applyAssistantEditor}
         onCloseMobile={(): void => setMobileAssistantOpen(false)}
       />
     ),
@@ -1510,10 +1664,12 @@ export function ResumeWorkspace({
     ),
     preview: (
       <ResumePreviewPanel
+        autoStart={autoRenderRevision === editor.resume.revision}
         editor={editor}
         generation={previewGeneration}
         isWriteLocked={isWriteLocked}
         key={previewGeneration}
+        onAutoStartConsumed={(): void => setAutoRenderRevision(null)}
         pdfSupported={selectedTemplate?.supportedOutputFormats.includes('pdf') === true}
       />
     )
@@ -1761,6 +1917,30 @@ export function ResumeWorkspace({
             }
           />
         </div>
+        {aiUndo === null && aiUndoError === null ? null : (
+          <div className="aw-inline-error" role={aiUndoError === null ? 'status' : 'alert'}>
+            <div>
+              <strong>
+                {aiUndoError === null ? 'AI 已修改简历并正在更新 PDF' : '无法撤销本次 AI 修改'}
+              </strong>
+              <p>
+                {aiUndoError === null
+                  ? `已从版本 ${aiUndo?.previousRevision ?? ''} 生成新版本 ${aiUndo?.currentRevision ?? ''}。`
+                  : '简历内容保持当前状态。请重新加载后再试。'}
+              </p>
+            </div>
+            {aiUndo === null || aiUndoError !== null ? null : (
+              <button
+                className="aw-button aw-button--secondary"
+                disabled={isUndoingAiEdit || isWriteLocked}
+                onClick={(): void => void undoLatestAiEdit()}
+                type="button"
+              >
+                {isUndoingAiEdit ? '正在撤销…' : '撤销本次 AI 修改'}
+              </button>
+            )}
+          </div>
+        )}
         <div className="aw-resume-workspace-content">
           {RESUME_PANES.map((pane) => {
             /** @brief 当前窗口在可见窗口序列中的位置 / Current pane position in the visible-pane sequence. */

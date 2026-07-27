@@ -442,23 +442,35 @@ export class InMemoryResumeGateway
   readonly assistant: ResumeGateway['assistant'] = {
     load: () =>
       Promise.resolve({
+        appliedEditor: null,
+        appliedProposalId: null,
         conversationId: 'conversation_memory_resume_assistant',
-        messages: this.assistantMessages
+        messages: this.assistantMessages,
+        previousRevision: null
       }),
     ask: (input) => {
       const sequence = this.assistantMessages.length
       this.assistantMessages = [
         ...this.assistantMessages,
-        { id: `message_memory_user_${sequence}`, author: 'user', text: input.question },
+        {
+          id: `message_memory_user_${sequence}`,
+          author: 'user',
+          referenceSourceIds: [],
+          text: input.question
+        },
         {
           id: `message_memory_assistant_${sequence + 1}`,
           author: 'assistant',
+          referenceSourceIds: [],
           text: `测试助手已收到：${input.question}`
         }
       ]
       return Promise.resolve({
+        appliedEditor: null,
+        appliedProposalId: null,
         conversationId: 'conversation_memory_resume_assistant',
-        messages: this.assistantMessages
+        messages: this.assistantMessages,
+        previousRevision: null
       })
     }
   }
@@ -467,6 +479,7 @@ export class InMemoryResumeGateway
   private assistantMessages: readonly {
     readonly id: string
     readonly author: 'assistant' | 'user'
+    readonly referenceSourceIds: readonly string[]
     readonly text: string
   }[] = []
 

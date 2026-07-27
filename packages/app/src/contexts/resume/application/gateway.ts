@@ -3,6 +3,7 @@
 import type { UiWorkspaceId } from '../../../shared-kernel/identity'
 import type { UiWorkspaceJobAuthority } from '../../workspace-operations'
 import type { UiResumeEditorModel, UiResumeId } from '../domain/document'
+import type { UiResumeProposalId } from '../domain/review'
 import type {
   UiResumeSectionDeleteInput,
   UiResumeSectionsReorderInput,
@@ -18,12 +19,20 @@ export interface UiResumeAssistantMessage {
   readonly id: string
   readonly author: 'assistant' | 'user' | 'system'
   readonly text: string
+  /** @brief 本条回复实际引用的 Knowledge Source identities / Knowledge Source identities actually cited by this response. */
+  readonly referenceSourceIds: readonly string[]
 }
 
 /** @brief 可刷新恢复的 Resume 助手会话 / Refresh-recoverable Resume-assistant thread. */
 export interface UiResumeAssistantThread {
   readonly conversationId: string
   readonly messages: readonly UiResumeAssistantMessage[]
+  /** @brief 本次明确修改已原子应用后的权威简历；普通问答为 null / Authoritative Resume after an explicitly requested atomic edit; null for read-only questions. */
+  readonly appliedEditor: UiResumeEditorModel | null
+  /** @brief 可用于阶段三撤销的修改前 revision / Pre-edit revision available to Stage-3 undo. */
+  readonly previousRevision: number | null
+  /** @brief 已自动接受的 Proposal identity / Automatically accepted Proposal identity. */
+  readonly appliedProposalId: UiResumeProposalId | null
 }
 
 /** @brief 绑定精确 Resume revision 的助手请求 / Assistant request bound to an exact Resume revision. */
@@ -36,7 +45,7 @@ export interface UiResumeAssistantRequest {
   readonly signal?: AbortSignal
 }
 
-/** @brief 只读 Resume Agent 产品端口 / Read-only Resume Agent product port. */
+/** @brief 区分只读问答与显式修改的 Resume Agent 产品端口 / Resume Agent product port separating read-only questions from explicit edits. */
 export interface ResumeAssistantGateway {
   load(input: UiResumeAssistantRequest): Promise<UiResumeAssistantThread>
   ask(
@@ -46,7 +55,7 @@ export interface ResumeAssistantGateway {
 
 /** @brief 简历与模板页面数据端口 / Resume and template page-data port. */
 export interface ResumeGateway {
-  /** @brief 真实 Conversation/Message/Run 支持的只读助手 / Read-only assistant backed by real Conversation/Message/Run resources. */
+  /** @brief 真实 Conversation/Message/Run/Proposal 支持的助手 / Assistant backed by real Conversation, Message, Run, and Proposal resources. */
   readonly assistant: ResumeAssistantGateway
   /**
    * @brief 读取 Workspace 中的一页 ResumeSummary / Read one ResumeSummary page in a Workspace.
