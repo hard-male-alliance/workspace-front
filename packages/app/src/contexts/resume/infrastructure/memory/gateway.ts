@@ -9,6 +9,7 @@ import type { ResumeReviewPort } from '../../application/review'
 import { ResumeSnapshotConflictError } from '../../application/errors'
 import { ResumeMutationLane } from '../../application/mutation-lane'
 import type {
+  UiResumeItemUpdateInput,
   UiResumeSectionDeleteInput,
   UiResumeSectionsReorderInput,
   UiResumeSectionUpdateInput,
@@ -459,12 +460,14 @@ export class InMemoryResumeGateway
         {
           id: `message_memory_user_${sequence}`,
           author: 'user',
+          proposalStates: [],
           referenceSourceIds: [],
           text: input.question
         },
         {
           id: `message_memory_assistant_${sequence + 1}`,
           author: 'assistant',
+          proposalStates: [],
           referenceSourceIds: [],
           text: `测试助手已收到：${input.question}`
         }
@@ -485,6 +488,7 @@ export class InMemoryResumeGateway
   private assistantMessages: readonly {
     readonly id: string
     readonly author: 'assistant' | 'user'
+    readonly proposalStates: readonly []
     readonly referenceSourceIds: readonly string[]
     readonly text: string
   }[] = []
@@ -1192,6 +1196,51 @@ export class InMemoryResumeGateway
                   }
                 : section
             ),
+            updatedAt: '2026-07-18T00:00:01.000Z'
+          }
+        }
+        return this.editor
+      }
+    )
+  }
+
+  /**
+   * @brief 更新测试简历中的规范化条目字段 / Update a normalized item field in a test resume.
+   * @param input 条目字段编辑领域输入 / Item-field edit domain input.
+   * @return 最新编辑器 / Latest editor.
+   */
+  async updateResumeItem(input: UiResumeItemUpdateInput): Promise<UiResumeEditorModel> {
+    return this.runIdempotentResumeCommand(
+      input,
+      input.signal,
+      createMemoryCommandFingerprint({
+        authority: {
+          baseRevision: input.baseRevision,
+          concurrencyToken: input.concurrencyToken,
+          resumeId: input.resumeId,
+          workspaceId: input.workspaceId
+        },
+        field: input.field,
+        itemId: input.itemId,
+        kind: 'item-update',
+        value: input.value
+      }),
+      (): UiResumeEditorModel => {
+        const itemExists = this.editor.resume.sections.some((section) =>
+          section.items.some((item) => item.id === input.itemId)
+        )
+        if (!itemExists) return throwMemoryNotFound('resume item')
+        this.editor = {
+          concurrencyToken: this.nextConcurrencyToken(),
+          resume: {
+            ...this.editor.resume,
+            revision: this.editor.resume.revision + 1,
+            sections: this.editor.resume.sections.map((section) => ({
+              ...section,
+              items: section.items.map((item) =>
+                item.id === input.itemId ? { ...item, [input.field]: input.value } : item
+              )
+            })),
             updatedAt: '2026-07-18T00:00:01.000Z'
           }
         }

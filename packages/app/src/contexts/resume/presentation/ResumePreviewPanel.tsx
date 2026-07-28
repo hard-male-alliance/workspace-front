@@ -58,10 +58,7 @@ function pdfJobRecoveryKey(workspaceId: string, resumeId: string): string {
  * @param generation 当前完整预览代际 / Current complete preview generation.
  * @return 匹配代际的信封，否则为 null / Envelope matching the generation, otherwise null.
  */
-function readPdfJobRecovery(
-  key: string,
-  generation: string
-): ResumePdfJobRecoveryEnvelope | null {
+function readPdfJobRecovery(key: string, generation: string): ResumePdfJobRecoveryEnvelope | null {
   try {
     const serialized = globalThis.sessionStorage.getItem(key)
     if (serialized === null) return null
@@ -996,7 +993,11 @@ export function ResumePreviewPanel({
         ) : null}
       </div>
 
-      {jobProgress !== null && jobProgress.total !== null && jobProgress.total > 0 ? (
+      {jobAuthority !== null &&
+      isPendingJob(jobAuthority.job) &&
+      jobProgress !== null &&
+      jobProgress.total !== null &&
+      jobProgress.total > 0 ? (
         <label className="aw-muted-copy">
           <span>{t('resume.workspace.pdfProgress', { defaultValue: 'PDF 生成进度' })}</span>
           <progress max={jobProgress.total} value={jobProgress.completed} />

@@ -30,6 +30,8 @@ export type ResumeAssistantCommandState =
       readonly phase: 'request' | 'continuation'
       readonly problemCode: string
       readonly decisionCommitted: boolean
+      /** @brief 续答失败前已经提交的决策；请求阶段错误没有该字段 / Decision committed before a continuation failure; absent for request failures. */
+      readonly decision?: ResumeAssistantDecision
     }
 
 /** @brief 驱动简历助手命令状态变化的事实事件 / Fact events driving Resume-assistant command transitions. */
@@ -127,11 +129,14 @@ export function resumeAssistantTransition(
     case 'continuation-succeeded':
       return state.status === 'continuation-running' ? { status: 'succeeded' } : state
     case 'continuation-failed':
-      return {
-        status: event.retryable ? 'retryable-error' : 'terminal-error',
-        phase: 'continuation',
-        problemCode: event.problemCode,
-        decisionCommitted: true
-      }
+      return state.status === 'continuation-running'
+        ? {
+            status: event.retryable ? 'retryable-error' : 'terminal-error',
+            phase: 'continuation',
+            problemCode: event.problemCode,
+            decisionCommitted: true,
+            decision: state.decision
+          }
+        : state
   }
 }

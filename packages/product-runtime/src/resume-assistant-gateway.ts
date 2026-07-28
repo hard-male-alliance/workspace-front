@@ -214,13 +214,40 @@ async function resumeKnowledgeSourceIds(
   }
 }
 
-function mapMessages(messages: readonly AgentMessage[]): readonly UiResumeAssistantMessage[] {
+async function mapMessages(
+  review: ResumeReviewPort,
+  input: UiResumeAssistantRequest,
+  messages: readonly AgentMessage[]
+): Promise<readonly UiResumeAssistantMessage[]> {
+  /** @brief 同一 Proposal 只读取一次的权威状态缓存 / Authoritative state cache reading each Proposal only once. */
+  const proposalStates = new Map<string, UiResumeAssistantMessage['proposalStates'][number]>()
+  await Promise.all(
+    [...new Set(messages.flatMap((message) => message.proposalIds))].map(
+      async (proposalId): Promise<void> => {
+        const authority = await review.getResumeProposal(
+          input.workspaceId,
+          input.resumeId,
+          asUiOpaqueId<'resume-proposal'>(proposalId),
+          input.signal ?? new AbortController().signal
+        )
+        proposalStates.set(proposalId, {
+          id: authority.proposal.id,
+          status: authority.proposal.status,
+          title: authority.proposal.title
+        })
+      }
+    )
+  )
   return messages
-    .filter((message) => message.text.trim().length > 0)
+    .filter((message) => message.text.trim().length > 0 || message.proposalIds.length > 0)
     .map((message) => ({
       id: message.id,
       author:
         message.role === 'assistant' ? 'assistant' : message.role === 'user' ? 'user' : 'system',
+      proposalStates: message.proposalIds.flatMap((proposalId) => {
+        const state = proposalStates.get(proposalId)
+        return state === undefined ? [] : [state]
+      }),
       referenceSourceIds: message.citationSourceIds,
       text: message.text
     }))
@@ -294,7 +321,7 @@ async function loadThread(
   conversation: AgentConversation
 ): Promise<UiResumeAssistantThread> {
   const [thread, recovery] = await Promise.all([
-    readThread(api, input, conversation),
+    readThread(api, review, input, conversation),
     recoverCommand(api, review, input, conversation)
   ])
   return {
@@ -306,6 +333,7 @@ async function loadThread(
 /** @brief 仅读取 Conversation 消息，不等待任何 Run 恢复 / Read Conversation messages without awaiting any Run recovery. */
 async function readThread(
   api: ResumeAssistantAgentApi,
+  review: ResumeReviewPort,
   input: UiResumeAssistantRequest,
   conversation: AgentConversation
 ): Promise<UiResumeAssistantThread> {
@@ -313,7 +341,7 @@ async function readThread(
   return {
     pendingProposal: null,
     conversationId: conversation.id,
-    messages: mapMessages(messages),
+    messages: await mapMessages(review, input, messages),
     recoveryProblemCode: null
   }
 }
@@ -419,7 +447,7 @@ export function createApiV2ResumeAssistantGateway(
   return {
     async load(input): Promise<UiResumeAssistantThread> {
       const conversation = await resolveConversation(api, input)
-      return readThread(api, input, conversation)
+      return readThread(api, review, input, conversation)
     },
     async recoverCommand(input): Promise<UiResumeAssistantCommandRecovery> {
       const conversation = await resolveConversation(api, input)

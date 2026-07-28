@@ -1,6 +1,10 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { createUiCommandId, ResumeBatchConflictError } from '@ai-job-workspace/app/application'
+import {
+  asUiOpaqueId,
+  createUiCommandId,
+  ResumeBatchConflictError
+} from '@ai-job-workspace/app/application'
 import { ApiV2ProblemError, ApiV2WriteOutcomeUnknownError } from '@ai-job-workspace/product-api-v2'
 import {
   MOCK_HISTORICAL_DAWN_TEMPLATE,
@@ -46,6 +50,82 @@ async function waitForResumeEditor(): Promise<void> {
 
 /** @brief 简历编辑器用户行为测试 / Resume-editor user-behaviour tests. */
 describe('WorkspaceApp Resume editor', (): void => {
+  it('shows normalized item fields when a section has no legacy content body', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    const resume = new InMemoryResumeGateway()
+    const baseline = await resume.getResumeEditor(
+      MOCK_RESUME_WORKSPACE_ID,
+      MOCK_RESUME_ID,
+      ACTIVE_RESUME_READ_SIGNAL
+    )
+    const section = baseline.resume.sections[0]!
+    const structuredEditor: typeof baseline = {
+      ...baseline,
+      resume: {
+        ...baseline.resume,
+        sections: [
+          {
+            ...section,
+            content: null,
+            items: [
+              {
+                dateRange: null,
+                highlights: [],
+                id: asUiOpaqueId<'resume-item'>('item_education_visible_01'),
+                kind: 'education',
+                location: null,
+                organization: '南开大学',
+                skills: [],
+                subtitle: '计算机科学与技术',
+                summary: null,
+                tags: [],
+                title: '本科学历',
+                url: null,
+                visible: true
+              }
+            ]
+          },
+          ...baseline.resume.sections.slice(1)
+        ]
+      }
+    }
+    vi.spyOn(resume, 'getResumeEditor').mockResolvedValue(structuredEditor)
+    const updateItem = vi.spyOn(resume, 'updateResumeItem').mockImplementation((input) =>
+      Promise.resolve({
+        concurrencyToken: structuredEditor.concurrencyToken,
+        resume: {
+          ...structuredEditor.resume,
+          revision: structuredEditor.resume.revision + 1,
+          sections: structuredEditor.resume.sections.map((candidate) => ({
+            ...candidate,
+            items: candidate.items.map((item) =>
+              item.id === input.itemId ? { ...item, [input.field]: input.value } : item
+            )
+          }))
+        }
+      })
+    )
+    window.history.replaceState(null, '', `/resumes/${MOCK_RESUME_ID}/edit`)
+
+    render(<WorkspaceApp gateways={createTestGateways({ resume })} />)
+
+    expect(await screen.findByDisplayValue('南开大学')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('计算机科学与技术')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('本科学历')).toBeInTheDocument()
+    const organization = screen.getByRole('textbox', { name: '组织或院校 1' })
+    fireEvent.change(organization, { target: { value: '南开大学软件学院' } })
+    fireEvent.blur(organization)
+    await waitFor((): void => {
+      expect(updateItem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          field: 'organization',
+          itemId: asUiOpaqueId<'resume-item'>('item_education_visible_01'),
+          value: '南开大学软件学院'
+        })
+      )
+    })
+  })
+
   it('rebuilds editor aggregate state when the authoritative Resume ID changes', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
     /** @brief 当前测试独享的简历 Gateway / Resume Gateway owned by the current test. */
@@ -375,6 +455,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         {
           author: 'assistant',
           id: 'message_recovered_before_command',
+          proposalStates: [],
           referenceSourceIds: [],
           text: 'Recovered conversation message.'
         }
@@ -497,6 +578,7 @@ describe('WorkspaceApp Resume editor', (): void => {
             {
               author: 'assistant',
               id: 'message_proposal_completed',
+              proposalStates: [],
               referenceSourceIds: [],
               text: 'The Resume edit is complete.'
             }

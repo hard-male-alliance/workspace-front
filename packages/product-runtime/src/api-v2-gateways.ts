@@ -1475,6 +1475,29 @@ export function createApiV2ResumeGateway(
         }
       )
     },
+    async updateResumeItem(input): Promise<UiResumeEditorModel> {
+      /** @brief 稳定条目身份上的单字段语义操作 / Single-field semantic operation on a stable item identity. */
+      const operations: ResumeOperation[] = [
+        {
+          entity_id: input.itemId,
+          field_path: [input.field],
+          op: 'set_field',
+          operation_id: resumeOperationId(input.commandId, `item-${input.field}`),
+          value: input.value
+        }
+      ]
+      return applyResumeCommand(
+        operationsClient,
+        input,
+        input.signal,
+        operations,
+        'rebase_if_safe',
+        (document) =>
+          document.sections
+            .flatMap((section) => section.items)
+            .some((item) => item.id === input.itemId && item[input.field] === input.value)
+      )
+    },
     async updateResumeTemplateAndStyle(command, signal): Promise<UiResumeEditorModel> {
       /** @brief 完整目标 wire 样式；同一冻结 command 每次映射结果相同 / Complete target wire style; the same frozen command maps identically on every attempt. */
       const expectedStyle = mapUiResumeStyleIntentToApiV2(command.styleIntent)

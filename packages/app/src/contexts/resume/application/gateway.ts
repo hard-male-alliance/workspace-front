@@ -6,10 +6,13 @@ import type { UiResumeEditorModel, UiResumeId } from '../domain/document'
 import type {
   UiResumeProposalAuthority,
   UiResumeProposalDecision,
-  UiResumeProposalDecisionResult
+  UiResumeProposalDecisionResult,
+  UiResumeProposalId,
+  UiResumeProposalStatus
 } from '../domain/review'
 import type {
   UiResumeSectionDeleteInput,
+  UiResumeItemUpdateInput,
   UiResumeSectionsReorderInput,
   UiResumeSectionUpdateInput,
   UiResumeSummaryPage,
@@ -19,12 +22,21 @@ import type {
 } from '../domain/models'
 
 /** @brief Resume 助手展示的一条服务端消息 / One server-backed Resume-assistant message. */
+/** @brief 助手消息所引用 Proposal 的权威生命周期投影 / Authoritative lifecycle projection for a Proposal referenced by an assistant message. */
+export interface UiResumeAssistantProposalState {
+  readonly id: UiResumeProposalId
+  readonly title: string
+  readonly status: UiResumeProposalStatus
+}
+
 export interface UiResumeAssistantMessage {
   readonly id: string
   readonly author: 'assistant' | 'user' | 'system'
   readonly text: string
   /** @brief 本条回复实际引用的 Knowledge Source identities / Knowledge Source identities actually cited by this response. */
   readonly referenceSourceIds: readonly string[]
+  /** @brief 由 Proposal 资源读取的结构化状态，不从自然语言推断 / Structured states read from Proposal resources, never inferred from prose. */
+  readonly proposalStates: readonly UiResumeAssistantProposalState[]
 }
 
 /** @brief 可刷新恢复的 Resume 助手会话 / Refresh-recoverable Resume-assistant thread. */
@@ -130,6 +142,9 @@ export interface ResumeGateway {
    * @return 最新编辑器投影 / Latest editor projection.
    */
   updateResumeSection(input: UiResumeSectionUpdateInput): Promise<UiResumeEditorModel>
+
+  /** @brief 提交用户对规范化条目文本字段的编辑 / Submit a user-authored normalized item text-field edit. */
+  updateResumeItem(input: UiResumeItemUpdateInput): Promise<UiResumeEditorModel>
 
   /** @brief 调整简历板块顺序 / Reorder resume sections. */
   reorderResumeSections(input: UiResumeSectionsReorderInput): Promise<UiResumeEditorModel>

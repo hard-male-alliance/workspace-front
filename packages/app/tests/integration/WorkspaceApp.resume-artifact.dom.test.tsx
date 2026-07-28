@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiV2ProblemError, ApiV2WriteOutcomeUnknownError } from '@ai-job-workspace/product-api-v2'
 import {
@@ -151,10 +151,7 @@ describe('WorkspaceApp Resume artifact', (): void => {
     const gateways = createTestGateways({ resume, workspaceOperations })
 
     const first = render(
-      <WorkspaceApp
-        gateways={gateways}
-        initialPath="/resumes/res_mock_ai_platform/edit"
-      />
+      <WorkspaceApp gateways={gateways} initialPath="/resumes/res_mock_ai_platform/edit" />
     )
     await waitForResumePreviewControls()
     fireEvent.click(screen.getByRole('button', { name: /PDF preview|PDF 预览/u }))
@@ -166,12 +163,7 @@ describe('WorkspaceApp Resume artifact', (): void => {
     const candidateReadsBeforeRefresh = listJobsPage.mock.calls.length
     first.unmount()
 
-    render(
-      <WorkspaceApp
-        gateways={gateways}
-        initialPath="/resumes/res_mock_ai_platform/edit"
-      />
-    )
+    render(<WorkspaceApp gateways={gateways} initialPath="/resumes/res_mock_ai_platform/edit" />)
 
     expect(await screen.findByTitle('Resume PDF preview', {}, { timeout: 4_000 })).toHaveAttribute(
       'src',
@@ -328,6 +320,9 @@ describe('WorkspaceApp Resume artifact', (): void => {
     expect(objectUrls.createObjectURL.mock.calls[0]?.[0]).toBeInstanceOf(Blob)
     expect(preview).not.toHaveAttribute('src', expect.stringContaining('/api/v2/'))
     expect(screen.getByRole('button', { name: '下载预览 PDF' })).toBeEnabled()
+    await waitFor((): void => {
+      expect(screen.queryByRole('progressbar', { name: 'PDF 生成进度' })).not.toBeInTheDocument()
+    })
   })
 
   it('offers an explicit download fallback when the browser has no inline PDF viewer', async (): Promise<void> => {

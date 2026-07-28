@@ -84,7 +84,8 @@ describe('resume assistant command state machine', () => {
       status: 'terminal-error',
       phase: 'continuation',
       problemCode: 'agent.preflight_state_invalid',
-      decisionCommitted: true
+      decisionCommitted: true,
+      decision: 'accept-all'
     })
   })
 

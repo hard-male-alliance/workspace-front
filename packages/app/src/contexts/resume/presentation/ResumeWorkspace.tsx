@@ -42,10 +42,13 @@ import {
   getUiResumeSectionTextViolation,
   replaceUiResumeRichTextText,
   type UiResumeEditorModel,
+  type UiResumeItemId,
   type UiResumeSection,
   type UiResumeSectionId
 } from '../domain/document'
 import type {
+  UiResumeItemTextField,
+  UiResumeItemUpdateInput,
   UiResumeSectionDeleteInput,
   UiResumeSectionsReorderInput,
   UiResumeSectionUpdateInput,
@@ -116,6 +119,17 @@ interface ResumeSectionDraft {
   /** @brief 用户确实编辑过的草稿标题 / Draft title explicitly edited by the user. */
   readonly title?: string
 }
+
+/** @brief 规范化条目在中间编辑器中的文本字段顺序 / Text-field order for normalized items in the center editor. */
+const RESUME_ITEM_TEXT_FIELDS = [
+  { field: 'title', label: '条目标题' },
+  { field: 'subtitle', label: '副标题' },
+  { field: 'organization', label: '组织或院校' },
+  { field: 'location', label: '地点' }
+] as const satisfies readonly {
+  readonly field: UiResumeItemTextField
+  readonly label: string
+}[]
 
 /** @brief 板块保存失败及其恢复目标 / Section-save failure and its recovery target. */
 type ResumeSectionSaveFailure =
@@ -432,8 +446,7 @@ function ResumeAssistantPanel({
   ].includes(commandState.status)
   /** @brief 已进入不可回滚的 Proposal 决策链路 / Proposal decision has entered its irreversible path. */
   const isApplyingProposal =
-    commandState.status === 'committing-decision' ||
-    commandState.status === 'continuation-running'
+    commandState.status === 'committing-decision' || commandState.status === 'continuation-running'
   /** @brief 最近失败的准确阶段 / Exact phase of the latest failure. */
   const errorPhase =
     commandState.status === 'retryable-error' || commandState.status === 'terminal-error'
@@ -444,6 +457,11 @@ function ResumeAssistantPanel({
     errorPhase === 'continuation' &&
     (commandState.status === 'retryable-error' || commandState.status === 'terminal-error') &&
     commandState.problemCode === 'agent.resume_authority_changed'
+  /** @brief 已提交且已应用全部修改的决策 / Accept-all decision that was committed and applied. */
+  const acceptedDecisionCommitted =
+    errorPhase === 'continuation' &&
+    (commandState.status === 'retryable-error' || commandState.status === 'terminal-error') &&
+    commandState.decision === 'accept-all'
   /** @brief 消息已可读但精确命令恢复暂不可用 / Messages are readable while exact command recovery is unavailable. */
   const isCommandRecoveryUnavailable =
     (commandState.status === 'retryable-error' || commandState.status === 'terminal-error') &&
@@ -535,7 +553,13 @@ function ResumeAssistantPanel({
     const optimisticId = `pending-${Date.now()}`
     setMessages([
       ...messages,
-      { author: 'user', id: optimisticId, referenceSourceIds: [], text: question }
+      {
+        author: 'user',
+        id: optimisticId,
+        proposalStates: [],
+        referenceSourceIds: [],
+        text: question
+      }
     ])
     setDraft('')
     dispatchCommand({ type: 'command-submitted' })
@@ -661,7 +685,24 @@ function ResumeAssistantPanel({
             className={`aw-message${message.author === 'user' ? ' aw-message--user' : ''}`}
             key={message.id}
           >
-            <p>{message.text}</p>
+            {message.proposalStates.length === 0 ? (
+              <p>{message.text}</p>
+            ) : (
+              message.proposalStates.map((proposal) => (
+                <div key={proposal.id}>
+                  <strong>{proposal.title}</strong>
+                  <p>
+                    {proposal.status === 'pending'
+                      ? '已准备简历修改，等待你的决定。'
+                      : proposal.status === 'accepted' || proposal.status === 'partially-accepted'
+                        ? '简历修改已接受并应用。'
+                        : proposal.status === 'rejected'
+                          ? '简历修改已拒绝。'
+                          : '简历修改已过期。'}
+                  </p>
+                </div>
+              ))
+            )}
             {message.referenceSourceIds.length === 0 ? null : (
               <small className="aw-muted-copy">
                 参考知识来源：{message.referenceSourceIds.join('、')}
@@ -710,10 +751,12 @@ function ResumeAssistantPanel({
               {isCommandRecoveryUnavailable
                 ? '会话消息已恢复，但正在进行的助手任务状态暂时无法恢复。请稍后刷新重试。'
                 : errorPhase === 'continuation'
-                ? isContinuationAuthorityChanged
-                  ? '你的决定已经提交，但服务器上的简历又发生了变化。请重新加载权威版本后再继续编辑。'
-                  : '你的决定已经提交，但助手后续回复失败。请稍后重新打开会话。'
-                : resumeAssistantFailureMessage(error)}
+                  ? isContinuationAuthorityChanged
+                    ? '你的决定已经提交，但服务器上的简历又发生了变化。请重新加载权威版本后再继续编辑。'
+                    : acceptedDecisionCommitted
+                      ? '简历修改已接受并应用。助手确认回复生成失败，不影响已经应用的修改。'
+                      : '你的决定已经提交，但助手确认回复生成失败。请稍后重新打开会话。'
+                  : resumeAssistantFailureMessage(error)}
             </p>
           </div>
         )}
@@ -777,8 +820,12 @@ function ResumeSectionsEditor({
   const [drafts, setDrafts] = useState<ReadonlyMap<UiResumeSectionId, ResumeSectionDraft>>(
     () => new Map()
   )
+  /** @brief 规范化条目字段的浏览器本地草稿 / Browser-local drafts for normalized item fields. */
+  const [itemDrafts, setItemDrafts] = useState<ReadonlyMap<string, string>>(() => new Map())
   /** @brief 当前正在保存的板块 / Section currently being persisted. */
   const [savingSectionId, setSavingSectionId] = useState<UiResumeSectionId | null>(null)
+  /** @brief 当前正在保存的条目字段键 / Item-field key currently being persisted. */
+  const [savingItemKey, setSavingItemKey] = useState<string | null>(null)
   /** @brief 最近一次板块保存失败 / Latest section-save failure. */
   const [saveFailure, setSaveFailure] = useState<ResumeSectionSaveFailure | null>(null)
   /** @brief 结构操作的安全失败状态 / Safe structural-operation failure state. */
@@ -792,7 +839,7 @@ function ResumeSectionsEditor({
 
   useUnsavedChanges(
     `resume.section-drafts:${editor.resume.id}`,
-    drafts.size > 0 || savingSectionId !== null
+    drafts.size > 0 || itemDrafts.size > 0 || savingSectionId !== null || savingItemKey !== null
   )
 
   /** @brief 服务端已删除对应 section、但仍须交还用户的本地草稿 / Local drafts whose sections were removed by the server but must still be returned to the user. */
@@ -818,6 +865,88 @@ function ResumeSectionsEditor({
       next.set(sectionId, { ...draft, [field]: value })
       return next
     })
+  }
+
+  /** @brief 构造条目字段草稿的稳定本地键 / Build the stable local key for an item-field draft. */
+  const itemDraftKey = (itemId: UiResumeItemId, field: UiResumeItemTextField): string =>
+    `${itemId}:${field}`
+
+  /**
+   * @brief 保存一个规范化条目文本字段 / Persist one normalized item text field.
+   * @param itemId 目标条目 / Target item.
+   * @param field 目标字段 / Target field.
+   * @param authoritativeValue 当前权威值 / Current authoritative value.
+   * @return 无返回值 / No return value.
+   */
+  const persistItem = async (
+    itemId: UiResumeItemId,
+    field: UiResumeItemTextField,
+    authoritativeValue: string | null
+  ): Promise<void> => {
+    /** @brief 当前条目字段的稳定草稿键 / Stable draft key for the current item field. */
+    const key = itemDraftKey(itemId, field)
+    /** @brief 用户实际输入的字段草稿 / Field draft actually entered by the user. */
+    const draft = itemDrafts.get(key)
+    if (draft === undefined || savingItemKey !== null || isWriteLocked) return
+    /** @brief 空文本规范化为协议允许的 null / Empty text normalized to the protocol's nullable value. */
+    const value = draft.length === 0 ? null : draft
+    if (value === authoritativeValue) {
+      setItemDrafts((current) => {
+        /** @brief 删除已满足意图后的剩余条目草稿 / Remaining item drafts after removing the satisfied intent. */
+        const next = new Map(current)
+        next.delete(key)
+        return next
+      })
+      return
+    }
+    /** @brief 冻结权威与字段值的条目更新命令 / Item-update command freezing authority and field value. */
+    const command: UiResumeItemUpdateInput = {
+      baseRevision: editor.resume.revision,
+      commandId: createUiCommandId(),
+      concurrencyToken: editor.concurrencyToken,
+      field,
+      itemId,
+      resumeId: editor.resume.id,
+      value,
+      workspaceId: editor.resume.workspaceId
+    }
+    /** @brief 原样发送同一条目命令的动作 / Action dispatching the same item command verbatim. */
+    const dispatch = (): Promise<UiResumeEditorModel> =>
+      runDiagnosticCommand(
+        diagnostics,
+        { operation: 'resume.section_update', scope: 'resume' },
+        () => gateway.updateResumeItem(command)
+      )
+    /** @brief 吸收服务端确认的新权威并只清理对应草稿 / Adopt confirmed authority and clear only its matching draft. */
+    const accept = (next: UiResumeEditorModel): void => {
+      onEditorChange(next)
+      setItemDrafts((current) => {
+        const remaining = new Map(current)
+        if (remaining.get(key) === draft) remaining.delete(key)
+        return remaining
+      })
+      setStructureFailure(null)
+    }
+    setSavingItemKey(key)
+    try {
+      const next = await runMutation(dispatch)
+      if (next !== null) accept(next)
+    } catch (reason: unknown) {
+      /** @brief 根恢复状态机对失败命令的处置 / Root recovery state machine's disposition for the failed command. */
+      const disposition = onMutationError(
+        reason,
+        async (): Promise<void> => accept(await dispatch()),
+        (): void => undefined
+      )
+      if (disposition === null) {
+        setStructureFailure({
+          error: reason,
+          title: '条目修改尚未保存；你的输入仍保留在本页。'
+        })
+      }
+    } finally {
+      setSavingItemKey(null)
+    }
   }
 
   /**
@@ -1456,6 +1585,40 @@ function ResumeSectionsEditor({
                       ) : null}
                     </div>
                   </label>
+                  {section.items.map((item, itemIndex) => (
+                    <article className="aw-rich-text-shell" key={item.id}>
+                      <strong>结构化条目 {itemIndex + 1}</strong>
+                      {RESUME_ITEM_TEXT_FIELDS.map(({ field, label }) => {
+                        /** @brief 当前条目字段的本地草稿键 / Local draft key for this item field. */
+                        const key = itemDraftKey(item.id, field)
+                        /** @brief 草稿优先、否则使用权威字段值 / Draft-first value falling back to the authoritative field. */
+                        const value = itemDrafts.get(key) ?? item[field] ?? ''
+                        return (
+                          <label key={field}>
+                            <span>{label}</span>
+                            <input
+                              aria-label={`${label} ${itemIndex + 1}`}
+                              className="aw-text-input"
+                              disabled={isWriteLocked || savingItemKey === key}
+                              onBlur={(): void => {
+                                void persistItem(item.id, field, item[field])
+                              }}
+                              onChange={(event): void => {
+                                const nextValue = event.currentTarget.value
+                                setItemDrafts((current) => {
+                                  /** @brief 合并本次输入且保留其他字段草稿 / Merge this input while retaining other field drafts. */
+                                  const next = new Map(current)
+                                  next.set(key, nextValue)
+                                  return next
+                                })
+                              }}
+                              value={value}
+                            />
+                          </label>
+                        )
+                      })}
+                    </article>
+                  ))}
                 </div>
               ) : (
                 <p className="aw-section-summary">
