@@ -76,13 +76,7 @@ function writeHttpProxyFailure(request, response, allowedOrigins) {
  * }} options
  * @return {void}
  */
-function proxyWebSocketUpgrade({
-  clientHead,
-  clientSocket,
-  request,
-  upstreamHost,
-  upstreamPort
-}) {
+function proxyWebSocketUpgrade({ clientHead, clientSocket, request, upstreamHost, upstreamPort }) {
   let upgradedSocket
   const upstream = http.request({
     headers: createUpstreamHeaders(request, upstreamHost, upstreamPort),
