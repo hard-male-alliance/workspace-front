@@ -30,7 +30,16 @@ describe('resumeAssistantFailureMessage', (): void => {
   it('separates the tool-call safety cap from model-turn exhaustion', (): void => {
     const message = resumeAssistantFailureMessage(new Error('agent.tool_call_budget_exhausted'))
 
-    expect(message).toContain('编辑工具的次数')
+    expect(message).toContain('简历读取或编辑工具的次数')
+    expect(message).toContain('后端安全上限')
+  })
+
+  it('identifies the cross-category total tool safety cap', (): void => {
+    const message = resumeAssistantFailureMessage(
+      new Error('agent.total_tool_call_budget_exhausted')
+    )
+
+    expect(message).toContain('知识检索和简历处理总调用次数')
     expect(message).toContain('后端安全上限')
   })
 

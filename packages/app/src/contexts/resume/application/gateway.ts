@@ -11,8 +11,10 @@ import type {
   UiResumeProposalStatus
 } from '../domain/review'
 import type {
+  UiResumeContactUpdateInput,
   UiResumeSectionDeleteInput,
   UiResumeItemUpdateInput,
+  UiResumeProfileUpdateInput,
   UiResumeSectionsReorderInput,
   UiResumeSectionUpdateInput,
   UiResumeSummaryPage,
@@ -145,6 +147,12 @@ export interface ResumeGateway {
 
   /** @brief 提交用户对规范化条目文本字段的编辑 / Submit a user-authored normalized item text-field edit. */
   updateResumeItem(input: UiResumeItemUpdateInput): Promise<UiResumeEditorModel>
+
+  /** @brief 提交用户对个人资料字段的编辑 / Submit a user-authored profile-field edit. */
+  updateResumeProfile(input: UiResumeProfileUpdateInput): Promise<UiResumeEditorModel>
+
+  /** @brief 提交用户对已有联系方式字段的编辑 / Submit a user-authored existing-contact edit. */
+  updateResumeContact(input: UiResumeContactUpdateInput): Promise<UiResumeEditorModel>
 
   /** @brief 调整简历板块顺序 / Reorder resume sections. */
   reorderResumeSections(input: UiResumeSectionsReorderInput): Promise<UiResumeEditorModel>

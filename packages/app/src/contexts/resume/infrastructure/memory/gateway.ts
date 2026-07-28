@@ -9,7 +9,9 @@ import type { ResumeReviewPort } from '../../application/review'
 import { ResumeSnapshotConflictError } from '../../application/errors'
 import { ResumeMutationLane } from '../../application/mutation-lane'
 import type {
+  UiResumeContactUpdateInput,
   UiResumeItemUpdateInput,
+  UiResumeProfileUpdateInput,
   UiResumeSectionDeleteInput,
   UiResumeSectionsReorderInput,
   UiResumeSectionUpdateInput,
@@ -1241,6 +1243,88 @@ export class InMemoryResumeGateway
                 item.id === input.itemId ? { ...item, [input.field]: input.value } : item
               )
             })),
+            updatedAt: '2026-07-18T00:00:01.000Z'
+          }
+        }
+        return this.editor
+      }
+    )
+  }
+
+  /**
+   * @brief 更新测试简历的个人资料字段 / Update one profile field in a test Resume.
+   * @param input 个人资料字段编辑输入 / Profile-field edit input.
+   * @return 最新编辑器 / Latest editor.
+   */
+  async updateResumeProfile(input: UiResumeProfileUpdateInput): Promise<UiResumeEditorModel> {
+    return this.runIdempotentResumeCommand(
+      input,
+      input.signal,
+      createMemoryCommandFingerprint({
+        authority: {
+          baseRevision: input.baseRevision,
+          concurrencyToken: input.concurrencyToken,
+          resumeId: input.resumeId,
+          workspaceId: input.workspaceId
+        },
+        field: input.field,
+        kind: 'profile-update',
+        value: input.value
+      }),
+      (): UiResumeEditorModel => {
+        this.editor = {
+          concurrencyToken: this.nextConcurrencyToken(),
+          resume: {
+            ...this.editor.resume,
+            profile: { ...this.editor.resume.profile, [input.field]: input.value },
+            revision: this.editor.resume.revision + 1,
+            updatedAt: '2026-07-18T00:00:01.000Z'
+          }
+        }
+        return this.editor
+      }
+    )
+  }
+
+  /**
+   * @brief 更新测试简历的已有联系方式字段 / Update one field of an existing contact in a test Resume.
+   * @param input 联系方式字段编辑输入 / Contact-field edit input.
+   * @return 最新编辑器 / Latest editor.
+   */
+  async updateResumeContact(input: UiResumeContactUpdateInput): Promise<UiResumeEditorModel> {
+    return this.runIdempotentResumeCommand(
+      input,
+      input.signal,
+      createMemoryCommandFingerprint({
+        authority: {
+          baseRevision: input.baseRevision,
+          concurrencyToken: input.concurrencyToken,
+          resumeId: input.resumeId,
+          workspaceId: input.workspaceId
+        },
+        contactId: input.contactId,
+        field: input.field,
+        kind: 'contact-update',
+        value: input.value
+      }),
+      (): UiResumeEditorModel => {
+        const contactExists = this.editor.resume.profile.contacts.some(
+          (contact) => contact.id === input.contactId
+        )
+        if (!contactExists) return throwMemoryNotFound('resume contact')
+        this.editor = {
+          concurrencyToken: this.nextConcurrencyToken(),
+          resume: {
+            ...this.editor.resume,
+            profile: {
+              ...this.editor.resume.profile,
+              contacts: this.editor.resume.profile.contacts.map((contact) =>
+                contact.id === input.contactId
+                  ? { ...contact, [input.field]: input.value }
+                  : contact
+              )
+            },
+            revision: this.editor.resume.revision + 1,
             updatedAt: '2026-07-18T00:00:01.000Z'
           }
         }
