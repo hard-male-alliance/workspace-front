@@ -281,32 +281,32 @@ describe('Resume assistant gateway', () => {
     expect(decision.thread.messages).toHaveLength(2)
   })
 
-  it('retries one retryable provider failure without creating a duplicate user message', async () => {
+  it('leaves retry ownership to the backend and creates exactly one Run', async () => {
     const api = apiDouble()
-    vi.mocked(api.createRun)
-      .mockResolvedValueOnce(
-        run({
-          problem: {
-            code: 'agent.provider_empty',
-            detail: null,
-            errors: [],
-            extensions: null,
-            instance: null,
-            request_id: RUN_ID,
-            retryable: true,
-            status: 502,
-            title: 'Model provider returned no usable output',
-            type: 'https://api.hmalliances.org/problems/agent/provider_empty'
-          },
-          status: 'failed'
-        })
-      )
-      .mockResolvedValueOnce(run({ id: `${RUN_ID}_retry` }))
+    vi.mocked(api.createRun).mockResolvedValueOnce(
+      run({
+        problem: {
+          code: 'agent.provider_timeout',
+          detail: null,
+          errors: [],
+          extensions: null,
+          instance: null,
+          request_id: RUN_ID,
+          retryable: true,
+          status: 504,
+          title: 'Model provider timed out',
+          type: 'https://api.hmalliances.org/problems/agent/provider_timeout'
+        },
+        status: 'failed'
+      })
+    )
 
-    await createApiV2ResumeAssistantGateway(api, reviewDouble(), knowledgeDouble()).ask(request())
+    await expect(
+      createApiV2ResumeAssistantGateway(api, reviewDouble(), knowledgeDouble()).ask(request())
+    ).rejects.toThrow('agent.provider_timeout')
 
     expect(api.createMessage).toHaveBeenCalledTimes(1)
-    expect(api.createRun).toHaveBeenCalledTimes(2)
+    expect(api.createRun).toHaveBeenCalledTimes(1)
   })
 
   it('recovers an in-flight run after a refresh-like gateway recreation', async () => {

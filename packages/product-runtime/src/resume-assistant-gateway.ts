@@ -245,40 +245,29 @@ export function createApiV2ResumeAssistantGateway(
         input.signal
       )
       const key = recoveryKey(input)
-      let terminalRun: AgentRun | null = null
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        const run = await api.createRun({
-          workspaceId: input.workspaceId,
-          conversationId: conversation.id,
-          inputMessageId: message.id,
-          resumeId: input.resumeId,
-          resumeRevision: input.resumeRevision,
-          locale: input.locale,
-          knowledgeSourceIds,
-          allowedOutputModes: [
-            'text',
-            ...(knowledgeSourceIds.length === 0 ? [] : (['citations'] as const)),
-            'resume_operations'
-          ],
-          idempotencyKey: commandId('resume_assistant_run'),
-          ...(input.signal === undefined ? {} : { signal: input.signal })
-        })
-        recoveryWrite(key, run.id)
-        terminalRun = await waitForRun(api, input, run)
-        if (
-          terminalRun.status === 'succeeded' ||
-          terminalRun.status === 'waiting_for_proposal_decision'
-        ) {
-          break
-        }
-        if (attempt === 0 && terminalRun.problem?.retryable === true) continue
-        throw new Error(terminalRun.problem?.code ?? `resume.assistant_run_${terminalRun.status}`)
-      }
+      const run = await api.createRun({
+        workspaceId: input.workspaceId,
+        conversationId: conversation.id,
+        inputMessageId: message.id,
+        resumeId: input.resumeId,
+        resumeRevision: input.resumeRevision,
+        locale: input.locale,
+        knowledgeSourceIds,
+        allowedOutputModes: [
+          'text',
+          ...(knowledgeSourceIds.length === 0 ? [] : (['citations'] as const)),
+          'resume_operations'
+        ],
+        idempotencyKey: commandId('resume_assistant_run'),
+        ...(input.signal === undefined ? {} : { signal: input.signal })
+      })
+      recoveryWrite(key, run.id)
+      const terminalRun = await waitForRun(api, input, run)
       if (
-        terminalRun?.status !== 'succeeded' &&
-        terminalRun?.status !== 'waiting_for_proposal_decision'
+        terminalRun.status !== 'succeeded' &&
+        terminalRun.status !== 'waiting_for_proposal_decision'
       ) {
-        throw new Error('resume.assistant_run_failed')
+        throw new Error(terminalRun.problem?.code ?? `resume.assistant_run_${terminalRun.status}`)
       }
       if (terminalRun.proposalIds.length > 0) recoveryWrite(key, terminalRun.id)
       const thread = await loadThread(api, review, input, conversation)

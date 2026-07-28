@@ -37,6 +37,7 @@ import {
 import type { ResumeGateway, UiResumeAssistantMessage } from '../application/gateway'
 import type { ResumeTemplateCatalogPort } from '../application/resume-creation'
 import { loadPinnedResumeTemplate } from '../application/template-catalog'
+import { resumeAssistantFailureMessage } from './resume-assistant-failure'
 import {
   getUiResumeSectionTextViolation,
   replaceUiResumeRichTextText,
@@ -581,7 +582,7 @@ function ResumeAssistantPanel({
         )}
         {error === null ? null : (
           <div className="aw-message" role="alert">
-            <p>简历助手请求失败，请稍后重试。当前简历没有被修改。</p>
+            <p>{resumeAssistantFailureMessage(error)}</p>
           </div>
         )}
       </div>
