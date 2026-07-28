@@ -608,9 +608,11 @@ function InterviewSetupForm({
                 checked={selectedKnowledgeSourceIds.has(source.id)}
                 disabled={locked}
                 onChange={(event): void => {
+                  /** @brief React 释放事件对象前冻结的选中状态 / Checked state frozen before React releases the event object. */
+                  const checked = event.currentTarget.checked
                   setSelectedKnowledgeSourceIds((current) => {
                     const next = new Set(current)
-                    if (event.currentTarget.checked) next.add(source.id)
+                    if (checked) next.add(source.id)
                     else next.delete(source.id)
                     return next
                   })

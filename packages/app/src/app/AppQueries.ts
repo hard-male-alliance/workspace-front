@@ -88,6 +88,34 @@ export interface AppQueries {
   readonly workspaceHome: WorkspaceHomeQuery
 }
 
+/** @brief 面试知识检索的当前 scope 与只读兼容别名 / Current scope and read-only compatibility alias for Interview knowledge retrieval. */
+const INTERVIEW_KNOWLEDGE_AGENT_SCOPES = new Set(['interview_coach', 'interview_agent'])
+
+/**
+ * @brief 判断策略是否允许面试助手检索来源 / Decide whether a policy allows the Interview coach to retrieve a source.
+ * @param policy KnowledgeSource 的完整可见性策略 / Complete visibility policy of the KnowledgeSource.
+ * @return 当前或旧版面试 scope 具有有效 retrieve 权限时为 true / True when the current or legacy Interview scope has effective retrieve access.
+ * @note 与后端 fail-closed 规则一致：retrieve deny 优先，存在同 scope 的非 retrieve grant 时不回退 default effect。
+ * / Mirrors the backend fail-closed rule: retrieve deny wins, and a non-retrieve grant for the same scope prevents default fallback.
+ */
+function allowsInterviewKnowledgeRetrieval(
+  policy: Awaited<
+    ReturnType<AppGateways['knowledge']['listKnowledgeSourcePage']>
+  >['items'][number]['visibility']
+): boolean {
+  /** @brief 当前与兼容 scope 的全部规则 / All rules for current and compatible scopes. */
+  const scopeGrants = policy.agentGrants.filter((grant) =>
+    INTERVIEW_KNOWLEDGE_AGENT_SCOPES.has(grant.agentScope)
+  )
+  /** @brief 仅控制检索操作的规则 / Rules governing only the retrieve operation. */
+  const retrievalGrants = scopeGrants.filter((grant) =>
+    grant.allowedOperations.includes('retrieve')
+  )
+  if (retrievalGrants.some((grant) => grant.effect === 'deny')) return false
+  if (retrievalGrants.some((grant) => grant.effect === 'allow')) return true
+  return scopeGrants.length === 0 && policy.defaultEffect === 'allow'
+}
+
 /**
  * @brief 构造仅依赖已接通 v2 能力的 Workspace 首页读模型 / Build the Workspace-home read model from connected v2 capabilities only.
  * @param workspaceAccess 当前 WorkspaceAccess 权威 / Current WorkspaceAccess authority.
@@ -149,18 +177,13 @@ export function createAppQueries(
         })
         signal.throwIfAborted()
         for (const source of page.items) {
-          const grants = source.visibility.agentGrants.filter(
-            (grant) =>
-              grant.agentScope === 'interview_coach' && grant.allowedOperations.includes('derive')
-          )
           if (
             source.enabled &&
             source.ingestion.status === 'ready' &&
             source.currentVersionId !== null &&
             source.visibility.allowedModelRegions.includes('global') &&
             source.visibility.allowExternalModelProcessing &&
-            grants.some((grant) => grant.effect === 'allow') &&
-            !grants.some((grant) => grant.effect === 'deny')
+            allowsInterviewKnowledgeRetrieval(source.visibility)
           ) {
             materials.push({ id: source.id, name: source.name, sourceType: source.sourceType })
           }
