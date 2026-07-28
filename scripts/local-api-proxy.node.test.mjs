@@ -66,6 +66,44 @@ function observeSocket(socket) {
 }
 
 describe('local API proxy', () => {
+  it('projects an upstream HTTP failure as a CORS-readable Problem for an allowed origin', async () => {
+    const { createLocalApiProxy } = await import('./local-api-proxy.mjs')
+    const reserved = http.createServer()
+    const unavailablePort = await listenOnLoopback(reserved)
+    await closeServer(reserved)
+    const proxy = createLocalApiProxy({
+      allowedOrigins: ['http://localhost:5173'],
+      upstreamHost: '127.0.0.1',
+      upstreamPort: unavailablePort
+    })
+
+    try {
+      const proxyPort = await listenOnLoopback(proxy)
+      const response = await fetch(`http://127.0.0.1:${String(proxyPort)}/api/v2/workspaces`, {
+        headers: { origin: 'http://localhost:5173' }
+      })
+
+      expect(response.status).toBe(502)
+      expect(response.headers.get('access-control-allow-origin')).toBe('http://localhost:5173')
+      expect(response.headers.get('content-type')).toBe('application/problem+json')
+      await expect(response.json()).resolves.toMatchObject({
+        detail: 'The local backend is unavailable.',
+        status: 502,
+        title: 'Bad Gateway',
+        type: 'about:blank'
+      })
+
+      const untrusted = await fetch(
+        `http://127.0.0.1:${String(proxyPort)}/api/v2/workspaces`,
+        { headers: { origin: 'https://untrusted.example' } }
+      )
+      expect(untrusted.status).toBe(502)
+      expect(untrusted.headers.get('access-control-allow-origin')).toBeNull()
+    } finally {
+      await closeServer(proxy)
+    }
+  })
+
   it('forwards a WebSocket upgrade and bidirectional bytes through the local entry point', async () => {
     const proxyModule = await import('./local-api-proxy.mjs').catch((error) => error)
 

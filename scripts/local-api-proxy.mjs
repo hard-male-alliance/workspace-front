@@ -39,6 +39,34 @@ function destroySockets(clientSocket, upstreamSocket) {
 }
 
 /**
+ * @brief 投影不泄露上游细节的代理错误 / Project a proxy failure without upstream details.
+ * @param {http.IncomingMessage} request
+ * @param {http.ServerResponse} response
+ * @param {ReadonlySet<string>} allowedOrigins
+ * @return {void}
+ */
+function writeHttpProxyFailure(request, response, allowedOrigins) {
+  const headers = {
+    'cache-control': 'no-store',
+    'content-type': 'application/problem+json'
+  }
+  const origin = request.headers.origin
+  if (typeof origin === 'string' && allowedOrigins.has(origin)) {
+    headers['access-control-allow-origin'] = origin
+    headers.vary = 'Origin'
+  }
+  response.writeHead(502, headers)
+  response.end(
+    JSON.stringify({
+      detail: 'The local backend is unavailable.',
+      status: 502,
+      title: 'Bad Gateway',
+      type: 'about:blank'
+    })
+  )
+}
+
+/**
  * @param {{
  *   clientHead: Buffer,
  *   clientSocket: net.Socket,
@@ -103,12 +131,13 @@ function proxyWebSocketUpgrade({
  * @param {{
  *   request: http.IncomingMessage,
  *   response: http.ServerResponse,
+ *   allowedOrigins: ReadonlySet<string>,
  *   upstreamHost: string,
  *   upstreamPort: number
  * }} options
  * @return {void}
  */
-function proxyHttpRequest({ request, response, upstreamHost, upstreamPort }) {
+function proxyHttpRequest({ request, response, allowedOrigins, upstreamHost, upstreamPort }) {
   const upstream = http.request(
     {
       headers: createUpstreamHeaders(request, upstreamHost, upstreamPort),
@@ -124,10 +153,8 @@ function proxyHttpRequest({ request, response, upstreamHost, upstreamPort }) {
   )
 
   upstream.once('error', () => {
-    if (!response.headersSent) {
-      response.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' })
-    }
-    response.end('Local backend is unavailable.')
+    if (!response.headersSent) writeHttpProxyFailure(request, response, allowedOrigins)
+    else response.end()
   })
   request.once('error', () => upstream.destroy())
   request.pipe(upstream)
@@ -136,15 +163,27 @@ function proxyHttpRequest({ request, response, upstreamHost, upstreamPort }) {
 /**
  * Create the local development entry point shared by product HTTP and interview WebSocket traffic.
  *
- * @param {{ upstreamHost?: string, upstreamPort?: number }} [options]
+ * @param {{ allowedOrigins?: readonly string[], upstreamHost?: string, upstreamPort?: number }} [options]
  * @return {http.Server}
  */
 export function createLocalApiProxy({
+  allowedOrigins = [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://dev.hmalliances.org:5173'
+  ],
   upstreamHost = '127.0.0.1',
   upstreamPort = 8000
 } = {}) {
+  const allowedOriginSet = new Set(allowedOrigins)
   const server = http.createServer((request, response) => {
-    proxyHttpRequest({ request, response, upstreamHost, upstreamPort })
+    proxyHttpRequest({
+      request,
+      response,
+      allowedOrigins: allowedOriginSet,
+      upstreamHost,
+      upstreamPort
+    })
   })
   server.on('upgrade', (request, socket, head) => {
     proxyWebSocketUpgrade({
