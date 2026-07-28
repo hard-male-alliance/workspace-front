@@ -111,10 +111,14 @@ function supportsInlinePdfPreview(): boolean {
 export interface ResumePreviewPanelProps {
   /** @brief AI 修改或撤销完成后自动启动当前 revision 的一次预览 / Automatically start one preview after an AI edit or undo. */
   readonly autoStart?: boolean
+  /** @brief 保存进行中时把本次生成请求延迟到新 revision / Defer this render request to the new revision while a save is active. */
+  readonly deferRenderUntilMutationSettles: () => Promise<boolean>
   /** @brief 当前完整 Resume 权威 / Current complete Resume authority. */
   readonly editor: UiResumeEditorModel
   /** @brief Resume/template/revision 变化时更新的预览代际 / Preview generation updated with Resume/template/revision changes. */
   readonly generation: string
+  /** @brief 中栏是否存在尚未保存的本地改动 / Whether the editor pane contains unsaved local changes. */
+  readonly hasUnsavedChanges: boolean
   /** @brief 文档权威状态未恢复时禁止创建新 Job / Prevent new Job creation until document authority is recovered. */
   readonly isWriteLocked: boolean
   /** @brief 自动启动意图已被当前组件消费 / Current component consumed the auto-start intent. */
@@ -146,8 +150,10 @@ interface ResumeRenderCancelIntent {
  */
 export function ResumePreviewPanel({
   autoStart = false,
+  deferRenderUntilMutationSettles,
   editor,
   generation,
+  hasUnsavedChanges,
   isWriteLocked,
   onAutoStartConsumed,
   pdfSupported
@@ -503,10 +509,14 @@ export function ResumePreviewPanel({
    */
   const renderPdf = async (recovered?: UiWorkspaceJobAuthority): Promise<void> => {
     if (renderInFlightRef.current || isWriteLocked || !pdfSupported) return
+    renderInFlightRef.current = true
+    if (recovered === undefined && (await deferRenderUntilMutationSettles())) {
+      renderInFlightRef.current = false
+      return
+    }
     /** @brief 本次是否只继续读取已知 Job / Whether this run only resumes a known Job. */
     const resumeKnownJob =
       recovered !== undefined || (canResumePolling && jobAuthorityRef.current !== null)
-    renderInFlightRef.current = true
     renderAbortRef.current?.abort()
     saveAbortRef.current?.abort()
     cancelAbortRef.current?.abort()
@@ -597,10 +607,14 @@ export function ResumePreviewPanel({
     }
   }
 
-  useEffect((): void => {
+  useEffect((): (() => void) | void => {
     if (!autoStart) return
-    onAutoStartConsumed?.()
-    void renderPdf()
+    /** @brief 延迟自动生成，避免在 Effect 主体内同步触发 React 状态更新 / Deferred auto-render avoiding synchronous React state updates inside the Effect body. */
+    const timeoutId = window.setTimeout((): void => {
+      onAutoStartConsumed?.()
+      void renderPdf()
+    }, 0)
+    return (): void => window.clearTimeout(timeoutId)
     // `generation` is the immutable Resume revision/template identity that owns this one-shot.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoStart, generation])
@@ -915,7 +929,8 @@ export function ResumePreviewPanel({
   /** @brief 当前展示的已验证 PDF 是否落后于编辑器中的权威 Resume revision / Whether the displayed validated PDF predates the authoritative editor revision. */
   const isDisplayedPdfStale =
     artifact !== null &&
-    (artifact.subject.resourceType !== 'resume' ||
+    (hasUnsavedChanges ||
+      artifact.subject.resourceType !== 'resume' ||
       artifact.subject.id !== editor.resume.id ||
       artifact.subject.revision !== editor.resume.revision)
 

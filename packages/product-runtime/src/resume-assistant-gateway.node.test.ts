@@ -11,11 +11,12 @@ import {
   type UiResumeEditorModel,
   type UiResumeProposalAuthority
 } from '@ai-job-workspace/app/application'
-import type {
-  AgentConversation,
-  AgentMessage,
-  AgentRun,
-  ResumeAssistantAgentApi
+import {
+  ApiV2NetworkError,
+  type AgentConversation,
+  type AgentMessage,
+  type AgentRun,
+  type ResumeAssistantAgentApi
 } from '@ai-job-workspace/product-api-v2'
 
 import { createApiV2ResumeAssistantGateway } from './resume-assistant-gateway'
@@ -225,6 +226,77 @@ describe('Resume assistant gateway', () => {
     )
     expect(review.decideResumeProposal).not.toHaveBeenCalled()
     expect(thread.pendingProposal).toBe(authority)
+  })
+
+  it('keeps tracking the same Run after a status-read timeout', async () => {
+    vi.useFakeTimers()
+    try {
+      const api = apiDouble()
+      const review = reviewDouble()
+      const authority = {
+        concurrencyToken: '"proposal-after-timeout-1"',
+        proposal: {
+          id: asUiOpaqueId<'resume-proposal'>(PROPOSAL_ID),
+          status: 'pending'
+        }
+      } as UiResumeProposalAuthority
+      const waitingRun = run({
+        outputMessageId: 'message_waiting_after_timeout_01',
+        proposalIds: [PROPOSAL_ID],
+        status: 'waiting_for_proposal_decision'
+      })
+      vi.mocked(api.createRun).mockResolvedValue(run({ status: 'running' }))
+      vi.mocked(api.getRun)
+        .mockRejectedValueOnce(new ApiV2NetworkError('timeout'))
+        .mockResolvedValue(waitingRun)
+      vi.mocked(review.getResumeProposal).mockResolvedValue(authority)
+
+      const result = createApiV2ResumeAssistantGateway(api, review, knowledgeDouble()).ask(
+        request()
+      )
+      const assertion = expect(result).resolves.toEqual(
+        expect.objectContaining({
+          pendingProposal: authority
+        })
+      )
+      await vi.advanceTimersByTimeAsync(2_000)
+
+      await assertion
+      expect(api.createRun).toHaveBeenCalledTimes(1)
+      expect(api.getRun).toHaveBeenCalledTimes(3)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps tracking the same continuation after a status-read timeout', async () => {
+    vi.useFakeTimers()
+    try {
+      const api = apiDouble()
+      vi.mocked(api.getRun)
+        .mockRejectedValueOnce(new ApiV2NetworkError('timeout'))
+        .mockResolvedValue(run({ outputMessageId: 'message_final_after_timeout_01' }))
+      const gateway = createApiV2ResumeAssistantGateway(api, reviewDouble(), knowledgeDouble())
+
+      const result = gateway.waitForProposalContinuation({
+        ...request(''),
+        continuation: {
+          runId: RUN_ID,
+          waitingOutputMessageId: 'message_waiting_before_timeout_01'
+        }
+      })
+      const assertion = expect(result).resolves.toEqual(
+        expect.objectContaining({
+          problemCode: null
+        })
+      )
+      await vi.advanceTimersByTimeAsync(1_000)
+
+      await assertion
+      expect(api.getRun).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('maps message proposal references to authoritative terminal proposal states', async () => {

@@ -1475,15 +1475,104 @@ export function createApiV2ResumeGateway(
         }
       )
     },
+    async updateResumeProfile(input): Promise<UiResumeEditorModel> {
+      /** @brief 个人简介的 wire 富文本值 / Wire rich-text value for the profile summary. */
+      const expectedSummary =
+        input.field === 'summary' && input.value !== null
+          ? mapUiResumeRichTextToApiV2(input.value)
+          : null
+      /** @brief 领域字段对应的 canonical profile wire 字段 / Canonical profile wire field for the domain field. */
+      const wireField = input.field === 'fullName' ? 'full_name' : input.field
+      /** @brief set_field 接受的完整 JSON 值 / Complete JSON value accepted by set_field. */
+      let value: UiJsonValue
+      if (input.field === 'summary') {
+        value = input.value === null ? null : encodeUiResumeRichTextValue(input.value)
+      } else {
+        value = input.value
+      }
+      /** @brief 稳定 Resume 根实体上的单字段 operation / Single-field operation on the stable Resume root entity. */
+      const operations: ResumeOperation[] = [
+        {
+          entity_id: input.resumeId,
+          field_path: ['profile', wireField],
+          op: 'set_field',
+          operation_id: resumeOperationId(input.commandId, `profile-${input.field}`),
+          value
+        }
+      ]
+      return applyResumeCommand(
+        operationsClient,
+        input,
+        input.signal,
+        operations,
+        'rebase_if_safe',
+        (document) => {
+          if (input.field === 'summary') {
+            return input.value === null
+              ? document.profile.summary === null
+              : expectedSummary !== null &&
+                  resumeRichTextsEqual(document.profile.summary, expectedSummary)
+          }
+          return document.profile[wireField] === input.value
+        }
+      )
+    },
+    async updateResumeContact(input): Promise<UiResumeEditorModel> {
+      /** @brief 稳定联系方式实体上的单字段 operation / Single-field operation on the stable contact entity. */
+      const operations: ResumeOperation[] = [
+        {
+          entity_id: input.contactId,
+          field_path: [input.field],
+          op: 'set_field',
+          operation_id: resumeOperationId(input.commandId, `contact-${input.field}`),
+          value: input.value
+        }
+      ]
+      return applyResumeCommand(
+        operationsClient,
+        input,
+        input.signal,
+        operations,
+        'rebase_if_safe',
+        (document) =>
+          document.profile.contacts.some(
+            (contact) => contact.id === input.contactId && contact[input.field] === input.value
+          )
+      )
+    },
     async updateResumeItem(input): Promise<UiResumeEditorModel> {
       /** @brief 稳定条目身份上的单字段语义操作 / Single-field semantic operation on a stable item identity. */
+      const value: UiJsonValue =
+        input.field === 'highlights'
+          ? input.value.map(encodeUiResumeRichTextValue)
+          : input.field === 'summary'
+            ? input.value === null
+              ? null
+              : encodeUiResumeRichTextValue(input.value)
+            : input.field === 'dateRange'
+              ? input.value === null
+                ? null
+                : { end: input.value.end, start: input.value.start }
+              : input.field === 'skills'
+                ? [...input.value]
+                : input.value
+      /** @brief 写后权威中必须出现的完整 highlights / Complete highlights required in post-write authority. */
+      const expectedHighlights =
+        input.field === 'highlights' ? input.value.map(mapUiResumeRichTextToApiV2) : null
+      /** @brief 写后权威中必须出现的摘要 / Summary required in post-write authority. */
+      const expectedSummary =
+        input.field === 'summary' && input.value !== null
+          ? mapUiResumeRichTextToApiV2(input.value)
+          : null
+      /** @brief camelCase 领域字段对应的 canonical wire 字段 / Canonical wire field for the camelCase domain field. */
+      const wireField = input.field === 'dateRange' ? 'date_range' : input.field
       const operations: ResumeOperation[] = [
         {
           entity_id: input.itemId,
-          field_path: [input.field],
+          field_path: [wireField],
           op: 'set_field',
           operation_id: resumeOperationId(input.commandId, `item-${input.field}`),
-          value: input.value
+          value
         }
       ]
       return applyResumeCommand(
@@ -1495,7 +1584,37 @@ export function createApiV2ResumeGateway(
         (document) =>
           document.sections
             .flatMap((section) => section.items)
-            .some((item) => item.id === input.itemId && item[input.field] === input.value)
+            .some((item) => {
+              if (item.id !== input.itemId) return false
+              if (input.field === 'highlights' && expectedHighlights !== null) {
+                return (
+                  item.highlights.length === expectedHighlights.length &&
+                  item.highlights.every((highlight, index) => {
+                    /** @brief 同一位置的预期要点 / Expected highlight at the same position. */
+                    const expected = expectedHighlights[index]
+                    return expected !== undefined && resumeRichTextsEqual(highlight, expected)
+                  })
+                )
+              }
+              if (input.field === 'summary') {
+                return input.value === null
+                  ? item.summary === null
+                  : expectedSummary !== null && resumeRichTextsEqual(item.summary, expectedSummary)
+              }
+              if (input.field === 'dateRange') {
+                return input.value === null
+                  ? item.date_range === null
+                  : item.date_range?.start === input.value.start &&
+                      item.date_range.end === input.value.end
+              }
+              if (input.field === 'skills') {
+                return (
+                  item.skills.length === input.value.length &&
+                  item.skills.every((skill, index) => skill === input.value[index])
+                )
+              }
+              return item[input.field] === input.value
+            })
       )
     },
     async updateResumeTemplateAndStyle(command, signal): Promise<UiResumeEditorModel> {
