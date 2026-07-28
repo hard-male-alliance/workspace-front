@@ -1731,7 +1731,6 @@ export function ResumeWorkspace({
         editor={editor}
         generation={previewGeneration}
         isWriteLocked={isWriteLocked}
-        key={previewGeneration}
         onAutoStartConsumed={(): void => setAutoRenderRevision(null)}
         pdfSupported={selectedTemplate?.supportedOutputFormats.includes('pdf') === true}
       />

@@ -38,6 +38,11 @@ function desktopTemplateSettingsLink(accessibleName: string): HTMLElement {
   return within(screen.getByRole('toolbar')).getByRole('link', { name: accessibleName })
 }
 
+/** @brief 等待真实 Resume 编辑控件完成加载 / Wait until the real Resume editing controls are ready. */
+async function waitForResumeEditor(): Promise<void> {
+  await screen.findByRole('textbox', { name: /区段标题|Section title/u })
+}
+
 /** @brief 简历编辑器用户行为测试 / Resume-editor user-behaviour tests. */
 describe('WorkspaceApp Resume editor', (): void => {
   it('rebuilds editor aggregate state when the authoritative Resume ID changes', async (): Promise<void> => {
@@ -80,7 +85,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     window.history.replaceState(null, '', `/resumes/${MOCK_RESUME_ID}/edit`)
 
     render(<WorkspaceApp gateways={createTestGateways({ resume })} />)
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
     fireEvent.change(screen.getByRole('textbox', { name: '区段标题' }), {
       target: { value: '只属于 A 的本地草稿' }
     })
@@ -182,7 +187,7 @@ describe('WorkspaceApp Resume editor', (): void => {
 
     render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
 
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
 
     expect(screen.getByRole('toolbar', { name: '简历窗口控制' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'AI 对话' })).toBeInTheDocument()
@@ -190,7 +195,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     expect(screen.getByRole('heading', { name: '预览' })).toBeInTheDocument()
     expect(screen.getByRole('complementary', { name: 'AI 对话' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: '内容编辑' })).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: '语义内容预览' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'PDF 预览' })).toBeInTheDocument()
     expect(screen.getAllByRole('separator')).toHaveLength(2)
   })
 
@@ -206,7 +211,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
 
     /** @brief 当前聚焦 section 的标题输入 / Title input of the currently focused section. */
     const title = screen.getByRole('textbox', { name: '区段标题' })
@@ -229,7 +234,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     await setWorkspaceAppTestLocale('zh-SG')
 
     render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
 
     fireEvent.click(screen.getByRole('button', { name: '收起“AI 对话”窗口' }))
     fireEvent.click(screen.getByRole('button', { name: '收起“内容编辑”窗口' }))
@@ -257,7 +262,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
     /** @brief 尚未保存的板块标题 / Unsaved section-title draft. */
     const title = screen.getByRole('textbox', { name: '区段标题' })
     /** @brief 尚未保存的板块正文 / Unsaved section-body draft. */
@@ -311,7 +316,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
     /** @brief 同一 prototype-name section 的两个独立本地字段 / Two independent local fields of the same prototype-name section. */
     const title = screen.getByRole('textbox', { name: '区段标题' })
     const content = screen.getByRole('textbox', { name: '语义内容' })
@@ -326,7 +331,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     await setWorkspaceAppTestLocale('zh-SG')
 
     render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
 
     const composer = screen.getByRole('textbox', { name: '询问简历助手' })
     const send = await screen.findByRole('button', { name: '发送消息' })
@@ -405,7 +410,7 @@ describe('WorkspaceApp Resume editor', (): void => {
           initialPath="/resumes/res_mock_ai_platform/edit"
         />
       )
-      await screen.findByRole('heading', { name: 'Klee Chen' })
+      await waitForResumeEditor()
       /** @brief 语义内容编辑框 / Semantic-content editor. */
       const content = screen.getByRole('textbox', { name: 'Semantic content' })
       fireEvent.change(content, { target: { value: 'A stale local edit' } })
@@ -549,7 +554,7 @@ describe('WorkspaceApp Resume editor', (): void => {
           initialPath="/resumes/res_mock_ai_platform/edit"
         />
       )
-      await screen.findByRole('heading', { name: 'Klee Chen' })
+      await waitForResumeEditor()
 
       /** @brief 触发当前参数指定的用户写操作 / Trigger the user mutation selected by the current parameter. */
       const triggerMutation = (): void => {
@@ -680,7 +685,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
     /** @brief 结果未知后仍保留的字段草稿 / Field draft retained after an unknown outcome. */
     const content = screen.getByRole('textbox', { name: 'Semantic content' })
     fireEvent.change(content, { target: { value: 'Confirm this exact command' } })
@@ -764,7 +769,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
     /** @brief 处理中命令携带的正文草稿 / Body draft carried by the in-progress command. */
     const content = screen.getByRole('textbox', { name: 'Semantic content' })
     fireEvent.change(content, { target: { value: 'Confirm the in-progress command' } })
@@ -838,7 +843,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
     /** @brief 结果未知期间必须保留的本地正文草稿 / Local body draft retained while the outcome is unknown. */
     const content = screen.getByRole('textbox', { name: 'Semantic content' })
     fireEvent.change(content, { target: { value: 'Retain after terminal rejection' } })
@@ -902,7 +907,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
     /** @brief 将触发终态坏响应的正文输入 / Body input triggering the terminal invalid response. */
     const content = screen.getByRole('textbox', { name: 'Semantic content' })
     fireEvent.change(content, { target: { value: 'Retain after invalid success' } })
@@ -968,7 +973,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
     /** @brief 坏 409 期间必须保留的正文草稿 / Body draft retained across the malformed 409. */
     const content = screen.getByRole('textbox', { name: 'Semantic content' })
     fireEvent.change(content, { target: { value: 'Retry only as a new explicit command' } })
@@ -1042,7 +1047,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
     /** @brief 必须跨权威恢复保留的正文草稿 / Body draft that must survive authority recovery. */
     const content = screen.getByRole('textbox', { name: 'Semantic content' })
     fireEvent.change(content, { target: { value: 'Retain after key reuse' } })
@@ -1116,7 +1121,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
     /** @brief 未获服务端应用但必须保留的正文草稿 / Body draft not applied by the service but required to remain local. */
     const content = screen.getByRole('textbox', { name: '语义内容' })
     fireEvent.change(content, { target: { value: '需要基于新版本确认的草稿' } })
@@ -1220,7 +1225,7 @@ describe('WorkspaceApp Resume editor', (): void => {
           initialPath="/resumes/res_mock_ai_platform/edit"
         />
       )
-      await screen.findByRole('heading', { name: 'Klee Chen' })
+      await waitForResumeEditor()
       /** @brief section 标题输入 / Section-title input. */
       const title = screen.getByRole('textbox', { name: '区段标题' })
       /** @brief section 正文输入 / Section-body input. */
@@ -1300,7 +1305,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
     /** @brief 不得因服务端删除而静默丢失的本地正文 / Local body that must not be silently lost after server-side deletion. */
     const content = screen.getByRole('textbox', { name: '语义内容' })
     fireEvent.change(content, { target: { value: '必须允许复制恢复的本地正文' } })
@@ -1350,7 +1355,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
     /** @brief 用户正在保存的语义正文 / Semantic body currently being saved. */
     const content = screen.getByRole('textbox', { name: '语义内容' })
     fireEvent.change(content, { target: { value: '正在保存的内容' } })
@@ -1396,7 +1401,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
 
     fireEvent.click(screen.getByRole('button', { name: '下移职业摘要' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('无法调整板块顺序。')
@@ -1442,7 +1447,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
     /** @brief 用户正在编辑的语义正文 / Semantic body edited by the user. */
     const content = screen.getByRole('textbox', { name: '语义内容' })
 
@@ -1472,7 +1477,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     await setWorkspaceAppTestLocale('zh-SG')
 
     render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
 
     expect(screen.getByRole('button', { name: '下移职业摘要' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '删除职业摘要' })).toBeInTheDocument()
@@ -1512,7 +1517,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
 
     /** @brief 历史 exact pinned 身份的设置入口 / Settings entry for the historical exact pinned identity. */
     const templateSettings = desktopTemplateSettingsLink('打开模板与样式设置')

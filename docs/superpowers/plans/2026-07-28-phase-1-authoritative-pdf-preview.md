@@ -23,9 +23,11 @@
 ### Task 1: Lock the real regression into the Resume Artifact DOM seam
 
 **Files:**
+
 - Modify: `packages/app/tests/integration/WorkspaceApp.resume-artifact.dom.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `WorkspaceApp`, `InMemoryResumeGateway`, `InMemoryWorkspaceOperationsGateway`, and the production `ResumePreviewPanel`.
 - Produces: regression tests for empty, stale, replacement, failure, and unmount PDF states.
 
@@ -40,9 +42,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 Replace the fixed return value in `installBlobUrlHost` with an optional sequence:
 
 ```ts
-function installBlobUrlHost(
-  urls: readonly string[] = ['blob:resume-pdf-preview']
-): {
+function installBlobUrlHost(urls: readonly string[] = ['blob:resume-pdf-preview']): {
   readonly createObjectURL: ReturnType<typeof vi.fn<(blob: Blob) => string>>
   readonly revokeObjectURL: ReturnType<typeof vi.fn<(url: string) => void>>
 } {
@@ -89,10 +89,7 @@ The test must:
 Use this assertion shape:
 
 ```ts
-expect(screen.getByTitle('简历 PDF 预览')).toHaveAttribute(
-  'src',
-  'blob:resume-pdf-revision-18'
-)
+expect(screen.getByTitle('简历 PDF 预览')).toHaveAttribute('src', 'blob:resume-pdf-revision-18')
 expect(
   screen.getByText('当前 PDF 基于较早的简历版本生成。请手动生成新的 PDF 以查看最新改动。')
 ).toBeInTheDocument()
@@ -100,10 +97,7 @@ expect(startRender).toHaveBeenCalledTimes(1)
 
 fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
 await waitFor(() =>
-  expect(screen.getByTitle('简历 PDF 预览')).toHaveAttribute(
-    'src',
-    'blob:resume-pdf-revision-19'
-  )
+  expect(screen.getByTitle('简历 PDF 预览')).toHaveAttribute('src', 'blob:resume-pdf-revision-19')
 )
 expect(objectUrls.revokeObjectURL).toHaveBeenCalledWith('blob:resume-pdf-revision-18')
 ```
@@ -114,10 +108,7 @@ Configure the second Artifact stream to fail. Assert that revision 18 remains di
 
 ```ts
 expect(await screen.findByRole('alert')).toHaveTextContent('无法生成 PDF 预览')
-expect(screen.getByTitle('简历 PDF 预览')).toHaveAttribute(
-  'src',
-  'blob:resume-pdf-revision-18'
-)
+expect(screen.getByTitle('简历 PDF 预览')).toHaveAttribute('src', 'blob:resume-pdf-revision-18')
 expect(objectUrls.revokeObjectURL).not.toHaveBeenCalledWith('blob:resume-pdf-revision-18')
 ```
 
@@ -147,11 +138,13 @@ git commit -m "test: reproduce stale Resume PDF preview replacement"
 ### Task 2: Keep a validated PDF lease across Resume generations
 
 **Files:**
+
 - Modify: `packages/app/src/contexts/resume/presentation/ResumePreviewPanel.tsx`
 - Modify: `packages/app/src/contexts/resume/presentation/ResumeWorkspace.tsx`
 - Modify: `packages/app/src/i18n/resources.ts`
 
 **Interfaces:**
+
 - Consumes: `UiWorkspaceArtifact`, `ResumePdfPreviewLease`, `generation`, and the current `UiResumeEditorModel`.
 - Produces: `DisplayedResumePdf`, a persistent real-PDF-only state, and stale/current presentation.
 
@@ -272,7 +265,7 @@ Keep displaying its iframe while presenting `resume.workspace.pdfOutdated`.
 In `ResumeWorkspace.tsx`, remove:
 
 ```tsx
-key={previewGeneration}
+key = { previewGeneration }
 ```
 
 Continue passing `generation={previewGeneration}` so stale asynchronous results are rejected.
@@ -321,10 +314,12 @@ git commit -m "fix: keep Resume preview on the last real PDF"
 ### Task 3: Verify the real XeLaTeX and browser path
 
 **Files:**
+
 - Create temporary validation outputs only under: `../.tmp/phase-1-pdf-validation/`
 - Do not modify backend production code.
 
 **Interfaces:**
+
 - Consumes: the running Web app, API proxy, FastAPI backend, PostgreSQL, Render Job, Artifact stream, XeLaTeX, and Poppler.
 - Produces: browser evidence and deterministic page/text/raster comparisons for the same revision/template.
 

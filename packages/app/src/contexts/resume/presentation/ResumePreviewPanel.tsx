@@ -25,7 +25,6 @@ import {
   isResumeUnreplayableContractResponse
 } from '../application/errors'
 import type { UiResumeEditorModel } from '../domain/document'
-import { ResumeSemanticPreview } from './ResumeSemanticPreview'
 import { createResumePdfPreviewLease, type ResumePdfPreviewLease } from './resume-pdf-preview'
 
 /** @brief 原生 PDF 查看器必须完成 iframe 加载的时限 / Deadline for the native PDF viewer to finish loading the iframe. */
@@ -250,18 +249,49 @@ export function ResumePreviewPanel({
     return (): void => globalThis.clearTimeout(timer)
   }, [inlinePreviewStatus, previewLease])
 
-  useEffect((): (() => void) => {
+  useEffect((): void => {
+    const previousGeneration = activeGenerationRef.current
     activeGenerationRef.current = generation
-    return (): void => {
-      if (activeGenerationRef.current === generation) activeGenerationRef.current = null
+    if (previousGeneration === null || previousGeneration === generation) return
+    renderAbortRef.current?.abort()
+    auxiliaryAbortRef.current?.abort()
+    cancelAbortRef.current?.abort()
+    saveAbortRef.current?.abort()
+    renderInFlightRef.current = false
+    cancelInFlightRef.current = false
+    recoveryInFlightRef.current = false
+    saveInFlightRef.current = false
+    jobAuthorityRef.current = null
+    startCommandIdRef.current = null
+    cancelIntentRef.current = null
+    setJobAuthority(null)
+    setStartCommandId(null)
+    setStartConfirmDelayMilliseconds(null)
+    setCancelCommandId(null)
+    setCancelConfirmDelayMilliseconds(null)
+    setCancelAuthorityRequired(false)
+    setRecoveryCandidates([])
+    setRecoveryHasMore(false)
+    setRecoverySearched(false)
+    setRendering(false)
+    setCancelling(false)
+    setFindingRecovery(false)
+    setSaving(false)
+    setPreviewProgress(null)
+  }, [generation])
+
+  useEffect(
+    (): (() => void) => (): void => {
+      activeGenerationRef.current = null
       renderAbortRef.current?.abort()
       auxiliaryAbortRef.current?.abort()
       cancelAbortRef.current?.abort()
       saveAbortRef.current?.abort()
       previewLeaseRef.current?.dispose()
       previewLeaseRef.current = null
-    }
-  }, [generation])
+    },
+    []
+  )
 
   /**
    * @brief 判断异步操作是否仍可提交到当前预览代际 / Test whether an async operation may still commit to the current preview generation.
@@ -298,7 +328,7 @@ export function ResumePreviewPanel({
 
   /**
    * @brief 替换并释放上一份 Blob URL 租约 / Replace and release the previous Blob-URL lease.
-   * @param lease 新租约；null 表示回到语义预览 / New lease, or null to return to semantic preview.
+   * @param lease 新租约；null 表示当前没有可展示的 PDF / New lease, or null when no PDF is available to display.
    */
   const commitPreviewLease = (lease: ResumePdfPreviewLease | null): void => {
     if (previewLeaseRef.current !== lease) previewLeaseRef.current?.dispose()
@@ -307,6 +337,20 @@ export function ResumePreviewPanel({
     setInlinePreviewStatus(
       lease === null ? 'idle' : supportsInlinePdfPreview() ? 'loading' : 'unavailable'
     )
+  }
+
+  /**
+   * @brief 在新 PDF 已完成完整校验后原子替换当前展示内容 / Atomically replace the displayed PDF only after the new PDF is fully validated.
+   * @param artifactToPreview 已验证且将成为当前展示内容的 Artifact / Validated Artifact becoming the displayed PDF.
+   * @param lease 已创建的 Blob URL 租约 / Created Blob-URL lease.
+   */
+  const commitPreviewArtifact = (
+    artifactToPreview: UiWorkspaceArtifact,
+    lease: ResumePdfPreviewLease
+  ): void => {
+    commitPreviewLease(lease)
+    setArtifact(artifactToPreview)
+    setArtifactExpired(false)
   }
 
   /**
@@ -340,7 +384,7 @@ export function ResumePreviewPanel({
         lease.dispose()
         return
       }
-      commitPreviewLease(lease)
+      commitPreviewArtifact(artifactToPreview, lease)
     } finally {
       if (isCurrentGeneration(expectedGeneration)) setPreviewProgress(null)
     }
@@ -384,8 +428,6 @@ export function ResumePreviewPanel({
     /** @brief 已完成跨资源核对的 PDF Artifact / PDF Artifact after cross-resource validation. */
     const completedArtifact = completedOutput.artifact
     if (!isCurrentGeneration(expectedGeneration) || controller.signal.aborted) return
-    setArtifact(completedArtifact)
-    setArtifactExpired(false)
     await loadArtifactPreview(completedArtifact, controller, expectedGeneration)
   }
 
@@ -415,13 +457,10 @@ export function ResumePreviewPanel({
     setRecoveryHasMore(false)
     setSaveError(null)
     setSaveStatus(null)
-    setArtifact(null)
-    setArtifactExpired(false)
     cancelIntentRef.current = null
     setCancelCommandId(null)
     setCancelConfirmDelayMilliseconds(null)
     setCancelAuthorityRequired(false)
-    commitPreviewLease(null)
     setPreviewProgress(null)
     if (!resumeKnownJob) {
       jobAuthorityRef.current = null
@@ -773,17 +812,15 @@ export function ResumePreviewPanel({
                 : t('resume.workspace.pdfExpired', { defaultValue: 'PDF 生成任务已过期。' })
   /** @brief Job 失败是否需要即时告知用户 / Whether a Job failure requires an immediate alert. */
   const jobFailed = jobAuthority?.job.status === 'failed'
+  /** @brief 当前展示的已验证 PDF 是否落后于编辑器中的权威 Resume revision / Whether the displayed validated PDF predates the authoritative editor revision. */
+  const isDisplayedPdfStale =
+    artifact !== null &&
+    (artifact.subject.resourceType !== 'resume' ||
+      artifact.subject.id !== editor.resume.id ||
+      artifact.subject.revision !== editor.resume.revision)
 
   return (
-    <section
-      aria-label={
-        previewLease === null
-          ? t('resume.workspace.semanticPreviewRegion', {
-              defaultValue: '语义内容预览（非最终排版）'
-            })
-          : t('resume.workspace.pdfPreviewRegion', { defaultValue: 'PDF 预览' })
-      }
-    >
+    <section aria-label={t('resume.workspace.pdfPreviewRegion', { defaultValue: 'PDF 预览' })}>
       <div className="aw-inline-actions">
         <button
           className="aw-primary-button"
@@ -836,13 +873,6 @@ export function ResumePreviewPanel({
             {t('resume.workspace.pdfUnsupported', { defaultValue: '当前模板不支持 PDF 输出。' })}
           </span>
         ) : null}
-        {previewLease === null ? (
-          <span className="aw-muted-copy">
-            {t('resume.workspace.semanticPreviewNotice', {
-              defaultValue: '当前为语义内容预览，不代表最终模板排版。'
-            })}
-          </span>
-        ) : null}
         {artifact !== null ? (
           <button
             className="aw-quiet-button"
@@ -891,6 +921,13 @@ export function ResumePreviewPanel({
               unit: 'megabyte',
               unitDisplay: 'short'
             }).format(artifact.sizeBytes / (1024 * 1024))
+          })}
+        </p>
+      ) : null}
+      {isDisplayedPdfStale ? (
+        <p className="aw-muted-copy" role="status">
+          {t('resume.workspace.pdfOutdated', {
+            defaultValue: '当前 PDF 基于较早的简历版本生成。请手动生成新的 PDF 以查看最新改动。'
           })}
         </p>
       ) : null}
@@ -1089,10 +1126,11 @@ export function ResumePreviewPanel({
             </div>
           </div>
         ) : (
-          <ResumeSemanticPreview
-            document={editor.resume}
-            label={t('resume.semanticPreviewAria', { defaultValue: '简历语义预览' })}
-          />
+          <div className="aw-paper aw-pdf-preview-empty" role="status">
+            <strong>
+              {t('resume.workspace.pdfNotGenerated', { defaultValue: '尚未生成 PDF。' })}
+            </strong>
+          </div>
         )}
       </div>
     </section>

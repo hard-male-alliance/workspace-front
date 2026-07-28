@@ -32,12 +32,17 @@ const originalPdfViewerEnabled = Object.getOwnPropertyDescriptor(navigator, 'pdf
  * @brief 安装可观察但不读取远端 URL 的 Blob URL 宿主 / Install an observable Blob-URL host that never reads a remote URL.
  * @return create/revoke 观测器 / Create and revoke observers.
  */
-function installBlobUrlHost(): {
+function installBlobUrlHost(urls: readonly string[] = ['blob:resume-pdf-preview']): {
   readonly createObjectURL: ReturnType<typeof vi.fn<(blob: Blob) => string>>
   readonly revokeObjectURL: ReturnType<typeof vi.fn<(url: string) => void>>
 } {
   /** @brief Blob URL 创建观测器 / Blob-URL creation observer. */
-  const createObjectURL = vi.fn<(blob: Blob) => string>().mockReturnValue('blob:resume-pdf-preview')
+  let nextUrlIndex = 0
+  const createObjectURL = vi.fn<(blob: Blob) => string>().mockImplementation(() => {
+    const url = urls[Math.min(nextUrlIndex, urls.length - 1)]
+    nextUrlIndex += 1
+    return url ?? 'blob:resume-pdf-preview'
+  })
   /** @brief Blob URL 释放观测器 / Blob-URL revocation observer. */
   const revokeObjectURL = vi.fn<(url: string) => void>()
   Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectURL })
@@ -148,7 +153,7 @@ describe('WorkspaceApp Resume artifact', (): void => {
       />
     )
     await waitForResumePreviewControls()
-    fireEvent.click(screen.getByRole('button', { name: 'Generate PDF preview' }))
+    fireEvent.click(screen.getByRole('button', { name: /PDF preview|PDF 预览/u }))
     const preview = await screen.findByTitle('Resume PDF preview', {}, { timeout: 4_000 })
     expect(preview).toHaveAttribute('src', 'blob:resume-pdf-preview')
 
@@ -170,12 +175,104 @@ describe('WorkspaceApp Resume artifact', (): void => {
     ).toBeInTheDocument()
   })
 
+  it('replaces and releases the old PDF only after the new PDF is validated', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('en-US')
+    const objectUrls = installBlobUrlHost([
+      'blob:resume-pdf-preview-1',
+      'blob:resume-pdf-preview-2'
+    ])
+    const store = new InMemoryWorkspaceOperationsStore()
+    const resume = new InMemoryResumeGateway({ operationsStore: store })
+    const workspaceOperations = new InMemoryWorkspaceOperationsGateway({}, store)
+    const startRender = vi.spyOn(resume, 'startResumeRender')
+
+    render(
+      <WorkspaceApp
+        gateways={createTestGateways({ resume, workspaceOperations })}
+        initialPath="/resumes/res_mock_ai_platform/edit"
+      />
+    )
+    await waitForResumePreviewControls()
+    fireEvent.click(screen.getByRole('button', { name: /PDF preview|PDF 预览/u }))
+    expect(await screen.findByTitle('Resume PDF preview', {}, { timeout: 4_000 })).toHaveAttribute(
+      'src',
+      'blob:resume-pdf-preview-1'
+    )
+
+    const content = screen.getByRole('textbox', { name: 'Semantic content' })
+    fireEvent.change(content, { target: { value: 'A new Resume revision for PDF replacement.' } })
+    fireEvent.blur(content)
+    expect(await screen.findByText('Revision 19')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /PDF preview|PDF 预览/u }))
+    await vi.waitFor((): void => expect(startRender).toHaveBeenCalledTimes(2))
+    expect(startRender.mock.calls[0]?.[0].resumeRevision).toBe(18)
+    expect(startRender.mock.calls[1]?.[0].resumeRevision).toBe(19)
+    expect(startRender.mock.calls[1]?.[0].commandId).not.toBe(
+      startRender.mock.calls[0]?.[0].commandId
+    )
+    await vi.waitFor(
+      (): void => {
+        expect(screen.getByTitle('Resume PDF preview')).toHaveAttribute(
+          'src',
+          'blob:resume-pdf-preview-2'
+        )
+      },
+      { timeout: 4_000 }
+    )
+    expect(objectUrls.revokeObjectURL).toHaveBeenCalledOnce()
+    expect(objectUrls.revokeObjectURL).toHaveBeenCalledWith('blob:resume-pdf-preview-1')
+  })
+
+  it('keeps the old PDF when loading the newly generated PDF fails validation', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('en-US')
+    const objectUrls = installBlobUrlHost()
+    const store = new InMemoryWorkspaceOperationsStore()
+    const resume = new InMemoryResumeGateway({ operationsStore: store })
+    const workspaceOperations = new InMemoryWorkspaceOperationsGateway({}, store)
+    const readArtifactContent = workspaceOperations.readArtifactContent.bind(workspaceOperations)
+    let readCount = 0
+    vi.spyOn(workspaceOperations, 'readArtifactContent').mockImplementation(async (request) => {
+      readCount += 1
+      if (readCount === 2) throw new Error('new PDF validation failed')
+      return readArtifactContent(request)
+    })
+
+    render(
+      <WorkspaceApp
+        gateways={createTestGateways({ resume, workspaceOperations })}
+        initialPath="/resumes/res_mock_ai_platform/edit"
+      />
+    )
+    await waitForResumePreviewControls()
+    fireEvent.click(screen.getByRole('button', { name: /PDF preview|PDF 预览/u }))
+    expect(await screen.findByTitle('Resume PDF preview', {}, { timeout: 4_000 })).toHaveAttribute(
+      'src',
+      'blob:resume-pdf-preview'
+    )
+
+    const content = screen.getByRole('textbox', { name: 'Semantic content' })
+    fireEvent.change(content, { target: { value: 'A revision whose new PDF cannot be loaded.' } })
+    fireEvent.blur(content)
+    expect(await screen.findByText('Revision 19')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /PDF preview|PDF 预览/u }))
+
+    expect(await screen.findByRole('alert', {}, { timeout: 4_000 })).toHaveTextContent(
+      'Unable to generate the PDF preview'
+    )
+    expect(screen.getByTitle('Resume PDF preview')).toHaveAttribute(
+      'src',
+      'blob:resume-pdf-preview'
+    )
+    expect(objectUrls.revokeObjectURL).not.toHaveBeenCalled()
+  })
+
   it('resolves Job result_refs and previews only a validated Bearer-fetched Blob URL', async (): Promise<void> => {
     /** @brief 当前测试的 Blob URL 宿主 / Blob-URL host for this test. */
     const objectUrls = installBlobUrlHost()
 
     render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumePreviewControls()
     fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
 
     expect(await screen.findByRole('progressbar', { name: 'PDF 生成进度' })).toBeInTheDocument()
@@ -194,7 +291,7 @@ describe('WorkspaceApp Resume artifact', (): void => {
     setPdfViewerEnabled(false)
 
     render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumePreviewControls()
     fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
 
     expect(
@@ -229,7 +326,7 @@ describe('WorkspaceApp Resume artifact', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumePreviewControls()
     fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
     await screen.findByTitle('简历 PDF 预览', {}, { timeout: 4_000 })
 
@@ -268,7 +365,7 @@ describe('WorkspaceApp Resume artifact', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumePreviewControls()
     fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/结果待确认|无法确认/u)
@@ -294,7 +391,7 @@ describe('WorkspaceApp Resume artifact', (): void => {
   it('cancels the server Job instead of treating fetch abort as cancellation', async (): Promise<void> => {
     installBlobUrlHost()
     render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumePreviewControls()
     fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
 
     /** @brief 只有取得 Job identity 与强 ETag 后才出现的 cancellation / Cancellation available only after Job identity and strong ETag exist. */
@@ -353,7 +450,7 @@ describe('WorkspaceApp Resume artifact', (): void => {
           initialPath="/resumes/res_mock_ai_platform/edit"
         />
       )
-      await screen.findByRole('heading', { name: 'Klee Chen' })
+      await waitForResumePreviewControls()
       fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
       fireEvent.click(await screen.findByRole('button', { name: '取消生成' }))
 
@@ -408,7 +505,7 @@ describe('WorkspaceApp Resume artifact', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumePreviewControls()
     fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
 
     expect(await screen.findByRole('alert', {}, { timeout: 4_000 })).toHaveTextContent(
@@ -442,7 +539,7 @@ describe('WorkspaceApp Resume artifact', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumePreviewControls()
     fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
 
     expect(await screen.findByRole('alert', {}, { timeout: 4_000 })).toHaveTextContent('PDF 太大')
@@ -483,7 +580,7 @@ describe('WorkspaceApp Resume artifact', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumePreviewControls()
     fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
 
     expect(await screen.findByRole('alert', {}, { timeout: 4_000 })).toHaveTextContent(
@@ -518,7 +615,7 @@ describe('WorkspaceApp Resume artifact', (): void => {
     render(
       <WorkspaceApp artifactSave={artifactSave} initialPath="/resumes/res_mock_ai_platform/edit" />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumePreviewControls()
     fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
     await screen.findByTitle('简历 PDF 预览', {}, { timeout: 4_000 })
 
@@ -544,7 +641,7 @@ describe('WorkspaceApp Resume artifact', (): void => {
     const objectUrls = installBlobUrlHost()
     /** @brief 当前挂载的应用视图 / Mounted application view. */
     const view = render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumePreviewControls()
     fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
     await screen.findByTitle('简历 PDF 预览', {}, { timeout: 4_000 })
 

@@ -17,14 +17,14 @@ describe('WorkspaceApp Resume browser behaviour', (): void => {
     await expect.element(screen.getByRole('heading', { name: '今日工作台' })).toBeVisible()
     await screen.getByRole('link', { name: '继续编辑简历' }).click()
 
-    await expect.element(screen.getByRole('heading', { name: 'Klee Chen' })).toBeVisible()
+    await expect.element(screen.getByRole('region', { name: 'PDF 预览' })).toBeVisible()
     /** @brief API v2 模板与语义样式产品入口 / Product entry for API v2 Template and semantic style. */
     const templateSettings = screen.getByRole('link', { name: '打开模板与样式设置' })
     await expect.element(templateSettings).toBeVisible()
     await templateSettings.click()
     await expect.element(screen.getByRole('heading', { name: '模板与版式' })).toBeVisible()
     await screen.getByRole('link', { name: '返回' }).click()
-    await expect.element(screen.getByRole('heading', { name: 'Klee Chen' })).toBeVisible()
+    await expect.element(screen.getByRole('region', { name: 'PDF 预览' })).toBeVisible()
 
     if (window.matchMedia('(max-width: 900px)').matches) {
       await screen.getByRole('button', { name: '内容', exact: true }).click()
