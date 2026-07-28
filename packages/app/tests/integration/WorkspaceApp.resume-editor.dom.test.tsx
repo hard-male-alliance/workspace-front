@@ -12,7 +12,9 @@ import {
   MOCK_RESUME_ID,
   MOCK_RESUME_PROPOSALS,
   MOCK_RESUME_WORKSPACE_ID,
-  InMemoryResumeGateway
+  InMemoryResumeGateway,
+  InMemoryWorkspaceOperationsGateway,
+  InMemoryWorkspaceOperationsStore
 } from '@ai-job-workspace/app/testing'
 
 import {
@@ -290,6 +292,152 @@ describe('WorkspaceApp Resume editor', (): void => {
         })
       )
     })
+  })
+
+  it('waits for the latest field save before rendering PDF', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 当前测试独享的简历 Gateway / Resume Gateway owned by the current test. */
+    const resume = new InMemoryResumeGateway()
+    /** @brief 修改前的权威简历 / Authoritative Resume before the edit. */
+    const baseline = await resume.getResumeEditor(
+      MOCK_RESUME_WORKSPACE_ID,
+      MOCK_RESUME_ID,
+      ACTIVE_RESUME_READ_SIGNAL
+    )
+    /** @brief 原始个人资料保存实现 / Original profile-update implementation. */
+    const updateProfile = resume.updateResumeProfile.bind(resume)
+    /** @brief 允许测试释放保存请求 / Resolver allowing the test to release the save request. */
+    let releaseSave: (() => void) | undefined
+    /** @brief 保持个人资料保存待定的门闩 / Gate keeping the profile save pending. */
+    const saveGate = new Promise<void>((resolve): void => {
+      releaseSave = resolve
+    })
+    vi.spyOn(resume, 'updateResumeProfile').mockImplementation(async (input) => {
+      await saveGate
+      return updateProfile(input)
+    })
+    /** @brief PDF Render 创建调用观察器 / Spy observing PDF Render creation. */
+    const renderPdf = vi.spyOn(resume, 'startResumeRender')
+
+    render(
+      <WorkspaceApp
+        gateways={createTestGateways({ resume })}
+        initialPath="/resumes/res_mock_ai_platform/edit"
+      />
+    )
+    await waitForResumeEditor()
+    const fullName = screen.getByRole('textbox', { name: '姓名' })
+    const generatePdf = screen.getByRole('button', { name: '生成 PDF 预览' })
+
+    act((): void => {
+      fireEvent.change(fullName, { target: { value: '保存后再生成' } })
+      fireEvent.blur(fullName)
+      fireEvent.click(generatePdf)
+    })
+
+    expect(renderPdf).not.toHaveBeenCalled()
+
+    await act(async (): Promise<void> => {
+      releaseSave?.()
+      await saveGate
+    })
+    await vi.waitFor((): void => {
+      expect(renderPdf).toHaveBeenCalledWith(
+        expect.objectContaining({ resumeRevision: baseline.resume.revision + 1 })
+      )
+    })
+  })
+
+  it('shows the server profile after an authoritative reload', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 当前测试独享的简历 Gateway / Resume Gateway owned by the current test. */
+    const resume = new InMemoryResumeGateway()
+    /** @brief 页面首次读取的简历权威 / Resume authority initially loaded by the page. */
+    const initial = await resume.getResumeEditor(
+      MOCK_RESUME_WORKSPACE_ID,
+      MOCK_RESUME_ID,
+      ACTIVE_RESUME_READ_SIGNAL
+    )
+    /** @brief 冲突后服务器返回的简历权威 / Server Resume authority returned after the conflict. */
+    const authoritative = {
+      ...initial,
+      concurrencyToken: '"resume-profile-reload-19"' as typeof initial.concurrencyToken,
+      resume: {
+        ...initial.resume,
+        profile: { ...initial.resume.profile, fullName: '服务器姓名' },
+        revision: initial.resume.revision + 1
+      }
+    }
+    vi.spyOn(resume, 'getResumeEditor')
+      .mockResolvedValueOnce(initial)
+      .mockResolvedValue(authoritative)
+    vi.spyOn(resume, 'updateResumeProfile').mockRejectedValue(
+      new ApiV2ProblemError(
+        {
+          code: 'resume.precondition_failed',
+          detail: 'The Resume ETag is stale.',
+          errors: [],
+          extensions: null,
+          instance: null,
+          request_id: 'req_profile_reload_12345678',
+          retryable: true,
+          status: 412,
+          title: 'Resume changed elsewhere',
+          type: 'https://api.hmalliances.org/problems/resume-conflict'
+        },
+        null
+      )
+    )
+
+    render(
+      <WorkspaceApp
+        gateways={createTestGateways({ resume })}
+        initialPath="/resumes/res_mock_ai_platform/edit"
+      />
+    )
+    await waitForResumeEditor()
+    const fullName = screen.getByRole('textbox', { name: '姓名' })
+    fireEvent.change(fullName, { target: { value: '未保存的本地姓名' } })
+    fireEvent.blur(fullName)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('简历版本已过期')
+    fireEvent.click(screen.getByRole('button', { name: '重新加载服务器版本' }))
+
+    await vi.waitFor((): void => {
+      expect(screen.getByRole('textbox', { name: '姓名' })).toHaveValue('服务器姓名')
+    })
+  })
+
+  it('marks the displayed PDF stale while a semantic draft is unsaved', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 当前测试使用的共享作业存储 / Shared operation store used by the current test. */
+    const store = new InMemoryWorkspaceOperationsStore()
+    /** @brief 当前测试独享的简历 Gateway / Resume Gateway owned by the current test. */
+    const resume = new InMemoryResumeGateway({ operationsStore: store })
+    /** @brief 当前测试独享的作业 Gateway / Workspace-operation Gateway owned by the current test. */
+    const workspaceOperations = new InMemoryWorkspaceOperationsGateway({}, store)
+
+    render(
+      <WorkspaceApp
+        gateways={createTestGateways({ resume, workspaceOperations })}
+        initialPath="/resumes/res_mock_ai_platform/edit"
+      />
+    )
+    await waitForResumeEditor()
+    fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
+    expect(
+      await screen.findByText('PDF 已生成。', undefined, { timeout: 5_000 })
+    ).toBeInTheDocument()
+
+    fireEvent.change(screen.getByRole('textbox', { name: '姓名' }), {
+      target: { value: '尚未保存的新姓名' }
+    })
+
+    expect(
+      await screen.findByText(
+        '当前 PDF 基于较早的简历版本生成。请手动生成新的 PDF 以查看最新改动。'
+      )
+    ).toBeInTheDocument()
   })
 
   it('rebuilds editor aggregate state when the authoritative Resume ID changes', async (): Promise<void> => {
@@ -879,14 +1027,16 @@ describe('WorkspaceApp Resume editor', (): void => {
         />
       )
       await waitForResumeEditor()
-      /** @brief 语义内容编辑框 / Semantic-content editor. */
-      const content = screen.getByRole('textbox', { name: 'Semantic content' })
+      /** @brief 可选板块说明编辑框 / Optional section-notes editor. */
+      const content = screen.getByRole('textbox', { name: 'Optional section notes' })
       fireEvent.change(content, { target: { value: 'A stale local edit' } })
       fireEvent.blur(content)
 
-      expect(await screen.findByRole('alert')).toHaveTextContent(
-        'This resume changed on the server. Reload the authoritative version before editing.'
-      )
+      expect(
+        await screen.findByText(
+          'This resume changed on the server. Reload the authoritative version before editing.'
+        )
+      ).toBeInTheDocument()
       expect(content).toBeDisabled()
       expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled()
       expect(desktopTemplateSettingsLink('Open Template and style settings')).toHaveAttribute(
@@ -898,7 +1048,7 @@ describe('WorkspaceApp Resume editor', (): void => {
 
       fireEvent.click(screen.getByRole('button', { name: 'Reload server version' }))
       expect(await screen.findByText(`Revision ${status === 412 ? 99 : 77}`)).toBeInTheDocument()
-      expect(screen.getByRole('textbox', { name: 'Semantic content' })).toHaveValue(
+      expect(screen.getByRole('textbox', { name: 'Optional section notes' })).toHaveValue(
         'A stale local edit'
       )
     }

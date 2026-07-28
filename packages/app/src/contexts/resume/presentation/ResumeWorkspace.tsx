@@ -235,9 +235,13 @@ interface RunResumeMutation {
    * @brief 仅在当前没有 Resume 写入时执行意图 / Run an intent only when no Resume write is active.
    * @template TResult 写操作结果 / Mutation result.
    * @param mutation 延迟执行的写操作 / Deferred mutation.
+   * @param onSuccess 在释放单写通道前吸收新权威的回调 / Callback adopting new authority before the single-write lane is released.
    * @return 写结果；被当前通道拒绝时为 null / Mutation result, or null when rejected by the active lane.
    */
-  <TResult>(mutation: () => Promise<TResult>): Promise<TResult | null>
+  <TResult>(
+    mutation: () => Promise<TResult>,
+    onSuccess?: (result: TResult) => void
+  ): Promise<TResult | null>
 }
 
 /** @brief Resume mutation 错误对页面状态机的处置 / Disposition of a Resume-mutation error in the page state machine. */
@@ -800,16 +804,22 @@ function ResumeAssistantPanel({
 
 /** @brief 所有语义板块组成的连续编辑器 / Continuous editor for all semantic sections. */
 function ResumeSectionsEditor({
+  authorityReloadRevision,
   editor,
   gateway,
   isWriteLocked,
+  onDraftStateChange,
   onEditorChange,
   onMutationError,
   runMutation
 }: {
+  /** @brief 成功权威重载后递增的草稿重置代际 / Draft-reset generation incremented after a successful authority reload. */
+  readonly authorityReloadRevision: number
   readonly editor: UiResumeEditorModel
   readonly gateway: ResumeGateway
   readonly isWriteLocked: boolean
+  /** @brief 向工作区报告是否存在浏览器本地草稿 / Report whether browser-local drafts exist to the workspace. */
+  readonly onDraftStateChange: (hasDrafts: boolean) => void
   readonly onEditorChange: (editor: UiResumeEditorModel) => void
   readonly onMutationError: (
     error: unknown,
@@ -831,6 +841,9 @@ function ResumeSectionsEditor({
   )
   /** @brief 规范化条目字段的浏览器本地草稿 / Browser-local drafts for normalized item fields. */
   const [itemDrafts, setItemDrafts] = useState<ReadonlyMap<string, string>>(() => new Map())
+  /** @brief 已应用到条目草稿的最近一次权威重载代际 / Latest authority-reload generation applied to item drafts. */
+  const [itemDraftAuthorityRevision, setItemDraftAuthorityRevision] =
+    useState(authorityReloadRevision)
   /** @brief 当前正在保存的板块 / Section currently being persisted. */
   const [savingSectionId, setSavingSectionId] = useState<UiResumeSectionId | null>(null)
   /** @brief 当前正在保存的条目字段键 / Item-field key currently being persisted. */
@@ -846,10 +859,23 @@ function ResumeSectionsEditor({
   /** @brief 尚未被服务端确认的删除 command / Delete command not yet confirmed by the service. */
   const deleteCommandAttemptRef = useRef<ResumeDeleteCommandAttempt | null>(null)
 
+  /** @brief 当前编辑器是否含有尚未被服务端确认的本地草稿 / Whether the editor contains local drafts not yet confirmed by the service. */
+  const hasLocalDrafts = drafts.size > 0 || itemDrafts.size > 0
+
   useUnsavedChanges(
     `resume.section-drafts:${editor.resume.id}`,
-    drafts.size > 0 || itemDrafts.size > 0 || savingSectionId !== null || savingItemKey !== null
+    hasLocalDrafts || savingSectionId !== null || savingItemKey !== null
   )
+
+  useEffect((): (() => void) => {
+    onDraftStateChange(hasLocalDrafts)
+    return (): void => onDraftStateChange(false)
+  }, [hasLocalDrafts, onDraftStateChange])
+
+  if (itemDraftAuthorityRevision !== authorityReloadRevision) {
+    setItemDraftAuthorityRevision(authorityReloadRevision)
+    setItemDrafts(new Map())
+  }
 
   /** @brief 服务端已删除对应 section、但仍须交还用户的本地草稿 / Local drafts whose sections were removed by the server but must still be returned to the user. */
   const orphanedDrafts = [...drafts].filter(
@@ -917,8 +943,7 @@ function ResumeSectionsEditor({
     }
     setSavingItemKey(key)
     try {
-      const next = await runMutation(dispatch)
-      if (next !== null) accept(next)
+      await runMutation(dispatch, accept)
     } catch (reason: unknown) {
       /** @brief 根恢复状态机对失败命令的处置 / Root recovery state machine's disposition for the failed command. */
       const disposition = onMutationError(
@@ -1566,9 +1591,10 @@ function ResumeSectionsEditor({
     setSavingSectionId(section.id)
     setSaveFailure(null)
     try {
-      const next = await runMutation(() => dispatchSectionCommand(commandAttempt))
-      if (next === null) return
-      acceptSectionCommand(next, section.id, field)
+      await runMutation(
+        () => dispatchSectionCommand(commandAttempt),
+        (next): void => acceptSectionCommand(next, section.id, field)
+      )
     } catch (reason: unknown) {
       /** @brief 不经新权威重构而原样重放本命令的确认动作 / Confirmation action replaying this command verbatim without rebuilding it from newer authority. */
       const confirmUnknownOutcome = async (): Promise<void> => {
@@ -1626,10 +1652,13 @@ function ResumeSectionsEditor({
     )
     reorderCommandAttemptRef.current = commandAttempt
     try {
-      const next = await runMutation(() => dispatchReorderCommand(commandAttempt))
-      if (next === null) return
-      onEditorChange(next)
-      setStructureFailure(null)
+      await runMutation(
+        () => dispatchReorderCommand(commandAttempt),
+        (next): void => {
+          onEditorChange(next)
+          setStructureFailure(null)
+        }
+      )
     } catch (reason: unknown) {
       /** @brief 原样重放本排序命令的确认动作 / Confirmation action replaying this reorder command verbatim. */
       const confirmUnknownOutcome = async (): Promise<void> => {
@@ -1701,12 +1730,15 @@ function ResumeSectionsEditor({
     )
     deleteCommandAttemptRef.current = commandAttempt
     try {
-      const next = await runMutation(() => dispatchDeleteCommand(commandAttempt))
-      if (next === null) return
-      onEditorChange(next)
-      setStructureFailure(null)
-      setFocusedSectionId(next.resume.sections.at(0)?.id ?? null)
-      setDeleteCandidate(null)
+      await runMutation(
+        () => dispatchDeleteCommand(commandAttempt),
+        (next): void => {
+          onEditorChange(next)
+          setStructureFailure(null)
+          setFocusedSectionId(next.resume.sections.at(0)?.id ?? null)
+          setDeleteCandidate(null)
+        }
+      )
     } catch (reason: unknown) {
       /** @brief 原样重放本删除命令的确认动作 / Confirmation action replaying this delete command verbatim. */
       const confirmUnknownOutcome = async (): Promise<void> => {
@@ -2326,12 +2358,18 @@ export function ResumeWorkspace({
   const [confirmationClock, setConfirmationClock] = useState(0)
   /** @brief 在同一事件循环内也能原子拒绝第二个写意图 / Atomic guard rejecting a second write intent within the same event loop. */
   const mutationInFlightRef = useRef(false)
+  /** @brief 当前单写通道内可等待的完整 mutation / Complete active mutation that PDF generation may await. */
+  const mutationPromiseRef = useRef<Promise<unknown> | null>(null)
+  /** @brief 不依赖 React commit 即可读取的最新 Resume 权威 / Latest Resume authority readable without waiting for a React commit. */
+  const latestEditorRef = useRef(initialEditor)
   const [isReloadingAuthority, setReloadingAuthority] = useState(false)
   /** @brief 当前权威重读独占的取消控制器 / Abort controller exclusively owned by the current authority reload. */
   const authorityReloadControllerRef = useRef<AbortController | null>(null)
   /** @brief 当前聚合恢复动作的安全错误 / Safe error from the current aggregate-recovery action. */
   const [authorityRecoveryError, setAuthorityRecoveryError] = useState<unknown>(null)
   const [authorityReloadRevision, setAuthorityReloadRevision] = useState(0)
+  /** @brief 中栏是否存在尚未保存到服务端的本地草稿 / Whether the editor pane has browser-local drafts not yet saved to the service. */
+  const [hasEditorDrafts, setHasEditorDrafts] = useState(false)
   const [mobilePane, setMobilePane] = useState<MobileResumePane>('preview')
   const [mobileAssistantOpen, setMobileAssistantOpen] = useState(false)
   const [aiUndo, setAiUndo] = useState<ResumeAiUndoState | null>(() =>
@@ -2477,18 +2515,53 @@ export function ResumeWorkspace({
    * @param mutation 延迟执行的 gateway 写操作 / Deferred gateway mutation.
    * @return 写结果；已有写操作执行中时为 null / Mutation result, or null while another write is active.
    */
+  /**
+   * @brief 同步吸收一份新 Resume 权威 / Synchronously adopt a new Resume authority.
+   * @param nextEditor 服务端确认的新权威 / New authority confirmed by the service.
+   * @return 无返回值 / No return value.
+   */
+  const adoptEditor = (nextEditor: UiResumeEditorModel): void => {
+    latestEditorRef.current = nextEditor
+    setEditor(nextEditor)
+  }
+
   const runResumeMutation: RunResumeMutation = async <TResult,>(
-    mutation: () => Promise<TResult>
+    mutation: () => Promise<TResult>,
+    onSuccess?: (result: TResult) => void
   ): Promise<TResult | null> => {
     if (mutationInFlightRef.current || authorityRecovery !== null) return null
     mutationInFlightRef.current = true
     setMutatingResume(true)
+    /** @brief 包含权威吸收步骤的完整单写任务 / Complete single-lane task including authority adoption. */
+    const pending = (async (): Promise<TResult> => {
+      const result = await mutation()
+      onSuccess?.(result)
+      return result
+    })()
+    mutationPromiseRef.current = pending
     try {
-      return await mutation()
+      return await pending
     } finally {
+      if (mutationPromiseRef.current === pending) mutationPromiseRef.current = null
       mutationInFlightRef.current = false
       setMutatingResume(false)
     }
+  }
+
+  /**
+   * @brief 若保存正在进行则把 PDF 请求排到新 revision / Defer a PDF request to the new revision while a save is active.
+   * @return 本次请求是否已被延迟处理 / Whether the current request was handled by deferral.
+   */
+  const deferPdfRenderUntilMutationSettles = async (): Promise<boolean> => {
+    const pending = mutationPromiseRef.current
+    if (pending === null) return false
+    try {
+      await pending
+    } catch {
+      return true
+    }
+    setAutoRenderRevision(latestEditorRef.current.resume.revision)
+    return true
   }
 
   /**
@@ -2671,11 +2744,13 @@ export function ResumeWorkspace({
     ),
     editor: (
       <ResumeSectionsEditor
+        authorityReloadRevision={authorityReloadRevision}
         editor={editor}
         gateway={gateway}
         isWriteLocked={isWriteLocked}
         key={editor.resume.id}
-        onEditorChange={setEditor}
+        onDraftStateChange={setHasEditorDrafts}
+        onEditorChange={adoptEditor}
         onMutationError={handleMutationError}
         runMutation={runResumeMutation}
       />
@@ -2683,8 +2758,10 @@ export function ResumeWorkspace({
     preview: (
       <ResumePreviewPanel
         autoStart={autoRenderRevision === editor.resume.revision}
+        deferRenderUntilMutationSettles={deferPdfRenderUntilMutationSettles}
         editor={editor}
         generation={previewGeneration}
+        hasUnsavedChanges={hasEditorDrafts}
         isWriteLocked={isWriteLocked}
         onAutoStartConsumed={(): void => setAutoRenderRevision(null)}
         pdfSupported={selectedTemplate?.supportedOutputFormats.includes('pdf') === true}
