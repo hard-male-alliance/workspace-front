@@ -417,6 +417,33 @@ function operatedResumeDocument(
 }
 
 /**
+ * @brief 构造 operation 结果中首个 item 的新权威 / Build new authority for the first item in an operation result.
+ * @param revision operation 后的领域 revision / Domain revision after the operation.
+ * @param itemPatch 首个 item 的 wire patch / Wire patch for the first item.
+ * @return 保持完整 SIR 的新协议文档 / New protocol document retaining the complete SIR.
+ */
+function operatedResumeItemDocument(
+  revision: number,
+  itemPatch: Readonly<Record<string, unknown>>
+): Readonly<Record<string, unknown>> {
+  /** @brief 初始完整 SIR / Initial complete SIR. */
+  const source = createdResumeDocument()
+  /** @brief 测试文档中的首个 section / First section in the test document. */
+  const section = (source.sections as readonly Readonly<Record<string, unknown>>[])[0]
+  /** @brief 测试 section 中的首个 item / First item in the test section. */
+  const item = (section?.items as readonly Readonly<Record<string, unknown>>[] | undefined)?.[0]
+  if (section === undefined || item === undefined) {
+    throw new Error('Expected the operation fixture to contain one item.')
+  }
+  return {
+    ...source,
+    revision,
+    sections: [{ ...section, items: [{ ...item, ...itemPatch }] }],
+    updated_at: `2026-07-23T12:00:0${revision}Z`
+  }
+}
+
+/**
  * @brief 构造删除唯一 section 后仍自洽的权威 SIR / Build an authoritative SIR that remains coherent after deleting its sole section.
  * @param revision 删除后的领域 revision / Domain revision after deletion.
  * @return sections 与 section layout 均已清理的完整文档 / Complete document with both sections and section layout cleared.
@@ -1180,6 +1207,279 @@ describe('API v2 Resume ACL', (): void => {
       successKind: 'updated-result'
     })
     expect(observedOptions[1]?.idempotencyKey).toBe(observedOptions[0]?.idempotencyKey)
+  })
+
+  it('maps editable Resume highlights and verifies the returned semantic value structurally', async (): Promise<void> => {
+    /** @brief 用户确认后的完整经历要点 / Complete highlights confirmed by the user. */
+    const highlights = [
+      { marks: [], text: '使用 React、TypeScript 和 Vite 参与开发。' },
+      { marks: [], text: '负责项目列表、任务筛选和成员权限模块。' }
+    ] as const
+    /** @brief 初始完整 Resume wire 文档 / Initial complete Resume wire document. */
+    const source = createdResumeDocument()
+    /** @brief 测试 Resume 的唯一 section / Sole section in the test Resume. */
+    const section = (source.sections as readonly Readonly<Record<string, unknown>>[])[0]
+    /** @brief 测试 section 的唯一 item / Sole item in the test section. */
+    const item = (section?.items as readonly Readonly<Record<string, unknown>>[] | undefined)?.[0]
+    if (section === undefined || item === undefined) {
+      throw new Error('Expected the Resume operation fixture to contain one item.')
+    }
+    /** @brief transport 捕获的 operation batch / Operation batch captured by the transport. */
+    let observedBatch: ResumeOperationBatch | undefined
+    /** @brief 返回包含同值但不同引用 highlights 的 operations 端口 / Operations port returning equal highlights through a distinct decoded reference. */
+    const operationsClient: ResumeOperationsHttpClient = {
+      postJson(_path, body) {
+        observedBatch = body as ResumeOperationBatch
+        return Promise.resolve({
+          data: {
+            applied_operation_ids: observedBatch.operations.map(
+              (operation) => operation.operation_id
+            ),
+            conflicts: [],
+            render_job_ref: null,
+            resume: {
+              ...source,
+              revision: 2,
+              sections: [{ ...section, items: [{ ...item, highlights }] }],
+              updated_at: '2026-07-23T12:00:02Z'
+            }
+          },
+          metadata: {
+            entityTag: '"resume-item-etag-2"',
+            location: null,
+            requestId: 'request_resume_item_highlights_0001'
+          },
+          status: 200
+        })
+      }
+    }
+    /** @brief Resume 应用 ACL / Resume application ACL. */
+    const gateway = createApiV2ResumeGateway(
+      {
+        getJson: (): Promise<never> =>
+          Promise.reject(new Error('The item update test unexpectedly performed a read.'))
+      },
+      operationsClient,
+      UNUSED_RESUME_JOBS
+    )
+    /** @brief 测试 item 的稳定领域 ID / Stable domain ID of the test item. */
+    const itemId = asUiOpaqueId<'resume-item'>('item_01K0CREATED00000000001')
+    /** @brief 本次用户意图的稳定命令 ID / Stable command ID for this user intent. */
+    const commandId = createUiCommandId()
+
+    await expect(
+      gateway.updateResumeItem({
+        baseRevision: 1,
+        commandId,
+        concurrencyToken: asUiConcurrencyToken('"resume-operation-etag-1"'),
+        field: 'highlights',
+        itemId,
+        resumeId: asUiOpaqueId<'resume'>('resume_01K0CREATED000000000001'),
+        value: highlights,
+        workspaceId: asUiOpaqueId<'workspace'>(RESUME_SUMMARY.workspace_id)
+      })
+    ).resolves.toMatchObject({
+      concurrencyToken: '"resume-item-etag-2"',
+      resume: {
+        revision: 2,
+        sections: [{ items: [{ highlights }] }]
+      }
+    })
+    expect(observedBatch?.operations).toEqual([
+      {
+        entity_id: itemId,
+        field_path: ['highlights'],
+        op: 'set_field',
+        operation_id: `${commandId}_item-highlights`,
+        value: highlights
+      }
+    ])
+  })
+
+  it('maps editable Resume summary and date range to canonical operations', async (): Promise<void> => {
+    /** @brief 必须无损发送的条目摘要 / Item summary that must be sent losslessly. */
+    const summary = { marks: [], text: '参与企业内部项目管理平台开发。' } as const
+    /** @brief 必须保持精度的日期范围 / Date range whose precision must be preserved. */
+    const dateRange = { end: '2025-08', start: '2025-03' } as const
+    /** @brief 逐项验证的领域字段与 wire 字段 / Domain and wire fields verified one by one. */
+    const cases = [
+      {
+        field: 'summary',
+        itemPatch: { summary },
+        value: summary,
+        wireField: 'summary',
+        wireValue: summary
+      },
+      {
+        field: 'dateRange',
+        itemPatch: { date_range: dateRange },
+        value: dateRange,
+        wireField: 'date_range',
+        wireValue: dateRange
+      }
+    ] as const
+
+    for (const testCase of cases) {
+      /** @brief transport 捕获的 operation batch / Operation batch captured by the transport. */
+      let observedBatch: ResumeOperationBatch | undefined
+      /** @brief 返回同值但不同引用权威的 operations 端口 / Operations port returning equal authority through distinct references. */
+      const operationsClient: ResumeOperationsHttpClient = {
+        postJson(_path, body) {
+          observedBatch = body as ResumeOperationBatch
+          return Promise.resolve({
+            data: {
+              applied_operation_ids: observedBatch.operations.map(
+                (operation) => operation.operation_id
+              ),
+              conflicts: [],
+              render_job_ref: null,
+              resume: operatedResumeItemDocument(2, testCase.itemPatch)
+            },
+            metadata: {
+              entityTag: '"resume-item-etag-2"',
+              location: null,
+              requestId: `request_resume_item_${testCase.wireField}_0001`
+            },
+            status: 200
+          })
+        }
+      }
+      /** @brief Resume 应用 ACL / Resume application ACL. */
+      const gateway = createApiV2ResumeGateway(
+        {
+          getJson: (): Promise<never> =>
+            Promise.reject(new Error('The item update test unexpectedly performed a read.'))
+        },
+        operationsClient,
+        UNUSED_RESUME_JOBS
+      )
+      /** @brief 本次用户意图的稳定命令 ID / Stable command ID for this user intent. */
+      const commandId = createUiCommandId()
+
+      await expect(
+        gateway.updateResumeItem({
+          baseRevision: 1,
+          commandId,
+          concurrencyToken: asUiConcurrencyToken('"resume-operation-etag-1"'),
+          field: testCase.field,
+          itemId: asUiOpaqueId<'resume-item'>('item_01K0CREATED00000000001'),
+          resumeId: asUiOpaqueId<'resume'>('resume_01K0CREATED000000000001'),
+          value: testCase.value,
+          workspaceId: asUiOpaqueId<'workspace'>(RESUME_SUMMARY.workspace_id)
+        })
+      ).resolves.toMatchObject({ concurrencyToken: '"resume-item-etag-2"' })
+      expect(observedBatch?.operations[0]).toMatchObject({
+        field_path: [testCase.wireField],
+        value: testCase.wireValue
+      })
+    }
+  })
+
+  it('maps editable Resume profile and contact text to canonical operations', async (): Promise<void> => {
+    /** @brief 初始完整 Resume wire 文档 / Initial complete Resume wire document. */
+    const source = createdResumeDocument()
+    /** @brief transport 捕获的 operation batches / Operation batches captured by the transport. */
+    const observedBatches: ResumeOperationBatch[] = []
+    /** @brief 当前服务端权威文档 / Current authoritative server document. */
+    let authority = source
+    /** @brief 返回每次字段更新后权威文档的 operations 端口 / Operations port returning authority after each field update. */
+    const operationsClient: ResumeOperationsHttpClient = {
+      postJson(_path, body) {
+        /** @brief 当前 transport 请求的 operation batch / Operation batch for the current transport request. */
+        const batch = body as ResumeOperationBatch
+        observedBatches.push(batch)
+        /** @brief 当前命令的唯一字段 operation / Sole field operation in the current command. */
+        const operation = batch.operations[0]
+        if (operation === undefined || operation.op !== 'set_field') {
+          throw new Error('Expected one set_field operation.')
+        }
+        /** @brief 当前文档的 profile wire 投影 / Profile wire projection of the current document. */
+        const profile = authority.profile as Readonly<Record<string, unknown>>
+        if (operation.entity_id === source.id) {
+          authority = {
+            ...authority,
+            profile: {
+              ...profile,
+              [operation.field_path[1] ?? '']: operation.value
+            },
+            revision: batch.base_revision + 1
+          }
+        } else {
+          /** @brief 当前文档的联系方式 wire 数组 / Contact wire array of the current document. */
+          const contacts = profile.contacts as readonly Readonly<Record<string, unknown>>[]
+          authority = {
+            ...authority,
+            profile: {
+              ...profile,
+              contacts: contacts.map((contact) =>
+                contact.id === operation.entity_id
+                  ? { ...contact, [operation.field_path[0] ?? '']: operation.value }
+                  : contact
+              )
+            },
+            revision: batch.base_revision + 1
+          }
+        }
+        return Promise.resolve({
+          data: {
+            applied_operation_ids: [operation.operation_id],
+            conflicts: [],
+            render_job_ref: null,
+            resume: authority
+          },
+          metadata: {
+            entityTag: `"resume-profile-etag-${batch.base_revision + 1}"`,
+            location: null,
+            requestId: `request_resume_profile_${batch.base_revision}`
+          },
+          status: 200
+        })
+      }
+    }
+    /** @brief Resume 应用 Gateway / Resume application gateway. */
+    const gateway = createApiV2ResumeGateway(
+      {
+        getJson: (): Promise<never> =>
+          Promise.reject(new Error('The profile update test unexpectedly performed a read.'))
+      },
+      operationsClient,
+      UNUSED_RESUME_JOBS
+    )
+    /** @brief 测试 Resume 的稳定领域 ID / Stable domain ID of the test Resume. */
+    const resumeId = asUiOpaqueId<'resume'>('resume_01K0CREATED000000000001')
+    /** @brief 测试联系方式的稳定领域 ID / Stable domain ID of the test contact. */
+    const contactId = asUiOpaqueId<'resume-contact'>('contact_01K0CREATED0000000001')
+
+    await gateway.updateResumeProfile({
+      baseRevision: 1,
+      commandId: createUiCommandId(),
+      concurrencyToken: asUiConcurrencyToken('"resume-operation-etag-1"'),
+      field: 'fullName',
+      resumeId,
+      value: 'Lin Xinghe',
+      workspaceId: asUiOpaqueId<'workspace'>(RESUME_SUMMARY.workspace_id)
+    })
+    await gateway.updateResumeContact({
+      baseRevision: 2,
+      commandId: createUiCommandId(),
+      concurrencyToken: asUiConcurrencyToken('"resume-profile-etag-2"'),
+      contactId,
+      field: 'value',
+      resumeId,
+      value: 'lin@example.com',
+      workspaceId: asUiOpaqueId<'workspace'>(RESUME_SUMMARY.workspace_id)
+    })
+
+    expect(observedBatches[0]?.operations[0]).toMatchObject({
+      entity_id: resumeId,
+      field_path: ['profile', 'full_name'],
+      value: 'Lin Xinghe'
+    })
+    expect(observedBatches[1]?.operations[0]).toMatchObject({
+      entity_id: contactId,
+      field_path: ['value'],
+      value: 'lin@example.com'
+    })
   })
 
   it('用完整目标顺序生成唯一 move_entity 链，并用 reject 保护结构意图', async (): Promise<void> => {

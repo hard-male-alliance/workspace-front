@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { describe, expect, it, vi } from 'vitest'
 import {
   asUiOpaqueId,
+  asUiResumePartialDate,
   createUiCommandId,
   ResumeBatchConflictError
 } from '@ai-job-workspace/app/application'
@@ -121,6 +122,171 @@ describe('WorkspaceApp Resume editor', (): void => {
           field: 'organization',
           itemId: asUiOpaqueId<'resume-item'>('item_education_visible_01'),
           value: '南开大学软件学院'
+        })
+      )
+    })
+  })
+
+  it('shows and edits PDF-backed structured item highlights', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    const resume = new InMemoryResumeGateway()
+    const baseline = await resume.getResumeEditor(
+      MOCK_RESUME_WORKSPACE_ID,
+      MOCK_RESUME_ID,
+      ACTIVE_RESUME_READ_SIGNAL
+    )
+    const section = baseline.resume.sections[0]!
+    const highlights = [
+      { marks: [], text: '使用 React、TypeScript 和 Vite 参与企业内部项目管理平台开发。' },
+      { marks: [], text: '负责项目列表、任务筛选和成员权限三个模块的页面实现。' }
+    ] as const
+    const structuredEditor: typeof baseline = {
+      ...baseline,
+      resume: {
+        ...baseline.resume,
+        sections: [
+          {
+            ...section,
+            content: null,
+            items: [
+              {
+                dateRange: {
+                  end: asUiResumePartialDate('2025-08'),
+                  start: asUiResumePartialDate('2025-03')
+                },
+                highlights,
+                id: asUiOpaqueId<'resume-item'>('item_experience_visible_01'),
+                kind: 'experience',
+                location: null,
+                organization: '天津海棠数字科技有限公司',
+                skills: ['React', 'TypeScript'],
+                subtitle: null,
+                summary: { marks: [], text: '参与企业内部项目管理平台开发。' },
+                tags: [],
+                title: '前端开发实习生',
+                url: 'https://example.com/project',
+                visible: true
+              }
+            ]
+          },
+          ...baseline.resume.sections.slice(1)
+        ]
+      }
+    }
+    vi.spyOn(resume, 'getResumeEditor').mockResolvedValue(structuredEditor)
+    const updateItem = vi.spyOn(resume, 'updateResumeItem').mockImplementation((input) =>
+      Promise.resolve({
+        concurrencyToken: structuredEditor.concurrencyToken,
+        resume: {
+          ...structuredEditor.resume,
+          revision: structuredEditor.resume.revision + 1,
+          sections: structuredEditor.resume.sections.map((candidate) => ({
+            ...candidate,
+            items: candidate.items.map((item) =>
+              item.id === input.itemId ? { ...item, [input.field]: input.value } : item
+            )
+          }))
+        }
+      })
+    )
+    window.history.replaceState(null, '', `/resumes/${MOCK_RESUME_ID}/edit`)
+
+    render(<WorkspaceApp gateways={createTestGateways({ resume })} />)
+
+    const firstHighlight = await screen.findByRole('textbox', { name: '经历要点 1-1' })
+    expect(firstHighlight).toHaveValue(highlights[0].text)
+    expect(screen.getByRole('textbox', { name: '经历要点 1-2' })).toHaveValue(highlights[1].text)
+    expect(screen.getByRole('textbox', { name: '开始日期 1' })).toHaveValue('2025-03')
+    expect(screen.getByRole('textbox', { name: '结束日期 1' })).toHaveValue('2025-08')
+    const summary = screen.getByRole('textbox', { name: '条目摘要 1' })
+    expect(summary).toHaveValue('参与企业内部项目管理平台开发。')
+    expect(screen.getByRole('textbox', { name: '技能 1' })).toHaveValue('React\nTypeScript')
+    expect(screen.getByRole('textbox', { name: '条目链接 1' })).toHaveValue(
+      'https://example.com/project'
+    )
+
+    fireEvent.change(firstHighlight, {
+      target: { value: '使用 React、TypeScript 和 Vite 完成项目管理平台开发。' }
+    })
+    fireEvent.blur(firstHighlight)
+
+    await waitFor((): void => {
+      expect(updateItem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          field: 'highlights',
+          itemId: asUiOpaqueId<'resume-item'>('item_experience_visible_01'),
+          value: [
+            {
+              marks: [],
+              text: '使用 React、TypeScript 和 Vite 完成项目管理平台开发。'
+            },
+            highlights[1]
+          ]
+        })
+      )
+    })
+
+    fireEvent.change(summary, { target: { value: '独立完成项目管理平台核心页面。' } })
+    fireEvent.blur(summary)
+    await waitFor((): void => {
+      expect(updateItem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          field: 'summary',
+          value: { marks: [], text: '独立完成项目管理平台核心页面。' }
+        })
+      )
+    })
+  })
+
+  it('shows and edits PDF-backed profile and contact text', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 当前测试独享的简历 Gateway / Resume Gateway owned by the current test. */
+    const resume = new InMemoryResumeGateway()
+    /** @brief 包含个人资料和联系方式的权威编辑器 / Authoritative editor containing profile and contact text. */
+    const baseline = await resume.getResumeEditor(
+      MOCK_RESUME_WORKSPACE_ID,
+      MOCK_RESUME_ID,
+      ACTIVE_RESUME_READ_SIGNAL
+    )
+    /** @brief 窄个人资料更新方法的调用观察器 / Spy for the narrow profile update method. */
+    const updateProfile = vi.spyOn(resume, 'updateResumeProfile')
+    /** @brief 窄联系方式更新方法的调用观察器 / Spy for the narrow contact update method. */
+    const updateContact = vi.spyOn(resume, 'updateResumeContact')
+    window.history.replaceState(null, '', `/resumes/${MOCK_RESUME_ID}/edit`)
+
+    render(<WorkspaceApp gateways={createTestGateways({ resume })} />)
+
+    const fullName = await screen.findByRole('textbox', { name: '姓名' })
+    const headline = screen.getByRole('textbox', { name: '职业标题' })
+    const profileSummary = screen.getByRole('textbox', { name: '个人简介' })
+    expect(fullName).toHaveValue(baseline.resume.profile.fullName)
+    expect(headline).toHaveValue(baseline.resume.profile.headline ?? '')
+    expect(profileSummary).toHaveValue(baseline.resume.profile.summary?.text ?? '')
+
+    const firstContact = baseline.resume.profile.contacts[0]
+    if (firstContact === undefined) throw new Error('Expected one profile contact.')
+    const contactValue = screen.getByRole('textbox', { name: '联系方式 1 的值' })
+    expect(contactValue).toHaveValue(firstContact.value)
+
+    fireEvent.change(headline, { target: { value: 'Senior Frontend Engineer' } })
+    fireEvent.blur(headline)
+    await waitFor((): void => {
+      expect(updateProfile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          field: 'headline',
+          value: 'Senior Frontend Engineer'
+        })
+      )
+    })
+
+    fireEvent.change(contactValue, { target: { value: 'lin@example.com' } })
+    fireEvent.blur(contactValue)
+    await waitFor((): void => {
+      expect(updateContact).toHaveBeenCalledWith(
+        expect.objectContaining({
+          contactId: firstContact.id,
+          field: 'value',
+          value: 'lin@example.com'
         })
       )
     })

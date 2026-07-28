@@ -471,7 +471,7 @@ export const zhSGTranslation = {
     },
     editor: {
       sectionTitle: '区段标题',
-      semanticContent: '语义内容'
+      semanticContent: '板块补充说明（可选）'
     },
     workspace: {
       windowControls: '简历窗口控制',
@@ -1631,7 +1631,7 @@ export const enUSTranslation = {
     },
     editor: {
       sectionTitle: 'Section title',
-      semanticContent: 'Semantic content'
+      semanticContent: 'Optional section notes'
     },
     workspace: {
       windowControls: 'Resume window controls',
