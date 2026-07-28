@@ -5,6 +5,7 @@ import type {
   ResumeReviewPort,
   ResumeAssistantGateway,
   UiKnowledgeSource,
+  UiResumeAssistantCommandRecovery,
   UiResumeAssistantMessage,
   UiResumeAssistantRequest,
   UiResumeAssistantThread,
@@ -292,6 +293,38 @@ async function loadThread(
   input: UiResumeAssistantRequest,
   conversation: AgentConversation
 ): Promise<UiResumeAssistantThread> {
+  const [thread, recovery] = await Promise.all([
+    readThread(api, input, conversation),
+    recoverCommand(api, review, input, conversation)
+  ])
+  return {
+    ...thread,
+    ...recovery
+  }
+}
+
+/** @brief 仅读取 Conversation 消息，不等待任何 Run 恢复 / Read Conversation messages without awaiting any Run recovery. */
+async function readThread(
+  api: ResumeAssistantAgentApi,
+  input: UiResumeAssistantRequest,
+  conversation: AgentConversation
+): Promise<UiResumeAssistantThread> {
+  const messages = await api.listMessages(input.workspaceId, conversation.id, input.signal)
+  return {
+    pendingProposal: null,
+    conversationId: conversation.id,
+    messages: mapMessages(messages),
+    recoveryProblemCode: null
+  }
+}
+
+/** @brief 独立恢复精确 Run/Proposal 命令状态 / Independently recover exact Run/Proposal command state. */
+async function recoverCommand(
+  api: ResumeAssistantAgentApi,
+  review: ResumeReviewPort,
+  input: UiResumeAssistantRequest,
+  conversation: AgentConversation
+): Promise<UiResumeAssistantCommandRecovery> {
   const key = recoveryKey(input)
   const creationKey = runCreationRecoveryKey(input)
   const continuationKey = continuationRecoveryKey(input)
@@ -350,11 +383,8 @@ async function loadThread(
     }
     if (pendingProposal === null) recoveryWrite(key, null)
   }
-  const messages = await api.listMessages(input.workspaceId, conversation.id, input.signal)
   return {
     pendingProposal,
-    conversationId: conversation.id,
-    messages: mapMessages(messages),
     recoveryProblemCode
   }
 }
@@ -389,7 +419,11 @@ export function createApiV2ResumeAssistantGateway(
   return {
     async load(input): Promise<UiResumeAssistantThread> {
       const conversation = await resolveConversation(api, input)
-      return loadThread(api, review, input, conversation)
+      return readThread(api, input, conversation)
+    },
+    async recoverCommand(input): Promise<UiResumeAssistantCommandRecovery> {
+      const conversation = await resolveConversation(api, input)
+      return recoverCommand(api, review, input, conversation)
     },
     async ask(input): Promise<UiResumeAssistantThread> {
       const knowledgeSourceIds = await resumeKnowledgeSourceIds(knowledge, input)

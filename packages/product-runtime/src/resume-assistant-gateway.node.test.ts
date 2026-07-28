@@ -370,10 +370,14 @@ describe('Resume assistant gateway', () => {
         })
       ).rejects.toThrow('Resume page reloaded.')
 
-      const recovered = createApiV2ResumeAssistantGateway(api, review, knowledgeDouble()).load(
-        request('')
-      )
+      const recoveredGateway = createApiV2ResumeAssistantGateway(api, review, knowledgeDouble())
+      const recovery = recoveredGateway.recoverCommand(request(''))
       await vi.advanceTimersByTimeAsync(1_000)
+      await expect(recovery).resolves.toEqual({
+        pendingProposal: null,
+        recoveryProblemCode: null
+      })
+      const recovered = recoveredGateway.load(request(''))
 
       await expect(recovered).resolves.toEqual(
         expect.objectContaining({
@@ -425,11 +429,13 @@ describe('Resume assistant gateway', () => {
     await expect(firstGateway.ask(request())).rejects.toThrow('page closed')
 
     vi.mocked(api.getRun).mockResolvedValue(run({ outputMessageId: `${MESSAGE_ID}_assistant` }))
-    const restored = await createApiV2ResumeAssistantGateway(
+    const restoredGateway = createApiV2ResumeAssistantGateway(
       api,
       reviewDouble(),
       knowledgeDouble()
-    ).load(request(''))
+    )
+    await restoredGateway.recoverCommand(request(''))
+    const restored = await restoredGateway.load(request(''))
 
     expect(api.getRun).toHaveBeenLastCalledWith(WORKSPACE_ID, RUN_ID, undefined)
     expect(restored.messages.at(-1)?.text).toBe('项目成果需要补充量化指标。')
@@ -446,9 +452,11 @@ describe('Resume assistant gateway', () => {
       'Resume page reloaded.'
     )
 
-    await createApiV2ResumeAssistantGateway(api, reviewDouble(), knowledgeDouble()).load(
-      request('')
-    )
+    await createApiV2ResumeAssistantGateway(
+      api,
+      reviewDouble(),
+      knowledgeDouble()
+    ).recoverCommand(request(''))
 
     expect(api.createRun).toHaveBeenCalledTimes(2)
     const firstCreation = vi.mocked(api.createRun).mock.calls[0]![0]
@@ -485,14 +493,41 @@ describe('Resume assistant gateway', () => {
 
     await expect(firstGateway.ask(request())).rejects.toThrow('page closed')
 
-    const restored = await createApiV2ResumeAssistantGateway(
+    const restoredGateway = createApiV2ResumeAssistantGateway(
       api,
       reviewDouble(),
       knowledgeDouble()
-    ).load(request(''))
+    )
+    const recovery = await restoredGateway.recoverCommand(request(''))
+    const restored = await restoredGateway.load(request(''))
 
     expect(restored.messages).toHaveLength(2)
-    expect(restored.recoveryProblemCode).toBe('agent.provider_timeout')
+    expect(recovery.recoveryProblemCode).toBe('agent.provider_timeout')
+  })
+
+  it('hydrates conversation messages even when command recovery fails', async () => {
+    const api = apiDouble()
+    vi.mocked(api.createRun).mockResolvedValue(run({ status: 'running' }))
+    vi.mocked(api.getRun).mockRejectedValueOnce(new Error('page closed'))
+    const firstGateway = createApiV2ResumeAssistantGateway(
+      api,
+      reviewDouble(),
+      knowledgeDouble()
+    )
+    await expect(firstGateway.ask(request())).rejects.toThrow('page closed')
+
+    vi.mocked(api.getRun).mockRejectedValueOnce(new Error('private recovery transport detail'))
+    const restoredGateway = createApiV2ResumeAssistantGateway(
+      api,
+      reviewDouble(),
+      knowledgeDouble()
+    )
+
+    const restoredThread = await restoredGateway.load(request(''))
+    expect(restoredThread.messages).toHaveLength(2)
+    await expect(restoredGateway.recoverCommand(request(''))).rejects.toThrow(
+      'private recovery transport detail'
+    )
   })
 
   it('keeps polling beyond the former 90-second client deadline', async () => {

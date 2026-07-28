@@ -447,6 +447,11 @@ export class InMemoryResumeGateway
         pendingProposal: null,
         recoveryProblemCode: null
       }),
+    recoverCommand: () =>
+      Promise.resolve({
+        pendingProposal: null,
+        recoveryProblemCode: null
+      }),
     ask: (input) => {
       const sequence = this.assistantMessages.length
       this.assistantMessages = [

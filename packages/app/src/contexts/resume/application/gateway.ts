@@ -37,6 +37,14 @@ export interface UiResumeAssistantThread {
   readonly recoveryProblemCode: string | null
 }
 
+/** @brief 与消息读取解耦的精确 Agent 命令恢复结果 / Exact Agent-command recovery result decoupled from message reads. */
+export interface UiResumeAssistantCommandRecovery {
+  /** @brief 恢复后仍等待用户决定的 Proposal / Proposal still awaiting a user decision after recovery. */
+  readonly pendingProposal: UiResumeProposalAuthority | null
+  /** @brief 已恢复终态 Run 的稳定问题码 / Stable Problem code from a recovered terminal Run. */
+  readonly recoveryProblemCode: string | null
+}
+
 /** @brief 已确认 Proposal 后可继续观察的 Agent Run 句柄 / Opaque Agent Run handle to observe after a Proposal decision commits. */
 export interface UiResumeAssistantProposalContinuation {
   readonly runId: string
@@ -68,6 +76,7 @@ export interface UiResumeAssistantRequest {
 /** @brief 区分只读问答与显式修改的 Resume Agent 产品端口 / Resume Agent product port separating read-only questions from explicit edits. */
 export interface ResumeAssistantGateway {
   load(input: UiResumeAssistantRequest): Promise<UiResumeAssistantThread>
+  recoverCommand(input: UiResumeAssistantRequest): Promise<UiResumeAssistantCommandRecovery>
   ask(
     input: UiResumeAssistantRequest & { readonly question: string }
   ): Promise<UiResumeAssistantThread>

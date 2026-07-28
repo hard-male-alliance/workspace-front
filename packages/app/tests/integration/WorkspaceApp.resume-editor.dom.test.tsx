@@ -366,6 +366,42 @@ describe('WorkspaceApp Resume editor', (): void => {
     ).toBeInTheDocument()
   })
 
+  it('keeps recovered messages visible when command recovery is unavailable', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('en-US')
+    const resume = new InMemoryResumeGateway()
+    vi.spyOn(resume.assistant, 'load').mockResolvedValue({
+      conversationId: 'conversation_recovery_unavailable',
+      messages: [
+        {
+          author: 'assistant',
+          id: 'message_recovered_before_command',
+          referenceSourceIds: [],
+          text: 'Recovered conversation message.'
+        }
+      ],
+      pendingProposal: null,
+      recoveryProblemCode: null
+    })
+    vi.spyOn(resume.assistant, 'recoverCommand').mockRejectedValue(
+      new Error('private recovery transport detail')
+    )
+
+    render(
+      <WorkspaceApp
+        gateways={createTestGateways({ resume })}
+        initialPath="/resumes/res_mock_ai_platform/edit"
+      />
+    )
+
+    expect(await screen.findByText('Recovered conversation message.')).toBeInTheDocument()
+    expect(
+      await screen.findByText(
+        '会话消息已恢复，但正在进行的助手任务状态暂时无法恢复。请稍后刷新重试。'
+      )
+    ).toBeInTheDocument()
+    expect(screen.queryByText('private recovery transport detail')).not.toBeInTheDocument()
+  })
+
   it('applies an accepted assistant editor before its continuation resolves', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('en-US')
     /** @brief 当前测试独享的 Resume Gateway / Resume Gateway owned by the current test. */
@@ -414,6 +450,10 @@ describe('WorkspaceApp Resume editor', (): void => {
     vi.spyOn(resume.assistant, 'load').mockResolvedValue({
       conversationId: 'conversation_proposal_decision',
       messages: [],
+      pendingProposal: authority,
+      recoveryProblemCode: null
+    })
+    vi.spyOn(resume.assistant, 'recoverCommand').mockResolvedValue({
       pendingProposal: authority,
       recoveryProblemCode: null
     })
@@ -502,6 +542,10 @@ describe('WorkspaceApp Resume editor', (): void => {
     vi.spyOn(resume.assistant, 'load').mockResolvedValue({
       conversationId: 'conversation_authority_changed',
       messages: [],
+      pendingProposal: authority,
+      recoveryProblemCode: null
+    })
+    vi.spyOn(resume.assistant, 'recoverCommand').mockResolvedValue({
       pendingProposal: authority,
       recoveryProblemCode: null
     })

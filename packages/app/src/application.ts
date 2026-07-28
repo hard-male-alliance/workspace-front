@@ -258,6 +258,7 @@ export type {
 } from './contexts/resume/application/errors'
 export type {
   ResumeAssistantGateway,
+  UiResumeAssistantCommandRecovery,
   UiResumeAssistantMessage,
   UiResumeAssistantRequest,
   UiResumeAssistantThread

@@ -415,12 +415,14 @@ function ResumeAssistantPanel({
     resumeAssistantTransition,
     initialResumeAssistantCommandState
   )
+  /** @brief Conversation 消息读取独立于命令恢复 / Conversation-message read state independent from command recovery. */
+  const [threadState, setThreadState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [error, setError] = useState<unknown>(null)
   /** @brief 仅等待决策状态持有可点击的 Proposal 权威 / Only the decision-wait state exposes clickable Proposal authority. */
   const pendingProposal =
     commandState.status === 'awaiting-proposal' ? commandState.authority : null
   /** @brief 首次独立恢复仍在进行 / Initial independent hydration remains in progress. */
-  const isLoading = commandState.status === 'loading'
+  const isLoading = threadState === 'loading' || commandState.status === 'loading'
   /** @brief 当前命令正在创建、执行或提交决策 / Current command is creating, executing, or committing a decision. */
   const isSending = [
     'creating-run',
@@ -442,6 +444,10 @@ function ResumeAssistantPanel({
     errorPhase === 'continuation' &&
     (commandState.status === 'retryable-error' || commandState.status === 'terminal-error') &&
     commandState.problemCode === 'agent.resume_authority_changed'
+  /** @brief 消息已可读但精确命令恢复暂不可用 / Messages are readable while exact command recovery is unavailable. */
+  const isCommandRecoveryUnavailable =
+    (commandState.status === 'retryable-error' || commandState.status === 'terminal-error') &&
+    commandState.problemCode === 'resume.assistant_recovery_unavailable'
   const controllerRef = useRef<AbortController | null>(null)
   const assistantInput = useMemo(
     () => ({
@@ -476,26 +482,37 @@ function ResumeAssistantPanel({
     globalThis.queueMicrotask((): void => {
       if (controller.signal.aborted) return
       setError(null)
+      setThreadState('loading')
       void gateway.assistant
         .load({ ...loadInput, signal: controller.signal })
         .then((thread): void => {
           setMessages(thread.messages)
-          dispatchCommand({
-            type: 'hydration-succeeded',
-            pendingProposal: thread.pendingProposal,
-            recoveryProblemCode: thread.recoveryProblemCode
-          })
-          if (thread.recoveryProblemCode !== null) {
-            setError(new Error(thread.recoveryProblemCode))
-          }
+          setThreadState('ready')
         })
         .catch((loadError: unknown): void => {
           if (!controller.signal.aborted) {
             setError(loadError)
+            setThreadState('error')
+          }
+        })
+      void gateway.assistant
+        .recoverCommand({ ...loadInput, signal: controller.signal })
+        .then((recovery): void => {
+          dispatchCommand({
+            type: 'hydration-succeeded',
+            pendingProposal: recovery.pendingProposal,
+            recoveryProblemCode: recovery.recoveryProblemCode
+          })
+          if (recovery.recoveryProblemCode !== null) {
+            setError(new Error(recovery.recoveryProblemCode))
+          }
+        })
+        .catch((recoveryError: unknown): void => {
+          if (!controller.signal.aborted) {
+            setError(recoveryError)
             dispatchCommand({
               type: 'command-failed',
-              problemCode:
-                loadError instanceof Error ? loadError.message : 'resume.assistant_load_failed',
+              problemCode: 'resume.assistant_recovery_unavailable',
               retryable: true
             })
           }
@@ -690,7 +707,9 @@ function ResumeAssistantPanel({
         {error === null ? null : (
           <div className="aw-message" role="alert">
             <p>
-              {errorPhase === 'continuation'
+              {isCommandRecoveryUnavailable
+                ? '会话消息已恢复，但正在进行的助手任务状态暂时无法恢复。请稍后刷新重试。'
+                : errorPhase === 'continuation'
                 ? isContinuationAuthorityChanged
                   ? '你的决定已经提交，但服务器上的简历又发生了变化。请重新加载权威版本后再继续编辑。'
                   : '你的决定已经提交，但助手后续回复失败。请稍后重新打开会话。'

@@ -1339,6 +1339,9 @@ export function createApiV2ResumeGateway(
     load(): Promise<never> {
       return Promise.reject(new Error('Resume assistant is not configured.'))
     },
+    recoverCommand(): Promise<never> {
+      return Promise.reject(new Error('Resume assistant is not configured.'))
+    },
     decideProposal(): Promise<never> {
       return Promise.reject(new Error('Resume assistant is not configured.'))
     },
