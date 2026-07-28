@@ -7,7 +7,9 @@ import {
   DEMO_INTERVIEW_SESSION_ID,
   DEMO_INTERVIEW_TRANSCRIPT,
   DEMO_LIVE_INTERVIEW_SESSION,
-  InMemoryInterviewGateway
+  InMemoryInterviewGateway,
+  InMemoryKnowledgeGateway,
+  MOCK_KNOWLEDGE_SOURCES
 } from '@ai-job-workspace/app/testing'
 import { ApiV2WriteOutcomeUnknownError } from '@ai-job-workspace/product-api-v2'
 import { asUiInterviewSessionCursor } from '../../src/contexts/interview'
@@ -157,6 +159,68 @@ describe('WorkspaceApp interview workflow', (): void => {
     expect(command?.input.scenarioId).toBe((scenarioSelect as HTMLSelectElement).value)
     expect(command?.input.recording.consentVersion).toBeTruthy()
     expect(command?.input.recording.consentedAt).toBeTruthy()
+  })
+
+  it('在 StrictMode 中选择知识材料且创建显式授权 Session', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 可观察创建命令的 Interview 端口 / Interview port exposing the creation command. */
+    const interview = new InMemoryInterviewGateway()
+    /** @brief 返回一条可检索材料的 Knowledge 端口 / Knowledge port returning one retrievable material. */
+    const knowledge = new InMemoryKnowledgeGateway()
+    /** @brief 基于稳定 fixture 构造的面试材料 / Interview material built from a stable fixture. */
+    const material = {
+      ...MOCK_KNOWLEDGE_SOURCES[0]!,
+      name: '前端工程师 file',
+      visibility: {
+        ...MOCK_KNOWLEDGE_SOURCES[0]!.visibility,
+        agentGrants: [
+          {
+            agentScope: 'interview_coach',
+            allowedOperations: ['retrieve'] as const,
+            effect: 'allow' as const
+          }
+        ],
+        allowExternalModelProcessing: true,
+        allowedModelRegions: ['global'] as const,
+        defaultEffect: 'deny' as const
+      }
+    }
+    vi.spyOn(knowledge, 'listKnowledgeSourcePage').mockResolvedValue({
+      hasMore: false,
+      items: [material],
+      nextCursor: null
+    })
+    const createInterviewSession = vi.spyOn(interview, 'createInterviewSession')
+
+    render(
+      <StrictMode>
+        <WorkspaceApp
+          gateways={createTestGateways({ interview, knowledge })}
+          initialPath="/interviews/new"
+        />
+      </StrictMode>
+    )
+
+    await screen.findByRole('heading', { name: '创建练习会话' })
+    /** @brief 用户选择的知识材料复选框 / Knowledge-material checkbox selected by the user. */
+    const materialCheckbox = await screen.findByRole('checkbox', {
+      name: /前端工程师 file/u
+    })
+    fireEvent.click(materialCheckbox)
+    expect(materialCheckbox).toBeChecked()
+    expect(document.body).not.toHaveTextContent('应用界面暂时不可用')
+    fireEvent.change(screen.getByRole('textbox', { name: '目标岗位' }), {
+      target: { value: '前端工程师' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: '创建练习会话' }))
+
+    await screen.findByRole('heading', { name: '前端工程师' })
+    expect(createInterviewSession).toHaveBeenCalledOnce()
+    expect(createInterviewSession.mock.calls[0]?.[0].input.knowledge).toMatchObject({
+      agentScope: 'interview_coach',
+      includeSourceIds: [material.id],
+      mode: 'explicit'
+    })
   })
 
   it('在 StrictMode 重挂载期间只补齐一次本地 Demo 场景且不显示瞬时错误', async (): Promise<void> => {

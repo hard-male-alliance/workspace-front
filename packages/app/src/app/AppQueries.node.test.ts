@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import type { AppGateways } from '../application'
+import type { UiAgentScopeGrant, UiKnowledgeSource } from '../contexts/knowledge'
+import { asUiOpaqueId } from '../shared-kernel/identity'
 import {
   InMemoryIdentityGateway,
   InMemoryInterviewGateway,
@@ -33,6 +35,49 @@ function createGateways(workspace = new InMemoryWorkspaceGateway()): AppGateways
     resumeTemplates: resume,
     workspace,
     workspaceOperations: new InMemoryWorkspaceOperationsGateway({}, operationsStore)
+  }
+}
+
+/**
+ * @brief 构造面试材料筛选测试来源 / Build a KnowledgeSource for Interview-material filtering tests.
+ * @param suffix 来源 identity 与标题后缀 / Source identity and title suffix.
+ * @param grants 可见性授权规则 / Visibility grant rules.
+ * @param defaultEffect 无匹配规则时的默认效果 / Default effect when no rule matches.
+ * @return 可直接由 Knowledge gateway 返回的 ready 来源 / Ready source returnable by the Knowledge gateway.
+ */
+function interviewKnowledgeSource(
+  suffix: string,
+  grants: readonly UiAgentScopeGrant[],
+  defaultEffect: 'allow' | 'deny' = 'deny'
+): UiKnowledgeSource {
+  return {
+    createdAt: '2026-07-29T00:00:00.000Z',
+    currentVersionId: asUiOpaqueId<'knowledge-source-version'>(`version_interview_${suffix}`),
+    enabled: true,
+    id: asUiOpaqueId<'knowledge-source'>(`source_interview_${suffix}`),
+    ingestion: {
+      chunkCount: 1,
+      documentCount: 1,
+      lastProblem: null,
+      lastSuccessAt: '2026-07-29T00:00:00.000Z',
+      status: 'ready'
+    },
+    name: `面试材料 ${suffix}`,
+    publicConfig: {},
+    revision: 1,
+    sourceType: 'manual_note',
+    updatedAt: '2026-07-29T00:00:00.000Z',
+    visibility: {
+      agentGrants: grants,
+      allowExternalModelProcessing: true,
+      allowedModelRegions: ['global'],
+      defaultEffect,
+      policyVersion: 1,
+      retentionDays: 30,
+      sensitivity: 'normal',
+      sessionOverrideAllowed: false
+    },
+    workspaceId: asUiOpaqueId<'workspace'>('workspace_interview_query')
   }
 }
 
@@ -114,5 +159,98 @@ describe('createAppQueries', (): void => {
     await expect(queries.workspaceHome.load(new AbortController().signal)).rejects.toThrow(
       'No workspace is available'
     )
+  })
+
+  it('仅向面试设置页返回具有有效 retrieve 权限的材料', async (): Promise<void> => {
+    /** @brief 当前测试 gateway / Gateways used by this test. */
+    const gateways = createGateways()
+    /** @brief 当前 interview_coach 的 retrieve allow 来源 / Current-scope retrieve-allowed source. */
+    const current = interviewKnowledgeSource('current01', [
+      {
+        agentScope: 'interview_coach',
+        allowedOperations: ['retrieve'],
+        effect: 'allow'
+      }
+    ])
+    /** @brief 只有 derive、不可检索的来源 / Derive-only source that cannot be retrieved. */
+    const deriveOnly = interviewKnowledgeSource('derive01', [
+      {
+        agentScope: 'interview_coach',
+        allowedOperations: ['derive'],
+        effect: 'allow'
+      }
+    ])
+    /** @brief retrieve deny 必须覆盖 allow 的来源 / Source where retrieve deny must override allow. */
+    const denied = interviewKnowledgeSource('denied01', [
+      {
+        agentScope: 'interview_coach',
+        allowedOperations: ['retrieve'],
+        effect: 'allow'
+      },
+      {
+        agentScope: 'interview_coach',
+        allowedOperations: ['retrieve'],
+        effect: 'deny'
+      }
+    ])
+    /** @brief 旧 interview_agent scope 的兼容来源 / Legacy interview_agent compatibility source. */
+    const legacy = interviewKnowledgeSource('legacy01', [
+      {
+        agentScope: 'interview_agent',
+        allowedOperations: ['retrieve'],
+        effect: 'allow'
+      }
+    ])
+    vi.spyOn(gateways.knowledge, 'listKnowledgeSourcePage').mockResolvedValue({
+      hasMore: false,
+      items: [current, deriveOnly, denied, legacy],
+      nextCursor: null
+    })
+
+    /** @brief 面试设置页最终可选择材料 / Materials ultimately selectable by Interview setup. */
+    const materials = await createAppQueries(
+      gateways,
+      createWorkspaceSession(gateways.identity, gateways.workspace)
+    ).interviewSetup.listKnowledgeMaterials(
+      asUiOpaqueId<'workspace'>('workspace_interview_query'),
+      new AbortController().signal
+    )
+
+    expect(materials.map((material) => material.id)).toEqual([current.id, legacy.id])
+  })
+
+  it('仅在没有面试 scope 规则时继承 allow 默认策略', async (): Promise<void> => {
+    /** @brief 当前测试 gateway / Gateways used by this test. */
+    const gateways = createGateways()
+    /** @brief 没有面试规则、可继承默认 allow 的来源 / Source with no Interview rule inheriting default allow. */
+    const inherited = interviewKnowledgeSource('default01', [], 'allow')
+    /** @brief 已有 derive-only 面试规则、不得继承默认 allow 的来源 / Source with a derive-only Interview rule that cannot inherit default allow. */
+    const shadowed = interviewKnowledgeSource(
+      'shadowed01',
+      [
+        {
+          agentScope: 'interview_coach',
+          allowedOperations: ['derive'],
+          effect: 'allow'
+        }
+      ],
+      'allow'
+    )
+    vi.spyOn(gateways.knowledge, 'listKnowledgeSourcePage').mockResolvedValue({
+      hasMore: false,
+      items: [inherited, shadowed],
+      nextCursor: null
+    })
+
+    /** @brief 默认策略解析后的材料 / Materials after default-policy evaluation. */
+    const materials = await createAppQueries(
+      gateways,
+      createWorkspaceSession(gateways.identity, gateways.workspace)
+    ).interviewSetup.listKnowledgeMaterials(
+      asUiOpaqueId<'workspace'>('workspace_interview_query'),
+      new AbortController().signal
+    )
+
+    expect(materials.map((material) => material.id)).toEqual([inherited.id])
   })
 })
