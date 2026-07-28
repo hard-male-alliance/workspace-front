@@ -12,7 +12,7 @@ import {
   Trash2,
   X
 } from 'lucide-react'
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
@@ -51,8 +51,11 @@ import type {
   UiResumeSectionUpdateInput,
   UiTemplateManifest
 } from '../domain/models'
-import type { UiResumeProposalAuthority } from '../domain/review'
 import { ResumePreviewPanel } from './ResumePreviewPanel'
+import {
+  initialResumeAssistantCommandState,
+  resumeAssistantTransition
+} from './resume-assistant-machine'
 import { selectResumePlainText } from './resume-document-selectors'
 
 /** @brief 桌面简历工作台窗口 / Desktop resume-workspace pane. */
@@ -408,19 +411,37 @@ function ResumeAssistantPanel({
   const { t } = useTranslation()
   const [draft, setDraft] = useState('')
   const [messages, setMessages] = useState<readonly UiResumeAssistantMessage[]>([])
-  const [pendingProposal, setPendingProposal] = useState<UiResumeProposalAuthority | null>(null)
-  const [isLoading, setLoading] = useState(true)
-  const [isSending, setSending] = useState(false)
-  /** @brief 已确认 Proposal 后仍在等待助手完成回复 / A committed Proposal is waiting for the assistant's completion reply. */
-  const [isApplyingProposal, setApplyingProposal] = useState(false)
+  const [commandState, dispatchCommand] = useReducer(
+    resumeAssistantTransition,
+    initialResumeAssistantCommandState
+  )
   const [error, setError] = useState<unknown>(null)
-  /** @brief 最近一次助手错误发生的阶段 / Phase in which the latest assistant error occurred. */
-  const [errorPhase, setErrorPhase] = useState<'request' | 'continuation' | null>(null)
+  /** @brief 仅等待决策状态持有可点击的 Proposal 权威 / Only the decision-wait state exposes clickable Proposal authority. */
+  const pendingProposal =
+    commandState.status === 'awaiting-proposal' ? commandState.authority : null
+  /** @brief 首次独立恢复仍在进行 / Initial independent hydration remains in progress. */
+  const isLoading = commandState.status === 'loading'
+  /** @brief 当前命令正在创建、执行或提交决策 / Current command is creating, executing, or committing a decision. */
+  const isSending = [
+    'creating-run',
+    'running',
+    'committing-decision',
+    'continuation-running'
+  ].includes(commandState.status)
+  /** @brief 已进入不可回滚的 Proposal 决策链路 / Proposal decision has entered its irreversible path. */
+  const isApplyingProposal =
+    commandState.status === 'committing-decision' ||
+    commandState.status === 'continuation-running'
+  /** @brief 最近失败的准确阶段 / Exact phase of the latest failure. */
+  const errorPhase =
+    commandState.status === 'retryable-error' || commandState.status === 'terminal-error'
+      ? commandState.phase
+      : null
   /** @brief 已确认的 Proposal 续答因后续权威版本变化而终止 / Accepted Proposal continuation superseded by a newer authoritative Resume. */
   const isContinuationAuthorityChanged =
     errorPhase === 'continuation' &&
-    error instanceof Error &&
-    error.message === 'agent.resume_authority_changed'
+    (commandState.status === 'retryable-error' || commandState.status === 'terminal-error') &&
+    commandState.problemCode === 'agent.resume_authority_changed'
   const controllerRef = useRef<AbortController | null>(null)
   const assistantInput = useMemo(
     () => ({
@@ -454,27 +475,30 @@ function ResumeAssistantPanel({
     const loadInput = assistantInputRef.current
     globalThis.queueMicrotask((): void => {
       if (controller.signal.aborted) return
-      setLoading(true)
       setError(null)
-      setErrorPhase(null)
       void gateway.assistant
         .load({ ...loadInput, signal: controller.signal })
         .then((thread): void => {
           setMessages(thread.messages)
-          setPendingProposal(thread.pendingProposal)
+          dispatchCommand({
+            type: 'hydration-succeeded',
+            pendingProposal: thread.pendingProposal,
+            recoveryProblemCode: thread.recoveryProblemCode
+          })
           if (thread.recoveryProblemCode !== null) {
             setError(new Error(thread.recoveryProblemCode))
-            setErrorPhase('request')
           }
         })
         .catch((loadError: unknown): void => {
           if (!controller.signal.aborted) {
             setError(loadError)
-            setErrorPhase('request')
+            dispatchCommand({
+              type: 'command-failed',
+              problemCode:
+                loadError instanceof Error ? loadError.message : 'resume.assistant_load_failed',
+              retryable: true
+            })
           }
-        })
-        .finally((): void => {
-          if (!controller.signal.aborted) setLoading(false)
         })
     })
     return (): void => {
@@ -497,24 +521,32 @@ function ResumeAssistantPanel({
       { author: 'user', id: optimisticId, referenceSourceIds: [], text: question }
     ])
     setDraft('')
-    setSending(true)
-    setApplyingProposal(false)
+    dispatchCommand({ type: 'command-submitted' })
+    dispatchCommand({ type: 'run-started' })
     setError(null)
-    setErrorPhase(null)
     void gateway.assistant
       .ask({ ...assistantInput, question, signal: controller.signal })
       .then((thread): void => {
         setMessages(thread.messages)
-        setPendingProposal(thread.pendingProposal)
+        if (thread.pendingProposal === null) {
+          dispatchCommand({ type: 'command-succeeded' })
+        } else {
+          dispatchCommand({
+            type: 'proposal-received',
+            authority: thread.pendingProposal
+          })
+        }
       })
       .catch((sendError: unknown): void => {
         if (!controller.signal.aborted) {
           setError(sendError)
-          setErrorPhase('request')
+          dispatchCommand({
+            type: 'command-failed',
+            problemCode:
+              sendError instanceof Error ? sendError.message : 'resume.assistant_request_failed',
+            retryable: true
+          })
         }
-      })
-      .finally((): void => {
-        if (!controller.signal.aborted) setSending(false)
       })
   }
 
@@ -523,10 +555,8 @@ function ResumeAssistantPanel({
     if (authority === null || isSending) return
     const controller = new AbortController()
     controllerRef.current = controller
-    setSending(true)
-    setApplyingProposal(true)
+    dispatchCommand({ type: 'decision-started', decision })
     setError(null)
-    setErrorPhase(null)
     /** @brief 一旦决策已被服务端确认，续答失败也不能回滚已更新的 Resume / A server-confirmed decision must not be rolled back when its continuation fails. */
     let decisionCommitted = false
     void gateway.assistant
@@ -541,7 +571,7 @@ function ResumeAssistantPanel({
           throw new Error('resume.assistant_proposal_conflict')
         }
         decisionCommitted = true
-        setPendingProposal(null)
+        dispatchCommand({ type: 'decision-committed' })
         if (decision === 'accept-all') {
           onEditorChange(result.decision.editor, assistantInput.resumeRevision)
         }
@@ -552,24 +582,39 @@ function ResumeAssistantPanel({
         })
         if (controller.signal.aborted) return
         setMessages(continuation.thread.messages)
-        setPendingProposal(continuation.thread.pendingProposal)
         if (continuation.problemCode !== null) {
           if (continuation.problemCode === 'agent.resume_authority_changed') {
             onContinuationAuthorityChanged()
           }
+          dispatchCommand({
+            type: 'continuation-failed',
+            problemCode: continuation.problemCode,
+            retryable: false
+          })
           throw new Error(continuation.problemCode)
+        }
+        if (continuation.thread.pendingProposal === null) {
+          dispatchCommand({ type: 'continuation-succeeded' })
+        } else {
+          dispatchCommand({
+            type: 'proposal-received',
+            authority: continuation.thread.pendingProposal
+          })
         }
       })
       .catch((decisionError: unknown): void => {
         if (!controller.signal.aborted) {
           setError(decisionError)
-          setErrorPhase(decisionCommitted ? 'continuation' : 'request')
-        }
-      })
-      .finally((): void => {
-        if (!controller.signal.aborted) {
-          setSending(false)
-          setApplyingProposal(false)
+          if (!decisionCommitted) {
+            dispatchCommand({
+              type: 'command-failed',
+              problemCode:
+                decisionError instanceof Error
+                  ? decisionError.message
+                  : 'resume.assistant_decision_failed',
+              retryable: true
+            })
+          }
         }
       })
   }
