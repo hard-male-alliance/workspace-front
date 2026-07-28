@@ -419,9 +419,23 @@ describe('API v2 InterviewSession and Realtime contract', (): void => {
       session_id: SESSION_ID,
       transport: 'webrtc'
     })
+    for (const signalingUrl of [
+      'ws://dev.hmalliances.org:9000/realtime/v2/interview',
+      'ws://localhost:8000/realtime/v2/interview',
+      'ws://127.0.0.1:8000/realtime/v2/interview'
+    ]) {
+      expect(
+        parseRealtimeConnection(realtimeConnection({ signaling_url: signalingUrl }))
+      ).toMatchObject({ signaling_url: signalingUrl })
+    }
     expect(() =>
       parseRealtimeConnection(
         realtimeConnection({ signaling_url: 'ws://realtime.example.com/interview' })
+      )
+    ).toThrow(/permitted Realtime URL/u)
+    expect(() =>
+      parseRealtimeConnection(
+        realtimeConnection({ signaling_url: 'ws://localhost:9000/realtime/v2/interview' })
       )
     ).toThrow(/permitted Realtime URL/u)
     expect(() =>

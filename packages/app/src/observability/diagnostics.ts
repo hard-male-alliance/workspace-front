@@ -101,6 +101,9 @@ export type DiagnosticErrorKind =
   | 'timeout'
   | 'unknown'
 
+/** @brief Realtime 连接失败的封闭阶段 / Closed phases of a Realtime connection failure. */
+export type DiagnosticRealtimeFailurePhase = 'grant' | 'handshake' | 'connected'
+
 /** @brief 运行时错误的可信来源 / Trusted sources of runtime failures. */
 export type DiagnosticRuntimeErrorSource = 'react_boundary' | 'unhandled_rejection' | 'window_error'
 
@@ -158,6 +161,16 @@ export interface DiagnosticsEventRegistry {
     readonly duration_ms: number
     readonly error_kind: DiagnosticErrorKind
     readonly operation: Extract<DiagnosticCommandOperation, `interview.${string}`>
+  }
+  /** @brief 面试 Realtime 连接在一个明确阶段失败 / Interview Realtime connection failed at an explicit phase. */
+  readonly 'interview.realtime_connection_failed': {
+    readonly close_code?: number
+    readonly duration_ms: number
+    readonly error_kind: DiagnosticErrorKind
+    readonly phase: DiagnosticRealtimeFailurePhase
+    readonly problem_code?: string
+    readonly request_id?: string
+    readonly status?: number
   }
   /** @brief 知识关键命令已开始 / Knowledge command started. */
   readonly 'knowledge.command_started': {

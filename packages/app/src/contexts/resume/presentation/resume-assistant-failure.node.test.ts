@@ -41,4 +41,12 @@ describe('resumeAssistantFailureMessage', (): void => {
     expect(message).not.toContain('无法安全执行')
     expect(message).not.toContain('调整描述')
   })
+
+  it('identifies authorized Knowledge retrieval failures', (): void => {
+    const message = resumeAssistantFailureMessage(new Error('agent.knowledge_retrieval_failed'))
+
+    expect(message).toContain('知识库检索服务暂时不可用')
+    expect(message).toContain('已授权资料')
+    expect(message).not.toContain('简历助手请求失败')
+  })
 })

@@ -82,6 +82,9 @@ export function createWebContentSecurityPolicy(options: WebContentSecurityPolicy
     connectSources.add('http://localhost:9000')
     connectSources.add('ws://localhost:5173')
     connectSources.add('ws://127.0.0.1:5173')
+    connectSources.add('ws://localhost:8000')
+    connectSources.add('ws://localhost:9000')
+    connectSources.add('ws://127.0.0.1:8000')
     imageSources.add(API_V2_CONTROLLED_TEST_ORIGIN)
   }
 
