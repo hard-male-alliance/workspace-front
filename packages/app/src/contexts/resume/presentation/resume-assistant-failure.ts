@@ -6,7 +6,9 @@ const RESUME_ASSISTANT_FAILURE_MESSAGES: Readonly<Record<string, string>> = {
   'agent.turn_budget_exhausted':
     '简历助手在多轮处理后仍未完成本次请求。请重试；如果问题持续发生，系统将通过运行记录定位具体环节。当前简历没有被修改。',
   'agent.tool_call_budget_exhausted':
-    '简历助手调用编辑工具的次数超过了后端安全上限，任务已终止。请重试；如果问题持续发生，系统将通过运行记录定位具体环节。当前简历没有被修改。',
+    '简历助手调用简历读取或编辑工具的次数超过了后端安全上限，任务已终止。请重试；如果问题持续发生，系统将通过运行记录定位具体环节。当前简历没有被修改。',
+  'agent.total_tool_call_budget_exhausted':
+    '简历助手的知识检索和简历处理总调用次数超过了后端安全上限，任务已终止。请重试；如果问题持续发生，系统将通过运行记录定位具体环节。当前简历没有被修改。',
   'agent.tool_recovery_exhausted':
     '简历助手连续生成了无法执行的编辑操作，后端已停止无效重试。该问题不表示你的要求不安全，请重试或联系管理员检查本次运行记录。当前简历没有被修改。',
   'agent.provider_rate_limited': '模型服务当前请求较多，请稍后重试。当前简历没有被修改。',

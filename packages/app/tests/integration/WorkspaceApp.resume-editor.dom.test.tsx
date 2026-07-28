@@ -1,10 +1,15 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { ResumeBatchConflictError } from '@ai-job-workspace/app/application'
+import {
+  asUiOpaqueId,
+  createUiCommandId,
+  ResumeBatchConflictError
+} from '@ai-job-workspace/app/application'
 import { ApiV2ProblemError, ApiV2WriteOutcomeUnknownError } from '@ai-job-workspace/product-api-v2'
 import {
   MOCK_HISTORICAL_DAWN_TEMPLATE,
   MOCK_RESUME_ID,
+  MOCK_RESUME_PROPOSALS,
   MOCK_RESUME_WORKSPACE_ID,
   InMemoryResumeGateway
 } from '@ai-job-workspace/app/testing'
@@ -38,8 +43,89 @@ function desktopTemplateSettingsLink(accessibleName: string): HTMLElement {
   return within(screen.getByRole('toolbar')).getByRole('link', { name: accessibleName })
 }
 
+/** @brief 等待真实 Resume 编辑控件完成加载 / Wait until the real Resume editing controls are ready. */
+async function waitForResumeEditor(): Promise<void> {
+  await screen.findByRole('textbox', { name: /区段标题|Section title/u })
+}
+
 /** @brief 简历编辑器用户行为测试 / Resume-editor user-behaviour tests. */
 describe('WorkspaceApp Resume editor', (): void => {
+  it('shows normalized item fields when a section has no legacy content body', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    const resume = new InMemoryResumeGateway()
+    const baseline = await resume.getResumeEditor(
+      MOCK_RESUME_WORKSPACE_ID,
+      MOCK_RESUME_ID,
+      ACTIVE_RESUME_READ_SIGNAL
+    )
+    const section = baseline.resume.sections[0]!
+    const structuredEditor: typeof baseline = {
+      ...baseline,
+      resume: {
+        ...baseline.resume,
+        sections: [
+          {
+            ...section,
+            content: null,
+            items: [
+              {
+                dateRange: null,
+                highlights: [],
+                id: asUiOpaqueId<'resume-item'>('item_education_visible_01'),
+                kind: 'education',
+                location: null,
+                organization: '南开大学',
+                skills: [],
+                subtitle: '计算机科学与技术',
+                summary: null,
+                tags: [],
+                title: '本科学历',
+                url: null,
+                visible: true
+              }
+            ]
+          },
+          ...baseline.resume.sections.slice(1)
+        ]
+      }
+    }
+    vi.spyOn(resume, 'getResumeEditor').mockResolvedValue(structuredEditor)
+    const updateItem = vi.spyOn(resume, 'updateResumeItem').mockImplementation((input) =>
+      Promise.resolve({
+        concurrencyToken: structuredEditor.concurrencyToken,
+        resume: {
+          ...structuredEditor.resume,
+          revision: structuredEditor.resume.revision + 1,
+          sections: structuredEditor.resume.sections.map((candidate) => ({
+            ...candidate,
+            items: candidate.items.map((item) =>
+              item.id === input.itemId ? { ...item, [input.field]: input.value } : item
+            )
+          }))
+        }
+      })
+    )
+    window.history.replaceState(null, '', `/resumes/${MOCK_RESUME_ID}/edit`)
+
+    render(<WorkspaceApp gateways={createTestGateways({ resume })} />)
+
+    expect(await screen.findByDisplayValue('南开大学')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('计算机科学与技术')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('本科学历')).toBeInTheDocument()
+    const organization = screen.getByRole('textbox', { name: '组织或院校 1' })
+    fireEvent.change(organization, { target: { value: '南开大学软件学院' } })
+    fireEvent.blur(organization)
+    await waitFor((): void => {
+      expect(updateItem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          field: 'organization',
+          itemId: asUiOpaqueId<'resume-item'>('item_education_visible_01'),
+          value: '南开大学软件学院'
+        })
+      )
+    })
+  })
+
   it('rebuilds editor aggregate state when the authoritative Resume ID changes', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
     /** @brief 当前测试独享的简历 Gateway / Resume Gateway owned by the current test. */
@@ -80,7 +166,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     window.history.replaceState(null, '', `/resumes/${MOCK_RESUME_ID}/edit`)
 
     render(<WorkspaceApp gateways={createTestGateways({ resume })} />)
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
     fireEvent.change(screen.getByRole('textbox', { name: '区段标题' }), {
       target: { value: '只属于 A 的本地草稿' }
     })
@@ -182,7 +268,7 @@ describe('WorkspaceApp Resume editor', (): void => {
 
     render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
 
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
 
     expect(screen.getByRole('toolbar', { name: '简历窗口控制' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'AI 对话' })).toBeInTheDocument()
@@ -190,7 +276,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     expect(screen.getByRole('heading', { name: '预览' })).toBeInTheDocument()
     expect(screen.getByRole('complementary', { name: 'AI 对话' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: '内容编辑' })).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: '语义内容预览' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'PDF 预览' })).toBeInTheDocument()
     expect(screen.getAllByRole('separator')).toHaveLength(2)
   })
 
@@ -206,7 +292,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
 
     /** @brief 当前聚焦 section 的标题输入 / Title input of the currently focused section. */
     const title = screen.getByRole('textbox', { name: '区段标题' })
@@ -229,7 +315,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     await setWorkspaceAppTestLocale('zh-SG')
 
     render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
 
     fireEvent.click(screen.getByRole('button', { name: '收起“AI 对话”窗口' }))
     fireEvent.click(screen.getByRole('button', { name: '收起“内容编辑”窗口' }))
@@ -257,7 +343,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
     /** @brief 尚未保存的板块标题 / Unsaved section-title draft. */
     const title = screen.getByRole('textbox', { name: '区段标题' })
     /** @brief 尚未保存的板块正文 / Unsaved section-body draft. */
@@ -311,7 +397,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
     /** @brief 同一 prototype-name section 的两个独立本地字段 / Two independent local fields of the same prototype-name section. */
     const title = screen.getByRole('textbox', { name: '区段标题' })
     const content = screen.getByRole('textbox', { name: '语义内容' })
@@ -326,7 +412,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     await setWorkspaceAppTestLocale('zh-SG')
 
     render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
 
     const composer = screen.getByRole('textbox', { name: '询问简历助手' })
     const send = await screen.findByRole('button', { name: '发送消息' })
@@ -358,6 +444,227 @@ describe('WorkspaceApp Resume editor', (): void => {
     expect(
       await screen.findByText('测试助手已收到：你觉得我最需要先处理什么？')
     ).toBeInTheDocument()
+  })
+
+  it('keeps recovered messages visible when command recovery is unavailable', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('en-US')
+    const resume = new InMemoryResumeGateway()
+    vi.spyOn(resume.assistant, 'load').mockResolvedValue({
+      conversationId: 'conversation_recovery_unavailable',
+      messages: [
+        {
+          author: 'assistant',
+          id: 'message_recovered_before_command',
+          proposalStates: [],
+          referenceSourceIds: [],
+          text: 'Recovered conversation message.'
+        }
+      ],
+      pendingProposal: null,
+      recoveryProblemCode: null
+    })
+    vi.spyOn(resume.assistant, 'recoverCommand').mockRejectedValue(
+      new Error('private recovery transport detail')
+    )
+
+    render(
+      <WorkspaceApp
+        gateways={createTestGateways({ resume })}
+        initialPath="/resumes/res_mock_ai_platform/edit"
+      />
+    )
+
+    expect(await screen.findByText('Recovered conversation message.')).toBeInTheDocument()
+    expect(
+      await screen.findByText(
+        '会话消息已恢复，但正在进行的助手任务状态暂时无法恢复。请稍后刷新重试。'
+      )
+    ).toBeInTheDocument()
+    expect(screen.queryByText('private recovery transport detail')).not.toBeInTheDocument()
+  })
+
+  it('applies an accepted assistant editor before its continuation resolves', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('en-US')
+    /** @brief 当前测试独享的 Resume Gateway / Resume Gateway owned by the current test. */
+    const resume = new InMemoryResumeGateway()
+    /** @brief 页面初始加载时的 Resume 权威 / Resume authority used for the page's initial load. */
+    const initial = await resume.getResumeEditor(
+      MOCK_RESUME_WORKSPACE_ID,
+      MOCK_RESUME_ID,
+      ACTIVE_RESUME_READ_SIGNAL
+    )
+    /** @brief 可接受的待决 Proposal / Pending Proposal accepted through the actual review port. */
+    const pendingProposal = MOCK_RESUME_PROPOSALS.find((proposal) => proposal.status === 'pending')
+    if (pendingProposal === undefined)
+      throw new Error('Expected a pending Resume Proposal fixture.')
+    /** @brief 决策前冻结的 Proposal 权威 / Frozen Proposal authority before the decision. */
+    const authority = await resume.getResumeProposal(
+      MOCK_RESUME_WORKSPACE_ID,
+      MOCK_RESUME_ID,
+      pendingProposal.id,
+      ACTIVE_RESUME_READ_SIGNAL
+    )
+    const proposal = authority.proposal
+    if (proposal.status !== 'pending')
+      throw new Error('Expected a pending Resume Proposal authority.')
+    /** @brief 后端决策已提交的真实 Resume 结果 / Actual committed Resume result returned by the review port. */
+    const committedDecision = await resume.decideResumeProposal({
+      commandId: createUiCommandId(),
+      concurrencyToken: authority.concurrencyToken,
+      decision: { kind: 'accept-all' },
+      proposal
+    })
+    expect(committedDecision.conflicts).toEqual([])
+    expect(committedDecision.editor.resume.revision).toBe(initial.resume.revision + 1)
+
+    type ProposalContinuationResult = Awaited<
+      ReturnType<typeof resume.assistant.waitForProposalContinuation>
+    >
+    let resolveContinuation: ((result: ProposalContinuationResult) => void) | undefined
+    let rejectContinuation: ((reason?: unknown) => void) | undefined
+    const pendingContinuation = new Promise<ProposalContinuationResult>((resolve, reject): void => {
+      resolveContinuation = resolve
+      rejectContinuation = reject
+    })
+
+    vi.spyOn(resume, 'getResumeEditor').mockResolvedValue(initial)
+    vi.spyOn(resume.assistant, 'load').mockResolvedValue({
+      conversationId: 'conversation_proposal_decision',
+      messages: [],
+      pendingProposal: authority,
+      recoveryProblemCode: null
+    })
+    vi.spyOn(resume.assistant, 'recoverCommand').mockResolvedValue({
+      pendingProposal: authority,
+      recoveryProblemCode: null
+    })
+    const decideProposal = vi.spyOn(resume.assistant, 'decideProposal').mockResolvedValue({
+      continuation: {
+        runId: 'run_proposal_decision',
+        waitingOutputMessageId: null
+      },
+      decision: committedDecision
+    })
+    const waitForContinuation = vi
+      .spyOn(resume.assistant, 'waitForProposalContinuation')
+      .mockImplementation(({ signal }) => {
+        signal?.addEventListener('abort', (): void => rejectContinuation?.(signal.reason), {
+          once: true
+        })
+        return pendingContinuation
+      })
+
+    render(
+      <WorkspaceApp
+        gateways={createTestGateways({ resume })}
+        initialPath="/resumes/res_mock_ai_platform/edit"
+      />
+    )
+    expect(await screen.findByText('Revision 18')).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: '接受修改' }))
+
+    expect(await screen.findByText('Revision 19')).toBeInTheDocument()
+    expect(decideProposal).toHaveBeenCalledTimes(1)
+    expect(waitForContinuation).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('正在修改简历，正在等待助手完成回复。')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '接受修改' })).not.toBeInTheDocument()
+
+    await act(async (): Promise<void> => {
+      resolveContinuation?.({
+        problemCode: null,
+        thread: {
+          conversationId: 'conversation_proposal_decision',
+          messages: [
+            {
+              author: 'assistant',
+              id: 'message_proposal_completed',
+              proposalStates: [],
+              referenceSourceIds: [],
+              text: 'The Resume edit is complete.'
+            }
+          ],
+          pendingProposal: null,
+          recoveryProblemCode: null
+        }
+      })
+      await pendingContinuation
+    })
+
+    expect(await screen.findByText('The Resume edit is complete.')).toBeInTheDocument()
+  })
+
+  it('keeps an accepted editor and explains when its continuation is superseded by a newer authority', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('en-US')
+    const resume = new InMemoryResumeGateway()
+    const initial = await resume.getResumeEditor(
+      MOCK_RESUME_WORKSPACE_ID,
+      MOCK_RESUME_ID,
+      ACTIVE_RESUME_READ_SIGNAL
+    )
+    const pendingProposal = MOCK_RESUME_PROPOSALS.find((proposal) => proposal.status === 'pending')
+    if (pendingProposal === undefined)
+      throw new Error('Expected a pending Resume Proposal fixture.')
+    const authority = await resume.getResumeProposal(
+      MOCK_RESUME_WORKSPACE_ID,
+      MOCK_RESUME_ID,
+      pendingProposal.id,
+      ACTIVE_RESUME_READ_SIGNAL
+    )
+    const proposal = authority.proposal
+    if (proposal.status !== 'pending')
+      throw new Error('Expected a pending Resume Proposal authority.')
+    const committedDecision = await resume.decideResumeProposal({
+      commandId: createUiCommandId(),
+      concurrencyToken: authority.concurrencyToken,
+      decision: { kind: 'accept-all' },
+      proposal
+    })
+
+    vi.spyOn(resume, 'getResumeEditor').mockResolvedValue(initial)
+    vi.spyOn(resume.assistant, 'load').mockResolvedValue({
+      conversationId: 'conversation_authority_changed',
+      messages: [],
+      pendingProposal: authority,
+      recoveryProblemCode: null
+    })
+    vi.spyOn(resume.assistant, 'recoverCommand').mockResolvedValue({
+      pendingProposal: authority,
+      recoveryProblemCode: null
+    })
+    vi.spyOn(resume.assistant, 'decideProposal').mockResolvedValue({
+      continuation: {
+        runId: 'run_authority_changed',
+        waitingOutputMessageId: null
+      },
+      decision: committedDecision
+    })
+    vi.spyOn(resume.assistant, 'waitForProposalContinuation').mockResolvedValue({
+      problemCode: 'agent.resume_authority_changed',
+      thread: {
+        conversationId: 'conversation_authority_changed',
+        messages: [],
+        pendingProposal: null,
+        recoveryProblemCode: null
+      }
+    })
+
+    render(
+      <WorkspaceApp
+        gateways={createTestGateways({ resume })}
+        initialPath="/resumes/res_mock_ai_platform/edit"
+      />
+    )
+    expect(await screen.findByText('Revision 18')).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: '接受修改' }))
+
+    expect(await screen.findByText('Revision 19')).toBeInTheDocument()
+    expect(
+      await screen.findByText(
+        '你的决定已经提交，但服务器上的简历又发生了变化。请重新加载权威版本后再继续编辑。'
+      )
+    ).toBeInTheDocument()
+    expect(await screen.findByText('Resume version is stale')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reload server version' })).toBeInTheDocument()
   })
 
   it.each([412, 409] as const)(
@@ -405,7 +712,7 @@ describe('WorkspaceApp Resume editor', (): void => {
           initialPath="/resumes/res_mock_ai_platform/edit"
         />
       )
-      await screen.findByRole('heading', { name: 'Klee Chen' })
+      await waitForResumeEditor()
       /** @brief 语义内容编辑框 / Semantic-content editor. */
       const content = screen.getByRole('textbox', { name: 'Semantic content' })
       fireEvent.change(content, { target: { value: 'A stale local edit' } })
@@ -549,7 +856,7 @@ describe('WorkspaceApp Resume editor', (): void => {
           initialPath="/resumes/res_mock_ai_platform/edit"
         />
       )
-      await screen.findByRole('heading', { name: 'Klee Chen' })
+      await waitForResumeEditor()
 
       /** @brief 触发当前参数指定的用户写操作 / Trigger the user mutation selected by the current parameter. */
       const triggerMutation = (): void => {
@@ -680,7 +987,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
     /** @brief 结果未知后仍保留的字段草稿 / Field draft retained after an unknown outcome. */
     const content = screen.getByRole('textbox', { name: 'Semantic content' })
     fireEvent.change(content, { target: { value: 'Confirm this exact command' } })
@@ -764,7 +1071,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
     /** @brief 处理中命令携带的正文草稿 / Body draft carried by the in-progress command. */
     const content = screen.getByRole('textbox', { name: 'Semantic content' })
     fireEvent.change(content, { target: { value: 'Confirm the in-progress command' } })
@@ -838,7 +1145,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
     /** @brief 结果未知期间必须保留的本地正文草稿 / Local body draft retained while the outcome is unknown. */
     const content = screen.getByRole('textbox', { name: 'Semantic content' })
     fireEvent.change(content, { target: { value: 'Retain after terminal rejection' } })
@@ -902,7 +1209,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
     /** @brief 将触发终态坏响应的正文输入 / Body input triggering the terminal invalid response. */
     const content = screen.getByRole('textbox', { name: 'Semantic content' })
     fireEvent.change(content, { target: { value: 'Retain after invalid success' } })
@@ -968,7 +1275,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
     /** @brief 坏 409 期间必须保留的正文草稿 / Body draft retained across the malformed 409. */
     const content = screen.getByRole('textbox', { name: 'Semantic content' })
     fireEvent.change(content, { target: { value: 'Retry only as a new explicit command' } })
@@ -1042,7 +1349,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
     /** @brief 必须跨权威恢复保留的正文草稿 / Body draft that must survive authority recovery. */
     const content = screen.getByRole('textbox', { name: 'Semantic content' })
     fireEvent.change(content, { target: { value: 'Retain after key reuse' } })
@@ -1116,7 +1423,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
     /** @brief 未获服务端应用但必须保留的正文草稿 / Body draft not applied by the service but required to remain local. */
     const content = screen.getByRole('textbox', { name: '语义内容' })
     fireEvent.change(content, { target: { value: '需要基于新版本确认的草稿' } })
@@ -1220,7 +1527,7 @@ describe('WorkspaceApp Resume editor', (): void => {
           initialPath="/resumes/res_mock_ai_platform/edit"
         />
       )
-      await screen.findByRole('heading', { name: 'Klee Chen' })
+      await waitForResumeEditor()
       /** @brief section 标题输入 / Section-title input. */
       const title = screen.getByRole('textbox', { name: '区段标题' })
       /** @brief section 正文输入 / Section-body input. */
@@ -1300,7 +1607,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
     /** @brief 不得因服务端删除而静默丢失的本地正文 / Local body that must not be silently lost after server-side deletion. */
     const content = screen.getByRole('textbox', { name: '语义内容' })
     fireEvent.change(content, { target: { value: '必须允许复制恢复的本地正文' } })
@@ -1350,7 +1657,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
     /** @brief 用户正在保存的语义正文 / Semantic body currently being saved. */
     const content = screen.getByRole('textbox', { name: '语义内容' })
     fireEvent.change(content, { target: { value: '正在保存的内容' } })
@@ -1396,7 +1703,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
 
     fireEvent.click(screen.getByRole('button', { name: '下移职业摘要' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('无法调整板块顺序。')
@@ -1442,7 +1749,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
     /** @brief 用户正在编辑的语义正文 / Semantic body edited by the user. */
     const content = screen.getByRole('textbox', { name: '语义内容' })
 
@@ -1472,7 +1779,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     await setWorkspaceAppTestLocale('zh-SG')
 
     render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
 
     expect(screen.getByRole('button', { name: '下移职业摘要' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '删除职业摘要' })).toBeInTheDocument()
@@ -1512,7 +1819,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         initialPath="/resumes/res_mock_ai_platform/edit"
       />
     )
-    await screen.findByRole('heading', { name: 'Klee Chen' })
+    await waitForResumeEditor()
 
     /** @brief 历史 exact pinned 身份的设置入口 / Settings entry for the historical exact pinned identity. */
     const templateSettings = desktopTemplateSettingsLink('打开模板与样式设置')

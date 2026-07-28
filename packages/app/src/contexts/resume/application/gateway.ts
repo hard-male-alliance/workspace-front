@@ -6,10 +6,13 @@ import type { UiResumeEditorModel, UiResumeId } from '../domain/document'
 import type {
   UiResumeProposalAuthority,
   UiResumeProposalDecision,
-  UiResumeProposalDecisionResult
+  UiResumeProposalDecisionResult,
+  UiResumeProposalId,
+  UiResumeProposalStatus
 } from '../domain/review'
 import type {
   UiResumeSectionDeleteInput,
+  UiResumeItemUpdateInput,
   UiResumeSectionsReorderInput,
   UiResumeSectionUpdateInput,
   UiResumeSummaryPage,
@@ -19,12 +22,21 @@ import type {
 } from '../domain/models'
 
 /** @brief Resume 助手展示的一条服务端消息 / One server-backed Resume-assistant message. */
+/** @brief 助手消息所引用 Proposal 的权威生命周期投影 / Authoritative lifecycle projection for a Proposal referenced by an assistant message. */
+export interface UiResumeAssistantProposalState {
+  readonly id: UiResumeProposalId
+  readonly title: string
+  readonly status: UiResumeProposalStatus
+}
+
 export interface UiResumeAssistantMessage {
   readonly id: string
   readonly author: 'assistant' | 'user' | 'system'
   readonly text: string
   /** @brief 本条回复实际引用的 Knowledge Source identities / Knowledge Source identities actually cited by this response. */
   readonly referenceSourceIds: readonly string[]
+  /** @brief 由 Proposal 资源读取的结构化状态，不从自然语言推断 / Structured states read from Proposal resources, never inferred from prose. */
+  readonly proposalStates: readonly UiResumeAssistantProposalState[]
 }
 
 /** @brief 可刷新恢复的 Resume 助手会话 / Refresh-recoverable Resume-assistant thread. */
@@ -33,12 +45,34 @@ export interface UiResumeAssistantThread {
   readonly messages: readonly UiResumeAssistantMessage[]
   /** @brief Agent 等待用户决定的 Proposal；前端只负责展示和回传决定 / Proposal awaiting the user's decision. */
   readonly pendingProposal: UiResumeProposalAuthority | null
+  /** @brief 刷新恢复到终态失败时的稳定错误码 / Stable error code for a terminal failure recovered after refresh. */
+  readonly recoveryProblemCode: string | null
 }
 
+/** @brief 与消息读取解耦的精确 Agent 命令恢复结果 / Exact Agent-command recovery result decoupled from message reads. */
+export interface UiResumeAssistantCommandRecovery {
+  /** @brief 恢复后仍等待用户决定的 Proposal / Proposal still awaiting a user decision after recovery. */
+  readonly pendingProposal: UiResumeProposalAuthority | null
+  /** @brief 已恢复终态 Run 的稳定问题码 / Stable Problem code from a recovered terminal Run. */
+  readonly recoveryProblemCode: string | null
+}
+
+/** @brief 已确认 Proposal 后可继续观察的 Agent Run 句柄 / Opaque Agent Run handle to observe after a Proposal decision commits. */
+export interface UiResumeAssistantProposalContinuation {
+  readonly runId: string
+  readonly waitingOutputMessageId: string | null
+}
+
+/** @brief Proposal 决策写入已完成，续答尚未等待的结果 / Result after the Proposal decision commits but before its Agent continuation is observed. */
 export interface UiResumeAssistantProposalDecisionResult {
   readonly decision: UiResumeProposalDecisionResult
+  readonly continuation: UiResumeAssistantProposalContinuation
+}
+
+/** @brief Proposal 决策后的 Agent 续答终态 / Terminal outcome after observing a Proposal-decision Agent continuation. */
+export interface UiResumeAssistantProposalContinuationResult {
   readonly thread: UiResumeAssistantThread
-  readonly continuationProblemCode: string | null
+  readonly problemCode: string | null
 }
 
 /** @brief 绑定精确 Resume revision 的助手请求 / Assistant request bound to an exact Resume revision. */
@@ -54,6 +88,7 @@ export interface UiResumeAssistantRequest {
 /** @brief 区分只读问答与显式修改的 Resume Agent 产品端口 / Resume Agent product port separating read-only questions from explicit edits. */
 export interface ResumeAssistantGateway {
   load(input: UiResumeAssistantRequest): Promise<UiResumeAssistantThread>
+  recoverCommand(input: UiResumeAssistantRequest): Promise<UiResumeAssistantCommandRecovery>
   ask(
     input: UiResumeAssistantRequest & { readonly question: string }
   ): Promise<UiResumeAssistantThread>
@@ -63,6 +98,11 @@ export interface ResumeAssistantGateway {
       readonly decision: UiResumeProposalDecision
     }
   ): Promise<UiResumeAssistantProposalDecisionResult>
+  waitForProposalContinuation(
+    input: UiResumeAssistantRequest & {
+      readonly continuation: UiResumeAssistantProposalContinuation
+    }
+  ): Promise<UiResumeAssistantProposalContinuationResult>
 }
 
 /** @brief 简历与模板页面数据端口 / Resume and template page-data port. */
@@ -102,6 +142,9 @@ export interface ResumeGateway {
    * @return 最新编辑器投影 / Latest editor projection.
    */
   updateResumeSection(input: UiResumeSectionUpdateInput): Promise<UiResumeEditorModel>
+
+  /** @brief 提交用户对规范化条目文本字段的编辑 / Submit a user-authored normalized item text-field edit. */
+  updateResumeItem(input: UiResumeItemUpdateInput): Promise<UiResumeEditorModel>
 
   /** @brief 调整简历板块顺序 / Reorder resume sections. */
   reorderResumeSections(input: UiResumeSectionsReorderInput): Promise<UiResumeEditorModel>

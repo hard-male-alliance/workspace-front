@@ -1339,7 +1339,13 @@ export function createApiV2ResumeGateway(
     load(): Promise<never> {
       return Promise.reject(new Error('Resume assistant is not configured.'))
     },
+    recoverCommand(): Promise<never> {
+      return Promise.reject(new Error('Resume assistant is not configured.'))
+    },
     decideProposal(): Promise<never> {
+      return Promise.reject(new Error('Resume assistant is not configured.'))
+    },
+    waitForProposalContinuation(): Promise<never> {
       return Promise.reject(new Error('Resume assistant is not configured.'))
     }
   }
@@ -1467,6 +1473,29 @@ export function createApiV2ResumeGateway(
               resumeRichTextsEqual(section.content, expectedContent))
           )
         }
+      )
+    },
+    async updateResumeItem(input): Promise<UiResumeEditorModel> {
+      /** @brief 稳定条目身份上的单字段语义操作 / Single-field semantic operation on a stable item identity. */
+      const operations: ResumeOperation[] = [
+        {
+          entity_id: input.itemId,
+          field_path: [input.field],
+          op: 'set_field',
+          operation_id: resumeOperationId(input.commandId, `item-${input.field}`),
+          value: input.value
+        }
+      ]
+      return applyResumeCommand(
+        operationsClient,
+        input,
+        input.signal,
+        operations,
+        'rebase_if_safe',
+        (document) =>
+          document.sections
+            .flatMap((section) => section.items)
+            .some((item) => item.id === input.itemId && item[input.field] === input.value)
       )
     },
     async updateResumeTemplateAndStyle(command, signal): Promise<UiResumeEditorModel> {

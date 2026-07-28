@@ -481,6 +481,8 @@ export const zhSGTranslation = {
       semanticPreviewRegion: '语义内容预览',
       pdfPreviewRegion: 'PDF 预览',
       semanticPreviewNotice: '当前为语义内容预览，不代表最终模板排版。',
+      pdfNotGenerated: '尚未生成 PDF。',
+      pdfOutdated: '当前 PDF 基于较早的简历版本生成。请手动生成新的 PDF 以查看最新改动。',
       collapseWindow: '收起“{{name}}”窗口',
       expandWindow: '展开“{{name}}”窗口',
       openTemplateSettings: '打开模板与样式设置',
@@ -1639,6 +1641,9 @@ export const enUSTranslation = {
       semanticPreviewRegion: 'Semantic-content preview',
       pdfPreviewRegion: 'PDF preview',
       semanticPreviewNotice: 'This is a semantic-content preview, not the final template layout.',
+      pdfNotGenerated: 'No PDF has been generated yet.',
+      pdfOutdated:
+        'This PDF was generated from an earlier Resume version. Generate a new PDF to view the latest changes.',
       collapseWindow: 'Collapse {{name}} window',
       expandWindow: 'Expand {{name}} window',
       openTemplateSettings: 'Open Template and style settings',

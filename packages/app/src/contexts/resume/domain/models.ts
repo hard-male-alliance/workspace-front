@@ -7,6 +7,7 @@ import type { UiContentLocale } from '../../../shared-kernel/locale'
 import type {
   UiJsonValue,
   UiResumeId,
+  UiResumeItemId,
   UiResumeOutputFormat,
   UiResumePageSize,
   UiResumeRichText,
@@ -300,6 +301,19 @@ export type UiResumeSectionUpdateInput = UiResumeSectionMutationInput &
     /** @brief 目标板块 / Target section. */
     readonly sectionId: UiResumeSectionId
   }
+
+/** @brief 可由中间编辑器直接修改的规范化条目文本字段 / Normalized item text fields directly editable in the center editor. */
+export type UiResumeItemTextField = 'location' | 'organization' | 'subtitle' | 'title'
+
+/** @brief 用户编辑一个规范化条目文本字段的领域输入 / Domain input for editing one normalized item text field. */
+export interface UiResumeItemUpdateInput extends UiResumeSectionMutationInput {
+  /** @brief 目标条目 / Target item. */
+  readonly itemId: UiResumeItemId
+  /** @brief 目标语义字段 / Target semantic field. */
+  readonly field: UiResumeItemTextField
+  /** @brief 完整字段值；空字符串映射为 null / Complete field value; an empty string maps to null. */
+  readonly value: string | null
+}
 
 /** @brief 调整简历板块顺序的领域输入 / Domain input for reordering resume sections. */
 export interface UiResumeSectionsReorderInput extends UiResumeSectionMutationInput {
