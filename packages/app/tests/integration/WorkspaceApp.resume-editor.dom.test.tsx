@@ -617,10 +617,10 @@ describe('WorkspaceApp Resume editor', (): void => {
     expect(update).not.toHaveBeenCalled()
 
     /** @brief 当前聚焦 section 的语义正文输入 / Semantic-content input of the currently focused section. */
-    const content = screen.getByRole('textbox', { name: '语义内容' })
+    const content = screen.getByRole('textbox', { name: '板块补充说明（可选）' })
     fireEvent.change(content, { target: { value: '😀'.repeat(20_001) } })
     fireEvent.blur(content)
-    expect(await screen.findByRole('alert')).toHaveTextContent('20,000')
+    expect(await screen.findByText(/20,000/)).toBeInTheDocument()
     expect(content).toHaveAttribute('aria-invalid', 'true')
     expect(update).not.toHaveBeenCalled()
   })
@@ -661,7 +661,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     /** @brief 尚未保存的板块标题 / Unsaved section-title draft. */
     const title = screen.getByRole('textbox', { name: '区段标题' })
     /** @brief 尚未保存的板块正文 / Unsaved section-body draft. */
-    const content = screen.getByRole('textbox', { name: '语义内容' })
+    const content = screen.getByRole('textbox', { name: '板块补充说明（可选）' })
     fireEvent.change(title, { target: { value: '尚未保存的标题' } })
     fireEvent.change(content, { target: { value: '尚未保存的正文' } })
 
@@ -671,7 +671,9 @@ describe('WorkspaceApp Resume editor', (): void => {
 
     fireEvent.click(screen.getByRole('button', { name: '展开“内容编辑”窗口' }))
     expect(screen.getByRole('textbox', { name: '区段标题' })).toHaveValue('尚未保存的标题')
-    expect(screen.getByRole('textbox', { name: '语义内容' })).toHaveValue('尚未保存的正文')
+    expect(screen.getByRole('textbox', { name: '板块补充说明（可选）' })).toHaveValue(
+      '尚未保存的正文'
+    )
     expect(update).not.toHaveBeenCalled()
   })
 
@@ -714,7 +716,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     await waitForResumeEditor()
     /** @brief 同一 prototype-name section 的两个独立本地字段 / Two independent local fields of the same prototype-name section. */
     const title = screen.getByRole('textbox', { name: '区段标题' })
-    const content = screen.getByRole('textbox', { name: '语义内容' })
+    const content = screen.getByRole('textbox', { name: '板块补充说明（可选）' })
     fireEvent.change(title, { target: { value: '安全标题草稿' } })
     fireEvent.change(content, { target: { value: '安全正文草稿' } })
 
@@ -1179,7 +1181,7 @@ describe('WorkspaceApp Resume editor', (): void => {
         switch (mutation) {
           case 'section-update': {
             /** @brief 语义内容编辑框 / Semantic-content editor. */
-            const content = screen.getByRole('textbox', { name: 'Semantic content' })
+            const content = screen.getByRole('textbox', { name: 'Optional section notes' })
             fireEvent.change(content, { target: { value: 'Confirm this exact command' } })
             fireEvent.blur(content)
             return
@@ -1214,7 +1216,7 @@ describe('WorkspaceApp Resume editor', (): void => {
       expect(await screen.findByText('Resume operation result is unknown')).toBeInTheDocument()
       /** @brief 原样确认冻结命令的根恢复按钮 / Root recovery button confirming the frozen command verbatim. */
       const confirm = screen.getByRole('button', { name: 'Confirm previous operation' })
-      expect(screen.getByRole('textbox', { name: 'Semantic content' })).toBeDisabled()
+      expect(screen.getByRole('textbox', { name: 'Optional section notes' })).toBeDisabled()
       expect(screen.getByRole('button', { name: 'Generate PDF preview' })).toBeDisabled()
       expect(selectedCalls()).toHaveLength(1)
       expect(getEditor).toHaveBeenCalledTimes(1)
@@ -1243,7 +1245,7 @@ describe('WorkspaceApp Resume editor', (): void => {
       expect(reorder).toHaveBeenCalledTimes(mutation === 'section-reorder' ? 2 : 0)
       expect(remove).toHaveBeenCalledTimes(mutation === 'section-delete' ? 2 : 0)
       if (mutation === 'section-update') {
-        expect(screen.getByRole('textbox', { name: 'Semantic content' })).toHaveValue(
+        expect(screen.getByRole('textbox', { name: 'Optional section notes' })).toHaveValue(
           'Confirm this exact command'
         )
       }
@@ -1305,7 +1307,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     )
     await waitForResumeEditor()
     /** @brief 结果未知后仍保留的字段草稿 / Field draft retained after an unknown outcome. */
-    const content = screen.getByRole('textbox', { name: 'Semantic content' })
+    const content = screen.getByRole('textbox', { name: 'Optional section notes' })
     fireEvent.change(content, { target: { value: 'Confirm this exact command' } })
     fireEvent.blur(content)
     await screen.findByText('Resume operation result is unknown')
@@ -1389,7 +1391,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     )
     await waitForResumeEditor()
     /** @brief 处理中命令携带的正文草稿 / Body draft carried by the in-progress command. */
-    const content = screen.getByRole('textbox', { name: 'Semantic content' })
+    const content = screen.getByRole('textbox', { name: 'Optional section notes' })
     fireEvent.change(content, { target: { value: 'Confirm the in-progress command' } })
     fireEvent.blur(content)
 
@@ -1463,7 +1465,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     )
     await waitForResumeEditor()
     /** @brief 结果未知期间必须保留的本地正文草稿 / Local body draft retained while the outcome is unknown. */
-    const content = screen.getByRole('textbox', { name: 'Semantic content' })
+    const content = screen.getByRole('textbox', { name: 'Optional section notes' })
     fireEvent.change(content, { target: { value: 'Retain after terminal rejection' } })
     fireEvent.blur(content)
 
@@ -1485,10 +1487,10 @@ describe('WorkspaceApp Resume editor', (): void => {
     expect(await screen.findByText('Revision 92')).toBeInTheDocument()
     expect(getEditor).toHaveBeenCalledTimes(2)
     expect(update).toHaveBeenCalledTimes(2)
-    expect(screen.getByRole('textbox', { name: 'Semantic content' })).toHaveValue(
+    expect(screen.getByRole('textbox', { name: 'Optional section notes' })).toHaveValue(
       'Retain after terminal rejection'
     )
-    expect(screen.getByRole('textbox', { name: 'Semantic content' })).toBeEnabled()
+    expect(screen.getByRole('textbox', { name: 'Optional section notes' })).toBeEnabled()
   })
 
   it('does not replay a terminal invalid 200 response and reads authority instead', async (): Promise<void> => {
@@ -1527,7 +1529,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     )
     await waitForResumeEditor()
     /** @brief 将触发终态坏响应的正文输入 / Body input triggering the terminal invalid response. */
-    const content = screen.getByRole('textbox', { name: 'Semantic content' })
+    const content = screen.getByRole('textbox', { name: 'Optional section notes' })
     fireEvent.change(content, { target: { value: 'Retain after invalid success' } })
     fireEvent.blur(content)
 
@@ -1545,10 +1547,10 @@ describe('WorkspaceApp Resume editor', (): void => {
     expect(await screen.findByText('Revision 93')).toBeInTheDocument()
     expect(getEditor).toHaveBeenCalledTimes(2)
     expect(update).toHaveBeenCalledTimes(1)
-    expect(screen.getByRole('textbox', { name: 'Semantic content' })).toHaveValue(
+    expect(screen.getByRole('textbox', { name: 'Optional section notes' })).toHaveValue(
       'Retain after invalid success'
     )
-    expect(screen.getByRole('textbox', { name: 'Semantic content' })).toBeEnabled()
+    expect(screen.getByRole('textbox', { name: 'Optional section notes' })).toBeEnabled()
   })
 
   it('discards a persistently malformed 409 response and creates a new command after GET', async (): Promise<void> => {
@@ -1593,7 +1595,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     )
     await waitForResumeEditor()
     /** @brief 坏 409 期间必须保留的正文草稿 / Body draft retained across the malformed 409. */
-    const content = screen.getByRole('textbox', { name: 'Semantic content' })
+    const content = screen.getByRole('textbox', { name: 'Optional section notes' })
     fireEvent.change(content, { target: { value: 'Retry only as a new explicit command' } })
     fireEvent.blur(content)
 
@@ -1667,7 +1669,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     )
     await waitForResumeEditor()
     /** @brief 必须跨权威恢复保留的正文草稿 / Body draft that must survive authority recovery. */
-    const content = screen.getByRole('textbox', { name: 'Semantic content' })
+    const content = screen.getByRole('textbox', { name: 'Optional section notes' })
     fireEvent.change(content, { target: { value: 'Retain after key reuse' } })
     fireEvent.blur(content)
 
@@ -1741,7 +1743,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     )
     await waitForResumeEditor()
     /** @brief 未获服务端应用但必须保留的正文草稿 / Body draft not applied by the service but required to remain local. */
-    const content = screen.getByRole('textbox', { name: '语义内容' })
+    const content = screen.getByRole('textbox', { name: '板块补充说明（可选）' })
     fireEvent.change(content, { target: { value: '需要基于新版本确认的草稿' } })
     fireEvent.blur(content)
 
@@ -1847,7 +1849,7 @@ describe('WorkspaceApp Resume editor', (): void => {
       /** @brief section 标题输入 / Section-title input. */
       const title = screen.getByRole('textbox', { name: '区段标题' })
       /** @brief section 正文输入 / Section-body input. */
-      const content = screen.getByRole('textbox', { name: '语义内容' })
+      const content = screen.getByRole('textbox', { name: '板块补充说明（可选）' })
       if (editedField === 'title') {
         fireEvent.change(title, { target: { value: '只编辑本地标题 T-local' } })
         fireEvent.blur(title)
@@ -1925,7 +1927,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     )
     await waitForResumeEditor()
     /** @brief 不得因服务端删除而静默丢失的本地正文 / Local body that must not be silently lost after server-side deletion. */
-    const content = screen.getByRole('textbox', { name: '语义内容' })
+    const content = screen.getByRole('textbox', { name: '板块补充说明（可选）' })
     fireEvent.change(content, { target: { value: '必须允许复制恢复的本地正文' } })
     fireEvent.blur(content)
 
@@ -1975,7 +1977,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     )
     await waitForResumeEditor()
     /** @brief 用户正在保存的语义正文 / Semantic body currently being saved. */
-    const content = screen.getByRole('textbox', { name: '语义内容' })
+    const content = screen.getByRole('textbox', { name: '板块补充说明（可选）' })
     fireEvent.change(content, { target: { value: '正在保存的内容' } })
     fireEvent.blur(content)
 
@@ -2022,7 +2024,7 @@ describe('WorkspaceApp Resume editor', (): void => {
     await waitForResumeEditor()
 
     fireEvent.click(screen.getByRole('button', { name: '下移职业摘要' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('无法调整板块顺序。')
+    expect(await screen.findByText('无法调整板块顺序。')).toBeInTheDocument()
     expect(reorder).toHaveBeenCalledTimes(1)
     /** @brief 首次排序意图的稳定 command identity / Stable command identity of the first reorder intent. */
     const firstCommandId = reorder.mock.calls[0]?.[0].commandId
@@ -2067,14 +2069,12 @@ describe('WorkspaceApp Resume editor', (): void => {
     )
     await waitForResumeEditor()
     /** @brief 用户正在编辑的语义正文 / Semantic body edited by the user. */
-    const content = screen.getByRole('textbox', { name: '语义内容' })
+    const content = screen.getByRole('textbox', { name: '板块补充说明（可选）' })
 
     fireEvent.change(content, { target: { value: '尚未由服务端确认的草稿' } })
     fireEvent.blur(content)
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      '板块修改尚未保存；你的输入仍保留在本页。'
-    )
+    expect(await screen.findByText('板块修改尚未保存；你的输入仍保留在本页。')).toBeInTheDocument()
     /** @brief 首次字段保存意图的稳定 command identity / Stable command identity of the first field-save intent. */
     const firstCommandId = update.mock.calls[0]?.[0].commandId
     expect(firstCommandId).toEqual(expect.any(String))

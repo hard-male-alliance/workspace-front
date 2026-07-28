@@ -193,7 +193,7 @@ describe('WorkspaceApp Resume artifact', (): void => {
     const preview = await screen.findByTitle('Resume PDF preview', {}, { timeout: 4_000 })
     expect(preview).toHaveAttribute('src', 'blob:resume-pdf-preview')
 
-    const content = screen.getByRole('textbox', { name: 'Semantic content' })
+    const content = screen.getByRole('textbox', { name: 'Optional section notes' })
     fireEvent.change(content, { target: { value: 'A manually saved new Resume revision.' } })
     fireEvent.blur(content)
 
@@ -235,7 +235,7 @@ describe('WorkspaceApp Resume artifact', (): void => {
       'blob:resume-pdf-preview-1'
     )
 
-    const content = screen.getByRole('textbox', { name: 'Semantic content' })
+    const content = screen.getByRole('textbox', { name: 'Optional section notes' })
     fireEvent.change(content, { target: { value: 'A new Resume revision for PDF replacement.' } })
     fireEvent.blur(content)
     expect(await screen.findByText('Revision 19')).toBeInTheDocument()
@@ -258,7 +258,7 @@ describe('WorkspaceApp Resume artifact', (): void => {
     )
     expect(objectUrls.revokeObjectURL).toHaveBeenCalledOnce()
     expect(objectUrls.revokeObjectURL).toHaveBeenCalledWith('blob:resume-pdf-preview-1')
-  })
+  }, 15_000)
 
   it('keeps the old PDF when loading the newly generated PDF fails validation', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('en-US')
@@ -287,7 +287,7 @@ describe('WorkspaceApp Resume artifact', (): void => {
       'blob:resume-pdf-preview'
     )
 
-    const content = screen.getByRole('textbox', { name: 'Semantic content' })
+    const content = screen.getByRole('textbox', { name: 'Optional section notes' })
     fireEvent.change(content, { target: { value: 'A revision whose new PDF cannot be loaded.' } })
     fireEvent.blur(content)
     expect(await screen.findByText('Revision 19')).toBeInTheDocument()

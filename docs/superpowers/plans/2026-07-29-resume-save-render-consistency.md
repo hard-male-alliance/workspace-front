@@ -20,11 +20,13 @@
 ### Task 1: Resume operation ETag
 
 **Files:**
+
 - Modify: `workspace-back/src/backend/api/v2_transport.py`
 - Modify: `workspace-back/src/backend/api/v2_resumes.py`
 - Test: `workspace-back/tests/test_v2_resumes_http.py`
 
 **Interfaces:**
+
 - Consumes: `replayable_json(payload, status_code, etag=True)`
 - Produces: `replayable_json(..., etag_representation=payload["resume"])`
 
@@ -57,11 +59,13 @@ git commit -m "fix(resume): return document etag after operations"
 ### Task 2: Serialize editor save before PDF render
 
 **Files:**
+
 - Modify: `workspace-front/packages/app/src/contexts/resume/presentation/ResumeWorkspace.tsx`
 - Modify: `workspace-front/packages/app/src/contexts/resume/presentation/ResumePreviewPanel.tsx`
 - Test: `workspace-front/packages/app/tests/integration/WorkspaceApp.resume-editor.dom.test.tsx`
 
 **Interfaces:**
+
 - Produces: 页面级 `awaitResumeMutation(): Promise<UiResumeEditorModel | null>`
 - Consumes: Preview 在创建 Render Job 前调用该接口并使用返回 authority 的 revision。
 
@@ -86,11 +90,13 @@ Expected: Render Job 使用旧 revision 或过早创建。
 ### Task 3: Reset drafts on authoritative reload and expose dirty state
 
 **Files:**
+
 - Modify: `workspace-front/packages/app/src/contexts/resume/presentation/ResumeWorkspace.tsx`
 - Modify: `workspace-front/packages/app/src/contexts/resume/presentation/ResumePreviewPanel.tsx`
 - Test: `workspace-front/packages/app/tests/integration/WorkspaceApp.resume-editor.dom.test.tsx`
 
 **Interfaces:**
+
 - Produces: `onDraftStateChange(hasDrafts: boolean)`。
 - Consumes: Preview 的 stale 状态包含 `hasDrafts`。
 

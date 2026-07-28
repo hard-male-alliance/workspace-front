@@ -607,10 +607,14 @@ export function ResumePreviewPanel({
     }
   }
 
-  useEffect((): void => {
+  useEffect((): (() => void) | void => {
     if (!autoStart) return
-    onAutoStartConsumed?.()
-    void renderPdf()
+    /** @brief 延迟自动生成，避免在 Effect 主体内同步触发 React 状态更新 / Deferred auto-render avoiding synchronous React state updates inside the Effect body. */
+    const timeoutId = window.setTimeout((): void => {
+      onAutoStartConsumed?.()
+      void renderPdf()
+    }, 0)
+    return (): void => window.clearTimeout(timeoutId)
     // `generation` is the immutable Resume revision/template identity that owns this one-shot.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoStart, generation])

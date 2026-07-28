@@ -5,6 +5,7 @@ import {
   asUiKnowledgeSourcePageLimit,
   asUiOpaqueId,
   asUiResumePageLimit,
+  asUiResumePartialDate,
   asUiResumeTemplatePageLimit,
   createUiCommandId
 } from '@ai-job-workspace/app/application'
@@ -1300,7 +1301,10 @@ describe('API v2 Resume ACL', (): void => {
     /** @brief 必须无损发送的条目摘要 / Item summary that must be sent losslessly. */
     const summary = { marks: [], text: '参与企业内部项目管理平台开发。' } as const
     /** @brief 必须保持精度的日期范围 / Date range whose precision must be preserved. */
-    const dateRange = { end: '2025-08', start: '2025-03' } as const
+    const dateRange = {
+      end: asUiResumePartialDate('2025-08'),
+      start: asUiResumePartialDate('2025-03')
+    } as const
     /** @brief 逐项验证的领域字段与 wire 字段 / Domain and wire fields verified one by one. */
     const cases = [
       {
@@ -1356,18 +1360,30 @@ describe('API v2 Resume ACL', (): void => {
       /** @brief 本次用户意图的稳定命令 ID / Stable command ID for this user intent. */
       const commandId = createUiCommandId()
 
-      await expect(
-        gateway.updateResumeItem({
-          baseRevision: 1,
-          commandId,
-          concurrencyToken: asUiConcurrencyToken('"resume-operation-etag-1"'),
-          field: testCase.field,
-          itemId: asUiOpaqueId<'resume-item'>('item_01K0CREATED00000000001'),
-          resumeId: asUiOpaqueId<'resume'>('resume_01K0CREATED000000000001'),
-          value: testCase.value,
-          workspaceId: asUiOpaqueId<'workspace'>(RESUME_SUMMARY.workspace_id)
-        })
-      ).resolves.toMatchObject({ concurrencyToken: '"resume-item-etag-2"' })
+      /** @brief 两类字段更新共享的命令上下文 / Command context shared by both field updates. */
+      const updateContext = {
+        baseRevision: 1,
+        commandId,
+        concurrencyToken: asUiConcurrencyToken('"resume-operation-etag-1"'),
+        itemId: asUiOpaqueId<'resume-item'>('item_01K0CREATED00000000001'),
+        resumeId: asUiOpaqueId<'resume'>('resume_01K0CREATED000000000001'),
+        workspaceId: asUiOpaqueId<'workspace'>(RESUME_SUMMARY.workspace_id)
+      } as const
+      /** @brief 保留 field/value 判别关系的更新请求 / Update request preserving the field/value discriminant relationship. */
+      const update =
+        testCase.field === 'summary'
+          ? gateway.updateResumeItem({
+              ...updateContext,
+              field: testCase.field,
+              value: testCase.value
+            })
+          : gateway.updateResumeItem({
+              ...updateContext,
+              field: testCase.field,
+              value: testCase.value
+            })
+
+      await expect(update).resolves.toMatchObject({ concurrencyToken: '"resume-item-etag-2"' })
       expect(observedBatch?.operations[0]).toMatchObject({
         field_path: [testCase.wireField],
         value: testCase.wireValue

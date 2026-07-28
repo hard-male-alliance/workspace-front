@@ -30,16 +30,16 @@ describe('WorkspaceApp Resume browser behaviour', (): void => {
       await screen.getByRole('button', { name: '内容', exact: true }).click()
       await expect.element(screen.getByRole('region', { name: '内容编辑' })).toBeVisible()
 
-      /** @brief 移动端当前区段的语义内容编辑器 / Semantic-content editor for the current mobile section. */
-      const semanticContent = screen.getByRole('textbox', { name: '语义内容' })
+      /** @brief 移动端当前区段的补充说明编辑器 / Supplemental-notes editor for the current mobile section. */
+      const semanticContent = screen.getByRole('textbox', { name: '板块补充说明（可选）' })
       await userEvent.fill(semanticContent, '面向生产环境构建可靠的 AI 平台。')
       await expect.element(semanticContent).toHaveValue('面向生产环境构建可靠的 AI 平台。')
       return
     }
     await expect.element(screen.getByRole('heading', { name: '内容编辑' })).toBeVisible()
 
-    /** @brief 桌面端直接可见的语义内容编辑器 / Semantic-content editor directly visible on desktop. */
-    const semanticContent = screen.getByRole('textbox', { name: '语义内容' })
+    /** @brief 桌面端直接可见的补充说明编辑器 / Supplemental-notes editor directly visible on desktop. */
+    const semanticContent = screen.getByRole('textbox', { name: '板块补充说明（可选）' })
     await userEvent.fill(semanticContent, '面向生产环境构建可靠的桌面与 Web 产品。')
     await expect.element(semanticContent).toHaveValue('面向生产环境构建可靠的桌面与 Web 产品。')
   })

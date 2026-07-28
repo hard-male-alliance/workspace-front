@@ -21,6 +21,7 @@
 ### Task 1: Typed semantic-field mutations
 
 **Files:**
+
 - Modify: `packages/app/src/contexts/resume/domain/models.ts`
 - Modify: `packages/app/src/contexts/resume/application/gateway.ts`
 - Modify: `packages/app/src/contexts/resume/infrastructure/memory/gateway.ts`
@@ -28,6 +29,7 @@
 - Test: `packages/product-runtime/src/index.node.test.ts`
 
 **Interfaces:**
+
 - Consumes: `UiResumeDateRange`, `UiResumeRichText`, `UiResumeItemId`, `UiResumeContactId`, and `UiResumeSectionMutationInput`.
 - Produces: discriminated `UiResumeItemUpdateInput`, `UiResumeProfileUpdateInput`, `UiResumeContactUpdateInput`, plus `ResumeGateway.updateResumeProfile()` and `ResumeGateway.updateResumeContact()`.
 
@@ -75,7 +77,10 @@ Define item patches equivalent to:
 type UiResumeItemFieldPatch =
   | { readonly field: 'dateRange'; readonly value: UiResumeDateRange | null }
   | { readonly field: 'highlights'; readonly value: readonly UiResumeRichText[] }
-  | { readonly field: 'location' | 'organization' | 'subtitle' | 'title' | 'url'; readonly value: string | null }
+  | {
+      readonly field: 'location' | 'organization' | 'subtitle' | 'title' | 'url'
+      readonly value: string | null
+    }
   | { readonly field: 'skills'; readonly value: readonly string[] }
   | { readonly field: 'summary'; readonly value: UiResumeRichText | null }
 ```
@@ -116,11 +121,13 @@ git commit -m "feat(resume): support editable semantic fields"
 ### Task 2: Complete structured-item editor
 
 **Files:**
+
 - Modify: `packages/app/src/contexts/resume/presentation/ResumeWorkspace.tsx`
 - Modify: `packages/app/src/styles/resume/workspace.css`
 - Test: `packages/app/tests/integration/WorkspaceApp.resume-editor.dom.test.tsx`
 
 **Interfaces:**
+
 - Consumes: Task 1 `UiResumeItemUpdateInput` and unchanged `ResumeGateway.updateResumeItem()`.
 - Produces: center-pane controls for `dateRange`, `summary`, `highlights`, `skills`, and `url`.
 
@@ -191,11 +198,13 @@ git commit -m "feat(resume): show PDF-backed item text in editor"
 ### Task 3: Profile and contact editor completion
 
 **Files:**
+
 - Modify: `packages/app/src/contexts/resume/presentation/ResumeWorkspace.tsx`
 - Modify: `packages/app/src/styles/resume/workspace.css`
 - Test: `packages/app/tests/integration/WorkspaceApp.resume-editor.dom.test.tsx`
 
 **Interfaces:**
+
 - Consumes: Task 1 `updateResumeProfile()` and `updateResumeContact()`.
 - Produces: center-pane controls for existing profile and contact text.
 
@@ -235,6 +244,7 @@ git commit -m "feat(resume): expose profile text in center editor"
 ### Task 4: Focused regression verification
 
 **Files:**
+
 - No production changes expected.
 
 - [ ] **Step 1: Run the three targeted tests**
