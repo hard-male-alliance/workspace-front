@@ -41,6 +41,8 @@ export interface AgentMessage {
   readonly role: AgentRole
   readonly text: string
   readonly citationSourceIds: readonly string[]
+  /** @brief 消息正文引用的简历建议标识 / Resume Proposal identities referenced by the message body. */
+  readonly proposalIds: readonly string[]
 }
 
 export interface AgentRun {
@@ -187,6 +189,19 @@ function parseMessage(value: unknown, path = 'message'): AgentMessage {
         )
       }
       return [opaqueId(citation.source_id, `${path}.content[${index}].citation.source_id`)]
+    }),
+    proposalIds: decodedParts.flatMap((content, index) => {
+      if (content.type !== 'proposal_ref') return []
+      const proposal = parseResourceReference(
+        content.proposal_ref,
+        `${path}.content[${index}].proposal_ref`
+      )
+      if (proposal.resource_type !== 'resume_proposal') {
+        throw new ApiV2ContractError(
+          `API v2 field ${path}.content[${index}].proposal_ref must reference a Resume Proposal.`
+        )
+      }
+      return [proposal.id]
     }),
     id: resource.id,
     conversationId: opaqueId(input.conversation_id, `${path}.conversation_id`),

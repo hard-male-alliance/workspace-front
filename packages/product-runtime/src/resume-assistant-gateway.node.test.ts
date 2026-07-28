@@ -97,11 +97,16 @@ function eligibleKnowledgeSource(): UiKnowledgeSource {
   } as unknown as UiKnowledgeSource
 }
 
-function message(role: AgentMessage['role'], text: string): AgentMessage {
+function message(
+  role: AgentMessage['role'],
+  text: string,
+  proposalIds: readonly string[] = []
+): AgentMessage {
   return {
     citationSourceIds: [],
     conversationId: CONVERSATION_ID,
     id: `${MESSAGE_ID}_${role}`,
+    proposalIds,
     role,
     text
   }
@@ -222,7 +227,40 @@ describe('Resume assistant gateway', () => {
     expect(thread.pendingProposal).toBe(authority)
   })
 
-  it('submits an explicit ProposalDecision only after the user chooses', async () => {
+  it('maps message proposal references to authoritative terminal proposal states', async () => {
+    const api = apiDouble()
+    const review = reviewDouble()
+    const authority = {
+      concurrencyToken: '"proposal-accepted-1"',
+      proposal: {
+        id: asUiOpaqueId<'resume-proposal'>(PROPOSAL_ID),
+        status: 'accepted',
+        title: '更新职业标题'
+      }
+    } as UiResumeProposalAuthority
+    vi.mocked(api.listMessages).mockResolvedValue([
+      message('assistant', '我准备了一组简历修改，正在等待你的决定。', [PROPOSAL_ID])
+    ])
+    vi.mocked(review.getResumeProposal).mockResolvedValue(authority)
+
+    const thread = await createApiV2ResumeAssistantGateway(api, review, knowledgeDouble()).load(
+      request()
+    )
+
+    expect(thread.messages).toEqual([
+      expect.objectContaining({
+        proposalStates: [
+          {
+            id: authority.proposal.id,
+            status: 'accepted',
+            title: '更新职业标题'
+          }
+        ]
+      })
+    ])
+  })
+
+  it('returns the committed editor before waiting for proposal continuation', async () => {
     const api = apiDouble()
     const review = reviewDouble()
     const authority = {
@@ -265,7 +303,7 @@ describe('Resume assistant gateway', () => {
 
     const gateway = createApiV2ResumeAssistantGateway(api, review, knowledgeDouble())
     const thread = await gateway.ask(request('根据目前的信息生成简历'))
-    const decision = await gateway.decideProposal({
+    const committed = await gateway.decideProposal({
       ...request(''),
       authority: thread.pendingProposal!,
       decision: { kind: 'accept-all' }
@@ -277,8 +315,119 @@ describe('Resume assistant gateway', () => {
         proposal: authority.proposal
       })
     )
-    expect(decision.decision).toBe(result)
-    expect(decision.thread.messages).toHaveLength(2)
+    expect(committed.decision).toBe(result)
+    expect(committed.continuation).toEqual({
+      runId: RUN_ID,
+      waitingOutputMessageId: 'message_waiting_01'
+    })
+    expect(api.getRun).toHaveBeenCalledTimes(2)
+
+    const continuation = await gateway.waitForProposalContinuation({
+      ...request(''),
+      continuation: committed.continuation
+    })
+
+    expect(api.getRun).toHaveBeenCalledTimes(3)
+    expect(continuation.problemCode).toBeNull()
+    expect(continuation.thread.messages).toHaveLength(2)
+  })
+
+  it('recovers an accepted Proposal continuation after an aborted wait and reload', async () => {
+    vi.useFakeTimers()
+    try {
+      const api = apiDouble()
+      const review = reviewDouble()
+      const pendingAuthority = {
+        concurrencyToken: '"proposal-recovery-1"',
+        proposal: {
+          id: asUiOpaqueId<'resume-proposal'>(PROPOSAL_ID),
+          status: 'pending'
+        }
+      } as UiResumeProposalAuthority
+      const acceptedAuthority = {
+        ...pendingAuthority,
+        proposal: { ...pendingAuthority.proposal, status: 'accepted' }
+      } as UiResumeProposalAuthority
+      const decision = {
+        appliedOperationIds: [],
+        conflicts: [],
+        editor: { resume: { revision: 8 } } as UiResumeEditorModel
+      }
+      let getRunCalls = 0
+      vi.mocked(api.createRun).mockResolvedValue(
+        run({
+          outputMessageId: 'message_waiting_01',
+          proposalIds: [PROPOSAL_ID],
+          status: 'waiting_for_proposal_decision'
+        })
+      )
+      vi.mocked(api.getRun).mockImplementation(() => {
+        getRunCalls += 1
+        const completed = getRunCalls >= 5
+        return Promise.resolve(
+          run({
+            outputMessageId: completed ? 'message_final_01' : 'message_waiting_01',
+            proposalIds: [PROPOSAL_ID],
+            status: completed ? 'succeeded' : 'waiting_for_proposal_decision'
+          })
+        )
+      })
+      vi.mocked(api.listMessages).mockImplementation(() =>
+        Promise.resolve(
+          getRunCalls >= 5
+            ? [
+                message('user', '请帮我修改简历。'),
+                message('assistant', 'The Resume edit is complete.')
+              ]
+            : [
+                message('user', '请帮我修改简历。'),
+                message('assistant', 'The Resume edit is still being applied.')
+              ]
+        )
+      )
+      vi.mocked(review.getResumeProposal)
+        .mockResolvedValueOnce(pendingAuthority)
+        .mockResolvedValue(acceptedAuthority)
+      vi.mocked(review.decideResumeProposal).mockResolvedValue(decision)
+
+      const gateway = createApiV2ResumeAssistantGateway(api, review, knowledgeDouble())
+      const thread = await gateway.ask(request('请帮我修改简历。'))
+      const committed = await gateway.decideProposal({
+        ...request(''),
+        authority: thread.pendingProposal!,
+        decision: { kind: 'accept-all' }
+      })
+      const aborted = new AbortController()
+      aborted.abort(new DOMException('Resume page reloaded.', 'AbortError'))
+
+      await expect(
+        gateway.waitForProposalContinuation({
+          ...request(''),
+          continuation: committed.continuation,
+          signal: aborted.signal
+        })
+      ).rejects.toThrow('Resume page reloaded.')
+
+      const recoveredGateway = createApiV2ResumeAssistantGateway(api, review, knowledgeDouble())
+      const recovery = recoveredGateway.recoverCommand(request(''))
+      await vi.advanceTimersByTimeAsync(1_000)
+      await expect(recovery).resolves.toEqual({
+        pendingProposal: null,
+        recoveryProblemCode: null
+      })
+      const recovered = recoveredGateway.load(request(''))
+
+      await expect(recovered).resolves.toEqual(
+        expect.objectContaining({
+          messages: expect.arrayContaining([
+            expect.objectContaining({ text: 'The Resume edit is complete.' })
+          ]) as unknown
+        })
+      )
+      expect(api.getRun).toHaveBeenCalledTimes(5)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('leaves retry ownership to the backend and creates exactly one Run', async () => {
@@ -318,14 +467,99 @@ describe('Resume assistant gateway', () => {
     await expect(firstGateway.ask(request())).rejects.toThrow('page closed')
 
     vi.mocked(api.getRun).mockResolvedValue(run({ outputMessageId: `${MESSAGE_ID}_assistant` }))
-    const restored = await createApiV2ResumeAssistantGateway(
+    const restoredGateway = createApiV2ResumeAssistantGateway(
       api,
       reviewDouble(),
       knowledgeDouble()
-    ).load(request(''))
+    )
+    await restoredGateway.recoverCommand(request(''))
+    const restored = await restoredGateway.load(request(''))
 
     expect(api.getRun).toHaveBeenLastCalledWith(WORKSPACE_ID, RUN_ID, undefined)
     expect(restored.messages.at(-1)?.text).toBe('项目成果需要补充量化指标。')
+  })
+
+  it('replays the exact Run creation after a refresh loses its committed response', async () => {
+    const api = apiDouble()
+    vi.mocked(api.createRun)
+      .mockRejectedValueOnce(new DOMException('Resume page reloaded.', 'AbortError'))
+      .mockResolvedValueOnce(run())
+    const firstGateway = createApiV2ResumeAssistantGateway(api, reviewDouble(), knowledgeDouble())
+
+    await expect(firstGateway.ask(request('我是 2026 年毕业。'))).rejects.toThrow(
+      'Resume page reloaded.'
+    )
+
+    await createApiV2ResumeAssistantGateway(api, reviewDouble(), knowledgeDouble()).recoverCommand(
+      request('')
+    )
+
+    expect(api.createRun).toHaveBeenCalledTimes(2)
+    const firstCreation = vi.mocked(api.createRun).mock.calls[0]![0]
+    const replayedCreation = vi.mocked(api.createRun).mock.calls[1]![0]
+    expect(replayedCreation).toEqual({
+      ...firstCreation,
+      signal: undefined
+    })
+  })
+
+  it('keeps messages and exposes a recovered terminal Run failure after refresh', async () => {
+    const api = apiDouble()
+    vi.mocked(api.createRun).mockResolvedValue(run({ status: 'running' }))
+    vi.mocked(api.getRun)
+      .mockRejectedValueOnce(new Error('page closed'))
+      .mockResolvedValueOnce(
+        run({
+          problem: {
+            code: 'agent.provider_timeout',
+            detail: null,
+            errors: [],
+            extensions: null,
+            instance: null,
+            request_id: RUN_ID,
+            retryable: true,
+            status: 504,
+            title: 'Model provider timed out',
+            type: 'https://api.hmalliances.org/problems/agent/provider_timeout'
+          },
+          status: 'failed'
+        })
+      )
+    const firstGateway = createApiV2ResumeAssistantGateway(api, reviewDouble(), knowledgeDouble())
+
+    await expect(firstGateway.ask(request())).rejects.toThrow('page closed')
+
+    const restoredGateway = createApiV2ResumeAssistantGateway(
+      api,
+      reviewDouble(),
+      knowledgeDouble()
+    )
+    const recovery = await restoredGateway.recoverCommand(request(''))
+    const restored = await restoredGateway.load(request(''))
+
+    expect(restored.messages).toHaveLength(2)
+    expect(recovery.recoveryProblemCode).toBe('agent.provider_timeout')
+  })
+
+  it('hydrates conversation messages even when command recovery fails', async () => {
+    const api = apiDouble()
+    vi.mocked(api.createRun).mockResolvedValue(run({ status: 'running' }))
+    vi.mocked(api.getRun).mockRejectedValueOnce(new Error('page closed'))
+    const firstGateway = createApiV2ResumeAssistantGateway(api, reviewDouble(), knowledgeDouble())
+    await expect(firstGateway.ask(request())).rejects.toThrow('page closed')
+
+    vi.mocked(api.getRun).mockRejectedValueOnce(new Error('private recovery transport detail'))
+    const restoredGateway = createApiV2ResumeAssistantGateway(
+      api,
+      reviewDouble(),
+      knowledgeDouble()
+    )
+
+    const restoredThread = await restoredGateway.load(request(''))
+    expect(restoredThread.messages).toHaveLength(2)
+    await expect(restoredGateway.recoverCommand(request(''))).rejects.toThrow(
+      'private recovery transport detail'
+    )
   })
 
   it('keeps polling beyond the former 90-second client deadline', async () => {
