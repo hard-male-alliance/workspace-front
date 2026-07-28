@@ -94,6 +94,14 @@ function getPreviewBusySurface(): HTMLElement {
   return surface
 }
 
+/**
+ * @brief 等待 Resume 编辑器与 PDF 操作入口完成加载 / Wait until the Resume editor and PDF action are ready.
+ * @return 等待完成的 Promise / Promise resolved once the Resume page is ready for PDF actions.
+ */
+async function waitForResumePreviewControls(): Promise<void> {
+  await screen.findByRole('button', { name: /生成 PDF 预览|Generate PDF preview/u })
+}
+
 beforeEach(async (): Promise<void> => {
   await setWorkspaceAppTestLocale('zh-SG')
   vi.spyOn(Math, 'random').mockReturnValue(0)
@@ -108,6 +116,60 @@ afterEach((): void => {
 
 /** @brief 简历 Render、Job、Artifact、Blob 与保存闭环 / Resume Render, Job, Artifact, Blob, and save lifecycle. */
 describe('WorkspaceApp Resume artifact', (): void => {
+  it('does not display a semantic approximation before a real PDF has been generated', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('en-US')
+
+    render(<WorkspaceApp initialPath="/resumes/res_mock_ai_platform/edit" />)
+    await waitForResumePreviewControls()
+
+    expect(screen.getByRole('region', { name: 'PDF preview' })).toBeInTheDocument()
+    expect(screen.getByText('No PDF has been generated yet.')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('region', { name: 'Semantic-content preview' })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('This is a semantic-content preview, not the final template layout.')
+    ).not.toBeInTheDocument()
+    expect(screen.queryByTitle('Resume PDF preview')).not.toBeInTheDocument()
+  })
+
+  it('keeps the last validated PDF visible after a manual Resume edit', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('en-US')
+    const objectUrls = installBlobUrlHost()
+    const store = new InMemoryWorkspaceOperationsStore()
+    const resume = new InMemoryResumeGateway({ operationsStore: store })
+    const workspaceOperations = new InMemoryWorkspaceOperationsGateway({}, store)
+    const startRender = vi.spyOn(resume, 'startResumeRender')
+
+    render(
+      <WorkspaceApp
+        gateways={createTestGateways({ resume, workspaceOperations })}
+        initialPath="/resumes/res_mock_ai_platform/edit"
+      />
+    )
+    await waitForResumePreviewControls()
+    fireEvent.click(screen.getByRole('button', { name: 'Generate PDF preview' }))
+    const preview = await screen.findByTitle('Resume PDF preview', {}, { timeout: 4_000 })
+    expect(preview).toHaveAttribute('src', 'blob:resume-pdf-preview')
+
+    const content = screen.getByRole('textbox', { name: 'Semantic content' })
+    fireEvent.change(content, { target: { value: 'A manually saved new Resume revision.' } })
+    fireEvent.blur(content)
+
+    expect(await screen.findByText('Revision 19')).toBeInTheDocument()
+    expect(screen.getByTitle('Resume PDF preview')).toHaveAttribute(
+      'src',
+      'blob:resume-pdf-preview'
+    )
+    expect(objectUrls.revokeObjectURL).not.toHaveBeenCalled()
+    expect(startRender).toHaveBeenCalledTimes(1)
+    expect(
+      screen.getByText(
+        'This PDF was generated from an earlier Resume version. Generate a new PDF to view the latest changes.'
+      )
+    ).toBeInTheDocument()
+  })
+
   it('resolves Job result_refs and previews only a validated Bearer-fetched Blob URL', async (): Promise<void> => {
     /** @brief 当前测试的 Blob URL 宿主 / Blob-URL host for this test. */
     const objectUrls = installBlobUrlHost()
