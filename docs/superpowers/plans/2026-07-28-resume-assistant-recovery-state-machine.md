@@ -24,11 +24,13 @@ deterministic preflight failures as terminal rather than retryable.
 ### Task 1: Persisted Agent continuation lifecycle
 
 **Files:**
+
 - Modify: `workspace-back/tests/test_v2_agent_persistence.py`
 - Modify only after RED identifies the boundary: `workspace-back/src/backend/application/agent_v2.py`
 - Modify only after RED identifies persistence drift: `workspace-back/src/backend/infrastructure/agent_v2.py`
 
 **Interfaces:**
+
 - Consumes: existing `AgentWorkerService`, PostgreSQL Agent UoW, Proposal decision outbox.
 - Produces: a reloadable succeeded Run whose history supports the next Run.
 
@@ -41,12 +43,14 @@ deterministic preflight failures as terminal rather than retryable.
 ### Task 2: Deterministic worker failure classification
 
 **Files:**
+
 - Modify: `workspace-back/tests/test_v2_agent_application.py`
 - Modify: `workspace-back/tests/test_v2_outbox_dispatch.py`
 - Modify: `workspace-back/src/backend/application/agent_v2.py`
 - Modify: `workspace-back/src/backend/application/outbox_dispatch.py`
 
 **Interfaces:**
+
 - Consumes: `AgentDomainError`, `AgentPortProtocolError`, `ProblemDetails`.
 - Produces: stable terminal Problems and safe `failure_stage`/`error_code` diagnostics.
 
@@ -60,11 +64,13 @@ deterministic preflight failures as terminal rather than retryable.
 ### Task 3: Frontend command state machine
 
 **Files:**
+
 - Create: `packages/app/src/contexts/resume/presentation/resume-assistant-machine.ts`
 - Create: `packages/app/src/contexts/resume/presentation/resume-assistant-machine.test.ts`
 - Modify: `packages/app/src/contexts/resume/presentation/ResumeWorkspace.tsx`
 
 **Interfaces:**
+
 - Consumes: existing `UiResumeAssistantThread`, Proposal authority, continuation result.
 - Produces: `ResumeAssistantCommandState` and pure `resumeAssistantTransition`.
 
@@ -78,12 +84,14 @@ deterministic preflight failures as terminal rather than retryable.
 ### Task 4: Independent refresh hydration
 
 **Files:**
+
 - Modify: `packages/product-runtime/src/resume-assistant-gateway.node.test.ts`
 - Modify: `packages/product-runtime/src/resume-assistant-gateway.ts`
 - Modify: `packages/app/src/contexts/resume/presentation/ResumeWorkspace.tsx`
 - Modify: `packages/app/src/integration/WorkspaceApp.resume-editor.dom.test.tsx`
 
 **Interfaces:**
+
 - Consumes: exact recovery envelope and existing Agent/Conversation APIs.
 - Produces: messages even when command recovery fails, plus a separately recoverable command status.
 
@@ -97,11 +105,13 @@ deterministic preflight failures as terminal rather than retryable.
 ### Task 5: Proxy errors and exact PDF recovery
 
 **Files:**
+
 - Modify: `.tmp/local-api-proxy.mjs` only if promoted to a tracked development script.
 - Modify: `packages/app/src/contexts/resume/presentation/ResumePreviewPanel.tsx`
 - Modify: the nearest existing Resume preview test.
 
 **Interfaces:**
+
 - Consumes: exact render Job identifier and allowed development Origin.
 - Produces: CORS-readable 502 Problems and exact Job restoration.
 
@@ -115,9 +125,11 @@ deterministic preflight failures as terminal rather than retryable.
 ### Task 6: Resume aggregate title semantics
 
 **Files:**
+
 - Modify only after payload-layer reproduction: the relevant provider/tool mapping test and implementation.
 
 **Interfaces:**
+
 - Consumes: provider Resume operation draft.
 - Produces: an operation that targets the authoritative Resume aggregate title.
 
@@ -135,4 +147,3 @@ deterministic preflight failures as terminal rather than retryable.
 - [ ] Verify both Git worktrees contain only intended commits.
 - [ ] Restart backend, local proxy, and frontend from the latest commits.
 - [ ] Perform health, HTTP, and one real XeLaTeX smoke check.
-

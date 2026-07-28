@@ -19,7 +19,7 @@ The frontend uses two orthogonal state machines:
 
 1. `thread`: `loading | ready | error`, responsible only for Conversation messages.
 2. `command`: `idle | creating-run | running | awaiting-proposal | committing-decision |
-   continuation-running | succeeded | retryable-error | terminal-error`, responsible for one exact
+continuation-running | succeeded | retryable-error | terminal-error`, responsible for one exact
    Run and its Proposal continuation.
 
 An accepted Proposal is an irreversible authority transition. Once the decision response returns a
@@ -66,4 +66,3 @@ accept Proposal
 - Frontend reducer tests cover every accepted-decision and refresh transition.
 - Frontend integration tests prove messages remain visible when Run recovery fails.
 - PDF tests prove exact Job recovery and preserve revision-only ambiguity.
-

@@ -33,4 +33,3 @@
 - 后端：真实 PostgreSQL outbox adapter 序列化的 Proposal decision 能被真实 worker parser 接受；不匹配 envelope 仍被拒绝。
 - 前端：决定提交结果先于 continuation 返回；刷新后恢复 accepted/rejected continuation；终态后清理恢复句柄。
 - 页面：接受后立即采用权威 editor，并显示处理中与明确终态。
-

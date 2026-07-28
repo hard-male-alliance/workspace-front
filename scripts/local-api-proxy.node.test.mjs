@@ -93,10 +93,9 @@ describe('local API proxy', () => {
         type: 'about:blank'
       })
 
-      const untrusted = await fetch(
-        `http://127.0.0.1:${String(proxyPort)}/api/v2/workspaces`,
-        { headers: { origin: 'https://untrusted.example' } }
-      )
+      const untrusted = await fetch(`http://127.0.0.1:${String(proxyPort)}/api/v2/workspaces`, {
+        headers: { origin: 'https://untrusted.example' }
+      })
       expect(untrusted.status).toBe(502)
       expect(untrusted.headers.get('access-control-allow-origin')).toBeNull()
     } finally {

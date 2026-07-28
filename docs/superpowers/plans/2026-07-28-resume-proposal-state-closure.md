@@ -21,10 +21,12 @@
 ### Task 1: Parse the durable Proposal decision envelope
 
 **Files:**
+
 - Modify: `workspace-back/src/backend/application/agent_worker.py`
 - Test: `workspace-back/tests/test_v2_resume_core.py`
 
 **Interfaces:**
+
 - Consumes: `_PostgresResumeOutbox.add(ResumeOutboxEvent)`
 - Produces: `_proposal_decision_claim(OutboxDispatchClaim) -> _AgentProposalDecisionClaim`
 
@@ -37,10 +39,12 @@
 ### Task 2: Authorize and terminalize the resumed Agent Run
 
 **Files:**
+
 - Modify only the files proven necessary by focused failures under `workspace-back/src/backend/application/agent_v2.py`, `workspace-back/src/backend/domain/agent_v2.py`, or their existing ports/adapters.
 - Test: `workspace-back/tests/test_v2_agent_application.py`
 
 **Interfaces:**
+
 - Consumes: `AgentProposalDecisionClaim`
 - Produces: one resumed or explicit terminal Agent Run
 
@@ -52,12 +56,14 @@
 ### Task 3: Expose committed editor before observing continuation
 
 **Files:**
+
 - Modify: `packages/app/src/contexts/resume/application/gateway.ts`
 - Modify: `packages/product-runtime/src/api-v2-gateways.ts`
 - Modify: `packages/product-runtime/src/resume-assistant-gateway.ts`
 - Test: `packages/product-runtime/src/resume-assistant-gateway.node.test.ts`
 
 **Interfaces:**
+
 - Produces: `UiResumeAssistantProposalDecisionResult` with committed decision and continuation handle.
 - Produces: `waitForProposalContinuation(...)` with thread and terminal problem code.
 
@@ -69,12 +75,14 @@
 ### Task 4: Recover continuation after refresh and expose progress
 
 **Files:**
+
 - Modify: `packages/product-runtime/src/resume-assistant-gateway.ts`
 - Modify: `packages/app/src/contexts/resume/presentation/ResumeWorkspace.tsx`
 - Test: `packages/product-runtime/src/resume-assistant-gateway.node.test.ts`
 - Test: `packages/app/src/integration/WorkspaceApp.resume-editor.dom.test.tsx`
 
 **Interfaces:**
+
 - Persists: `{runId, waitingOutputMessageId}` in `sessionStorage`.
 - Clears: recovery only after a terminal Run.
 
@@ -92,4 +100,3 @@
 - [ ] Confirm health endpoints and inspect content-free logs for completion rather than `agent.proposal_decision_event_invalid`.
 - [ ] Confirm both repositories contain only intended commits and pre-existing temporary files.
 - [ ] Report root-cause evidence, files, targeted tests, commit hashes, and manual acceptance steps; stop before stage six.
-
