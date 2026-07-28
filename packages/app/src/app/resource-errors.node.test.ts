@@ -92,6 +92,22 @@ describe('classifyResourceFailure', (): void => {
     })
   })
 
+  it('classifies a server-authored realtime descriptor violation as an invalid response', (): void => {
+    /** @brief 服务端生成的连接描述符错误，不是用户输入错误 / Server-authored connection descriptor failure, not a user-input failure. */
+    const error = createProblem(
+      500,
+      true,
+      'req_realtime_descriptor_12345678',
+      'interview.realtime_connection_response_invalid'
+    )
+
+    expect(classifyResourceFailure(error)).toEqual({
+      kind: 'invalid-response',
+      referenceId: 'req_realtime_descriptor_12345678',
+      retryable: true
+    })
+  })
+
   it('rejects unsafe request identifiers and classifies transport failures', (): void => {
     /** @brief 含控制字符的无效关联编号 / Invalid correlation identifier containing a control character. */
     const problem = createProblem(503, true, 'private\nheader', 'service.failed')
@@ -99,6 +115,17 @@ describe('classifyResourceFailure', (): void => {
     expect(classifyResourceFailure(problem).referenceId).toBeNull()
     expect(classifyResourceFailure(new TypeError('private URL'))).toMatchObject({
       kind: 'network',
+      retryable: true
+    })
+    expect(
+      classifyResourceFailure({
+        closeCode: null,
+        message: 'private realtime detail',
+        name: 'InterviewRealtimeChannelError'
+      })
+    ).toEqual({
+      kind: 'network',
+      referenceId: null,
       retryable: true
     })
     expect(classifyResourceFailure(new ApiV2ContractError('private response', 200))).toMatchObject({

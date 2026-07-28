@@ -12,6 +12,7 @@ import type {
   DiagnosticHttpMethod,
   DiagnosticHttpOperation,
   DiagnosticLevel,
+  DiagnosticRealtimeFailurePhase,
   DiagnosticRecord,
   DiagnosticResource,
   DiagnosticResourceName,
@@ -222,6 +223,13 @@ const diagnosticErrorKinds = new Set<DiagnosticErrorKind>([
   'unknown'
 ])
 
+/** @brief 可上传的 Realtime 失败阶段 / Realtime failure phases permitted for upload. */
+const diagnosticRealtimeFailurePhases = new Set<DiagnosticRealtimeFailurePhase>([
+  'grant',
+  'handshake',
+  'connected'
+])
+
 /** @brief 可上传的运行时错误来源 / Runtime-error sources permitted for upload. */
 const diagnosticRuntimeErrorSources = new Set<DiagnosticRuntimeErrorSource>([
   'react_boundary',
@@ -260,6 +268,15 @@ const allowedAttributeKeys: Readonly<{
   ],
   'interview.command_completed': ['duration_ms', 'operation'],
   'interview.command_failed': ['duration_ms', 'error_kind', 'operation'],
+  'interview.realtime_connection_failed': [
+    'close_code',
+    'duration_ms',
+    'error_kind',
+    'phase',
+    'problem_code',
+    'request_id',
+    'status'
+  ],
   'knowledge.command_started': ['operation'],
   'knowledge.command_completed': ['duration_ms', 'operation'],
   'knowledge.command_failed': ['duration_ms', 'error_kind', 'operation'],
@@ -328,6 +345,9 @@ export function createDiagnosticsSessionId(): string {
 function isAllowedDiagnosticString(name: DiagnosticEventName, key: string, value: string): boolean {
   if (key === 'app_version') return /^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$/u.test(value)
   if (key === 'request_id') return /^[A-Za-z0-9_-]{1,128}$/u.test(value)
+  if (key === 'problem_code') return /^[a-z][a-z0-9_.-]{0,127}$/u.test(value)
+  if (key === 'phase')
+    return diagnosticRealtimeFailurePhases.has(value as DiagnosticRealtimeFailurePhase)
   if (key === 'route') return diagnosticRoutes.has(value)
   if (key === 'platform') return diagnosticPlatforms.has(value as DiagnosticPlatform)
   if (key === 'method') return diagnosticHttpMethods.has(value as DiagnosticHttpMethod)
@@ -359,6 +379,7 @@ function isAllowedDiagnosticString(name: DiagnosticEventName, key: string, value
 function isAllowedDiagnosticNumber(key: string, value: number): boolean {
   if (!Number.isInteger(value)) return false
   if (key === 'duration_ms') return value >= 0 && value <= MAX_DURATION_MILLISECONDS
+  if (key === 'close_code') return value >= 1000 && value <= 4999
   return key === 'status' && value >= 100 && value <= 599
 }
 
@@ -772,6 +793,7 @@ function getDefaultLevel(name: DiagnosticEventName): DiagnosticLevel {
   if (
     name === 'http.request_failed' ||
     name === 'interview.command_failed' ||
+    name === 'interview.realtime_connection_failed' ||
     name === 'knowledge.command_failed' ||
     name === 'resource.load_failed' ||
     name === 'resume.command_failed' ||

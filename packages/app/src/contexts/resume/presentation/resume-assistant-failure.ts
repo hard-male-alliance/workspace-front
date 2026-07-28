@@ -11,6 +11,8 @@ const RESUME_ASSISTANT_FAILURE_MESSAGES: Readonly<Record<string, string>> = {
     '简历助手连续生成了无法执行的编辑操作，后端已停止无效重试。该问题不表示你的要求不安全，请重试或联系管理员检查本次运行记录。当前简历没有被修改。',
   'agent.provider_rate_limited': '模型服务当前请求较多，请稍后重试。当前简历没有被修改。',
   'agent.provider_unavailable': '模型服务暂时无法连接，请稍后重试。当前简历没有被修改。',
+  'agent.knowledge_retrieval_failed':
+    '知识库检索服务暂时不可用，简历助手未能读取已授权资料。请稍后重试；若问题持续，请联系管理员检查知识库索引和模型服务。当前简历没有被修改。',
   'agent.provider_protocol_error':
     '模型返回的工具调用内容不符合执行协议，请重试；如果问题持续，请联系管理员检查模型服务。当前简历没有被修改。',
   'agent.provider_refused': '模型无法处理本次请求，请调整描述后重试。当前简历没有被修改。',
