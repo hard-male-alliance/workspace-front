@@ -25,8 +25,16 @@ import type {
 const RECOVERY_PREFIX = 'aiws.resume-assistant.run.v1'
 const processRecovery = new Map<string, string>()
 
+/** @brief 可幂等重放的 Agent Run 创建命令 / Idempotently replayable Agent Run creation command. */
+type RecoverableRunCreation = Omit<Parameters<ResumeAssistantAgentApi['createRun']>[0], 'signal'>
+
 function recoveryKey(input: UiResumeAssistantRequest): string {
   return `${RECOVERY_PREFIX}:${input.workspaceId}:${input.resumeId}`
+}
+
+/** @brief 构造响应丢失前的 Run 创建恢复键 / Build the Run-creation recovery key used before a response is received. */
+function runCreationRecoveryKey(input: UiResumeAssistantRequest): string {
+  return `${recoveryKey(input)}:creation`
 }
 
 function recoveryRead(key: string): string | null {
@@ -46,6 +54,52 @@ function recoveryWrite(key: string, value: string | null): void {
   } catch {
     // Process-local recovery remains available in restricted hosts.
   }
+}
+
+/** @brief 校验并读取持久化的 Run 创建命令 / Validate and read a persisted Run creation command. */
+function parseRunCreationRecovery(value: string): RecoverableRunCreation | null {
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null
+    const record = parsed as Readonly<Record<string, unknown>>
+    const knowledgeSourceIds = record.knowledgeSourceIds
+    const allowedOutputModes = record.allowedOutputModes
+    if (
+      typeof record.workspaceId !== 'string' ||
+      typeof record.conversationId !== 'string' ||
+      typeof record.inputMessageId !== 'string' ||
+      typeof record.resumeId !== 'string' ||
+      !Number.isSafeInteger(record.resumeRevision) ||
+      typeof record.locale !== 'string' ||
+      typeof record.idempotencyKey !== 'string' ||
+      !Array.isArray(knowledgeSourceIds) ||
+      !knowledgeSourceIds.every((item) => typeof item === 'string') ||
+      !Array.isArray(allowedOutputModes) ||
+      !allowedOutputModes.every(
+        (item) => item === 'text' || item === 'citations' || item === 'resume_operations'
+      )
+    ) {
+      return null
+    }
+    return {
+      workspaceId: record.workspaceId,
+      conversationId: record.conversationId,
+      inputMessageId: record.inputMessageId,
+      resumeId: record.resumeId,
+      resumeRevision: record.resumeRevision as number,
+      locale: record.locale,
+      knowledgeSourceIds,
+      allowedOutputModes,
+      idempotencyKey: record.idempotencyKey
+    }
+  } catch {
+    return null
+  }
+}
+
+/** @brief 持久化可重放的 Run 创建命令 / Persist a replayable Run creation command. */
+function runCreationRecoveryWrite(key: string, value: RecoverableRunCreation | null): void {
+  recoveryWrite(key, value === null ? null : JSON.stringify(value))
 }
 
 function commandId(kind: string): string {
@@ -174,8 +228,30 @@ async function loadThread(
   conversation: AgentConversation
 ): Promise<UiResumeAssistantThread> {
   const key = recoveryKey(input)
-  const recoveredRunId = recoveryRead(key)
+  const creationKey = runCreationRecoveryKey(input)
+  let recoveredRunId = recoveryRead(key)
+  const serializedCreation = recoveryRead(creationKey)
+  if (recoveredRunId === null && serializedCreation !== null) {
+    const creation = parseRunCreationRecovery(serializedCreation)
+    if (
+      creation === null ||
+      creation.workspaceId !== input.workspaceId ||
+      creation.resumeId !== input.resumeId ||
+      creation.conversationId !== conversation.id
+    ) {
+      recoveryWrite(creationKey, null)
+    } else {
+      const replayed = await api.createRun({
+        ...creation,
+        ...(input.signal === undefined ? {} : { signal: input.signal })
+      })
+      recoveredRunId = replayed.id
+      recoveryWrite(key, replayed.id)
+      recoveryWrite(creationKey, null)
+    }
+  }
   let pendingProposal: UiResumeProposalAuthority | null = null
+  let recoveryProblemCode: string | null = null
   if (recoveredRunId !== null) {
     let run = await api.getRun(input.workspaceId, recoveredRunId, input.signal)
     if (run.status === 'queued' || run.status === 'running') {
@@ -190,13 +266,17 @@ async function loadThread(
       )
       if (authority.proposal.status === 'pending') pendingProposal = authority
     }
+    if (run.status !== 'succeeded' && run.status !== 'waiting_for_proposal_decision') {
+      recoveryProblemCode = run.problem?.code ?? `resume.assistant_run_${run.status}`
+    }
     if (pendingProposal === null) recoveryWrite(key, null)
   }
   const messages = await api.listMessages(input.workspaceId, conversation.id, input.signal)
   return {
     pendingProposal,
     conversationId: conversation.id,
-    messages: mapMessages(messages)
+    messages: mapMessages(messages),
+    recoveryProblemCode
   }
 }
 
@@ -245,7 +325,8 @@ export function createApiV2ResumeAssistantGateway(
         input.signal
       )
       const key = recoveryKey(input)
-      const run = await api.createRun({
+      const creationKey = runCreationRecoveryKey(input)
+      const runCreation: RecoverableRunCreation = {
         workspaceId: input.workspaceId,
         conversationId: conversation.id,
         inputMessageId: message.id,
@@ -258,9 +339,22 @@ export function createApiV2ResumeAssistantGateway(
           ...(knowledgeSourceIds.length === 0 ? [] : (['citations'] as const)),
           'resume_operations'
         ],
-        idempotencyKey: commandId('resume_assistant_run'),
-        ...(input.signal === undefined ? {} : { signal: input.signal })
-      })
+        idempotencyKey: commandId('resume_assistant_run')
+      }
+      runCreationRecoveryWrite(creationKey, runCreation)
+      let run: AgentRun
+      try {
+        run = await api.createRun({
+          ...runCreation,
+          ...(input.signal === undefined ? {} : { signal: input.signal })
+        })
+      } catch (creationError) {
+        if (!(creationError instanceof DOMException && creationError.name === 'AbortError')) {
+          recoveryWrite(creationKey, null)
+        }
+        throw creationError
+      }
+      recoveryWrite(creationKey, null)
       recoveryWrite(key, run.id)
       const terminalRun = await waitForRun(api, input, run)
       if (

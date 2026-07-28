@@ -444,7 +444,8 @@ export class InMemoryResumeGateway
       Promise.resolve({
         conversationId: 'conversation_memory_resume_assistant',
         messages: this.assistantMessages,
-        pendingProposal: null
+        pendingProposal: null,
+        recoveryProblemCode: null
       }),
     ask: (input) => {
       const sequence = this.assistantMessages.length
@@ -466,7 +467,8 @@ export class InMemoryResumeGateway
       return Promise.resolve({
         conversationId: 'conversation_memory_resume_assistant',
         messages: this.assistantMessages,
-        pendingProposal: null
+        pendingProposal: null,
+        recoveryProblemCode: null
       })
     },
     decideProposal: () => Promise.reject(new Error('No memory Agent Proposal is pending.'))

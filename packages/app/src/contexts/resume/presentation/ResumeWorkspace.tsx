@@ -439,6 +439,9 @@ function ResumeAssistantPanel({
         .then((thread): void => {
           setMessages(thread.messages)
           setPendingProposal(thread.pendingProposal)
+          if (thread.recoveryProblemCode !== null) {
+            setError(new Error(thread.recoveryProblemCode))
+          }
         })
         .catch((loadError: unknown): void => {
           if (!controller.signal.aborted) setError(loadError)

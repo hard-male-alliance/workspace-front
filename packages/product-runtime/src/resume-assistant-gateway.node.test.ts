@@ -328,6 +328,66 @@ describe('Resume assistant gateway', () => {
     expect(restored.messages.at(-1)?.text).toBe('项目成果需要补充量化指标。')
   })
 
+  it('replays the exact Run creation after a refresh loses its committed response', async () => {
+    const api = apiDouble()
+    vi.mocked(api.createRun)
+      .mockRejectedValueOnce(new DOMException('Resume page reloaded.', 'AbortError'))
+      .mockResolvedValueOnce(run())
+    const firstGateway = createApiV2ResumeAssistantGateway(api, reviewDouble(), knowledgeDouble())
+
+    await expect(firstGateway.ask(request('我是 2026 年毕业。'))).rejects.toThrow(
+      'Resume page reloaded.'
+    )
+
+    await createApiV2ResumeAssistantGateway(api, reviewDouble(), knowledgeDouble()).load(
+      request('')
+    )
+
+    expect(api.createRun).toHaveBeenCalledTimes(2)
+    const firstCreation = vi.mocked(api.createRun).mock.calls[0]![0]
+    const replayedCreation = vi.mocked(api.createRun).mock.calls[1]![0]
+    expect(replayedCreation).toEqual({
+      ...firstCreation,
+      signal: undefined
+    })
+  })
+
+  it('keeps messages and exposes a recovered terminal Run failure after refresh', async () => {
+    const api = apiDouble()
+    vi.mocked(api.createRun).mockResolvedValue(run({ status: 'running' }))
+    vi.mocked(api.getRun)
+      .mockRejectedValueOnce(new Error('page closed'))
+      .mockResolvedValueOnce(
+        run({
+          problem: {
+            code: 'agent.provider_timeout',
+            detail: null,
+            errors: [],
+            extensions: null,
+            instance: null,
+            request_id: RUN_ID,
+            retryable: true,
+            status: 504,
+            title: 'Model provider timed out',
+            type: 'https://api.hmalliances.org/problems/agent/provider_timeout'
+          },
+          status: 'failed'
+        })
+      )
+    const firstGateway = createApiV2ResumeAssistantGateway(api, reviewDouble(), knowledgeDouble())
+
+    await expect(firstGateway.ask(request())).rejects.toThrow('page closed')
+
+    const restored = await createApiV2ResumeAssistantGateway(
+      api,
+      reviewDouble(),
+      knowledgeDouble()
+    ).load(request(''))
+
+    expect(restored.messages).toHaveLength(2)
+    expect(restored.recoveryProblemCode).toBe('agent.provider_timeout')
+  })
+
   it('keeps polling beyond the former 90-second client deadline', async () => {
     vi.useFakeTimers()
     try {

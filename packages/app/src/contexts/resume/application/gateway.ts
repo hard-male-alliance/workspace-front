@@ -33,6 +33,8 @@ export interface UiResumeAssistantThread {
   readonly messages: readonly UiResumeAssistantMessage[]
   /** @brief Agent 等待用户决定的 Proposal；前端只负责展示和回传决定 / Proposal awaiting the user's decision. */
   readonly pendingProposal: UiResumeProposalAuthority | null
+  /** @brief 刷新恢复到终态失败时的稳定错误码 / Stable error code for a terminal failure recovered after refresh. */
+  readonly recoveryProblemCode: string | null
 }
 
 export interface UiResumeAssistantProposalDecisionResult {
