@@ -11,6 +11,7 @@ import { useArtifactSave } from '../../../app/Host'
 import { ResourceFailureMessage } from '../../../app/ResourceErrorState'
 import { classifyResourceFailure } from '../../../app/resource-errors'
 import { createUiCommandId, type UiCommandId } from '../../../shared-kernel/command'
+import { asUiOpaqueId } from '../../../shared-kernel/identity'
 import { nextDeadlineTimerDelayMilliseconds } from '../../../shared-kernel/polling'
 import type {
   UiWorkspaceArtifact,
@@ -29,6 +30,69 @@ import { createResumePdfPreviewLease, type ResumePdfPreviewLease } from './resum
 
 /** @brief 原生 PDF 查看器必须完成 iframe 加载的时限 / Deadline for the native PDF viewer to finish loading the iframe. */
 const PDF_INLINE_PREVIEW_TIMEOUT_MILLISECONDS = 10_000
+
+/** @brief 精确 PDF Render Job 恢复信封的存储前缀 / Storage prefix for exact PDF Render Job recovery envelopes. */
+const PDF_JOB_RECOVERY_PREFIX = 'aiws.resume-preview.job.v1'
+
+/** @brief 绑定完整预览代际的精确 Job 恢复信封 / Exact Job recovery envelope bound to a complete preview generation. */
+interface ResumePdfJobRecoveryEnvelope {
+  /** @brief 完整预览代际 / Complete preview generation. */
+  readonly generation: string
+  /** @brief 已由启动响应确认的 Job identity / Job identity confirmed by the start response. */
+  readonly jobId: string
+}
+
+/**
+ * @brief 构造当前 Resume 的恢复键 / Build the recovery key for the current Resume.
+ * @param workspaceId Workspace identity / Workspace identity.
+ * @param resumeId Resume identity / Resume identity.
+ * @return 仅当前浏览器会话使用的键 / Key used only in the current browser session.
+ */
+function pdfJobRecoveryKey(workspaceId: string, resumeId: string): string {
+  return `${PDF_JOB_RECOVERY_PREFIX}:${workspaceId}:${resumeId}`
+}
+
+/**
+ * @brief 读取并验证当前代际的精确 Job 信封 / Read and validate the exact Job envelope for the current generation.
+ * @param key 当前 Resume 的存储键 / Storage key for the current Resume.
+ * @param generation 当前完整预览代际 / Current complete preview generation.
+ * @return 匹配代际的信封，否则为 null / Envelope matching the generation, otherwise null.
+ */
+function readPdfJobRecovery(
+  key: string,
+  generation: string
+): ResumePdfJobRecoveryEnvelope | null {
+  try {
+    const serialized = globalThis.sessionStorage.getItem(key)
+    if (serialized === null) return null
+    const parsed: unknown = JSON.parse(serialized)
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null
+    const record = parsed as Readonly<Record<string, unknown>>
+    if (
+      record.generation !== generation ||
+      typeof record.jobId !== 'string' ||
+      record.jobId.length === 0
+    ) {
+      return null
+    }
+    return { generation, jobId: record.jobId }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * @brief 保存启动响应确认的精确 Job 信封 / Persist the exact Job envelope confirmed by a start response.
+ * @param key 当前 Resume 的存储键 / Storage key for the current Resume.
+ * @param envelope 精确 Job 与完整代际 / Exact Job and complete generation.
+ */
+function writePdfJobRecovery(key: string, envelope: ResumePdfJobRecoveryEnvelope): void {
+  try {
+    globalThis.sessionStorage.setItem(key, JSON.stringify(envelope))
+  } catch {
+    // Recovery is optional in restricted hosts; the authoritative PDF policy remains unchanged.
+  }
+}
 
 /** @brief 当前 Job 是否仍可被观察或取消 / Whether the current Job can still be observed or cancelled. */
 function isPendingJob(job: UiWorkspaceJob): boolean {
@@ -105,6 +169,11 @@ export function ResumePreviewPanel({
       workspaceId: editor.resume.workspaceId
     }),
     [editor.resume.id, editor.resume.revision, editor.resume.workspaceId]
+  )
+  /** @brief 当前 Resume 的精确 PDF Job 恢复键 / Exact PDF Job recovery key for the current Resume. */
+  const exactRecoveryKey = useMemo(
+    () => pdfJobRecoveryKey(editor.resume.workspaceId, editor.resume.id),
+    [editor.resume.id, editor.resume.workspaceId]
   )
   const [artifact, setArtifact] = useState<UiWorkspaceArtifact | null>(null)
   const [previewLease, setPreviewLease] = useState<ResumePdfPreviewLease | null>(null)
@@ -489,6 +558,10 @@ export function ResumePreviewPanel({
                   signal: controller.signal
                 }))
           if (!isCurrentGeneration(expectedGeneration) || controller.signal.aborted) return
+          writePdfJobRecovery(exactRecoveryKey, {
+            generation: expectedGeneration,
+            jobId: initial.job.id
+          })
           if (!resumeKnownJob) {
             startCommandIdRef.current = null
             setStartCommandId(null)
@@ -574,13 +647,43 @@ export function ResumePreviewPanel({
   useEffect((): (() => void) => {
     /** @brief commit 后启动恢复发现的零延迟任务 / Zero-delay task starting recovery discovery after commit. */
     const timer = globalThis.setTimeout((): void => {
-      void findRecoveryCandidates()
+      const exact = readPdfJobRecovery(exactRecoveryKey, generation)
+      if (exact === null) {
+        void findRecoveryCandidates()
+        return
+      }
+      if (recoveryInFlightRef.current || renderInFlightRef.current) return
+      recoveryInFlightRef.current = true
+      const controller = new AbortController()
+      auxiliaryAbortRef.current = controller
+      setFindingRecovery(true)
+      setRecoveryError(null)
+      void renderProcess
+        .refreshJob(target, asUiOpaqueId<'workspace-job'>(exact.jobId), controller.signal)
+        .then(async (authority): Promise<void> => {
+          if (!isCurrentGeneration(generation) || controller.signal.aborted) return
+          recoveryInFlightRef.current = false
+          if (auxiliaryAbortRef.current === controller) auxiliaryAbortRef.current = null
+          await renderPdf(authority)
+        })
+        .catch((reason: unknown): void => {
+          if (isCurrentGeneration(generation) && !controller.signal.aborted) {
+            setRecoveryError(reason)
+          }
+        })
+        .finally((): void => {
+          if (auxiliaryAbortRef.current === controller) auxiliaryAbortRef.current = null
+          recoveryInFlightRef.current = false
+          if (isCurrentGeneration(generation)) setFindingRecovery(false)
+        })
     }, 0)
     return (): void => {
       globalThis.clearTimeout(timer)
       auxiliaryAbortRef.current?.abort()
     }
-  }, [findRecoveryCandidates])
+    // `renderPdf` is intentionally invoked only for the exact persisted Job identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exactRecoveryKey, findRecoveryCandidates, generation, renderProcess, target])
 
   /**
    * @brief 用户明确选择一个候选 Job 后恢复观察 / Resume observation after the user explicitly selects a candidate Job.

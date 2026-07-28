@@ -114,6 +114,7 @@ beforeEach(async (): Promise<void> => {
 })
 
 afterEach((): void => {
+  globalThis.sessionStorage.clear()
   restoreBlobUrlHost()
   restorePdfViewerEnabled()
   vi.restoreAllMocks()
@@ -136,6 +137,49 @@ describe('WorkspaceApp Resume artifact', (): void => {
       screen.queryByText('This is a semantic-content preview, not the final template layout.')
     ).not.toBeInTheDocument()
     expect(screen.queryByTitle('Resume PDF preview')).not.toBeInTheDocument()
+  })
+
+  it('restores the exact generated PDF Job after a refresh without claiming revision-only candidates', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('en-US')
+    installBlobUrlHost(['blob:resume-pdf-before-refresh', 'blob:resume-pdf-after-refresh'])
+    const store = new InMemoryWorkspaceOperationsStore()
+    const resume = new InMemoryResumeGateway({ operationsStore: store })
+    const workspaceOperations = new InMemoryWorkspaceOperationsGateway({}, store)
+    const startRender = vi.spyOn(resume, 'startResumeRender')
+    const getJob = vi.spyOn(workspaceOperations, 'getJob')
+    const listJobsPage = vi.spyOn(workspaceOperations, 'listJobsPage')
+    const gateways = createTestGateways({ resume, workspaceOperations })
+
+    const first = render(
+      <WorkspaceApp
+        gateways={gateways}
+        initialPath="/resumes/res_mock_ai_platform/edit"
+      />
+    )
+    await waitForResumePreviewControls()
+    fireEvent.click(screen.getByRole('button', { name: /PDF preview|PDF 预览/u }))
+    expect(await screen.findByTitle('Resume PDF preview', {}, { timeout: 4_000 })).toHaveAttribute(
+      'src',
+      'blob:resume-pdf-before-refresh'
+    )
+    const jobReadsBeforeRefresh = getJob.mock.calls.length
+    const candidateReadsBeforeRefresh = listJobsPage.mock.calls.length
+    first.unmount()
+
+    render(
+      <WorkspaceApp
+        gateways={gateways}
+        initialPath="/resumes/res_mock_ai_platform/edit"
+      />
+    )
+
+    expect(await screen.findByTitle('Resume PDF preview', {}, { timeout: 4_000 })).toHaveAttribute(
+      'src',
+      'blob:resume-pdf-after-refresh'
+    )
+    expect(startRender).toHaveBeenCalledTimes(1)
+    expect(getJob).toHaveBeenCalledTimes(jobReadsBeforeRefresh + 1)
+    expect(listJobsPage).toHaveBeenCalledTimes(candidateReadsBeforeRefresh)
   })
 
   it('keeps the last validated PDF visible after a manual Resume edit', async (): Promise<void> => {
