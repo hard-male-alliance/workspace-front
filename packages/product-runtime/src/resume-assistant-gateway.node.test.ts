@@ -222,7 +222,7 @@ describe('Resume assistant gateway', () => {
     expect(thread.pendingProposal).toBe(authority)
   })
 
-  it('submits an explicit ProposalDecision only after the user chooses', async () => {
+  it('returns the committed editor before waiting for proposal continuation', async () => {
     const api = apiDouble()
     const review = reviewDouble()
     const authority = {
@@ -265,7 +265,7 @@ describe('Resume assistant gateway', () => {
 
     const gateway = createApiV2ResumeAssistantGateway(api, review, knowledgeDouble())
     const thread = await gateway.ask(request('根据目前的信息生成简历'))
-    const decision = await gateway.decideProposal({
+    const committed = await gateway.decideProposal({
       ...request(''),
       authority: thread.pendingProposal!,
       decision: { kind: 'accept-all' }
@@ -277,8 +277,115 @@ describe('Resume assistant gateway', () => {
         proposal: authority.proposal
       })
     )
-    expect(decision.decision).toBe(result)
-    expect(decision.thread.messages).toHaveLength(2)
+    expect(committed.decision).toBe(result)
+    expect(committed.continuation).toEqual({
+      runId: RUN_ID,
+      waitingOutputMessageId: 'message_waiting_01'
+    })
+    expect(api.getRun).toHaveBeenCalledTimes(2)
+
+    const continuation = await gateway.waitForProposalContinuation({
+      ...request(''),
+      continuation: committed.continuation
+    })
+
+    expect(api.getRun).toHaveBeenCalledTimes(3)
+    expect(continuation.problemCode).toBeNull()
+    expect(continuation.thread.messages).toHaveLength(2)
+  })
+
+  it('recovers an accepted Proposal continuation after an aborted wait and reload', async () => {
+    vi.useFakeTimers()
+    try {
+      const api = apiDouble()
+      const review = reviewDouble()
+      const pendingAuthority = {
+        concurrencyToken: '"proposal-recovery-1"',
+        proposal: {
+          id: asUiOpaqueId<'resume-proposal'>(PROPOSAL_ID),
+          status: 'pending'
+        }
+      } as UiResumeProposalAuthority
+      const acceptedAuthority = {
+        ...pendingAuthority,
+        proposal: { ...pendingAuthority.proposal, status: 'accepted' }
+      } as UiResumeProposalAuthority
+      const decision = {
+        appliedOperationIds: [],
+        conflicts: [],
+        editor: { resume: { revision: 8 } } as UiResumeEditorModel
+      }
+      let getRunCalls = 0
+      vi.mocked(api.createRun).mockResolvedValue(
+        run({
+          outputMessageId: 'message_waiting_01',
+          proposalIds: [PROPOSAL_ID],
+          status: 'waiting_for_proposal_decision'
+        })
+      )
+      vi.mocked(api.getRun).mockImplementation(() => {
+        getRunCalls += 1
+        const completed = getRunCalls >= 5
+        return Promise.resolve(
+          run({
+            outputMessageId: completed ? 'message_final_01' : 'message_waiting_01',
+            proposalIds: [PROPOSAL_ID],
+            status: completed ? 'succeeded' : 'waiting_for_proposal_decision'
+          })
+        )
+      })
+      vi.mocked(api.listMessages).mockImplementation(() =>
+        Promise.resolve(
+          getRunCalls >= 5
+            ? [
+                message('user', '请帮我修改简历。'),
+                message('assistant', 'The Resume edit is complete.')
+              ]
+            : [
+                message('user', '请帮我修改简历。'),
+                message('assistant', 'The Resume edit is still being applied.')
+              ]
+        )
+      )
+      vi.mocked(review.getResumeProposal)
+        .mockResolvedValueOnce(pendingAuthority)
+        .mockResolvedValue(acceptedAuthority)
+      vi.mocked(review.decideResumeProposal).mockResolvedValue(decision)
+
+      const gateway = createApiV2ResumeAssistantGateway(api, review, knowledgeDouble())
+      const thread = await gateway.ask(request('请帮我修改简历。'))
+      const committed = await gateway.decideProposal({
+        ...request(''),
+        authority: thread.pendingProposal!,
+        decision: { kind: 'accept-all' }
+      })
+      const aborted = new AbortController()
+      aborted.abort(new DOMException('Resume page reloaded.', 'AbortError'))
+
+      await expect(
+        gateway.waitForProposalContinuation({
+          ...request(''),
+          continuation: committed.continuation,
+          signal: aborted.signal
+        })
+      ).rejects.toThrow('Resume page reloaded.')
+
+      const recovered = createApiV2ResumeAssistantGateway(api, review, knowledgeDouble()).load(
+        request('')
+      )
+      await vi.advanceTimersByTimeAsync(1_000)
+
+      await expect(recovered).resolves.toEqual(
+        expect.objectContaining({
+          messages: expect.arrayContaining([
+            expect.objectContaining({ text: 'The Resume edit is complete.' })
+          ]) as unknown
+        })
+      )
+      expect(api.getRun).toHaveBeenCalledTimes(5)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('leaves retry ownership to the backend and creates exactly one Run', async () => {

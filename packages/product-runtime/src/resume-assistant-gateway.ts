@@ -24,12 +24,24 @@ import type {
 
 const RECOVERY_PREFIX = 'aiws.resume-assistant.run.v1'
 const processRecovery = new Map<string, string>()
+const processContinuationRecovery = new Map<string, ProposalContinuationRecovery>()
 
 /** @brief 可幂等重放的 Agent Run 创建命令 / Idempotently replayable Agent Run creation command. */
 type RecoverableRunCreation = Omit<Parameters<ResumeAssistantAgentApi['createRun']>[0], 'signal'>
 
+/** @brief 已提交 Proposal 的可恢复续答句柄 / Persisted handle for a continuation after a Proposal decision commits. */
+interface ProposalContinuationRecovery {
+  readonly runId: string
+  readonly waitingOutputMessageId: string | null
+}
+
 function recoveryKey(input: UiResumeAssistantRequest): string {
   return `${RECOVERY_PREFIX}:${input.workspaceId}:${input.resumeId}`
+}
+
+/** @brief 构造已提交 Proposal 的续答恢复键 / Build the recovery key for a committed Proposal continuation. */
+function continuationRecoveryKey(input: UiResumeAssistantRequest): string {
+  return `${recoveryKey(input)}:proposal-continuation`
 }
 
 /** @brief 构造响应丢失前的 Run 创建恢复键 / Build the Run-creation recovery key used before a response is received. */
@@ -54,6 +66,59 @@ function recoveryWrite(key: string, value: string | null): void {
   } catch {
     // Process-local recovery remains available in restricted hosts.
   }
+}
+
+/** @brief 校验持久化的 Proposal 续答句柄 / Validate a persisted Proposal-continuation handle. */
+function parseContinuationRecovery(value: string): ProposalContinuationRecovery | null {
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null
+    const record = parsed as Readonly<Record<string, unknown>>
+    if (
+      typeof record.runId !== 'string' ||
+      (record.waitingOutputMessageId !== null && typeof record.waitingOutputMessageId !== 'string')
+    ) {
+      return null
+    }
+    return {
+      runId: record.runId,
+      waitingOutputMessageId: record.waitingOutputMessageId
+    }
+  } catch {
+    return null
+  }
+}
+
+/** @brief 读取已提交 Proposal 的续答恢复句柄 / Read a committed Proposal-continuation recovery handle. */
+function continuationRecoveryRead(key: string): ProposalContinuationRecovery | null {
+  try {
+    const serialized = globalThis.sessionStorage?.getItem(key)
+    if (serialized !== null && serialized !== undefined) {
+      const recovered = parseContinuationRecovery(serialized)
+      if (recovered !== null) return recovered
+    }
+  } catch {
+    // Process-local recovery remains available in restricted hosts.
+  }
+  return processContinuationRecovery.get(key) ?? null
+}
+
+/** @brief 写入或清除 Proposal 续答恢复句柄 / Write or clear a Proposal-continuation recovery handle. */
+function continuationRecoveryWrite(key: string, value: ProposalContinuationRecovery | null): void {
+  if (value === null) processContinuationRecovery.delete(key)
+  else processContinuationRecovery.set(key, value)
+  try {
+    if (value === null) globalThis.sessionStorage?.removeItem(key)
+    else globalThis.sessionStorage?.setItem(key, JSON.stringify(value))
+  } catch {
+    // Process-local recovery remains available in restricted hosts.
+  }
+}
+
+/** @brief 清除已知 Run 与 Proposal 续答恢复状态 / Clear known Run and Proposal-continuation recovery state. */
+function clearRunRecovery(input: UiResumeAssistantRequest): void {
+  recoveryWrite(recoveryKey(input), null)
+  continuationRecoveryWrite(continuationRecoveryKey(input), null)
 }
 
 /** @brief 校验并读取持久化的 Run 创建命令 / Validate and read a persisted Run creation command. */
@@ -229,6 +294,8 @@ async function loadThread(
 ): Promise<UiResumeAssistantThread> {
   const key = recoveryKey(input)
   const creationKey = runCreationRecoveryKey(input)
+  const continuationKey = continuationRecoveryKey(input)
+  const recoveredContinuation = continuationRecoveryRead(continuationKey)
   let recoveredRunId = recoveryRead(key)
   const serializedCreation = recoveryRead(creationKey)
   if (recoveredRunId === null && serializedCreation !== null) {
@@ -252,7 +319,19 @@ async function loadThread(
   }
   let pendingProposal: UiResumeProposalAuthority | null = null
   let recoveryProblemCode: string | null = null
-  if (recoveredRunId !== null) {
+  if (recoveredContinuation !== null) {
+    const terminalRun = await waitForProposalContinuation(
+      api,
+      input,
+      recoveredContinuation.runId,
+      recoveredContinuation.waitingOutputMessageId
+    )
+    if (terminalRun.status !== 'succeeded') {
+      recoveryProblemCode =
+        terminalRun.problem?.code ?? `resume.assistant_run_${terminalRun.status}`
+    }
+    clearRunRecovery(input)
+  } else if (recoveredRunId !== null) {
     let run = await api.getRun(input.workspaceId, recoveredRunId, input.signal)
     if (run.status === 'queued' || run.status === 'running') {
       run = await waitForRun(api, input, run)
@@ -354,6 +433,7 @@ export function createApiV2ResumeAssistantGateway(
         }
         throw creationError
       }
+      continuationRecoveryWrite(continuationRecoveryKey(input), null)
       recoveryWrite(creationKey, null)
       recoveryWrite(key, run.id)
       const terminalRun = await waitForRun(api, input, run)
@@ -390,20 +470,30 @@ export function createApiV2ResumeAssistantGateway(
         proposal: input.authority.proposal,
         ...(input.signal === undefined ? {} : { signal: input.signal })
       })
+      const continuation = {
+        runId,
+        waitingOutputMessageId: waitingRun.outputMessageId
+      }
+      continuationRecoveryWrite(continuationRecoveryKey(input), continuation)
+      return {
+        decision,
+        continuation
+      }
+    },
+    async waitForProposalContinuation(input) {
       const terminalRun = await waitForProposalContinuation(
         api,
         input,
-        runId,
-        waitingRun.outputMessageId
+        input.continuation.runId,
+        input.continuation.waitingOutputMessageId
       )
-      recoveryWrite(key, null)
+      clearRunRecovery(input)
       const conversation = await resolveConversation(api, input)
       return {
-        continuationProblemCode:
+        problemCode:
           terminalRun.status === 'succeeded'
             ? null
             : (terminalRun.problem?.code ?? `resume.assistant_run_${terminalRun.status}`),
-        decision,
         thread: await loadThread(api, review, input, conversation)
       }
     }

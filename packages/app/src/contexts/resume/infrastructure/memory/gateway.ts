@@ -471,7 +471,9 @@ export class InMemoryResumeGateway
         recoveryProblemCode: null
       })
     },
-    decideProposal: () => Promise.reject(new Error('No memory Agent Proposal is pending.'))
+    decideProposal: () => Promise.reject(new Error('No memory Agent Proposal is pending.')),
+    waitForProposalContinuation: () =>
+      Promise.reject(new Error('No memory Agent Proposal continuation is pending.'))
   }
 
   /** @brief 当前测试实例的内存会话消息 / In-memory conversation messages for this test instance. */

@@ -37,10 +37,22 @@ export interface UiResumeAssistantThread {
   readonly recoveryProblemCode: string | null
 }
 
+/** @brief 已确认 Proposal 后可继续观察的 Agent Run 句柄 / Opaque Agent Run handle to observe after a Proposal decision commits. */
+export interface UiResumeAssistantProposalContinuation {
+  readonly runId: string
+  readonly waitingOutputMessageId: string | null
+}
+
+/** @brief Proposal 决策写入已完成，续答尚未等待的结果 / Result after the Proposal decision commits but before its Agent continuation is observed. */
 export interface UiResumeAssistantProposalDecisionResult {
   readonly decision: UiResumeProposalDecisionResult
+  readonly continuation: UiResumeAssistantProposalContinuation
+}
+
+/** @brief Proposal 决策后的 Agent 续答终态 / Terminal outcome after observing a Proposal-decision Agent continuation. */
+export interface UiResumeAssistantProposalContinuationResult {
   readonly thread: UiResumeAssistantThread
-  readonly continuationProblemCode: string | null
+  readonly problemCode: string | null
 }
 
 /** @brief 绑定精确 Resume revision 的助手请求 / Assistant request bound to an exact Resume revision. */
@@ -65,6 +77,11 @@ export interface ResumeAssistantGateway {
       readonly decision: UiResumeProposalDecision
     }
   ): Promise<UiResumeAssistantProposalDecisionResult>
+  waitForProposalContinuation(
+    input: UiResumeAssistantRequest & {
+      readonly continuation: UiResumeAssistantProposalContinuation
+    }
+  ): Promise<UiResumeAssistantProposalContinuationResult>
 }
 
 /** @brief 简历与模板页面数据端口 / Resume and template page-data port. */

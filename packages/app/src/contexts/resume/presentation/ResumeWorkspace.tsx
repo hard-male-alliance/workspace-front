@@ -394,11 +394,14 @@ function ResumePaneSeparator({
 function ResumeAssistantPanel({
   editor,
   gateway,
+  onContinuationAuthorityChanged,
   onEditorChange,
   onCloseMobile
 }: {
   readonly editor: UiResumeEditorModel
   readonly gateway: ResumeGateway
+  /** @brief 已确认 Proposal 的续答发现更新权威时锁住后续写入 / Locks future writes when a committed Proposal continuation finds a newer authority. */
+  readonly onContinuationAuthorityChanged: () => void
   readonly onEditorChange: (editor: UiResumeEditorModel, previousRevision: number) => void
   readonly onCloseMobile: () => void
 }): React.JSX.Element {
@@ -408,7 +411,16 @@ function ResumeAssistantPanel({
   const [pendingProposal, setPendingProposal] = useState<UiResumeProposalAuthority | null>(null)
   const [isLoading, setLoading] = useState(true)
   const [isSending, setSending] = useState(false)
+  /** @brief 已确认 Proposal 后仍在等待助手完成回复 / A committed Proposal is waiting for the assistant's completion reply. */
+  const [isApplyingProposal, setApplyingProposal] = useState(false)
   const [error, setError] = useState<unknown>(null)
+  /** @brief 最近一次助手错误发生的阶段 / Phase in which the latest assistant error occurred. */
+  const [errorPhase, setErrorPhase] = useState<'request' | 'continuation' | null>(null)
+  /** @brief 已确认的 Proposal 续答因后续权威版本变化而终止 / Accepted Proposal continuation superseded by a newer authoritative Resume. */
+  const isContinuationAuthorityChanged =
+    errorPhase === 'continuation' &&
+    error instanceof Error &&
+    error.message === 'agent.resume_authority_changed'
   const controllerRef = useRef<AbortController | null>(null)
   const assistantInput = useMemo(
     () => ({
@@ -426,32 +438,51 @@ function ResumeAssistantPanel({
       editor.resume.workspaceId
     ]
   )
+  /** @brief 当前 Resume 的助手会话身份；revision 变化不应中止已提交 Proposal 的续答 / Assistant-session identity; a revision change must not abort a committed Proposal continuation. */
+  const assistantSessionIdentity = `${editor.resume.workspaceId}:${editor.resume.id}`
+  /** @brief 每次新请求使用的最新 Resume 输入 / Latest Resume input used by new requests. */
+  const assistantInputRef = useRef(assistantInput)
+
+  useEffect((): void => {
+    assistantInputRef.current = assistantInput
+  }, [assistantInput])
 
   useEffect((): (() => void) => {
     const controller = new AbortController()
     controllerRef.current = controller
+    /** @brief 本次初始加载绑定的输入快照 / Input snapshot bound to this initial load. */
+    const loadInput = assistantInputRef.current
     globalThis.queueMicrotask((): void => {
       if (controller.signal.aborted) return
       setLoading(true)
       setError(null)
+      setErrorPhase(null)
       void gateway.assistant
-        .load({ ...assistantInput, signal: controller.signal })
+        .load({ ...loadInput, signal: controller.signal })
         .then((thread): void => {
           setMessages(thread.messages)
           setPendingProposal(thread.pendingProposal)
           if (thread.recoveryProblemCode !== null) {
             setError(new Error(thread.recoveryProblemCode))
+            setErrorPhase('request')
           }
         })
         .catch((loadError: unknown): void => {
-          if (!controller.signal.aborted) setError(loadError)
+          if (!controller.signal.aborted) {
+            setError(loadError)
+            setErrorPhase('request')
+          }
         })
         .finally((): void => {
           if (!controller.signal.aborted) setLoading(false)
         })
     })
-    return (): void => controller.abort(new DOMException('Resume assistant changed.', 'AbortError'))
-  }, [assistantInput, gateway.assistant])
+    return (): void => {
+      controller.abort(new DOMException('Resume assistant changed.', 'AbortError'))
+      controllerRef.current?.abort(new DOMException('Resume assistant changed.', 'AbortError'))
+      if (controllerRef.current === controller) controllerRef.current = null
+    }
+  }, [assistantSessionIdentity, gateway.assistant])
 
   const submitMessage = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault()
@@ -467,7 +498,9 @@ function ResumeAssistantPanel({
     ])
     setDraft('')
     setSending(true)
+    setApplyingProposal(false)
     setError(null)
+    setErrorPhase(null)
     void gateway.assistant
       .ask({ ...assistantInput, question, signal: controller.signal })
       .then((thread): void => {
@@ -475,7 +508,10 @@ function ResumeAssistantPanel({
         setPendingProposal(thread.pendingProposal)
       })
       .catch((sendError: unknown): void => {
-        if (!controller.signal.aborted) setError(sendError)
+        if (!controller.signal.aborted) {
+          setError(sendError)
+          setErrorPhase('request')
+        }
       })
       .finally((): void => {
         if (!controller.signal.aborted) setSending(false)
@@ -488,7 +524,11 @@ function ResumeAssistantPanel({
     const controller = new AbortController()
     controllerRef.current = controller
     setSending(true)
+    setApplyingProposal(true)
     setError(null)
+    setErrorPhase(null)
+    /** @brief 一旦决策已被服务端确认，续答失败也不能回滚已更新的 Resume / A server-confirmed decision must not be rolled back when its continuation fails. */
+    let decisionCommitted = false
     void gateway.assistant
       .decideProposal({
         ...assistantInput,
@@ -496,24 +536,41 @@ function ResumeAssistantPanel({
         decision: { kind: decision },
         signal: controller.signal
       })
-      .then((result): void => {
+      .then(async (result): Promise<void> => {
         if (result.decision.conflicts.length > 0) {
           throw new Error('resume.assistant_proposal_conflict')
         }
-        setMessages(result.thread.messages)
-        setPendingProposal(result.thread.pendingProposal)
+        decisionCommitted = true
+        setPendingProposal(null)
         if (decision === 'accept-all') {
           onEditorChange(result.decision.editor, assistantInput.resumeRevision)
         }
-        if (result.continuationProblemCode !== null) {
-          throw new Error(result.continuationProblemCode)
+        const continuation = await gateway.assistant.waitForProposalContinuation({
+          ...assistantInput,
+          continuation: result.continuation,
+          signal: controller.signal
+        })
+        if (controller.signal.aborted) return
+        setMessages(continuation.thread.messages)
+        setPendingProposal(continuation.thread.pendingProposal)
+        if (continuation.problemCode !== null) {
+          if (continuation.problemCode === 'agent.resume_authority_changed') {
+            onContinuationAuthorityChanged()
+          }
+          throw new Error(continuation.problemCode)
         }
       })
       .catch((decisionError: unknown): void => {
-        if (!controller.signal.aborted) setError(decisionError)
+        if (!controller.signal.aborted) {
+          setError(decisionError)
+          setErrorPhase(decisionCommitted ? 'continuation' : 'request')
+        }
       })
       .finally((): void => {
-        if (!controller.signal.aborted) setSending(false)
+        if (!controller.signal.aborted) {
+          setSending(false)
+          setApplyingProposal(false)
+        }
       })
   }
 
@@ -554,7 +611,9 @@ function ResumeAssistantPanel({
           <div className="aw-message">
             <p>
               {isSending
-                ? '正在分析请求；明确修改指令将安全应用到当前简历…'
+                ? isApplyingProposal
+                  ? '正在修改简历，正在等待助手完成回复。'
+                  : '正在分析请求；明确修改指令将安全应用到当前简历…'
                 : '正在恢复简历助手会话…'}
             </p>
           </div>
@@ -585,7 +644,13 @@ function ResumeAssistantPanel({
         )}
         {error === null ? null : (
           <div className="aw-message" role="alert">
-            <p>{resumeAssistantFailureMessage(error)}</p>
+            <p>
+              {errorPhase === 'continuation'
+                ? isContinuationAuthorityChanged
+                  ? '你的决定已经提交，但服务器上的简历又发生了变化。请重新加载权威版本后再继续编辑。'
+                  : '你的决定已经提交，但助手后续回复失败。请稍后重新打开会话。'
+                : resumeAssistantFailureMessage(error)}
+            </p>
           </div>
         )}
       </div>
@@ -1713,6 +1778,9 @@ export function ResumeWorkspace({
       <ResumeAssistantPanel
         editor={editor}
         gateway={gateway}
+        onContinuationAuthorityChanged={(): void => {
+          setAuthorityRecovery((current) => current ?? { kind: 'conflict', status: 409 })
+        }}
         onEditorChange={applyAssistantEditor}
         onCloseMobile={(): void => setMobileAssistantOpen(false)}
       />

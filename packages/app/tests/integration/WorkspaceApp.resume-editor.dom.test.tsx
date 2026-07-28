@@ -1,10 +1,11 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { ResumeBatchConflictError } from '@ai-job-workspace/app/application'
+import { createUiCommandId, ResumeBatchConflictError } from '@ai-job-workspace/app/application'
 import { ApiV2ProblemError, ApiV2WriteOutcomeUnknownError } from '@ai-job-workspace/product-api-v2'
 import {
   MOCK_HISTORICAL_DAWN_TEMPLATE,
   MOCK_RESUME_ID,
+  MOCK_RESUME_PROPOSALS,
   MOCK_RESUME_WORKSPACE_ID,
   InMemoryResumeGateway
 } from '@ai-job-workspace/app/testing'
@@ -363,6 +364,181 @@ describe('WorkspaceApp Resume editor', (): void => {
     expect(
       await screen.findByText('测试助手已收到：你觉得我最需要先处理什么？')
     ).toBeInTheDocument()
+  })
+
+  it('applies an accepted assistant editor before its continuation resolves', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('en-US')
+    /** @brief 当前测试独享的 Resume Gateway / Resume Gateway owned by the current test. */
+    const resume = new InMemoryResumeGateway()
+    /** @brief 页面初始加载时的 Resume 权威 / Resume authority used for the page's initial load. */
+    const initial = await resume.getResumeEditor(
+      MOCK_RESUME_WORKSPACE_ID,
+      MOCK_RESUME_ID,
+      ACTIVE_RESUME_READ_SIGNAL
+    )
+    /** @brief 可接受的待决 Proposal / Pending Proposal accepted through the actual review port. */
+    const pendingProposal = MOCK_RESUME_PROPOSALS.find((proposal) => proposal.status === 'pending')
+    if (pendingProposal === undefined)
+      throw new Error('Expected a pending Resume Proposal fixture.')
+    /** @brief 决策前冻结的 Proposal 权威 / Frozen Proposal authority before the decision. */
+    const authority = await resume.getResumeProposal(
+      MOCK_RESUME_WORKSPACE_ID,
+      MOCK_RESUME_ID,
+      pendingProposal.id,
+      ACTIVE_RESUME_READ_SIGNAL
+    )
+    const proposal = authority.proposal
+    if (proposal.status !== 'pending')
+      throw new Error('Expected a pending Resume Proposal authority.')
+    /** @brief 后端决策已提交的真实 Resume 结果 / Actual committed Resume result returned by the review port. */
+    const committedDecision = await resume.decideResumeProposal({
+      commandId: createUiCommandId(),
+      concurrencyToken: authority.concurrencyToken,
+      decision: { kind: 'accept-all' },
+      proposal
+    })
+    expect(committedDecision.conflicts).toEqual([])
+    expect(committedDecision.editor.resume.revision).toBe(initial.resume.revision + 1)
+
+    type ProposalContinuationResult = Awaited<
+      ReturnType<typeof resume.assistant.waitForProposalContinuation>
+    >
+    let resolveContinuation: ((result: ProposalContinuationResult) => void) | undefined
+    let rejectContinuation: ((reason?: unknown) => void) | undefined
+    const pendingContinuation = new Promise<ProposalContinuationResult>((resolve, reject): void => {
+      resolveContinuation = resolve
+      rejectContinuation = reject
+    })
+
+    vi.spyOn(resume, 'getResumeEditor').mockResolvedValue(initial)
+    vi.spyOn(resume.assistant, 'load').mockResolvedValue({
+      conversationId: 'conversation_proposal_decision',
+      messages: [],
+      pendingProposal: authority,
+      recoveryProblemCode: null
+    })
+    const decideProposal = vi.spyOn(resume.assistant, 'decideProposal').mockResolvedValue({
+      continuation: {
+        runId: 'run_proposal_decision',
+        waitingOutputMessageId: null
+      },
+      decision: committedDecision
+    })
+    const waitForContinuation = vi
+      .spyOn(resume.assistant, 'waitForProposalContinuation')
+      .mockImplementation(({ signal }) => {
+        signal?.addEventListener('abort', (): void => rejectContinuation?.(signal.reason), {
+          once: true
+        })
+        return pendingContinuation
+      })
+
+    render(
+      <WorkspaceApp
+        gateways={createTestGateways({ resume })}
+        initialPath="/resumes/res_mock_ai_platform/edit"
+      />
+    )
+    expect(await screen.findByText('Revision 18')).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: '接受修改' }))
+
+    expect(await screen.findByText('Revision 19')).toBeInTheDocument()
+    expect(decideProposal).toHaveBeenCalledTimes(1)
+    expect(waitForContinuation).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('正在修改简历，正在等待助手完成回复。')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '接受修改' })).not.toBeInTheDocument()
+
+    await act(async (): Promise<void> => {
+      resolveContinuation?.({
+        problemCode: null,
+        thread: {
+          conversationId: 'conversation_proposal_decision',
+          messages: [
+            {
+              author: 'assistant',
+              id: 'message_proposal_completed',
+              referenceSourceIds: [],
+              text: 'The Resume edit is complete.'
+            }
+          ],
+          pendingProposal: null,
+          recoveryProblemCode: null
+        }
+      })
+      await pendingContinuation
+    })
+
+    expect(await screen.findByText('The Resume edit is complete.')).toBeInTheDocument()
+  })
+
+  it('keeps an accepted editor and explains when its continuation is superseded by a newer authority', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('en-US')
+    const resume = new InMemoryResumeGateway()
+    const initial = await resume.getResumeEditor(
+      MOCK_RESUME_WORKSPACE_ID,
+      MOCK_RESUME_ID,
+      ACTIVE_RESUME_READ_SIGNAL
+    )
+    const pendingProposal = MOCK_RESUME_PROPOSALS.find((proposal) => proposal.status === 'pending')
+    if (pendingProposal === undefined)
+      throw new Error('Expected a pending Resume Proposal fixture.')
+    const authority = await resume.getResumeProposal(
+      MOCK_RESUME_WORKSPACE_ID,
+      MOCK_RESUME_ID,
+      pendingProposal.id,
+      ACTIVE_RESUME_READ_SIGNAL
+    )
+    const proposal = authority.proposal
+    if (proposal.status !== 'pending')
+      throw new Error('Expected a pending Resume Proposal authority.')
+    const committedDecision = await resume.decideResumeProposal({
+      commandId: createUiCommandId(),
+      concurrencyToken: authority.concurrencyToken,
+      decision: { kind: 'accept-all' },
+      proposal
+    })
+
+    vi.spyOn(resume, 'getResumeEditor').mockResolvedValue(initial)
+    vi.spyOn(resume.assistant, 'load').mockResolvedValue({
+      conversationId: 'conversation_authority_changed',
+      messages: [],
+      pendingProposal: authority,
+      recoveryProblemCode: null
+    })
+    vi.spyOn(resume.assistant, 'decideProposal').mockResolvedValue({
+      continuation: {
+        runId: 'run_authority_changed',
+        waitingOutputMessageId: null
+      },
+      decision: committedDecision
+    })
+    vi.spyOn(resume.assistant, 'waitForProposalContinuation').mockResolvedValue({
+      problemCode: 'agent.resume_authority_changed',
+      thread: {
+        conversationId: 'conversation_authority_changed',
+        messages: [],
+        pendingProposal: null,
+        recoveryProblemCode: null
+      }
+    })
+
+    render(
+      <WorkspaceApp
+        gateways={createTestGateways({ resume })}
+        initialPath="/resumes/res_mock_ai_platform/edit"
+      />
+    )
+    expect(await screen.findByText('Revision 18')).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: '接受修改' }))
+
+    expect(await screen.findByText('Revision 19')).toBeInTheDocument()
+    expect(
+      await screen.findByText(
+        '你的决定已经提交，但服务器上的简历又发生了变化。请重新加载权威版本后再继续编辑。'
+      )
+    ).toBeInTheDocument()
+    expect(await screen.findByText('Resume version is stale')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reload server version' })).toBeInTheDocument()
   })
 
   it.each([412, 409] as const)(
