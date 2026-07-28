@@ -306,6 +306,45 @@ describe('createDiagnostics', (): void => {
       operation: 'resume.create'
     })
   })
+
+  it('exports bounded Realtime failure context without server detail or credentials', (): void => {
+    /** @brief 接收清洗后 Realtime 记录的 sink / Sink receiving the sanitized Realtime record. */
+    const received: DiagnosticRecord[] = []
+    /** @brief 受测诊断端口 / Diagnostics port under test. */
+    const diagnostics = createDiagnostics({
+      clock: (): Date => TEST_TIME,
+      createId: (): string => 'event-realtime-failure',
+      sinks: [{ emit: (record): number => received.push(record) }]
+    })
+    /** @brief 绕过类型系统注入的敏感字段 / Sensitive field injected past the type system. */
+    const attributes = {
+      close_code: 4403,
+      detail: 'ephemeral_token=private',
+      duration_ms: 125,
+      error_kind: 'backend_problem',
+      phase: 'grant',
+      problem_code: 'interview.access_denied',
+      request_id: 'req_safe_12345678',
+      status: 403
+    } as unknown as Readonly<DiagnosticsEventRegistry['interview.realtime_connection_failed']>
+
+    diagnostics.emit('interview.realtime_connection_failed', attributes)
+
+    expect(received[0]).toMatchObject({
+      attributes: {
+        close_code: 4403,
+        duration_ms: 125,
+        error_kind: 'backend_problem',
+        phase: 'grant',
+        problem_code: 'interview.access_denied',
+        request_id: 'req_safe_12345678',
+        status: 403
+      },
+      level: 'error',
+      name: 'interview.realtime_connection_failed'
+    })
+    expect(JSON.stringify(received[0])).not.toContain('ephemeral_token')
+  })
 })
 
 describe('createConsoleDiagnosticsSink', (): void => {

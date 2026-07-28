@@ -23,8 +23,12 @@ const AGENT_SCOPE_PATTERN = /^[a-z][a-z0-9_.-]{2,100}$/u
 const ABSOLUTE_URI_PATTERN =
   /^[A-Za-z][A-Za-z0-9+.-]*:(?:[A-Za-z0-9._~:/?#[\]@!$&'()*+,;=-]|%[0-9A-Fa-f]{2})*$/u
 
-/** @brief 受控 Realtime 测试 origin / Controlled Realtime test origin. */
-const REALTIME_TEST_ORIGIN = 'dev.hmalliances.org:9000'
+/** @brief 受控 Realtime 开发 origins / Controlled Realtime development origins. */
+const REALTIME_DEVELOPMENT_ORIGINS = new Set([
+  'dev.hmalliances.org:9000',
+  'localhost:8000',
+  '127.0.0.1:8000'
+])
 
 /** @brief Knowledge 选择模式 / Knowledge-selection mode. */
 export type KnowledgeSelectionMode = 'explicit' | 'none' | 'policy_default'
@@ -410,15 +414,13 @@ export function realtimeUrl(value: unknown, path: string): string {
     parsed.username === '' &&
     parsed.password === '' &&
     parsed.host.length > 0
-  /** @brief 唯一允许的受控测试 URL / Sole allowed controlled-test URL. */
-  const isControlledTest =
-    (decoded.startsWith(`http://${REALTIME_TEST_ORIGIN}`) ||
-      decoded.startsWith(`ws://${REALTIME_TEST_ORIGIN}`)) &&
+  /** @brief 允许的受控开发 URL / Allowed controlled-development URL. */
+  const isControlledDevelopment =
     (parsed.protocol === 'http:' || parsed.protocol === 'ws:') &&
-    parsed.host === REALTIME_TEST_ORIGIN &&
+    REALTIME_DEVELOPMENT_ORIGINS.has(parsed.host) &&
     parsed.username === '' &&
     parsed.password === ''
-  if (!isProduction && !isControlledTest) {
+  if (!isProduction && !isControlledDevelopment) {
     throw new ApiV2ContractError(`API v2 field ${path} must be a permitted Realtime URL.`)
   }
   return decoded

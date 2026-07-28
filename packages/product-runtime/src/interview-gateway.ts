@@ -522,9 +522,33 @@ export function mapRealtimeConnection(
     })),
     id: asUiOpaqueId<'interview-realtime-connection'>(source.id),
     sessionId: asUiOpaqueId<'interview-session'>(source.session_id),
-    signalingUrl: source.signaling_url,
+    signalingUrl: localRealtimeSignalingUrl(source.signaling_url),
     transport: source.transport
   }
+}
+
+/**
+ * @brief 将契约开发信令端点路由到本机代理 / Route the contract development signaling endpoint to the local proxy.
+ * @param signalingUrl 已通过 API v2 契约校验的 signaling URL / Signaling URL already
+ * validated by the API v2 contract.
+ * @return 生产 URL 原样返回；受控开发端点改写为本机 9000 / Production URL unchanged;
+ * the controlled development endpoint rewritten to local port 9000.
+ * @note 该映射发生在 wire 校验之后，只处理共享契约唯一允许的明文开发 origin，不扩展
+ * 公开信任边界。/ This mapping runs after wire validation and handles only the sole plaintext
+ * development origin allowed by the shared contract; it does not widen the public trust boundary.
+ */
+export function localRealtimeSignalingUrl(signalingUrl: string): string {
+  /** @brief 已由 wire 层限制为绝对 URL 的候选 / Candidate already constrained to an absolute URL by the wire layer. */
+  const parsed = new URL(signalingUrl)
+  if (
+    parsed.protocol !== 'ws:' ||
+    parsed.hostname !== 'dev.hmalliances.org' ||
+    parsed.port !== '9000'
+  ) {
+    return signalingUrl
+  }
+  parsed.hostname = 'localhost'
+  return parsed.toString()
 }
 
 /**
@@ -633,6 +657,25 @@ function mapInterviewJob(
 const INTERVIEW_REALTIME_PROTOCOL = 'aiws.interview.realtime.v2'
 const INTERVIEW_CONNECT_TIMEOUT_MILLISECONDS = 15_000
 
+/**
+ * @brief 不携带消息正文的 Realtime channel 失败 / Realtime-channel failure without message content.
+ */
+class InterviewRealtimeChannelError extends Error {
+  override readonly name = 'InterviewRealtimeChannelError'
+  /** @brief 浏览器确认的 WebSocket 关闭码 / Browser-confirmed WebSocket close code. */
+  readonly closeCode: number | null
+
+  /**
+   * @brief 构造低基数连接错误 / Construct a low-cardinality connection error.
+   * @param code 稳定错误码 / Stable error code.
+   * @param closeCode 浏览器关闭码；握手前网络错误可为空 / Browser close code, nullable for pre-handshake network errors.
+   */
+  constructor(code: string, closeCode: number | null = null) {
+    super(code)
+    this.closeCode = closeCode
+  }
+}
+
 /** @brief 使用短期凭据建立不含音视频的面试 WebSocket / Open a text-only Interview WebSocket with an ephemeral grant. */
 function openTextInterviewChannel(
   connection: UiRealtimeConnection,
@@ -646,6 +689,7 @@ function openTextInterviewChannel(
     const socket = new globalThis.WebSocket(connection.signalingUrl, INTERVIEW_REALTIME_PROTOCOL)
     const activationId = `input_${globalThis.crypto.randomUUID()}`
     let settled = false
+    let connected = false
     let intentionalClose = false
     let pending:
       | {
@@ -658,12 +702,13 @@ function openTextInterviewChannel(
       if (settled) return
       intentionalClose = true
       socket.close(4408, 'connection_timeout')
-      reject(new Error('interview.realtime_connection_timeout'))
+      reject(new InterviewRealtimeChannelError('interview.realtime_connection_timeout', 4408))
     }, INTERVIEW_CONNECT_TIMEOUT_MILLISECONDS)
 
     const finishConnection = (channel: UiInterviewTextChannel): void => {
       if (settled) return
       settled = true
+      connected = true
       globalThis.clearTimeout(timeout)
       resolve(channel)
     }
@@ -727,7 +772,7 @@ function openTextInterviewChannel(
       try {
         message = JSON.parse(event.data)
       } catch {
-        failConnection(new Error('interview.realtime_invalid_message'))
+        failConnection(new InterviewRealtimeChannelError('interview.realtime_invalid_message'))
         return
       }
       if (typeof message !== 'object' || message === null) return
@@ -762,24 +807,31 @@ function openTextInterviewChannel(
       const current = pending
       if (frame.type === 'turn_error' && current !== undefined && frame.input_id === current.id) {
         current.reject(
-          new Error(typeof frame.code === 'string' ? frame.code : 'interview.turn_failed')
+          new InterviewRealtimeChannelError(
+            typeof frame.code === 'string' ? frame.code : 'interview.turn_failed'
+          )
         )
         pending = undefined
         return
       }
       if (frame.type === 'error') {
         failConnection(
-          new Error(typeof frame.code === 'string' ? frame.code : 'interview.realtime_failed')
+          new InterviewRealtimeChannelError(
+            typeof frame.code === 'string' ? frame.code : 'interview.realtime_failed'
+          )
         )
       }
     })
     socket.addEventListener('error', (): void => {
-      failConnection(new Error('interview.realtime_connection_failed'))
+      failConnection(new InterviewRealtimeChannelError('interview.realtime_connection_failed'))
     })
-    socket.addEventListener('close', (): void => {
-      const error = new Error('interview.realtime_disconnected')
+    socket.addEventListener('close', (event): void => {
+      /** @brief 关闭码受浏览器约束，不包含服务端 reason / Browser-bounded code without server reason. */
+      const error = new InterviewRealtimeChannelError('interview.realtime_disconnected', event.code)
       failConnection(error)
-      if (!intentionalClose && command.signal?.aborted !== true) command.onDisconnected(error)
+      if (connected && !intentionalClose && command.signal?.aborted !== true) {
+        command.onDisconnected(error)
+      }
     })
     command.signal?.addEventListener(
       'abort',

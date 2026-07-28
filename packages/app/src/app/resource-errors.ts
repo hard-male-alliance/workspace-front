@@ -109,6 +109,13 @@ export function classifyResourceFailure(error: unknown): ResourceFailure {
     if (name === 'ApiV2ProblemError' && isRecord(error.problem)) {
       /** @brief 已验证 API v2 Problem 的安全结构化投影 / Safe structured projection of a validated API v2 Problem. */
       const problem = error.problem
+      if (problem.code === 'interview.realtime_connection_response_invalid') {
+        return {
+          kind: 'invalid-response',
+          referenceId: readReferenceId(problem.request_id),
+          retryable: typeof problem.retryable === 'boolean' ? problem.retryable : true
+        }
+      }
       if (typeof problem.status === 'number') {
         return classifyHttpStatus(
           problem.status,
@@ -144,6 +151,9 @@ export function classifyResourceFailure(error: unknown): ResourceFailure {
       return error.kind === 'timeout'
         ? { kind: 'service-unavailable', referenceId: null, retryable: true }
         : { kind: 'network', referenceId: null, retryable: true }
+    }
+    if (name === 'InterviewRealtimeChannelError') {
+      return { kind: 'network', referenceId: null, retryable: true }
     }
     if (name === 'ResumeCreationError') {
       /** @brief 创建用例公开的稳定失败事实 / Stable failure fact published by the creation use case. */

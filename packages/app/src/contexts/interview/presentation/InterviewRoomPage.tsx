@@ -25,7 +25,13 @@ import type {
   InterviewReportObservation,
   InterviewReportRecovery
 } from '../../../app/InterviewReportProcess'
+import { useDiagnostics } from '../../../app/Diagnostics'
 import { ResourceErrorState, ResourceFailureMessage } from '../../../app/ResourceErrorState'
+import { classifyDiagnosticError } from '../../../observability'
+import type {
+  DiagnosticRealtimeFailurePhase,
+  DiagnosticsEventRegistry
+} from '../../../observability'
 import { createUiCommandId } from '../../../shared-kernel/command'
 import { asUiOpaqueId, type UiWorkspaceId } from '../../../shared-kernel/identity'
 import { EmptyState, LoadingState } from '../../../ui'
@@ -68,7 +74,7 @@ interface InterviewSessionRouteAuthority {
 /** @brief Report 生成面板状态 / Report-generation panel state. */
 type ReportGenerationState =
   | { readonly status: 'idle' }
-  | { readonly status: 'working'; readonly phase: InterviewReportObservation['status'] }
+  | { readonly status: 'working'; readonly phase: string }
   | {
       readonly status: 'confirmation-required'
       readonly recovery: Extract<
@@ -77,7 +83,11 @@ type ReportGenerationState =
       >
     }
   | { readonly status: 'authority-review-required' }
-  | { readonly status: 'job-terminal'; readonly jobStatus: string }
+  | {
+      readonly status: 'job-terminal'
+      readonly jobStatus: string
+      readonly problemCode: string | null
+    }
   | { readonly status: 'error'; readonly error: unknown }
 
 /** @brief Transcript 后续页状态 / Transcript-continuation state. */
@@ -101,7 +111,88 @@ type EvidenceVerification =
 type TextInterviewConnectionState =
   | { readonly status: 'connecting' }
   | { readonly status: 'connected'; readonly channel: UiInterviewTextChannel }
-  | { readonly status: 'error'; readonly error: unknown }
+  | {
+      readonly status: 'error'
+      readonly error: unknown
+      readonly phase: DiagnosticRealtimeFailurePhase
+    }
+
+/**
+ * @brief 判断连接 Promise 是在 grant 还是 WebSocket 握手阶段失败 / Determine whether connection failed during grant issuance or WebSocket handshake.
+ * @param error 未知连接错误 / Unknown connection error.
+ * @return 低基数失败阶段 / Low-cardinality failure phase.
+ */
+function realtimeConnectionFailurePhase(error: unknown): DiagnosticRealtimeFailurePhase {
+  if (typeof error !== 'object' || error === null || !('name' in error)) return 'handshake'
+  return typeof error.name === 'string' && error.name.startsWith('ApiV2') ? 'grant' : 'handshake'
+}
+
+/**
+ * @brief 判断 grant 失败是否已有服务端确定结论 / Determine whether a grant failure has a definitive server outcome.
+ * @param error 未知连接错误 / Unknown connection error.
+ * @return ApiV2 Problem 表示本次 command 已确定失败 / An ApiV2 Problem means this command definitively failed.
+ */
+function isDefinitiveRealtimeGrantFailure(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null || !('name' in error)) return false
+  return error.name === 'ApiV2ProblemError'
+}
+
+/**
+ * @brief 从连接错误提取安全诊断字段 / Extract safe diagnostic fields from a connection error.
+ * @param error 未知连接错误 / Unknown connection error.
+ * @param phase 已确认连接阶段 / Confirmed connection phase.
+ * @param durationMilliseconds 当前连接存活时长 / Current connection lifetime in milliseconds.
+ * @return 不含 token、URL、title 或 detail 的诊断属性 / Diagnostic attributes without tokens, URLs, titles, or details.
+ */
+function realtimeFailureAttributes(
+  error: unknown,
+  phase: DiagnosticRealtimeFailurePhase,
+  durationMilliseconds: number
+): DiagnosticsEventRegistry['interview.realtime_connection_failed'] {
+  /** @brief 可安全结构读取的错误对象 / Error object safe for structural reads. */
+  const source =
+    typeof error === 'object' && error !== null
+      ? (error as Readonly<Record<string, unknown>>)
+      : undefined
+  /** @brief API v2 ProblemDetails 候选 / Candidate API v2 ProblemDetails. */
+  const problem =
+    typeof source?.problem === 'object' && source.problem !== null
+      ? (source.problem as Readonly<Record<string, unknown>>)
+      : undefined
+  /** @brief 已验证或缺失的 HTTP 状态 / Validated or absent HTTP status. */
+  const status =
+    typeof problem?.status === 'number'
+      ? problem.status
+      : typeof source?.status === 'number'
+        ? source.status
+        : undefined
+  /** @brief 已验证或缺失的稳定 Problem code / Validated or absent stable Problem code. */
+  const problemCode = typeof problem?.code === 'string' ? problem.code : undefined
+  /** @brief 已验证或缺失的响应请求 ID / Validated or absent response request ID. */
+  const requestId =
+    typeof problem?.request_id === 'string'
+      ? problem.request_id
+      : typeof source?.requestId === 'string'
+        ? source.requestId
+        : undefined
+  /** @brief 浏览器 WebSocket 关闭码 / Browser WebSocket close code. */
+  const closeCode =
+    typeof source?.closeCode === 'number' &&
+    Number.isInteger(source.closeCode) &&
+    source.closeCode >= 1000 &&
+    source.closeCode <= 4999
+      ? source.closeCode
+      : undefined
+  return {
+    ...(closeCode === undefined ? {} : { close_code: closeCode }),
+    duration_ms: Math.max(0, Math.round(durationMilliseconds)),
+    error_kind: classifyDiagnosticError(error),
+    phase,
+    ...(problemCode === undefined ? {} : { problem_code: problemCode }),
+    ...(requestId === undefined ? {} : { request_id: requestId }),
+    ...(status === undefined ? {} : { status })
+  }
+}
 
 /** @brief 使用后端 Transcript 作为唯一展示事实的文字面试 / Text Interview whose only displayed facts come from the backend Transcript. */
 function RealTextInterviewPractice({
@@ -112,6 +203,7 @@ function RealTextInterviewPractice({
   readonly onRefresh: () => void
 }): React.JSX.Element {
   const gateway = useInterviewGateway()
+  const diagnostics = useDiagnostics()
   const session = authority.sessionAuthority.session
   const [segments, setSegments] = useState<readonly UiInterviewTranscriptSegment[]>([])
   const [draft, setDraft] = useState('')
@@ -122,6 +214,7 @@ function RealTextInterviewPractice({
   const [isEnding, setEnding] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const controllerRef = useRef<AbortController | null>(null)
+  const connectionStartedAtRef = useRef(0)
   const pendingAnswerRef = useRef<{
     readonly id: string
     readonly text: string
@@ -132,6 +225,7 @@ function RealTextInterviewPractice({
     readonly commandId: ReturnType<typeof createUiCommandId>
     readonly concurrencyToken: UiInterviewSessionAuthority['concurrencyToken']
   } | null>(null)
+  const pendingConnectionCommandRef = useRef<ReturnType<typeof createUiCommandId> | null>(null)
 
   const refreshTranscript = useCallback(async (): Promise<void> => {
     const accepted: UiInterviewTranscriptSegment[] = []
@@ -159,15 +253,26 @@ function RealTextInterviewPractice({
     controllerRef.current?.abort()
     const controller = new AbortController()
     controllerRef.current = controller
+    const commandId = pendingConnectionCommandRef.current ?? createUiCommandId()
+    pendingConnectionCommandRef.current = commandId
+    connectionStartedAtRef.current = globalThis.performance?.now() ?? Date.now()
     setConnection({ status: 'connecting' })
     setError(null)
     void refreshTranscript()
       .then(() =>
         gateway.connectTextInterview({
           audienceId: authority.currentUserId,
-          commandId: createUiCommandId(),
+          commandId,
           onDisconnected: (disconnectError): void => {
-            setConnection({ error: disconnectError, status: 'error' })
+            setConnection({ error: disconnectError, phase: 'connected', status: 'error' })
+            diagnostics.emit(
+              'interview.realtime_connection_failed',
+              realtimeFailureAttributes(
+                disconnectError,
+                'connected',
+                (globalThis.performance?.now() ?? Date.now()) - connectionStartedAtRef.current
+              )
+            )
           },
           onTranscriptChanged: (): void => {
             void refreshTranscript().catch(setError)
@@ -178,14 +283,37 @@ function RealTextInterviewPractice({
         })
       )
       .then((channel): void => {
-        if (!controller.signal.aborted) setConnection({ channel, status: 'connected' })
+        if (!controller.signal.aborted) {
+          pendingConnectionCommandRef.current = null
+          setConnection({ channel, status: 'connected' })
+        }
       })
       .catch((connectionError: unknown): void => {
         if (!controller.signal.aborted) {
-          setConnection({ error: connectionError, status: 'error' })
+          /** @brief Promise 拒绝发生的明确阶段 / Explicit phase in which the Promise rejected. */
+          const phase = realtimeConnectionFailurePhase(connectionError)
+          if (phase !== 'grant' || isDefinitiveRealtimeGrantFailure(connectionError)) {
+            pendingConnectionCommandRef.current = null
+          }
+          setConnection({ error: connectionError, phase, status: 'error' })
+          diagnostics.emit(
+            'interview.realtime_connection_failed',
+            realtimeFailureAttributes(
+              connectionError,
+              phase,
+              (globalThis.performance?.now() ?? Date.now()) - connectionStartedAtRef.current
+            )
+          )
         }
       })
-  }, [authority.currentUserId, authority.workspaceId, gateway, refreshTranscript, session.id])
+  }, [
+    authority.currentUserId,
+    authority.workspaceId,
+    diagnostics,
+    gateway,
+    refreshTranscript,
+    session.id
+  ])
 
   useEffect((): (() => void) => {
     const timer = globalThis.setTimeout(connect, 0)
@@ -299,7 +427,11 @@ function RealTextInterviewPractice({
             ? '已连接'
             : connection.status === 'connecting'
               ? '正在连接'
-              : '连接已断开'}
+              : connection.phase === 'grant'
+                ? '连接准备失败'
+                : connection.phase === 'handshake'
+                  ? '连接建立失败'
+                  : '连接已断开'}
         </span>
       </div>
 
@@ -370,10 +502,15 @@ function RealTextInterviewPractice({
       </form>
 
       {connection.status === 'error' ? (
-        <button className="aw-quiet-button" onClick={connect} type="button">
-          <RefreshCw aria-hidden="true" size={15} />
-          重新连接
-        </button>
+        <>
+          <div className="aw-inline-error" role="alert">
+            <ResourceFailureMessage error={connection.error} />
+          </div>
+          <button className="aw-quiet-button" onClick={connect} type="button">
+            <RefreshCw aria-hidden="true" size={15} />
+            重新连接
+          </button>
+        </>
       ) : null}
       {error === null ? null : (
         <div className="aw-inline-error" role="alert">
@@ -1112,6 +1249,19 @@ function ReportGenerationPanel({
   const [clock, setClock] = useState(() => Date.now())
 
   /**
+   * @brief 将 Job 权威阶段投影为页面阶段 / Project a Job authority phase into the page.
+   * @param observation 已核验报告流程事件 / Validated Report-process observation.
+   * @return 后端 Job.progress.phase，或流程事件 fallback / Backend Job.progress.phase, or
+   * the process-event fallback.
+   */
+  function observationPhase(observation: InterviewReportObservation): string {
+    if (observation.status === 'job-accepted' || observation.status === 'job-updated') {
+      return observation.authority.job.progress?.phase ?? observation.status
+    }
+    return observation.status
+  }
+
+  /**
    * @brief 将流程结果投影到页面状态 / Project a process outcome into page state.
    * @param outcome 已核验流程结果 / Validated process outcome.
    */
@@ -1130,7 +1280,11 @@ function ReportGenerationPanel({
         return
       }
       if (outcome.status === 'job-terminal') {
-        setState({ jobStatus: outcome.authority.job.status, status: 'job-terminal' })
+        setState({
+          jobStatus: outcome.authority.job.status,
+          problemCode: outcome.authority.job.problem?.code ?? null,
+          status: 'job-terminal'
+        })
         return
       }
       setState({ status: 'idle' })
@@ -1150,7 +1304,7 @@ function ReportGenerationPanel({
       requestRef.current = controller
       setState({ phase: 'job-accepted', status: 'working' })
       void process[action](scope, controller.signal, (observation): void => {
-        setState({ phase: observation.status, status: 'working' })
+        setState({ phase: observationPhase(observation), status: 'working' })
       })
         .then(acceptOutcome)
         .catch((error: unknown): void => {
@@ -1169,7 +1323,7 @@ function ReportGenerationPanel({
       requestRef.current = controller
       void process
         .recover(scope, controller.signal, (observation): void => {
-          setState({ phase: observation.status, status: 'working' })
+          setState({ phase: observationPhase(observation), status: 'working' })
         })
         .then(acceptOutcome)
         .catch((error: unknown): void => {
@@ -1212,7 +1366,23 @@ function ReportGenerationPanel({
             label={
               state.phase === 'report-publishing'
                 ? t('interviewSession.reportPublishing', { defaultValue: '正在发布报告…' })
-                : t('interviewSession.reportGenerating', { defaultValue: '正在生成报告…' })
+                : state.phase === 'retry_scheduled'
+                  ? t('interviewSession.reportRetryScheduled', {
+                      defaultValue: '模型响应暂时中断，正在自动恢复…'
+                    })
+                  : state.phase === 'validating'
+                    ? t('interviewSession.reportValidating', {
+                        defaultValue: '正在校验报告内容…'
+                      })
+                    : state.phase === 'waiting_provider'
+                      ? t('interviewSession.reportWaitingProvider', {
+                          defaultValue: '正在等待模型生成报告…'
+                        })
+                      : state.phase === 'preparing_input'
+                        ? t('interviewSession.reportPreparingInput', {
+                            defaultValue: '正在准备报告所需的转录和评分标准…'
+                          })
+                        : t('interviewSession.reportGenerating', { defaultValue: '正在生成报告…' })
             }
           />
         ) : (
@@ -1230,7 +1400,24 @@ function ReportGenerationPanel({
                     })
                   : state.status === 'job-terminal'
                     ? t('interviewSession.reportTerminal', {
-                        defaultValue: '报告任务已结束但未产出报告（状态：{{status}}）。',
+                        defaultValue:
+                          state.problemCode === 'interview.report_job_timeout'
+                            ? '报告生成已达到 5 分钟执行上限，请稍后重试。支持人员可通过任务记录定位具体阶段。'
+                            : state.problemCode === 'interview.report_provider_output_truncated'
+                              ? '模型两次都达到了输出长度上限，第二次已自动采用紧凑报告格式。请稍后重试；如问题持续，请联系支持检查报告生成记录。'
+                              : state.problemCode === 'interview.report_provider_json_invalid'
+                                ? '模型两次都未返回完整有效的 JSON 报告，系统已停止自动纠错。请稍后重试。'
+                                : state.problemCode === 'interview.report_provider_schema_invalid'
+                                  ? '模型两次返回的报告都不符合既定结构，系统已停止自动纠错。请稍后重试。'
+                                  : state.problemCode === 'interview.report_provider_domain_invalid'
+                                    ? '模型两次生成的报告都未通过当前评分维度或证据约束，系统已省略可安全清理的无效引用并停止继续重试。请稍后重试；如问题持续，请联系支持检查具体校验规则。'
+                                    : state.problemCode ===
+                                        'interview.report_provider_output_filtered'
+                                      ? '模型服务未允许生成本次报告，当前没有可发布的报告。请调整输入后重试。'
+                                      : state.problemCode?.includes('timeout') === true
+                                        ? '模型服务在规定时间内未返回完整报告，自动恢复已耗尽，请稍后重试。'
+                                        : '报告任务已结束但未产出报告（状态：{{status}}，原因：{{reason}}）。',
+                        reason: state.problemCode ?? 'unknown',
                         status: state.jobStatus
                       })
                     : t('interviewSession.reportPendingDescription', {
