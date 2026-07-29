@@ -1,4 +1,4 @@
-import { ArrowRight, CalendarDays, Clock3, Plus } from 'lucide-react'
+import { ArrowRight, CalendarDays, Clock3, Plus, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
@@ -98,9 +98,11 @@ function sessionProgressTimestamp(session: UiInterviewSession): string {
  */
 function InterviewSessionRow({
   locale,
+  onRequestDelete,
   session
 }: {
   readonly locale: string
+  readonly onRequestDelete: (session: UiInterviewSession) => void
   readonly session: UiInterviewSession
 }): React.JSX.Element {
   /** @brief 翻译函数 / Translation function. */
@@ -153,6 +155,19 @@ function InterviewSessionRow({
         <span className="aw-interview-report-state">{reportStatus}</span>
         <ArrowRight aria-hidden="true" size={17} />
       </Link>
+      {['cancelled', 'completed', 'failed'].includes(session.status) ? (
+        <button
+          aria-label={t('interviewHub.deleteLabel', {
+            defaultValue: '删除{{title}}',
+            title: session.jobTarget.title
+          })}
+          className="aw-interview-session-delete"
+          onClick={() => onRequestDelete(session)}
+          type="button"
+        >
+          <Trash2 aria-hidden="true" size={17} strokeWidth={1.8} />
+        </button>
+      ) : null}
     </li>
   )
 }
@@ -181,6 +196,17 @@ function InterviewSessionList({
   })
   /** @brief 最近追加数量，用于辅助技术播报 / Most recent append count for assistive announcement. */
   const [appendedCount, setAppendedCount] = useState(0)
+  /** @brief 等待确认永久删除的终态会话 / Terminal Session awaiting deletion confirmation. */
+  const [pendingDelete, setPendingDelete] = useState<UiInterviewSession | null>(null)
+  /** @brief 永久删除命令状态 / Permanent-deletion command state. */
+  const [deleteState, setDeleteState] = useState<
+    | { readonly status: 'idle' }
+    | { readonly status: 'deleting' }
+    | {
+        readonly status: 'error'
+        readonly error: unknown
+      }
+  >({ status: 'idle' })
   /** @brief 当前后续页请求控制器 / Current continuation-request controller. */
   const controllerRef = useRef<AbortController | null>(null)
   /** @brief 已成功消费的 cursor；用于阻止服务端循环 / Successfully consumed cursors used to stop server loops. */
@@ -250,6 +276,23 @@ function InterviewSessionList({
     workspaceSession
   ])
 
+  /** @brief 提交已确认的终态会话永久删除 / Submit a confirmed terminal-Session deletion. */
+  const confirmDelete = useCallback(async (): Promise<void> => {
+    if (pendingDelete === null || deleteState.status === 'deleting') return
+    setDeleteState({ status: 'deleting' })
+    try {
+      await gateway.deleteInterviewSession({
+        sessionId: pendingDelete.id,
+        workspaceId
+      })
+      setSessions((current) => current.filter((session) => session.id !== pendingDelete.id))
+      setPendingDelete(null)
+      setDeleteState({ status: 'idle' })
+    } catch (error: unknown) {
+      setDeleteState({ error, status: 'error' })
+    }
+  }, [deleteState.status, gateway, pendingDelete, workspaceId])
+
   if (sessions.length === 0 && !page.hasMore) {
     return (
       <EmptyState
@@ -271,9 +314,65 @@ function InterviewSessionList({
     <>
       <ul className="aw-interview-history" id="interview-session-items">
         {sessions.map((session) => (
-          <InterviewSessionRow key={session.id} locale={i18n.language} session={session} />
+          <InterviewSessionRow
+            key={session.id}
+            locale={i18n.language}
+            onRequestDelete={(target): void => {
+              setPendingDelete(target)
+              setDeleteState({ status: 'idle' })
+            }}
+            session={session}
+          />
         ))}
       </ul>
+      {pendingDelete === null ? null : (
+        <div
+          aria-labelledby="interview-delete-title"
+          aria-modal="true"
+          className="aw-interview-delete-dialog"
+          role="alertdialog"
+        >
+          <strong id="interview-delete-title">
+            {t('interviewHub.deleteTitle', {
+              defaultValue: '永久删除“{{title}}”？',
+              title: pendingDelete.jobTarget.title
+            })}
+          </strong>
+          <p>
+            {t('interviewHub.deleteDescription', {
+              defaultValue: '删除后无法恢复，本次会话的转写和报告也会一并删除。'
+            })}
+          </p>
+          {deleteState.status === 'error' ? (
+            <p className="aw-interview-delete-error" role="alert">
+              <ResourceFailureMessage error={deleteState.error} />
+            </p>
+          ) : null}
+          <div className="aw-interview-delete-actions">
+            <button
+              className="aw-quiet-button"
+              disabled={deleteState.status === 'deleting'}
+              onClick={() => {
+                setPendingDelete(null)
+                setDeleteState({ status: 'idle' })
+              }}
+              type="button"
+            >
+              {t('common.cancel', { defaultValue: '取消' })}
+            </button>
+            <button
+              className="aw-danger-button"
+              disabled={deleteState.status === 'deleting'}
+              onClick={() => void confirmDelete()}
+              type="button"
+            >
+              {deleteState.status === 'deleting'
+                ? t('interviewHub.deleting', { defaultValue: '正在删除…' })
+                : t('interviewHub.confirmDelete', { defaultValue: '确认永久删除' })}
+            </button>
+          </div>
+        </div>
+      )}
       <p aria-live="polite" className="aw-sr-only">
         {appendedCount > 0
           ? t('interviewHub.appended', {

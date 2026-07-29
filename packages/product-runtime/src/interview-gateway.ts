@@ -855,6 +855,21 @@ function openTextInterviewChannel(
  */
 export function createApiV2InterviewGateway(client: ApiV2HttpClient): InterviewGateway {
   return {
+    async deleteInterviewSession(command) {
+      /** @brief 删除前读取的最新会话强 ETag / Latest Session strong ETag read before deletion. */
+      const authority = await getWorkspaceInterviewSession(client, {
+        sessionId: command.sessionId,
+        workspaceId: command.workspaceId,
+        ...(command.signal === undefined ? {} : { signal: command.signal })
+      })
+      await client.deleteNoContent(
+        `/workspaces/${encodeURIComponent(command.workspaceId)}/interview-sessions/${encodeURIComponent(command.sessionId)}`,
+        {
+          ifMatch: authority.entityTag,
+          ...(command.signal === undefined ? {} : { signal: command.signal })
+        }
+      )
+    },
     async listInterviewScenarioPage(request) {
       /** @brief 已严格解码协议页 / Strictly decoded protocol page. */
       const page = await listWorkspaceInterviewScenarioPage(client, {

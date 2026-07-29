@@ -51,6 +51,17 @@ export interface InterviewSessionGateway {
   /** @brief 读取一页会话 / Read one page of sessions. */
   listInterviewSessionPage(request: UiInterviewSessionPageRead): Promise<UiInterviewSessionPage>
 
+  /**
+   * @brief 永久删除一个终态面试会话 / Permanently delete one terminal Interview Session.
+   * @param command 工作区、会话身份与取消信号 / Workspace, Session identity, and cancellation signal.
+   * @return 服务端确认 204 后完成 / Completes after the service confirms 204.
+   */
+  deleteInterviewSession(command: {
+    readonly workspaceId: UiInterviewSessionRead['workspaceId']
+    readonly sessionId: UiInterviewSessionRead['sessionId']
+    readonly signal?: AbortSignal
+  }): Promise<void>
+
   /** @brief 幂等创建持久会话，不隐式创建 realtime 连接 / Idempotently create a persistent session without implicitly creating a realtime connection. */
   createInterviewSession(
     command: UiCreateInterviewSessionCommand

@@ -334,6 +334,38 @@ export class InMemoryInterviewGateway implements InterviewGateway {
   }
 
   /** @inheritdoc */
+  async deleteInterviewSession(command: {
+    readonly workspaceId: UiWorkspaceId
+    readonly sessionId: UiInterviewSessionId
+    readonly signal?: AbortSignal
+  }): Promise<void> {
+    await this.#prepare(command.signal)
+    this.#requireWorkspace(command.workspaceId)
+    /** @brief 待删除会话的位置 / Position of the Session to delete. */
+    const index = this.#sessions.findIndex((session) => session.id === command.sessionId)
+    if (index < 0) return throwMemoryNotFound('InterviewSession')
+    /** @brief 只有终态会话可以永久删除 / Only a terminal Session may be permanently deleted. */
+    const session = this.#sessions[index]
+    if (
+      session === undefined ||
+      !(['cancelled', 'completed', 'failed'] as const).includes(
+        session.status as 'cancelled' | 'completed' | 'failed'
+      )
+    ) {
+      throw new InMemoryGatewayError(
+        'memory.conflict',
+        'Only a terminal InterviewSession can be deleted.'
+      )
+    }
+    this.#sessions.splice(index, 1)
+    for (let reportIndex = this.#reports.length - 1; reportIndex >= 0; reportIndex -= 1) {
+      if (this.#reports[reportIndex]?.sessionId === command.sessionId) {
+        this.#reports.splice(reportIndex, 1)
+      }
+    }
+  }
+
+  /** @inheritdoc */
   async createInterviewSession(
     command: UiCreateInterviewSessionCommand
   ): Promise<UiInterviewSessionAuthority> {
