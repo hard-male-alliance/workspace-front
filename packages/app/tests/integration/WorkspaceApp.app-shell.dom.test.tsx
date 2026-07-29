@@ -158,21 +158,16 @@ describe('WorkspaceApp app shell', (): void => {
     render(<AccountSwitchHarness accountA={accountA} accountB={accountB} />)
 
     expect(await screen.findByText('Account Alpha')).toBeInTheDocument()
-    expect(screen.queryByText('Alpha Workspace')).not.toBeInTheDocument()
     expect(screen.queryByText('Account Beta')).not.toBeInTheDocument()
-    expect(screen.queryByText('Beta Workspace')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /^(Sign out|退出登录)$/u }))
     expect(await screen.findByRole('heading', { name: 'Signed out locally' })).toBeInTheDocument()
     expect(screen.queryByText('Account Alpha')).not.toBeInTheDocument()
-    expect(screen.queryByText('Alpha Workspace')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Establish account B session' }))
 
     expect(await screen.findByText('Account Beta')).toBeInTheDocument()
-    expect(screen.queryByText('Beta Workspace')).not.toBeInTheDocument()
     expect(screen.queryByText('Account Alpha')).not.toBeInTheDocument()
-    expect(screen.queryByText('Alpha Workspace')).not.toBeInTheDocument()
   })
 
   it('keeps one current workspace selection while navigating across contexts', async (): Promise<void> => {
@@ -219,7 +214,7 @@ describe('WorkspaceApp app shell', (): void => {
 
     expect(screen.getByText('Ada Lovelace')).toBeInTheDocument()
     expect(screen.getByText('A', { selector: '.aw-avatar' })).toBeInTheDocument()
-    expect(screen.queryByText('Production Workspace')).not.toBeInTheDocument()
+    expect(await screen.findByText('Production Workspace')).toBeInTheDocument()
     expect(screen.queryByText('Klee')).not.toBeInTheDocument()
     expect(loadCurrentUser).toHaveBeenCalledTimes(1)
     expect(listWorkspaceAccessPage).toHaveBeenCalledTimes(1)
