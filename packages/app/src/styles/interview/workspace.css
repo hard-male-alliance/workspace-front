@@ -27,59 +27,10 @@
 
 .aw-interview-history-head,
 .aw-interview-history-row {
-  position: relative;
   display: grid;
   grid-template-columns: minmax(190px, 1.5fr) minmax(120px, 0.85fr) minmax(160px, 1fr) 110px 84px;
   align-items: center;
   gap: 18px;
-}
-
-.aw-interview-session-delete {
-  position: absolute;
-  right: 42px;
-  top: 50%;
-  display: grid;
-  width: 32px;
-  height: 32px;
-  place-items: center;
-  border: 0;
-  border-radius: var(--ui-radius-sm);
-  background: transparent;
-  color: var(--ui-color-ink-subtle);
-  cursor: pointer;
-  transform: translateY(-50%);
-}
-
-.aw-interview-session-delete:hover,
-.aw-interview-session-delete:focus-visible {
-  background: var(--ui-color-danger-subtle);
-  color: var(--ui-color-danger);
-}
-
-.aw-interview-delete-dialog {
-  display: grid;
-  gap: 8px;
-  margin-top: 12px;
-  padding: 16px;
-  border: 1px solid var(--ui-color-danger);
-  border-radius: var(--ui-radius-lg);
-  background: var(--ui-color-surface);
-}
-
-.aw-interview-delete-dialog p {
-  margin: 0;
-  color: var(--ui-color-ink-muted);
-  font-size: 13px;
-}
-
-.aw-interview-delete-dialog .aw-interview-delete-error {
-  color: var(--ui-color-danger);
-}
-
-.aw-interview-delete-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
 }
 
 .aw-interview-history-head {

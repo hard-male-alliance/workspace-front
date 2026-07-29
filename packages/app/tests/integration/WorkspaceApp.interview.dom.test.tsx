@@ -25,37 +25,6 @@ installWorkspaceAppTestCleanup()
 
 /** @brief API v2 Interview 产品旅程测试 / API v2 Interview product-journey tests. */
 describe('WorkspaceApp interview workflow', (): void => {
-  it('permanently deletes a terminal session only after confirmation', async (): Promise<void> => {
-    await setWorkspaceAppTestLocale('zh-SG')
-    /** @brief 可观测的面试端口 / Observable Interview port. */
-    const interview = new InMemoryInterviewGateway()
-    /** @brief 永久删除命令观测器 / Permanent-deletion command observer. */
-    const deleteInterviewSession = vi
-      .spyOn(interview, 'deleteInterviewSession')
-      .mockResolvedValue(undefined)
-
-    render(<WorkspaceApp gateways={createTestGateways({ interview })} initialPath="/interviews" />)
-
-    fireEvent.click(
-      await screen.findByRole('button', {
-        name: `删除${DEMO_INTERVIEW_SESSION.jobTarget.title}`
-      })
-    )
-    expect(deleteInterviewSession).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: '确认永久删除' }))
-
-    await waitFor((): void => {
-      expect(deleteInterviewSession).toHaveBeenCalledWith(
-        expect.objectContaining({ sessionId: DEMO_INTERVIEW_SESSION.id })
-      )
-    })
-    expect(
-      screen.queryByRole('button', {
-        name: `删除${DEMO_INTERVIEW_SESSION.jobTarget.title}`
-      })
-    ).not.toBeInTheDocument()
-  })
-
   it('展示全部会话状态，并只从 Session 权威声明报告是否可用', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
 
