@@ -204,6 +204,47 @@ describe('WorkspaceApp Knowledge API v2 workflow', (): void => {
     expect(screen.getByRole('button', { name: '保存' })).toBeDisabled()
   })
 
+  it('increments the policy version when visibility controls change', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    /** @brief 当前测试独享 Knowledge gateway / Knowledge gateway owned by this test. */
+    const knowledge = new InMemoryKnowledgeGateway()
+    /** @brief 编辑页加载前的已知权威 / Known authority before the edit page loads. */
+    const initial = await knowledge.getKnowledgeSource({
+      signal: new AbortController().signal,
+      sourceId: MOCK_GIT_KNOWLEDGE_SOURCE_ID,
+      workspaceId: MOCK_KNOWLEDGE_WORKSPACE_ID
+    })
+    /** @brief 条件 PATCH 监视器 / Conditional PATCH spy. */
+    const update = vi.spyOn(knowledge, 'updateKnowledgeSource')
+
+    render(
+      <WorkspaceApp
+        gateways={createTestGateways({ knowledge })}
+        initialPath={`/knowledge/${MOCK_GIT_KNOWLEDGE_SOURCE_ID}/edit`}
+      />
+    )
+    await screen.findByRole('heading', { name: '编辑知识来源' })
+    expect(screen.getByRole('spinbutton', { name: /策略领域版本/u })).toBeDisabled()
+    fireEvent.click(screen.getByRole('checkbox', { name: '允许会话级选择' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '允许外部模型处理' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    await vi.waitFor((): void => expect(update).toHaveBeenCalledOnce())
+    expect(update.mock.calls[0]?.[0]).toMatchObject({
+      concurrencyToken: initial.concurrencyToken,
+      patch: {
+        visibility: {
+          allowExternalModelProcessing: true,
+          policyVersion: initial.source.visibility.policyVersion + 1,
+          sessionOverrideAllowed: false
+        }
+      },
+      sourceId: MOCK_GIT_KNOWLEDGE_SOURCE_ID,
+      workspaceId: MOCK_KNOWLEDGE_WORKSPACE_ID
+    })
+    expect(await screen.findByText('来源设置已由服务端确认')).toBeVisible()
+  })
+
   it('absorbs an applied PATCH after an unknown response without sending it again', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
     /** @brief 当前测试独享 Knowledge gateway / Knowledge gateway owned by this test. */

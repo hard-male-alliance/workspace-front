@@ -523,6 +523,16 @@ export interface UiInterviewTextChannel {
   close(): void
 }
 
+/** @brief 单道面试题的脱敏知识检索状态 / Redacted Knowledge retrieval status for one Interview question. */
+export interface UiInterviewKnowledgeRetrieval {
+  /** @brief 命中、未命中、未选择或暂不可用 / Hit, miss, not selected, or temporarily unavailable. */
+  readonly status: 'hit' | 'miss' | 'not_selected' | 'unavailable'
+  /** @brief 授权证据命中数 / Number of authorized evidence hits. */
+  readonly hitCount: number
+  /** @brief 后端检索耗时毫秒 / Backend retrieval latency in milliseconds. */
+  readonly elapsedMs: number
+}
+
 /** @brief 已持久化的权威转录片段 / Persisted authoritative transcript segment. */
 export interface UiInterviewTranscriptSegment {
   /** @brief 片段身份 / Segment identity. */

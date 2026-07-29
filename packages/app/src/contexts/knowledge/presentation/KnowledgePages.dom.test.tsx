@@ -69,7 +69,9 @@ function createKnowledgeGateway(overrides: Partial<KnowledgeGateway>): Knowledge
   return {
     createManualKnowledgeNote: unexpected,
     getKnowledgeSource: unexpected,
+    getKnowledgeSourceOriginalContent: unexpected,
     ingestKnowledgeFile: unexpected,
+    ingestKnowledgeSource: unexpected,
     listKnowledgeSourcePage: unexpected,
     searchKnowledge: unexpected,
     updateKnowledgeSource: unexpected,
@@ -238,7 +240,7 @@ describe('Knowledge API v2 presentation', (): void => {
         ]
       }
     })
-    fireEvent.submit(screen.getByRole('button', { name: '上传并摄取' }).closest('form')!)
+    fireEvent.submit(screen.getByRole('button', { name: '上传并开始处理' }).closest('form')!)
 
     await waitFor((): void => expect(ingest).toHaveBeenCalledTimes(1))
     expect(ingest.mock.calls[0]?.[0]).toMatchObject({
@@ -499,6 +501,145 @@ describe('Knowledge API v2 presentation', (): void => {
 
     expect(await screen.findByRole('heading', { name: '无法加载知识来源详情' })).toBeVisible()
     expect(screen.queryByText(mismatchedSource.name)).not.toBeInTheDocument()
+  })
+
+  it('loads and displays exact original text only after the user requests it', async (): Promise<void> => {
+    /** @brief 用于详情页的手工笔记来源 / Manual-note source used by the detail page. */
+    const source = createSource('原文展示测试', 'original-content-source')
+    /** @brief 必须保留空格与换行的原文 / Original text whose spaces and line breaks must be preserved. */
+    const text = '第一行\n  保留两个前导空格\n最后一行'
+    /** @brief 原文读取端口 / Original-content read port. */
+    const getOriginal = vi.fn<KnowledgeGateway['getKnowledgeSourceOriginalContent']>(() =>
+      Promise.resolve({
+        bytes: new TextEncoder().encode(text),
+        complete: true,
+        mediaType: 'text/plain; charset=utf-8',
+        totalSizeBytes: new TextEncoder().encode(text).byteLength
+      })
+    )
+
+    renderKnowledgeRoute(
+      <KnowledgeSourceDetailPage />,
+      `/knowledge/${source.id}`,
+      createTestGateways({
+        knowledge: createKnowledgeGateway({
+          getKnowledgeSource: vi.fn(() =>
+            Promise.resolve({
+              concurrencyToken: asUiConcurrencyToken('"etag-original-content"'),
+              source
+            })
+          ),
+          getKnowledgeSourceOriginalContent: getOriginal
+        })
+      })
+    )
+
+    expect(await screen.findByRole('heading', { name: source.name })).toBeVisible()
+    expect(getOriginal).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '查看原始内容' }))
+
+    await waitFor((): void => {
+      expect(document.querySelector('.aw-knowledge-original-content')).toHaveTextContent(text, {
+        normalizeWhitespace: false
+      })
+    })
+    expect(getOriginal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maximumBytes: 1024 * 1024,
+        sourceId: source.id,
+        workspaceId: source.workspaceId
+      })
+    )
+  })
+
+  it('starts shared ingestion for an unprocessed manual note and reloads its authority', async (): Promise<void> => {
+    /** @brief 尚未处理的手工笔记 / Manual note not yet ingested. */
+    const source = createSource(
+      '待处理手工笔记',
+      'manual-note-to-process',
+      MOCK_KNOWLEDGE_WORKSPACE_ID,
+      {
+        currentVersionId: null,
+        ingestion: {
+          chunkCount: 0,
+          documentCount: 0,
+          lastProblem: null,
+          lastSuccessAt: null,
+          status: 'not_started'
+        },
+        sourceType: 'manual_note',
+        visibility: {
+          ...MOCK_KNOWLEDGE_SOURCES[0]!.visibility,
+          allowExternalModelProcessing: true,
+          allowedModelRegions: ['global']
+        }
+      }
+    )
+    /** @brief 处理完成后的服务端权威 / Backend authority after ingestion succeeds. */
+    const readySource = createSource(source.name, source.id, source.workspaceId, {
+      ...source,
+      currentVersionId: asUiOpaqueId<'knowledge-source-version'>('manual-note-version-ready'),
+      ingestion: {
+        chunkCount: 3,
+        documentCount: 1,
+        lastProblem: null,
+        lastSuccessAt: '2026-07-29T01:02:03.000Z',
+        status: 'ready'
+      },
+      revision: source.revision + 1
+    })
+    /** @brief 受测试控制的后台详情刷新 / Background detail refresh controlled by the test. */
+    const refreshedAuthority =
+      createDeferred<Awaited<ReturnType<KnowledgeGateway['getKnowledgeSource']>>>()
+    /** @brief 首次与刷新详情读取 / Initial and refreshed detail reads. */
+    const get = vi
+      .fn<KnowledgeGateway['getKnowledgeSource']>()
+      .mockResolvedValueOnce({
+        concurrencyToken: asUiConcurrencyToken('"etag-manual-note-not-started"'),
+        source
+      })
+      .mockImplementation(() => refreshedAuthority.promise)
+    /** @brief 统一来源摄取命令 / Shared source-ingestion command. */
+    const ingest = vi.fn<KnowledgeGateway['ingestKnowledgeSource']>(() =>
+      Promise.resolve({
+        concurrencyToken: asUiConcurrencyToken('"etag-manual-note-ready"'),
+        source: readySource
+      })
+    )
+
+    renderKnowledgeRoute(
+      <KnowledgeSourceDetailPage />,
+      `/knowledge/${source.id}`,
+      createTestGateways({
+        knowledge: createKnowledgeGateway({
+          getKnowledgeSource: get,
+          ingestKnowledgeSource: ingest
+        })
+      })
+    )
+
+    expect(await screen.findByRole('heading', { name: '尚未开始' })).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: '开始处理' }))
+    await waitFor((): void => expect(ingest).toHaveBeenCalledOnce())
+    expect(ingest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        force: false,
+        sourceId: source.id,
+        workspaceId: source.workspaceId
+      })
+    )
+    await waitFor((): void => expect(get).toHaveBeenCalledTimes(2))
+    expect(screen.getByRole('heading', { name: '尚未开始' })).toBeVisible()
+    expect(screen.queryByText('正在加载知识来源详情…')).not.toBeInTheDocument()
+    await act(async (): Promise<void> => {
+      refreshedAuthority.resolve({
+        concurrencyToken: asUiConcurrencyToken('"etag-manual-note-ready"'),
+        source: readySource
+      })
+      await refreshedAuthority.promise
+    })
+    expect(await screen.findByRole('heading', { name: '处理完成' })).toBeVisible()
+    expect(screen.getByText('3', { selector: 'strong' })).toBeVisible()
   })
 
   it('renders literal deleting-source facts while suppressing untrusted Problem text', async (): Promise<void> => {

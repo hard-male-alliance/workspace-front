@@ -414,6 +414,22 @@
   margin: 0;
 }
 
+.aw-knowledge-original-content {
+  max-height: 34rem;
+  overflow: auto;
+  margin: var(--ui-space-4) 0 0;
+  padding: var(--ui-space-4);
+  border: 1px solid var(--ui-color-border);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-color-surface-muted);
+  color: var(--ui-color-ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--ui-text-sm);
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .aw-knowledge-create-form > .aw-card > .aw-inline-actions:first-child,
 .aw-knowledge-edit-form > .aw-card > .aw-inline-actions:first-child {
   align-items: flex-start;

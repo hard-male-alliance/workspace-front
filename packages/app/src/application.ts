@@ -69,6 +69,7 @@ export type {
   UiKnowledgeAgentScope,
   UiKnowledgeIngestionState,
   UiKnowledgeIngestionStatus,
+  UiKnowledgeOriginalContent,
   UiKnowledgeModelRegion,
   UiKnowledgeOperation,
   UiKnowledgeProblem,
@@ -90,7 +91,10 @@ export type {
 export type {
   UiCreateManualKnowledgeNoteCommand,
   UiIngestKnowledgeFileCommand,
+  UiIngestKnowledgeSourceCommand,
   UiKnowledgeFileIngestionPhase,
+  UiKnowledgeOriginalContentRead,
+  UiKnowledgeSourceIngestionPhase,
   UiKnowledgeSourcePageRead,
   UiKnowledgeSourcePatch,
   UiKnowledgeSourceRead,

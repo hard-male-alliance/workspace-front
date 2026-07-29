@@ -7,6 +7,7 @@ import { Link, useNavigate } from 'react-router-dom'
 
 import {
   useAsyncResource,
+  useKnowledgeGateway,
   useKnowledgeManualNoteCreation,
   useWorkspaceSession
 } from '../../../app/AppData'
@@ -16,15 +17,19 @@ import type { WorkspaceSessionAccess } from '../../../app/session/workspace-sess
 import { EmptyState, LoadingState } from '../../../ui'
 import type { UiWorkspace } from '../../workspace'
 import type { UiKnowledgeSourceId } from '../../../shared-kernel/identity'
+import { createUiCommandId } from '../../../shared-kernel/command'
 import type {
   UiKnowledgeCreationScope,
   UiManualKnowledgeNoteDraft,
   UiPendingManualKnowledgeNoteCreation
 } from '../application/manual-note-creation'
 import {
+  applyKnowledgeUsagePreset,
   createSafeKnowledgeVisibilityPolicy,
+  shouldAutomaticallyIngestKnowledge,
   validateKnowledgeVisibilityPolicy,
   VisibilityPolicyFields,
+  type KnowledgeUsagePreset,
   type VisibilityPolicyValidationError
 } from './VisibilityPolicyFields'
 
@@ -117,6 +122,8 @@ function ManualNoteCreateContent({
   const navigate = useNavigate()
   /** @brief provider 生命周期内稳定的创建恢复流程 / Creation-recovery process stable for the provider lifecycle. */
   const creation = useKnowledgeManualNoteCreation()
+  /** @brief 创建成功后提交异步摄取任务的 Knowledge 端口 / Knowledge port used to submit asynchronous ingestion after creation. */
+  const knowledge = useKnowledgeGateway()
   /** @brief principal 与 Workspace 共同隔离的恢复 scope / Recovery scope isolated by principal and Workspace. */
   const scope = useMemo<UiKnowledgeCreationScope>(
     () => ({
@@ -217,6 +224,35 @@ function ManualNoteCreateContent({
   }, [creation, scope])
 
   /**
+   * @brief 对选择 AI 用途的新来源自动提交摄取任务 / Automatically submit ingestion for a new source with AI usage.
+   * @param sourceId 已确认创建的来源 ID / Confirmed created source ID.
+   * @param visibility 创建时冻结的完整策略 / Complete visibility policy frozen at creation.
+   * @return 后端接受任务或无需处理后完成 / Settles after backend acceptance or when ingestion is unnecessary.
+   * @note 创建已经成功时，摄取提交失败不得把创建误报为失败或诱导重复创建 / Once creation succeeds, ingestion failure must not misreport creation or induce a duplicate.
+   */
+  const submitAutomaticIngestion = useCallback(
+    async (
+      sourceId: UiKnowledgeSourceId,
+      visibility: UiManualKnowledgeNoteDraft['visibility']
+    ): Promise<void> => {
+      if (!shouldAutomaticallyIngestKnowledge(visibility)) return
+      try {
+        await knowledge.ingestKnowledgeSource({
+          commandId: createUiCommandId(),
+          force: false,
+          sourceId,
+          workspaceId: workspace.id
+        })
+      } catch {
+        // 详情页保留显式“开始处理”恢复入口；创建成功后不能因第二个命令失败而建议重建来源。
+        // The detail page retains an explicit recovery action; never suggest recreating a source
+        // after the first command already succeeded.
+      }
+    },
+    [knowledge, workspace.id]
+  )
+
+  /**
    * @brief 提交一个新的完整创建意图 / Submit one new complete creation intent.
    */
   const submitNewIntent = useCallback(async (): Promise<void> => {
@@ -232,12 +268,13 @@ function ManualNoteCreateContent({
       const authority = await creation.create(scope, draft)
       setPending(null)
       setSubmission({ status: 'idle' })
+      await submitAutomaticIngestion(authority.source.id, draft.visibility)
       setCreatedSourceId(authority.source.id)
     } catch (error: unknown) {
       refreshPending()
       setSubmission({ error, status: 'error' })
     }
-  }, [creation, draft, isFormLocked, refreshPending, scope])
+  }, [creation, draft, isFormLocked, refreshPending, scope, submitAutomaticIngestion])
 
   /**
    * @brief 精确确认同一冻结命令 / Confirm the exact same frozen command.
@@ -250,12 +287,21 @@ function ManualNoteCreateContent({
       const authority = await creation.confirm(scope)
       setPending(null)
       setSubmission({ status: 'idle' })
+      await submitAutomaticIngestion(authority.source.id, authority.source.visibility)
       setCreatedSourceId(authority.source.id)
     } catch (error: unknown) {
       refreshPending()
       setSubmission({ error, status: 'error' })
     }
-  }, [confirmationIsCoolingDown, creation, isBusy, pending?.mode, refreshPending, scope])
+  }, [
+    confirmationIsCoolingDown,
+    creation,
+    isBusy,
+    pending?.mode,
+    refreshPending,
+    scope,
+    submitAutomaticIngestion
+  ])
 
   /**
    * @brief 重读权威首页成功后放弃旧 key / Abandon the old key after successfully rereading authority.
@@ -496,6 +542,54 @@ function ManualNoteCreateContent({
               </p>
             </div>
           </div>
+          <label className="aw-editor-field">
+            <span>{t('knowledge.create.usagePreset', { defaultValue: '用于哪些功能' })}</span>
+            <select
+              disabled={isFormLocked}
+              onChange={(event): void => {
+                /** @brief 用户选择的产品用途预设 / Product usage preset selected by the user. */
+                const preset = event.currentTarget.value as KnowledgeUsagePreset
+                setValidationError(null)
+                setDraft((current) => ({
+                  ...current,
+                  visibility: applyKnowledgeUsagePreset(current.visibility, preset)
+                }))
+              }}
+              value={
+                draft.visibility.agentGrants.some(
+                  (grant) => grant.agentScope === 'resume_assistant'
+                )
+                  ? draft.visibility.agentGrants.some(
+                      (grant) => grant.agentScope === 'interview_coach'
+                    )
+                    ? 'resume_and_interview'
+                    : 'resume'
+                  : draft.visibility.agentGrants.some(
+                        (grant) => grant.agentScope === 'interview_coach'
+                      )
+                    ? 'interview'
+                    : 'stored_only'
+              }
+            >
+              <option value="stored_only">
+                {t('knowledge.create.usageStoredOnly', { defaultValue: '仅保存，不供 AI 使用' })}
+              </option>
+              <option value="resume">
+                {t('knowledge.create.usageResume', { defaultValue: '简历助手' })}
+              </option>
+              <option value="interview">
+                {t('knowledge.create.usageInterview', { defaultValue: '模拟面试' })}
+              </option>
+              <option value="resume_and_interview">
+                {t('knowledge.create.usageBoth', { defaultValue: '简历助手和模拟面试' })}
+              </option>
+            </select>
+            <small>
+              {t('knowledge.create.usageHelp', {
+                defaultValue: '选择 AI 功能后会配置必要的只读授权，并在创建成功后自动开始处理。'
+              })}
+            </small>
+          </label>
           <VisibilityPolicyFields
             disabled={isFormLocked}
             onChange={(visibility): void => {

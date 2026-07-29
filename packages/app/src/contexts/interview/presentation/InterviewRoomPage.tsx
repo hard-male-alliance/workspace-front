@@ -40,6 +40,7 @@ import type { InterviewGateway } from '../application/gateway'
 import {
   asUiInterviewPageLimit,
   type UiInterviewEvidenceClaim,
+  type UiInterviewKnowledgeRetrieval,
   type UiInterviewReport,
   type UiInterviewRubricDimension,
   type UiInterviewScenario,
@@ -213,6 +214,9 @@ function RealTextInterviewPractice({
   const [isSubmitting, setSubmitting] = useState(false)
   const [isEnding, setEnding] = useState(false)
   const [error, setError] = useState<unknown>(null)
+  /** @brief 最近一道题的服务端知识检索状态 / Server Knowledge retrieval status for the latest question. */
+  const [knowledgeRetrieval, setKnowledgeRetrieval] =
+    useState<UiInterviewKnowledgeRetrieval | null>(null)
   const controllerRef = useRef<AbortController | null>(null)
   const connectionStartedAtRef = useRef(0)
   const pendingAnswerRef = useRef<{
@@ -274,6 +278,7 @@ function RealTextInterviewPractice({
               )
             )
           },
+          onKnowledgeRetrieval: setKnowledgeRetrieval,
           onTranscriptChanged: (): void => {
             void refreshTranscript().catch(setError)
           },
@@ -462,6 +467,18 @@ function RealTextInterviewPractice({
           )}
         </div>
       </div>
+
+      {knowledgeRetrieval === null ? null : (
+        <p aria-live="polite" className="aw-interview-privacy" role="status">
+          {knowledgeRetrieval.status === 'hit'
+            ? `本题已参考知识库中的 ${knowledgeRetrieval.hitCount} 条授权内容。`
+            : knowledgeRetrieval.status === 'miss'
+              ? '本题已检索所选知识库，但没有找到足够相关的内容。'
+              : knowledgeRetrieval.status === 'unavailable'
+                ? '本题的知识库检索暂时不可用，问题已按面试设置生成。'
+                : '本次面试未选择可用于提问的知识来源。'}
+        </p>
+      )}
 
       <form className="aw-interview-answer" onSubmit={(event): void => void submit(event)}>
         <label htmlFor="real-interview-answer">你的回答</label>

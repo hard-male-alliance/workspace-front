@@ -6,6 +6,8 @@ import type { KnowledgeGateway } from '../../application/gateway'
 import type {
   UiCreateManualKnowledgeNoteCommand,
   UiIngestKnowledgeFileCommand,
+  UiIngestKnowledgeSourceCommand,
+  UiKnowledgeOriginalContentRead,
   UiKnowledgeSourcePageRead,
   UiKnowledgeSourceRead,
   UiSearchKnowledgeCommand,
@@ -15,6 +17,7 @@ import {
   asUiKnowledgeSourceCursor,
   type UiKnowledgeSource,
   type UiKnowledgeSourceAuthority,
+  type UiKnowledgeOriginalContent,
   type UiKnowledgeSearchResult,
   type UiKnowledgeSourcePage
 } from '../../domain/models'
@@ -92,6 +95,9 @@ export class InMemoryKnowledgeGateway implements KnowledgeGateway {
 
   /** @brief path-aware 幂等创建缓存 / Path-aware idempotent creation cache. */
   readonly #createdManualNotes = new Map<string, CachedManualNoteCreation>()
+
+  /** @brief 测试来源的原始字节 / Original bytes for test sources. */
+  readonly #originalContents = new Map<UiKnowledgeSourceId, Uint8Array>()
 
   /** @brief 新手工笔记的单调测试序号 / Monotonic test sequence for new manual notes. */
   #manualNoteSequence = 0
@@ -175,6 +181,30 @@ export class InMemoryKnowledgeGateway implements KnowledgeGateway {
   }
 
   /** @inheritdoc */
+  getKnowledgeSourceOriginalContent(
+    input: UiKnowledgeOriginalContentRead
+  ): Promise<UiKnowledgeOriginalContent> {
+    input.signal.throwIfAborted()
+    /** @brief 与读取 path 匹配的来源 / Source matching the read path. */
+    const source = this.#sources.find(
+      (candidate) => candidate.workspaceId === input.workspaceId && candidate.id === input.sourceId
+    )
+    if (source === undefined) return throwMemoryNotFound('KnowledgeSource')
+    /** @brief 已记录或为固定 fixture 生成的原始字节 / Recorded original bytes or bytes generated for a fixed fixture. */
+    const original =
+      this.#originalContents.get(source.id) ??
+      new TextEncoder().encode(`这是“${source.name}”的原始内容。`)
+    /** @brief 按调用方上限截取的预览 / Preview sliced to the caller limit. */
+    const bytes = original.slice(0, input.maximumBytes)
+    return Promise.resolve({
+      bytes,
+      complete: bytes.byteLength === original.byteLength,
+      mediaType: source.publicConfig.mediaType ?? 'text/plain; charset=utf-8',
+      totalSizeBytes: original.byteLength
+    })
+  }
+
+  /** @inheritdoc */
   async createManualKnowledgeNote(
     command: UiCreateManualKnowledgeNoteCommand
   ): Promise<UiKnowledgeSourceAuthority> {
@@ -233,6 +263,7 @@ export class InMemoryKnowledgeGateway implements KnowledgeGateway {
     const authority = { concurrencyToken, source }
     this.#sources.push(source)
     this.#entityTags.set(source.id, concurrencyToken)
+    this.#originalContents.set(source.id, new TextEncoder().encode(command.content))
     this.#createdManualNotes.set(cacheKey, {
       authority: cloneMemoryValue(authority),
       fingerprint
@@ -331,7 +362,46 @@ export class InMemoryKnowledgeGateway implements KnowledgeGateway {
     const concurrencyToken = this.#nextEntityTag(source.id, source.revision)
     this.#sources.push(source)
     this.#entityTags.set(source.id, concurrencyToken)
+    this.#originalContents.set(source.id, new Uint8Array(command.bytes.slice(0)))
     return Promise.resolve(cloneMemoryValue({ concurrencyToken, source }))
+  }
+
+  /** @inheritdoc */
+  ingestKnowledgeSource(
+    command: UiIngestKnowledgeSourceCommand
+  ): Promise<UiKnowledgeSourceAuthority> {
+    command.signal?.throwIfAborted()
+    /** @brief path identities 匹配的来源位置 / Source position matching both path identities. */
+    const sourceIndex = this.#sources.findIndex(
+      (candidate) =>
+        candidate.workspaceId === command.workspaceId && candidate.id === command.sourceId
+    )
+    if (sourceIndex < 0) return throwMemoryNotFound('KnowledgeSource')
+    /** @brief 当前内存来源 / Current in-memory source. */
+    const current = this.#sources[sourceIndex]!
+    command.onProgress?.('processing')
+    /** @brief 模拟统一摄取成功后的来源 / Source after simulated shared-ingestion success. */
+    const updated: UiKnowledgeSource = {
+      ...current,
+      currentVersionId: asUiOpaqueId<'knowledge-source-version'>(
+        `knowledge_memory_version_${String(current.revision + 1).padStart(6, '0')}`
+      ),
+      ingestion: {
+        chunkCount: 1,
+        documentCount: 1,
+        lastProblem: null,
+        lastSuccessAt: '2026-07-23T00:00:01.000Z',
+        status: 'ready'
+      },
+      revision: current.revision + 1,
+      updatedAt: '2026-07-23T00:00:01.000Z'
+    }
+    /** @brief 处理后强 ETag / Strong ETag after ingestion. */
+    const concurrencyToken = this.#nextEntityTag(updated.id, updated.revision)
+    this.#sources[sourceIndex] = updated
+    this.#entityTags.set(updated.id, concurrencyToken)
+    command.onProgress?.('completed')
+    return Promise.resolve(cloneMemoryValue({ concurrencyToken, source: updated }))
   }
 
   /** @inheritdoc */

@@ -83,6 +83,7 @@ export interface KnowledgeWorkflowApi {
   createIngestionJob(input: {
     readonly workspaceId: string
     readonly sourceId: string
+    readonly force: boolean
     readonly idempotencyKey: string
     readonly signal?: AbortSignal
   }): Promise<{ readonly job: Job; readonly entityTag: string }>
@@ -263,7 +264,7 @@ export function createKnowledgeWorkflowApi(
       const workspaceId = opaqueId(input.workspaceId, 'request.workspace_id')
       const response = await client.postJson(
         `/workspaces/${encodeURIComponent(workspaceId)}/knowledge-sources/${encodeURIComponent(opaqueId(input.sourceId, 'request.source_id'))}/ingestion-jobs`,
-        { force: false },
+        { force: input.force },
         {
           idempotencyKey: input.idempotencyKey,
           maxRequestBytes: 4096,
