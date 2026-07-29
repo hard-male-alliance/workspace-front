@@ -720,6 +720,7 @@ export const zhSGTranslation = {
     difficulty: '难度',
     duration: '预计时长',
     scenario: '练习场景',
+    manualCompletionHint: '练习充分后可主动结束面试，随后即可生成本次报告。',
     noScenarios: '没有可用场景',
     focusPrompt: '补充要求（可选）',
     focusUnavailable: '当前 API 契约尚未支持补充要求',
@@ -1902,6 +1903,8 @@ export const enUSTranslation = {
     difficulty: 'Difficulty',
     duration: 'Expected duration',
     scenario: 'Practice scenario',
+    manualCompletionHint:
+      'When you have practised enough, end the interview to make its report available.',
     noScenarios: 'No scenarios available',
     focusPrompt: 'Additional focus (optional)',
     focusUnavailable: 'Additional focus is not supported by the current API contract',
