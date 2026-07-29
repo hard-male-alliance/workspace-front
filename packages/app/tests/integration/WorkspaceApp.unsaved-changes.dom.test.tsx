@@ -1,11 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { InMemoryIdentityGateway, InMemoryWorkspaceGateway } from '@ai-job-workspace/app/testing'
-import { asUiWorkspaceSlug } from '../../src/contexts/workspace'
-import { asUiOpaqueId } from '../../src/shared-kernel/identity'
 
 import {
-  createTestGateways,
   installWorkspaceAppTestCleanup,
   setWorkspaceAppTestLocale,
   WorkspaceApp
@@ -69,59 +65,6 @@ vi.mock('../../src/app/routes/ResumeRoutes', async () => {
 
 installWorkspaceAppTestCleanup()
 
-/**
- * @brief 创建含两个可选 Workspace 的测试依赖 / Create test dependencies with two selectable Workspaces.
- * @return 工作区 gateway 与两个访问权威 / App gateways and both access authorities.
- */
-async function createTwoWorkspaceFixture(): Promise<{
-  readonly firstWorkspaceId: string
-  readonly gateways: ReturnType<typeof createTestGateways>
-  readonly secondWorkspaceId: string
-}> {
-  /** @brief fixture 权威读取的取消信号 / Cancellation signal for fixture authority reads. */
-  const signal = new AbortController().signal
-  /** @brief 并行读取的默认身份与 WorkspaceAccess 页 / Default Identity and WorkspaceAccess page read in parallel. */
-  const [currentUser, page] = await Promise.all([
-    new InMemoryIdentityGateway().loadCurrentUser(signal),
-    new InMemoryWorkspaceGateway().listWorkspaceAccessPage({ cursor: null, limit: 200, signal })
-  ])
-  /** @brief 默认 WorkspaceAccess / Default WorkspaceAccess. */
-  const firstAccess = page.items[0]
-  if (firstAccess === undefined) throw new Error('WorkspaceAccess fixture is missing.')
-  /** @brief 第二个可选 WorkspaceAccess / Second selectable WorkspaceAccess. */
-  const secondAccess = {
-    ...firstAccess,
-    memberId: asUiOpaqueId<'workspace-member'>('member_unsaved_editor'),
-    role: 'editor' as const,
-    workspace: {
-      ...firstAccess.workspace,
-      id: asUiOpaqueId<'workspace'>('ws_unsaved_second'),
-      name: 'Unsaved Second Workspace',
-      slug: asUiWorkspaceSlug('unsaved-second-workspace')
-    }
-  }
-  /** @brief 返回两个工作区权威的测试 gateway / Test gateways returning both Workspace authorities. */
-  const gateways = createTestGateways({
-    identity: {
-      loadCurrentUser: vi
-        .fn()
-        .mockResolvedValue({ ...currentUser, defaultWorkspaceId: firstAccess.workspace.id })
-    },
-    workspace: {
-      listWorkspaceAccessPage: vi.fn().mockResolvedValue({
-        hasMore: false,
-        items: [firstAccess, secondAccess],
-        nextCursor: null
-      })
-    }
-  })
-  return {
-    firstWorkspaceId: firstAccess.workspace.id,
-    gateways,
-    secondWorkspaceId: secondAccess.workspace.id
-  }
-}
-
 /** @brief 应用级未保存更改防丢失测试 / Application-level unsaved-change loss-prevention tests. */
 describe('WorkspaceApp unsaved changes', (): void => {
   it('initializes the Data Router at the explicit memory path', async (): Promise<void> => {
@@ -178,54 +121,6 @@ describe('WorkspaceApp unsaved changes', (): void => {
 
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
     expect(await screen.findByRole('heading', { level: 1, name: '知识来源' })).toBeInTheDocument()
-  })
-
-  it('confirms a Workspace switch before replacing the route subtree', async (): Promise<void> => {
-    await setWorkspaceAppTestLocale('zh-SG')
-    /** @brief 双 Workspace 测试权威 / Two-Workspace test authority. */
-    const { firstWorkspaceId, gateways, secondWorkspaceId } = await createTwoWorkspaceFixture()
-    render(<WorkspaceApp gateways={gateways} initialPath="/resumes" />)
-    await screen.findByRole('heading', { name: 'Unsaved changes fixture' })
-    fireEvent.change(screen.getByRole('textbox', { name: 'Draft' }), {
-      target: { value: 'workspace-bound draft' }
-    })
-    /** @brief 受控的 Workspace 选择器 / Controlled Workspace selector. */
-    const selector = screen.getByRole('combobox', { name: '当前工作区' })
-    fireEvent.change(selector, { target: { value: secondWorkspaceId } })
-
-    expect(await screen.findByRole('alertdialog')).toBeInTheDocument()
-    expect(selector).toHaveValue(firstWorkspaceId)
-    expect(screen.getByRole('textbox', { name: 'Draft' })).toHaveValue('workspace-bound draft')
-
-    fireEvent.click(screen.getByRole('button', { name: '放弃更改并继续' }))
-    await waitFor((): void => {
-      expect(screen.getByRole('combobox', { name: '当前工作区' })).toHaveValue(secondWorkspaceId)
-    })
-    expect(screen.getByRole('textbox', { name: 'Draft' })).toHaveValue('')
-  })
-
-  it('keeps the current page and draft when a confirmed Workspace switch fails', async (): Promise<void> => {
-    await setWorkspaceAppTestLocale('zh-SG')
-    render(<WorkspaceApp initialPath="/resumes" />)
-    await screen.findByRole('heading', { name: 'Unsaved changes fixture' })
-    fireEvent.change(screen.getByRole('textbox', { name: 'Draft' }), {
-      target: { value: 'must survive failure' }
-    })
-    /** @brief 当前有效 Workspace 选择 / Current valid Workspace selection. */
-    const selector = screen.getByRole('combobox', { name: '当前工作区' })
-    /** @brief 尝试失败前的权威 Workspace ID / Authoritative Workspace ID before the failed attempt. */
-    const currentWorkspaceId = (selector as HTMLSelectElement).value
-    fireEvent.change(selector, { target: { value: '' } })
-    expect(await screen.findByRole('alertdialog')).toBeInTheDocument()
-    expect(screen.queryByText('无法切换工作区，请刷新访问权限后重试。')).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: '放弃更改并继续' }))
-
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      '无法切换工作区，请刷新访问权限后重试。'
-    )
-    expect(selector).toHaveValue(currentWorkspaceId)
-    expect(screen.getByRole('textbox', { name: 'Draft' })).toHaveValue('must survive failure')
   })
 
   it('confirms sign-out before invoking the host capability', async (): Promise<void> => {

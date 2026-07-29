@@ -47,10 +47,6 @@
     padding: 0 22px;
   }
 
-  .aw-topbar-workspace-picker select {
-    width: min(180px, 26vw);
-  }
-
   .aw-overview-grid,
   .aw-today-grid,
   .aw-workbench-grid,
@@ -199,25 +195,6 @@
     flex: 1;
     justify-content: flex-end;
     gap: 4px;
-  }
-
-  .aw-workspace-controls {
-    min-width: 0;
-  }
-
-  .aw-topbar-workspace-picker select {
-    width: min(142px, 42vw);
-  }
-
-  .aw-workspace-load-more {
-    width: 36px;
-    flex: none;
-    justify-content: center;
-    padding: 0;
-  }
-
-  .aw-workspace-load-more > span {
-    display: none;
   }
 
   .aw-topbar-actions .aw-quiet-button {

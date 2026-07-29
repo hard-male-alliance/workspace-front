@@ -330,6 +330,34 @@ function updatedResponse(data: unknown): ApiV2UpdatedWriteJsonResponse {
 }
 
 describe('API v2 InterviewScenario endpoints', (): void => {
+  it('accepts backend-canonical empty score labels when the creation request omitted them', async (): Promise<void> => {
+    /** @brief 后端领域模型输出的规范 Rubric / Canonical Rubric emitted by the backend domain model. */
+    const canonicalRubric = {
+      ...scenarioRequest().rubric,
+      dimensions: scenarioRequest().rubric.dimensions.map((dimension) => ({
+        ...dimension,
+        scoring_scale: { ...dimension.scoring_scale, labels: {} }
+      })),
+      overall_scale: { ...scenarioRequest().rubric.overall_scale, labels: {} }
+    }
+    /** @brief 返回后端规范空 labels 的创建 port / Creation port returning backend-canonical empty labels. */
+    const postJson = vi
+      .fn<InterviewScenarioCreationHttpClient['postJson']>()
+      .mockResolvedValue(
+        createdResponse(
+          scenario({ rubric: canonicalRubric }),
+          `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ID}/interview-scenarios/${SCENARIO_ID}`
+        )
+      )
+
+    await expect(
+      createWorkspaceInterviewScenario(
+        { postJson },
+        { idempotencyKey: IDEMPOTENCY_KEY, request: scenarioRequest(), workspaceId: WORKSPACE_ID }
+      )
+    ).resolves.toMatchObject({ value: { id: SCENARIO_ID } })
+  })
+
   it('uses the exact four Scenario routes, cursor, ETag, Location, idempotency, and AbortSignal', async (): Promise<void> => {
     /** @brief 调用方取消信号 / Caller cancellation signal. */
     const controller = new AbortController()

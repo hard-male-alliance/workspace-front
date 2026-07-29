@@ -830,8 +830,19 @@ function ResumeSectionsEditor({
 }): React.JSX.Element {
   const { t } = useTranslation()
   const diagnostics = useDiagnostics()
-  const [focusedSectionId, setFocusedSectionId] = useState<UiResumeSectionId | null>(
-    editor.resume.sections.at(0)?.id ?? null
+  /** @brief 本地化的个人信息板块名称 / Localized profile-section name. */
+  const profileSectionName = t('resume.workspace.personalInformation', {
+    defaultValue: '个人信息'
+  })
+  /** @brief 个人信息卡片是否展开 / Whether the profile card is expanded. */
+  const [isProfileExpanded, setIsProfileExpanded] = useState(true)
+  /** @brief 独立展开的语义板块集合 / Independently expanded semantic sections. */
+  const [expandedSectionIds, setExpandedSectionIds] = useState<ReadonlySet<UiResumeSectionId>>(
+    () => {
+      /** @brief 初始默认展开的首个板块 / First section expanded by default. */
+      const firstSectionId = editor.resume.sections.at(0)?.id
+      return firstSectionId === undefined ? new Set() : new Set([firstSectionId])
+    }
   )
   const [deleteCandidate, setDeleteCandidate] = useState<UiResumeSectionId | null>(null)
   const [draggedSectionId, setDraggedSectionId] = useState<UiResumeSectionId | null>(null)
@@ -1735,7 +1746,12 @@ function ResumeSectionsEditor({
         (next): void => {
           onEditorChange(next)
           setStructureFailure(null)
-          setFocusedSectionId(next.resume.sections.at(0)?.id ?? null)
+          setExpandedSectionIds((current) => {
+            /** @brief 移除已删除板块后的展开集合 / Expanded set after removing the deleted section. */
+            const remaining = new Set(current)
+            remaining.delete(sectionId)
+            return remaining
+          })
           setDeleteCandidate(null)
         }
       )
@@ -1745,7 +1761,12 @@ function ResumeSectionsEditor({
         const next = await dispatchDeleteCommand(commandAttempt)
         onEditorChange(next)
         setStructureFailure(null)
-        setFocusedSectionId(next.resume.sections.at(0)?.id ?? null)
+        setExpandedSectionIds((current) => {
+          /** @brief 确认删除后的展开集合 / Expanded set after the confirmed deletion. */
+          const remaining = new Set(current)
+          remaining.delete(sectionId)
+          return remaining
+        })
         setDeleteCandidate(null)
       }
       /** @brief 放弃旧删除命令身份 / Abandon the old delete-command identity. */
@@ -1910,75 +1931,47 @@ function ResumeSectionsEditor({
           })}
         />
       ) : null}
-      <article className="aw-resume-section-editor is-focused">
-        <header className="aw-resume-section-heading">
-          <div>
-            <h3>个人信息</h3>
-            <span>profile</span>
-          </div>
-        </header>
-        <div className="aw-section-focus-editor">
-          {(
-            [
-              { field: 'fullName', label: '姓名' },
-              { field: 'headline', label: '职业标题' }
-            ] as const
-          ).map(({ field, label }) => {
-            /** @brief 当前个人资料字段的稳定草稿键 / Stable draft key for the current profile field. */
-            const key = profileDraftKey(field)
-            /** @brief 草稿优先的个人资料字段值 / Draft-first profile-field value. */
-            const value = itemDrafts.get(key) ?? editor.resume.profile[field] ?? ''
-            return (
-              <label key={field}>
-                <span>{label}</span>
-                <input
-                  aria-label={label}
-                  className="aw-text-input"
-                  disabled={isWriteLocked || savingItemKey === key}
-                  onBlur={(): void => {
-                    void persistProfileText(field, editor.resume.profile[field])
-                  }}
-                  onChange={(event): void => updateSemanticDraft(key, event.currentTarget.value)}
-                  value={value}
-                />
-              </label>
-            )
-          })}
-          {(() => {
-            /** @brief 个人简介草稿键 / Profile-summary draft key. */
-            const key = profileDraftKey('summary')
-            /** @brief 草稿优先的个人简介 / Draft-first profile summary. */
-            const value = itemDrafts.get(key) ?? editor.resume.profile.summary?.text ?? ''
-            return (
-              <label>
-                <span>个人简介</span>
-                <textarea
-                  aria-label="个人简介"
-                  className="aw-section-textarea"
-                  disabled={isWriteLocked || savingItemKey === key}
-                  onBlur={(): void => {
-                    void persistProfileSummary()
-                  }}
-                  onChange={(event): void => updateSemanticDraft(key, event.currentTarget.value)}
-                  value={value}
-                />
-              </label>
-            )
-          })()}
-          {editor.resume.profile.contacts.map((contact, contactIndex) => (
-            <article className="aw-rich-text-shell" key={contact.id}>
-              <strong>联系方式 {contactIndex + 1}</strong>
+      <div className="aw-resume-sections">
+        <article className={`aw-resume-section-editor ${isProfileExpanded ? 'is-focused' : ''}`}>
+          <header className="aw-resume-section-heading aw-resume-section-heading--fixed">
+            <button
+              aria-expanded={isProfileExpanded}
+              aria-label={t(
+                isProfileExpanded
+                  ? 'resume.workspace.collapseSection'
+                  : 'resume.workspace.expandSection',
+                {
+                  defaultValue: isProfileExpanded ? '收起{{name}}' : '展开{{name}}',
+                  name: profileSectionName
+                }
+              )}
+              className="aw-section-toggle"
+              onClick={(): void => setIsProfileExpanded((current) => !current)}
+              type="button"
+            >
+              <span className="aw-section-title-copy">
+                <h3>{profileSectionName}</h3>
+                <span>profile</span>
+              </span>
+              {isProfileExpanded ? (
+                <ChevronUp aria-hidden="true" size={15} />
+              ) : (
+                <ChevronDown aria-hidden="true" size={15} />
+              )}
+            </button>
+          </header>
+          {isProfileExpanded ? (
+            <div className="aw-section-focus-editor">
               {(
                 [
-                  { field: 'label', label: `联系方式 ${contactIndex + 1} 的标签` },
-                  { field: 'value', label: `联系方式 ${contactIndex + 1} 的值` },
-                  { field: 'url', label: `联系方式 ${contactIndex + 1} 的链接` }
+                  { field: 'fullName', label: '姓名' },
+                  { field: 'headline', label: '职业标题' }
                 ] as const
               ).map(({ field, label }) => {
-                /** @brief 当前联系方式字段草稿键 / Draft key for the current contact field. */
-                const key = contactDraftKey(contact.id, field)
-                /** @brief 草稿优先的联系方式字段值 / Draft-first contact-field value. */
-                const value = itemDrafts.get(key) ?? contact[field] ?? ''
+                /** @brief 当前个人资料字段的稳定草稿键 / Stable draft key for the current profile field. */
+                const key = profileDraftKey(field)
+                /** @brief 草稿优先的个人资料字段值 / Draft-first profile-field value. */
+                const value = itemDrafts.get(key) ?? editor.resume.profile[field] ?? ''
                 return (
                   <label key={field}>
                     <span>{label}</span>
@@ -1987,7 +1980,7 @@ function ResumeSectionsEditor({
                       className="aw-text-input"
                       disabled={isWriteLocked || savingItemKey === key}
                       onBlur={(): void => {
-                        void persistContact(contact, field)
+                        void persistProfileText(field, editor.resume.profile[field])
                       }}
                       onChange={(event): void =>
                         updateSemanticDraft(key, event.currentTarget.value)
@@ -1997,13 +1990,69 @@ function ResumeSectionsEditor({
                   </label>
                 )
               })}
-            </article>
-          ))}
-        </div>
-      </article>
-      <div className="aw-resume-sections">
+              {(() => {
+                /** @brief 个人简介草稿键 / Profile-summary draft key. */
+                const key = profileDraftKey('summary')
+                /** @brief 草稿优先的个人简介 / Draft-first profile summary. */
+                const value = itemDrafts.get(key) ?? editor.resume.profile.summary?.text ?? ''
+                return (
+                  <label>
+                    <span>个人简介</span>
+                    <textarea
+                      aria-label="个人简介"
+                      className="aw-section-textarea"
+                      disabled={isWriteLocked || savingItemKey === key}
+                      onBlur={(): void => {
+                        void persistProfileSummary()
+                      }}
+                      onChange={(event): void =>
+                        updateSemanticDraft(key, event.currentTarget.value)
+                      }
+                      value={value}
+                    />
+                  </label>
+                )
+              })()}
+              {editor.resume.profile.contacts.map((contact, contactIndex) => (
+                <article className="aw-rich-text-shell" key={contact.id}>
+                  <strong>联系方式 {contactIndex + 1}</strong>
+                  {(
+                    [
+                      { field: 'label', label: `联系方式 ${contactIndex + 1} 的标签` },
+                      { field: 'value', label: `联系方式 ${contactIndex + 1} 的值` },
+                      { field: 'url', label: `联系方式 ${contactIndex + 1} 的链接` }
+                    ] as const
+                  ).map(({ field, label }) => {
+                    /** @brief 当前联系方式字段草稿键 / Draft key for the current contact field. */
+                    const key = contactDraftKey(contact.id, field)
+                    /** @brief 草稿优先的联系方式字段值 / Draft-first contact-field value. */
+                    const value = itemDrafts.get(key) ?? contact[field] ?? ''
+                    return (
+                      <label key={field}>
+                        <span>{label}</span>
+                        <input
+                          aria-label={label}
+                          className="aw-text-input"
+                          disabled={isWriteLocked || savingItemKey === key}
+                          onBlur={(): void => {
+                            void persistContact(contact, field)
+                          }}
+                          onChange={(event): void =>
+                            updateSemanticDraft(key, event.currentTarget.value)
+                          }
+                          value={value}
+                        />
+                      </label>
+                    )
+                  })}
+                </article>
+              ))}
+            </div>
+          ) : null}
+        </article>
         {editor.resume.sections.map((section, index) => {
-          const isFocused = section.id === focusedSectionId
+          /** @brief 当前语义板块是否独立展开 / Whether the current semantic section is independently expanded. */
+          const isExpanded = expandedSectionIds.has(section.id)
           /** @brief 当前板块的未保存草稿 / Unsaved draft for the current section. */
           const draft = drafts.get(section.id)
           /** @brief 输入框展示的标题 / Title displayed in the input. */
@@ -2014,10 +2063,9 @@ function ResumeSectionsEditor({
           const isSaving = savingSectionId === section.id
           return (
             <article
-              className={`aw-resume-section-editor ${isFocused ? 'is-focused' : ''}`}
+              className={`aw-resume-section-editor ${isExpanded ? 'is-focused' : ''}`}
               draggable={!isWriteLocked}
               key={section.id}
-              onClick={(): void => setFocusedSectionId(section.id)}
               onDragOver={(event): void => event.preventDefault()}
               onDragStart={(): void => setDraggedSectionId(section.id)}
               onDrop={(): void => dropBefore(section.id)}
@@ -2026,10 +2074,39 @@ function ResumeSectionsEditor({
                 <span aria-hidden="true" className="aw-section-drag-handle">
                   <GripVertical size={15} />
                 </span>
-                <div>
-                  <h3>{sectionTitle || section.kind}</h3>
-                  <span>{section.kind}</span>
-                </div>
+                <button
+                  aria-expanded={isExpanded}
+                  aria-label={t(
+                    isExpanded
+                      ? 'resume.workspace.collapseSection'
+                      : 'resume.workspace.expandSection',
+                    {
+                      defaultValue: isExpanded ? '收起{{name}}' : '展开{{name}}',
+                      name: sectionTitle || section.kind
+                    }
+                  )}
+                  className="aw-section-toggle"
+                  onClick={(): void => {
+                    setExpandedSectionIds((current) => {
+                      /** @brief 本次切换后的展开集合 / Expanded set after this toggle. */
+                      const next = new Set(current)
+                      if (next.has(section.id)) next.delete(section.id)
+                      else next.add(section.id)
+                      return next
+                    })
+                  }}
+                  type="button"
+                >
+                  <span className="aw-section-title-copy">
+                    <h3>{sectionTitle || section.kind}</h3>
+                    <span>{section.kind}</span>
+                  </span>
+                  {isExpanded ? (
+                    <ChevronUp aria-hidden="true" size={15} />
+                  ) : (
+                    <ChevronDown aria-hidden="true" size={15} />
+                  )}
+                </button>
                 <div className="aw-section-actions">
                   <button
                     aria-label={t('resume.workspace.moveUp', {
@@ -2082,7 +2159,7 @@ function ResumeSectionsEditor({
                   </button>
                 </div>
               </header>
-              {isFocused ? (
+              {isExpanded ? (
                 <div className="aw-section-focus-editor">
                   <label>
                     <span>{t('resume.editor.sectionTitle', { defaultValue: '区段标题' })}</span>

@@ -178,7 +178,7 @@ describe('createWorkspaceSession', (): void => {
     })
   })
 
-  it('保留服务端顺序并且只在已加载访问页内采用默认 Workspace', async (): Promise<void> => {
+  it('默认 Workspace 尚未加载时自动采用首个可访问 Workspace', async (): Promise<void> => {
     /** @brief 默认值位于未加载页的权威 / Authority whose default appears only on a later page. */
     const authority = testAuthority({
       defaultWorkspaceId: 'ws_three',
@@ -199,7 +199,7 @@ describe('createWorkspaceSession', (): void => {
 
     await expect(session.getAccess()).resolves.toMatchObject({
       accesses: [{ workspace: { id: 'ws_two' } }, { workspace: { id: 'ws_one' } }],
-      currentWorkspaceAccess: undefined,
+      currentWorkspaceAccess: { workspace: { id: 'ws_two' } },
       hasMoreWorkspaces: true,
       nextWorkspaceCursor: 'cursor_two'
     })
@@ -209,7 +209,7 @@ describe('createWorkspaceSession', (): void => {
         { workspace: { id: 'ws_one' } },
         { workspace: { id: 'ws_three' } }
       ],
-      currentWorkspaceAccess: undefined,
+      currentWorkspaceAccess: { workspace: { id: 'ws_two' } },
       hasMoreWorkspaces: false,
       nextWorkspaceCursor: null
     })
@@ -296,13 +296,13 @@ describe('createWorkspaceSession', (): void => {
     })
   })
 
-  it('没有有效默认值时不把第一页第一项当作隐式 Workspace', async (): Promise<void> => {
+  it('没有有效默认值时采用第一页首个可访问 Workspace', async (): Promise<void> => {
     const gateways = controllableGateways(testAuthority())
     const session = createWorkspaceSession(gateways.identity, gateways.workspace)
 
-    await expect(session.getCurrentWorkspace()).resolves.toBeUndefined()
+    await expect(session.getCurrentWorkspace()).resolves.toMatchObject({ id: 'ws_one' })
     await expect(session.getAccess()).resolves.toMatchObject({
-      currentWorkspaceAccess: undefined
+      currentWorkspaceAccess: { workspace: { id: 'ws_one' } }
     })
   })
 

@@ -23,6 +23,7 @@ import {
   parseInterviewScenario,
   parseInterviewScenarioList,
   type CreateInterviewScenarioRequest,
+  type InterviewRubric,
   type InterviewScenario,
   type InterviewScenarioInput,
   type UpdateInterviewScenarioRequest
@@ -40,6 +41,29 @@ const CREATE_INTERVIEW_SCENARIO_MAX_REQUEST_BYTES = 8 * 1024 * 1024
 
 /** @brief Scenario 更新请求上限 / Request ceiling for Scenario updates. */
 const UPDATE_INTERVIEW_SCENARIO_MAX_REQUEST_BYTES = 8 * 1024 * 1024
+
+/**
+ * @brief 规范化 Rubric 中可省略的空 labels / Normalize omittable empty labels in a Rubric.
+ * @param rubric 请求或响应中的 Rubric / Rubric from a request or response.
+ * @return 把缺省 labels 投影为空对象的语义快照 / Semantic snapshot projecting absent labels to an empty object.
+ * @note 后端领域模型将省略的 labels 规范化为 {}；创建后置条件必须比较语义而非 JSON 属性是否省略。 / The backend domain normalizes omitted labels to {}; creation postconditions must compare semantics rather than JSON-property omission.
+ */
+function canonicalRubric(rubric: InterviewRubric): InterviewRubric {
+  return {
+    ...rubric,
+    dimensions: rubric.dimensions.map((dimension) => ({
+      ...dimension,
+      scoring_scale: {
+        ...dimension.scoring_scale,
+        labels: dimension.scoring_scale.labels ?? {}
+      }
+    })),
+    overall_scale: {
+      ...rubric.overall_scale,
+      labels: rubric.overall_scale.labels ?? {}
+    }
+  }
+}
 
 /** @brief Scenario 分页请求 / Scenario page request. */
 export interface InterviewScenarioPageRequest {
@@ -153,7 +177,7 @@ function scenarioInput(value: InterviewScenario): InterviewScenarioInput {
     interview_type: value.interview_type,
     locale: value.locale,
     name: value.name,
-    rubric: value.rubric,
+    rubric: canonicalRubric(value.rubric),
     target_question_count: value.target_question_count
   }
 }
@@ -190,7 +214,12 @@ function assertScenarioMatchesCreate(
   value: InterviewScenario,
   request: CreateInterviewScenarioRequest
 ): void {
-  if (!wireValuesEqual(scenarioInput(value), request)) {
+  /** @brief 规范化可省略 labels 后的创建请求 / Creation request after normalizing omittable labels. */
+  const canonicalRequest: CreateInterviewScenarioRequest = {
+    ...request,
+    rubric: canonicalRubric(request.rubric)
+  }
+  if (!wireValuesEqual(scenarioInput(value), canonicalRequest)) {
     throw new ApiV2ContractError(
       'API v2 InterviewScenario creation response does not match the submitted fields.'
     )
