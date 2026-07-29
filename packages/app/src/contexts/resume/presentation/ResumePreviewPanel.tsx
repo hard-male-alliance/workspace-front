@@ -915,7 +915,9 @@ export function ResumePreviewPanel({
         : jobAuthority.job.status === 'running'
           ? t('resume.workspace.pdfRunning', { defaultValue: '正在生成 PDF。' })
           : jobAuthority.job.status === 'succeeded'
-            ? t('resume.workspace.pdfSucceeded', { defaultValue: 'PDF 已生成。' })
+            ? artifact === null
+              ? t('resume.workspace.pdfSucceeded', { defaultValue: 'PDF 已生成。' })
+              : null
             : jobAuthority.job.status === 'failed'
               ? t('resume.workspace.pdfFailed', {
                   defaultValue: 'PDF 生成失败。参考编号：{{referenceId}}',
@@ -1027,20 +1029,6 @@ export function ResumePreviewPanel({
       {jobStatus !== null ? (
         <p aria-atomic="true" aria-live="polite" role={jobFailed ? 'alert' : 'status'}>
           {jobStatus}
-        </p>
-      ) : null}
-      {artifact !== null ? (
-        <p className="aw-muted-copy">
-          {t('resume.workspace.pdfMetadata', {
-            defaultValue: '{{pages}} 页 · {{size}}',
-            pages: artifact.pageCount ?? '—',
-            size: new Intl.NumberFormat(i18n.language, {
-              maximumFractionDigits: 1,
-              style: 'unit',
-              unit: 'megabyte',
-              unitDisplay: 'short'
-            }).format(artifact.sizeBytes / (1024 * 1024))
-          })}
         </p>
       ) : null}
       {isDisplayedPdfStale ? (

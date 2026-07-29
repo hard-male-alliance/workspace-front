@@ -452,9 +452,9 @@ describe('WorkspaceApp Resume editor', (): void => {
     )
     await waitForResumeEditor()
     fireEvent.click(screen.getByRole('button', { name: '生成 PDF 预览' }))
-    expect(
-      await screen.findByText('PDF 已生成。', undefined, { timeout: 5_000 })
-    ).toBeInTheDocument()
+    await screen.findByRole('button', { name: '下载预览 PDF' }, { timeout: 5_000 })
+    expect(screen.queryByText('PDF 已生成。')).not.toBeInTheDocument()
+    expect(screen.queryByText(/^\d+ 页 ·/u)).not.toBeInTheDocument()
 
     fireEvent.change(screen.getByRole('textbox', { name: '姓名' }), {
       target: { value: '尚未保存的新姓名' }
