@@ -119,17 +119,6 @@ export interface ResumeGateway {
   listResumeSummariesPage(input: UiResumeSummaryPageRead): Promise<UiResumeSummaryPage>
 
   /**
-   * @brief 永久删除一份简历 / Permanently delete one Resume.
-   * @param input 工作区、简历身份与取消信号 / Workspace, Resume identity, and cancellation signal.
-   * @return 服务端确认无内容后完成 / Completes after the service confirms no content.
-   */
-  deleteResume(input: {
-    readonly workspaceId: UiWorkspaceId
-    readonly resumeId: UiResumeId
-    readonly signal?: AbortSignal
-  }): Promise<void>
-
-  /**
    * @brief 获取三栏编辑器数据 / Get three-pane editor data.
    * @param workspaceId 授权路径所属 Workspace / Workspace owning the authorization path.
    * @param resumeId 简历 ID / Resume ID.

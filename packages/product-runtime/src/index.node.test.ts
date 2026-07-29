@@ -809,49 +809,6 @@ describe('API v2 Workspace ACL', (): void => {
 })
 
 describe('API v2 Resume ACL', (): void => {
-  it('reads the latest Resume ETag before permanent deletion', async (): Promise<void> => {
-    /** @brief 删除前读取权威表示的客户端 / Client reading authority before deletion. */
-    const client: ApiV2Client = {
-      getJson(): Promise<ApiV2JsonResponse> {
-        return Promise.resolve({
-          data: createdResumeDocument(),
-          headers: new Headers({
-            ETag: '"opaque-delete-etag"',
-            'X-Request-Id': 'req_resume_delete_read_12345678'
-          }),
-          status: 200
-        })
-      }
-    }
-    /** @brief 可观测的无内容删除端口 / Observable no-content deletion port. */
-    const deleteNoContent = vi.fn().mockResolvedValue({
-      metadata: {
-        entityTag: null,
-        location: null,
-        requestId: 'req_resume_delete_write_12345678'
-      },
-      status: 204
-    })
-    /** @brief 带永久删除能力的 Resume adapter / Resume adapter with permanent deletion. */
-    const gateway = createApiV2ResumeGateway(
-      client,
-      UNUSED_RESUME_OPERATIONS,
-      UNUSED_RESUME_JOBS,
-      undefined,
-      { deleteNoContent }
-    )
-
-    await gateway.deleteResume({
-      resumeId: asUiOpaqueId<'resume'>('resume_01K0CREATED000000000001'),
-      workspaceId: asUiOpaqueId<'workspace'>(RESUME_SUMMARY.workspace_id)
-    })
-
-    expect(deleteNoContent).toHaveBeenCalledWith(
-      `/workspaces/${RESUME_SUMMARY.workspace_id}/resumes/resume_01K0CREATED000000000001`,
-      expect.objectContaining({ ifMatch: '"opaque-delete-etag"' })
-    )
-  })
-
   it('读取完整 SIR，并把同一响应的强 ETag 与 camelCase 文档原子配对', async (): Promise<void> => {
     /** @brief 被单文档读取观察到的路径 / Path observed by the single-document read. */
     let observedPath: string | undefined

@@ -1348,29 +1348,10 @@ export function createApiV2ResumeGateway(
     waitForProposalContinuation(): Promise<never> {
       return Promise.reject(new Error('Resume assistant is not configured.'))
     }
-  },
-  deletionClient?: Pick<ApiV2HttpClient, 'deleteNoContent'>
+  }
 ): AppGateways['resume'] {
   return {
     assistant,
-    async deleteResume(input): Promise<void> {
-      if (deletionClient === undefined) {
-        throw new ApiV2ContractError('Resume deletion is not configured.')
-      }
-      /** @brief 删除前读取的最新强 ETag / Latest strong ETag read before deletion. */
-      const representation = await getWorkspaceResume(client, {
-        resumeId: input.resumeId,
-        ...(input.signal === undefined ? {} : { signal: input.signal }),
-        workspaceId: input.workspaceId
-      })
-      await deletionClient.deleteNoContent(
-        `/workspaces/${encodeURIComponent(input.workspaceId)}/resumes/${encodeURIComponent(input.resumeId)}`,
-        {
-          ifMatch: representation.entityTag,
-          ...(input.signal === undefined ? {} : { signal: input.signal })
-        }
-      )
-    },
     async deleteResumeSection(input): Promise<UiResumeEditorModel> {
       return applyResumeCommand(
         operationsClient,

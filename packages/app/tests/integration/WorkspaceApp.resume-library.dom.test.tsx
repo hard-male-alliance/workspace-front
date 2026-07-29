@@ -146,37 +146,6 @@ afterEach((): void => {
 })
 
 describe('ResumeListPage', (): void => {
-  it('permanently deletes a Resume only after explicit confirmation', async (): Promise<void> => {
-    /** @brief 待删除的简历摘要 / Resume summary to delete. */
-    const summary = createSummary(asUiOpaqueId<'resume'>('res_library_delete'), '待删除简历')
-    /** @brief 可观测的简历端口 / Observable Resume port. */
-    const resume = new InMemoryResumeGateway()
-    vi.spyOn(resume, 'listResumeSummariesPage').mockResolvedValue({
-      hasMore: false,
-      items: [summary],
-      nextCursor: null
-    })
-    /** @brief 永久删除命令观测器 / Permanent-deletion command observer. */
-    const deleteResume = vi.fn().mockResolvedValue(undefined)
-    Object.assign(resume, { deleteResume })
-
-    render(<ResumeListTestRoot gateways={createGateways(resume)} />)
-
-    fireEvent.click(await screen.findByRole('button', { name: '删除待删除简历' }))
-    expect(deleteResume).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: '确认永久删除' }))
-
-    await waitFor((): void => {
-      expect(deleteResume).toHaveBeenCalledWith(
-        expect.objectContaining({
-          resumeId: summary.id,
-          workspaceId: summary.workspaceId
-        })
-      )
-    })
-    expect(screen.queryByText('待删除简历')).not.toBeInTheDocument()
-  })
-
   it('renders an honest terminal empty state', async (): Promise<void> => {
     render(
       <ResumeListTestRoot gateways={createGateways(new InMemoryResumeGateway({ mode: 'empty' }))} />
