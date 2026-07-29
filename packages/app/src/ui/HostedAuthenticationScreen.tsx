@@ -47,7 +47,7 @@ function classifyHostedAuthorizationFailure(error: unknown): HostedAuthenticatio
 /**
  * @brief 呈现不处理凭证的共享 hosted identity 入口 / Present shared hosted-identity entry points that never handle credentials.
  * @param props locale、失败状态与授权动作 / Locale, failure state, and authorization action.
- * @return 登录、注册与恢复选择界面 / Sign-in, registration, and recovery choices.
+ * @return 登录与注册选择界面 / Sign-in and registration choices.
  */
 export function HostedAuthenticationScreen({
   failureReason,
@@ -84,7 +84,7 @@ export function HostedAuthenticationScreen({
     <main className="aw-hosted-auth-shell">
       <section aria-labelledby="hosted-auth-title" className="aw-hosted-auth-card">
         <div aria-hidden="true" className="aw-hosted-auth-mark">
-          I
+          墨
         </div>
         <p className="aw-hosted-auth-eyebrow">RoleStory · Job Workspace</p>
         <h1 id="hosted-auth-title">
@@ -147,14 +147,6 @@ export function HostedAuthenticationScreen({
             {isChinese ? '创建账户' : 'Create account'}
           </button>
         </div>
-        <button
-          className="aw-hosted-auth-recovery"
-          disabled={isLoading || isPersistentLoginUnsupported}
-          onClick={() => void authorize('recovery')}
-          type="button"
-        >
-          {isChinese ? '无法登录？恢复账户' : 'Cannot sign in? Recover account'}
-        </button>
       </section>
     </main>
   )
