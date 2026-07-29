@@ -68,7 +68,6 @@ function createKnowledgeGateway(overrides: Partial<KnowledgeGateway>): Knowledge
     Promise.reject(new Error('Unexpected KnowledgeGateway call.'))
   return {
     createManualKnowledgeNote: unexpected,
-    deleteKnowledgeSource: unexpected,
     getKnowledgeSource: unexpected,
     ingestKnowledgeFile: unexpected,
     listKnowledgeSourcePage: unexpected,
@@ -300,36 +299,6 @@ describe('Knowledge API v2 presentation', (): void => {
 
     expect(await screen.findByText('阶段三唯一检索标记')).toBeVisible()
     expect(screen.getByText(/paragraph\/1#chunk=0/u)).toBeVisible()
-  })
-
-  it('keeps a knowledge source visible until its permanent deletion job succeeds', async (): Promise<void> => {
-    /** @brief 待永久删除的知识来源 / Knowledge source awaiting permanent deletion. */
-    const source = createSource('待删除资料', 'source-awaiting-deletion')
-    /** @brief 由测试控制的异步删除任务 / Asynchronous deletion job controlled by the test. */
-    const deletion = createDeferred<void>()
-    /** @brief 未来 Knowledge 端口的删除命令替身 / Stand-in for the future Knowledge deletion command. */
-    const deleteKnowledgeSource = vi.fn(() => deletion.promise)
-    /** @brief 被测 Knowledge 端口 / Knowledge port under test. */
-    const knowledge = createKnowledgeGateway({
-      listKnowledgeSourcePage: () => Promise.resolve(terminalPage([source]))
-    })
-    Object.assign(knowledge, { deleteKnowledgeSource })
-
-    renderKnowledgeRoute(<KnowledgePage />, '/knowledge', createTestGateways({ knowledge }))
-
-    expect(await screen.findByRole('heading', { name: source.name })).toBeVisible()
-    fireEvent.click(screen.getByRole('button', { name: `删除${source.name}` }))
-    expect(deleteKnowledgeSource).not.toHaveBeenCalled()
-
-    fireEvent.click(screen.getByRole('button', { name: '确认永久删除' }))
-    await waitFor((): void => expect(deleteKnowledgeSource).toHaveBeenCalledTimes(1))
-    expect(screen.getByText('正在删除…')).toBeVisible()
-    expect(screen.getByRole('heading', { name: source.name })).toBeVisible()
-
-    act((): void => deletion.resolve(undefined))
-    await waitFor((): void => {
-      expect(screen.queryByRole('heading', { name: source.name })).not.toBeInTheDocument()
-    })
   })
 
   it('keeps accepted items and retries a rejected duplicate page with the identical cursor', async (): Promise<void> => {

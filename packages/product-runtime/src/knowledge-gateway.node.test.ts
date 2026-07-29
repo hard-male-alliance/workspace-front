@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   ApiV2ContractError,
-  type ApiV2AcceptedResourceResponse,
   type ApiV2CreatedResourceResponse,
   type ApiV2HttpClient,
   type ApiV2JsonResponse,
@@ -160,37 +159,6 @@ function updatedResponse(data: unknown): ApiV2UpdatedWriteJsonResponse {
       requestId: REQUEST_ID
     },
     status: 200
-  }
-}
-
-/** @brief 构造已成功完成的知识删除 Job 响应 / Build an accepted response containing a succeeded Knowledge deletion Job. */
-function acceptedDeletionResponse(): ApiV2AcceptedResourceResponse {
-  return {
-    data: {
-      created_at: '2026-07-29T12:00:00Z',
-      finished_at: '2026-07-29T12:00:01Z',
-      id: 'job_knowledge_delete_000001',
-      kind: 'knowledge.delete',
-      problem: null,
-      progress: null,
-      result_refs: [],
-      revision: 1,
-      started_at: '2026-07-29T12:00:00Z',
-      status: 'succeeded',
-      subject: {
-        id: SOURCE_ID,
-        resource_type: 'knowledge_source',
-        revision: 2
-      },
-      updated_at: '2026-07-29T12:00:01Z',
-      workspace_id: WORKSPACE_ID
-    },
-    metadata: {
-      entityTag: '"job-knowledge-delete-1"',
-      location: `https://api.hmalliances.org/api/v2/workspaces/${WORKSPACE_ID}/jobs/job_knowledge_delete_000001`,
-      requestId: REQUEST_ID
-    },
-    status: 202
   }
 }
 
@@ -413,33 +381,5 @@ describe('ApiV2KnowledgeGateway API v2 runtime boundary', (): void => {
         visibility: { sessionOverrideAllowed: true }
       }
     })
-  })
-
-  it('uses the latest source ETag and waits for a successful permanent deletion job', async (): Promise<void> => {
-    /** @brief 最新来源读取 / Latest source read. */
-    const getJson = vi.fn().mockResolvedValue(readResponse(knowledgeSource()))
-    /** @brief 异步删除请求 / Asynchronous deletion request. */
-    const deleteAcceptedJson = vi.fn().mockResolvedValue(acceptedDeletionResponse())
-    /** @brief 被测生产 Gateway / Production Gateway under test. */
-    const gateway = new ApiV2KnowledgeGateway({
-      deleteAcceptedJson,
-      getJson
-    } as unknown as ApiV2HttpClient)
-    /** @brief 当前调用取消信号 / Current call cancellation signal. */
-    const signal = new AbortController().signal
-
-    await gateway.deleteKnowledgeSource({
-      signal,
-      sourceId: asUiOpaqueId<'knowledge-source'>(SOURCE_ID),
-      workspaceId: asUiOpaqueId<'workspace'>(WORKSPACE_ID)
-    })
-
-    expect(deleteAcceptedJson).toHaveBeenCalledWith(
-      `/workspaces/${WORKSPACE_ID}/knowledge-sources/${SOURCE_ID}`,
-      {
-        ifMatch: ENTITY_TAG,
-        signal
-      }
-    )
   })
 })
