@@ -382,15 +382,13 @@ async function inspectAuthenticationEntry(page) {
     name: /(?:Continue to your job workspace|继续你的求职工作区)/u
   })
   await heading.waitFor({ state: 'visible', timeout: 10_000 })
-  /** @brief 登录、注册与恢复三个显式入口 / Three explicit sign-in, registration, and recovery entries. */
+  /** @brief 登录与注册两个显式入口 / Two explicit sign-in and registration entries. */
   const actionCount = await page.getByRole('button').count()
   /** @brief renderer 根节点的可见文本长度 / Visible text length of the renderer root. */
   const rootTextLength = (await page.locator('#root').textContent())?.trim().length ?? 0
 
-  if (actionCount !== 3 || rootTextLength <= 0) {
-    throw new Error(
-      'Desktop authentication entry must expose three hosted actions and visible copy.'
-    )
+  if (actionCount !== 2 || rootTextLength <= 0) {
+    throw new Error('Desktop authentication entry must expose two hosted actions and visible copy.')
   }
   assertTrustedRendererUrl(page.url())
   return {
