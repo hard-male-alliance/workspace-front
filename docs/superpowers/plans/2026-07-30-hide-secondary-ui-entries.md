@@ -19,6 +19,7 @@
 ### Task 1: Hide resume secondary navigation
 
 **Files:**
+
 - Modify: `packages/app/src/contexts/resume/presentation/ResumeWorkspace.tsx`
 - Test: `packages/app/tests/integration/WorkspaceApp.resume-editor.dom.test.tsx`
 
@@ -30,6 +31,7 @@
 ### Task 2: Hide observable communication metrics
 
 **Files:**
+
 - Modify: `packages/app/src/contexts/interview/presentation/InterviewRoomPage.tsx`
 - Test: the smallest existing interview report DOM test that renders `LoadedSummary`
 
@@ -41,6 +43,7 @@
 ### Task 3: Hide the knowledge-search entry
 
 **Files:**
+
 - Modify: `packages/app/src/contexts/knowledge/presentation/KnowledgePage.tsx`
 - Test: `packages/app/src/contexts/knowledge/presentation/KnowledgePages.dom.test.tsx`
 
@@ -52,10 +55,10 @@
 ### Task 4: Focused verification
 
 **Files:**
+
 - Verify all modified files.
 
 - [ ] Run Prettier check on the modified files.
 - [ ] Run the three targeted DOM tests.
 - [ ] Run TypeScript typecheck if the targeted tests expose a shared compilation failure.
 - [ ] Review `git diff --check` and confirm no route, gateway, contract, or backend changes exist.
-

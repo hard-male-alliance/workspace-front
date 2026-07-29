@@ -719,7 +719,7 @@ export function KnowledgePage(): React.JSX.Element {
           </p>
         </div>
         <div className="aw-inline-actions">
-          <Link className="aw-quiet-button" to="/knowledge/search">
+          <Link className="aw-quiet-button" hidden to="/knowledge/search">
             <Search aria-hidden="true" size={15} />
             搜索知识库
           </Link>

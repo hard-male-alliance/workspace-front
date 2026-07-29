@@ -749,7 +749,7 @@ function InterviewReportBody({ report, scenario }: InterviewReportBodyProps): Re
         </section>
       </div>
 
-      <section className="aw-summary-section">
+      <section className="aw-summary-section" hidden>
         <div className="aw-section-heading">
           <div>
             <h2>{t('interviewSummary.communication', { defaultValue: '可观察沟通指标' })}</h2>

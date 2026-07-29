@@ -345,6 +345,8 @@ describe('WorkspaceApp interview workflow', (): void => {
     expect(await screen.findByRole('heading', { name: 'AI Platform Engineer' })).toBeInTheDocument()
     expect(await screen.findByText('82 / 100')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '能力维度' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '可观察沟通指标' })).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '下一次练习' })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: '评分证据' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '面试转录' })).toBeInTheDocument()
     expect(

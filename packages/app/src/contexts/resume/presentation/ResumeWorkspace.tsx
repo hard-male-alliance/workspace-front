@@ -2996,6 +2996,7 @@ export function ResumeWorkspace({
             defaultValue: '打开模板与样式设置'
           })}
           className="aw-tab"
+          hidden
           onClick={(event): void => {
             if (isWriteLocked) event.preventDefault()
           }}
@@ -3004,13 +3005,14 @@ export function ResumeWorkspace({
           <Settings2 aria-hidden="true" size={15} />
           {t('resume.templateSettings', { defaultValue: '模板设置' })}
         </Link>
-        <Link className="aw-tab" to={`/resumes/${editor.resume.id}/review?tab=proposals`}>
+        <Link className="aw-tab" hidden to={`/resumes/${editor.resume.id}/review?tab=proposals`}>
           <History aria-hidden="true" size={15} />
           {t('resume.review.shortTitle', { defaultValue: '版本与建议' })}
         </Link>
         <Link
           aria-disabled={isWriteLocked}
           className="aw-tab"
+          hidden
           onClick={(event): void => {
             if (isWriteLocked) event.preventDefault()
           }}
@@ -3047,7 +3049,7 @@ export function ResumeWorkspace({
             label={t('resume.workspace.previewWindow', { defaultValue: '预览' })}
             onToggle={(): void => togglePane('preview')}
             trailing={
-              <span className="aw-resume-workspace-links">
+              <span className="aw-resume-workspace-links" hidden>
                 <Link
                   aria-disabled={isWriteLocked}
                   className="aw-template-settings-link"
