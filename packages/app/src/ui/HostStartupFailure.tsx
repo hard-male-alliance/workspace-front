@@ -71,7 +71,7 @@ export function HostStartupFailure({
         className="aw-host-startup-card"
         role="alert"
       >
-        <p className="aw-host-startup-eyebrow">Inkwell · Job Workspace</p>
+        <p className="aw-host-startup-eyebrow">RoleStory · Job Workspace</p>
         <h1 id="host-startup-error-title">{copy.title}</h1>
         <p>{copy.message}</p>
         {detail === undefined ? null : <p>{detail}</p>}

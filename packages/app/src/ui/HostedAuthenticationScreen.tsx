@@ -86,7 +86,7 @@ export function HostedAuthenticationScreen({
         <div aria-hidden="true" className="aw-hosted-auth-mark">
           I
         </div>
-        <p className="aw-hosted-auth-eyebrow">Inkwell · Job Workspace</p>
+        <p className="aw-hosted-auth-eyebrow">RoleStory · Job Workspace</p>
         <h1 id="hosted-auth-title">
           {isChinese ? '继续你的求职工作区' : 'Continue to your job workspace'}
         </h1>

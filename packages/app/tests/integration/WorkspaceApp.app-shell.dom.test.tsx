@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { InMemoryIdentityGateway, InMemoryWorkspaceGateway } from '@ai-job-workspace/app/testing'
 import { ApiV2ProblemError } from '@ai-job-workspace/product-api-v2'
 import { asUiEmailAddress, asUiPrincipalSubject } from '../../src/contexts/identity'
-import { asUiWorkspaceCursor, asUiWorkspaceSlug } from '../../src/contexts/workspace'
+import { asUiWorkspaceSlug } from '../../src/contexts/workspace'
 import { asUiOpaqueId } from '../../src/shared-kernel/identity'
 
 import {
@@ -158,7 +158,7 @@ describe('WorkspaceApp app shell', (): void => {
     render(<AccountSwitchHarness accountA={accountA} accountB={accountB} />)
 
     expect(await screen.findByText('Account Alpha')).toBeInTheDocument()
-    expect(screen.getAllByText('Alpha Workspace').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Alpha Workspace')).not.toBeInTheDocument()
     expect(screen.queryByText('Account Beta')).not.toBeInTheDocument()
     expect(screen.queryByText('Beta Workspace')).not.toBeInTheDocument()
 
@@ -170,7 +170,7 @@ describe('WorkspaceApp app shell', (): void => {
     fireEvent.click(screen.getByRole('button', { name: 'Establish account B session' }))
 
     expect(await screen.findByText('Account Beta')).toBeInTheDocument()
-    expect(screen.getAllByText('Beta Workspace').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Beta Workspace')).not.toBeInTheDocument()
     expect(screen.queryByText('Account Alpha')).not.toBeInTheDocument()
     expect(screen.queryByText('Alpha Workspace')).not.toBeInTheDocument()
   })
@@ -219,16 +219,16 @@ describe('WorkspaceApp app shell', (): void => {
 
     expect(screen.getByText('Ada Lovelace')).toBeInTheDocument()
     expect(screen.getByText('A', { selector: '.aw-avatar' })).toBeInTheDocument()
-    expect(screen.getAllByText('Production Workspace').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Production Workspace')).not.toBeInTheDocument()
     expect(screen.queryByText('Klee')).not.toBeInTheDocument()
     expect(loadCurrentUser).toHaveBeenCalledTimes(1)
     expect(listWorkspaceAccessPage).toHaveBeenCalledTimes(1)
   })
 
-  it('requires an explicit selection when authority has no valid default Workspace', async (): Promise<void> => {
+  it('uses the first accessible Workspace when authority has no valid default', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
     /** @brief 无默认 Workspace 的身份权威 / Identity authority without a default Workspace. */
-    const { currentUser, firstAccess } = await readDemoAuthority()
+    const { currentUser } = await readDemoAuthority()
     /** @brief 测试 Identity gateway / Test Identity gateway. */
     const identity = {
       loadCurrentUser: vi.fn().mockResolvedValue({ ...currentUser, defaultWorkspaceId: null })
@@ -236,67 +236,8 @@ describe('WorkspaceApp app shell', (): void => {
 
     render(<WorkspaceApp gateways={createTestGateways({ identity })} initialPath="/" />)
 
-    expect(await screen.findByRole('heading', { name: '选择工作区' })).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: '今日工作台' })).not.toBeInTheDocument()
-
-    fireEvent.change(screen.getByRole('combobox', { name: '当前工作区' }), {
-      target: { value: firstAccess.workspace.id }
-    })
-
     expect(await screen.findByRole('heading', { name: '今日工作台' })).toBeInTheDocument()
-  })
-
-  it('switches Workspace explicitly and reloads Workspace-scoped route data', async (): Promise<void> => {
-    await setWorkspaceAppTestLocale('zh-SG')
-    /** @brief 测试身份权威 / Test Identity authority. */
-    const { currentUser, firstAccess } = await readDemoAuthority()
-    /** @brief 第二个测试 WorkspaceAccess / Second test WorkspaceAccess. */
-    const secondAccess = {
-      ...firstAccess,
-      memberId: asUiOpaqueId<'workspace-member'>('member_second_editor'),
-      role: 'editor' as const,
-      workspace: {
-        ...firstAccess.workspace,
-        id: asUiOpaqueId<'workspace'>('ws_second'),
-        name: 'Second Workspace',
-        slug: asUiWorkspaceSlug('second-workspace')
-      }
-    }
-    const gateways = createTestGateways({
-      identity: {
-        loadCurrentUser: vi
-          .fn()
-          .mockResolvedValue({ ...currentUser, defaultWorkspaceId: firstAccess.workspace.id })
-      },
-      workspace: {
-        listWorkspaceAccessPage: vi.fn().mockResolvedValue({
-          hasMore: false,
-          items: [firstAccess, secondAccess],
-          nextCursor: null
-        })
-      }
-    })
-    const listResumeSummariesPage = vi.spyOn(gateways.resume, 'listResumeSummariesPage')
-    const listKnowledgeSourcePage = vi.spyOn(gateways.knowledge, 'listKnowledgeSourcePage')
-    const listInterviewSessionPage = vi.spyOn(gateways.interview, 'listInterviewSessionPage')
-
-    render(<WorkspaceApp gateways={gateways} initialPath="/" />)
-
-    await screen.findByRole('heading', { name: '今日工作台' })
-    fireEvent.change(screen.getByRole('combobox', { name: '当前工作区' }), {
-      target: { value: secondAccess.workspace.id }
-    })
-
-    await waitFor((): void => {
-      expect(screen.getByRole('combobox', { name: '当前工作区' })).toHaveValue(
-        secondAccess.workspace.id
-      )
-      expect(listResumeSummariesPage).toHaveBeenCalledWith(
-        expect.objectContaining({ workspaceId: secondAccess.workspace.id })
-      )
-      expect(listKnowledgeSourcePage).not.toHaveBeenCalled()
-      expect(listInterviewSessionPage).not.toHaveBeenCalled()
-    })
+    expect(screen.queryByRole('combobox', { name: '当前工作区' })).not.toBeInTheDocument()
   })
 
   it('shows the selected WorkspaceAccess role, plan, and data region', async (): Promise<void> => {
@@ -311,153 +252,6 @@ describe('WorkspaceApp app shell', (): void => {
     expect(within(authority).getByText('个人版')).toBeInTheDocument()
     expect(within(authority).getByText('中国大陆')).toBeInTheDocument()
     expect(within(authority).queryByText('member_mock_klee_owner')).not.toBeInTheDocument()
-  })
-
-  it('appends WorkspaceAccess pages with the opaque cursor and keeps the new access selectable', async (): Promise<void> => {
-    await setWorkspaceAppTestLocale('zh-SG')
-    /** @brief 默认 Identity 与首个 WorkspaceAccess / Default Identity and first WorkspaceAccess. */
-    const { firstAccess } = await readDemoAuthority()
-    /** @brief 服务端签发的后续页 cursor / Server-issued cursor for the next page. */
-    const nextCursor = asUiWorkspaceCursor('workspace_cursor_second_page')
-    /** @brief 第二页返回的访问权威 / Access authority returned by the second page. */
-    const secondAccess = {
-      ...firstAccess,
-      memberId: asUiOpaqueId<'workspace-member'>('member_second_viewer'),
-      role: 'viewer' as const,
-      workspace: {
-        ...firstAccess.workspace,
-        dataRegion: 'global' as const,
-        id: asUiOpaqueId<'workspace'>('ws_second_page'),
-        name: 'Second Page Workspace',
-        plan: 'team' as const,
-        slug: asUiWorkspaceSlug('second-page-workspace')
-      }
-    }
-    /** @brief 按 cursor 返回固定页面的 Workspace gateway / Workspace gateway returning fixed pages by cursor. */
-    const listWorkspaceAccessPage = vi.fn(
-      (request: Parameters<InMemoryWorkspaceGateway['listWorkspaceAccessPage']>[0]) => {
-        request.signal.throwIfAborted()
-        return Promise.resolve(
-          request.cursor === null
-            ? { hasMore: true as const, items: [firstAccess], nextCursor }
-            : { hasMore: false as const, items: [secondAccess], nextCursor: null }
-        )
-      }
-    )
-
-    render(
-      <WorkspaceApp
-        gateways={createTestGateways({ workspace: { listWorkspaceAccessPage } })}
-        initialPath="/"
-      />
-    )
-
-    await screen.findByRole('heading', { name: '今日工作台' })
-    fireEvent.click(screen.getByRole('button', { name: '加载更多工作区' }))
-
-    expect(await screen.findByRole('option', { name: 'Second Page Workspace' })).toBeInTheDocument()
-    /** @brief 实际发出的第二页请求 / Actual second-page request. */
-    const secondPageRequest = listWorkspaceAccessPage.mock.calls[1]?.[0]
-    expect(secondPageRequest).toMatchObject({ cursor: nextCursor, limit: 200 })
-    expect(secondPageRequest?.signal).toBeInstanceOf(AbortSignal)
-    expect(screen.queryByRole('button', { name: '加载更多工作区' })).not.toBeInTheDocument()
-  })
-
-  it('keeps a failed WorkspaceAccess page retryable with the same opaque cursor', async (): Promise<void> => {
-    await setWorkspaceAppTestLocale('zh-SG')
-    /** @brief 默认首个 WorkspaceAccess / Default first WorkspaceAccess. */
-    const { firstAccess } = await readDemoAuthority()
-    /** @brief 重试必须复用的服务端 cursor / Server cursor that the retry must reuse. */
-    const nextCursor = asUiWorkspaceCursor('workspace_cursor_retry')
-    /** @brief 下一页读取次数 / Number of next-page reads. */
-    let nextPageAttempts = 0
-    /** @brief 首次失败、重试成功的 Workspace gateway / Workspace gateway failing once and succeeding on retry. */
-    const listWorkspaceAccessPage = vi.fn(
-      (request: Parameters<InMemoryWorkspaceGateway['listWorkspaceAccessPage']>[0]) => {
-        request.signal.throwIfAborted()
-        if (request.cursor === null) {
-          return Promise.resolve({ hasMore: true as const, items: [firstAccess], nextCursor })
-        }
-        nextPageAttempts += 1
-        if (nextPageAttempts === 1) return Promise.reject(new Error('private adapter detail'))
-        return Promise.resolve({ hasMore: false as const, items: [], nextCursor: null })
-      }
-    )
-
-    render(
-      <WorkspaceApp
-        gateways={createTestGateways({ workspace: { listWorkspaceAccessPage } })}
-        initialPath="/"
-      />
-    )
-
-    await screen.findByRole('heading', { name: '今日工作台' })
-    fireEvent.click(screen.getByRole('button', { name: '加载更多工作区' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('无法加载更多工作区，请重试。')
-    expect(document.body).not.toHaveTextContent('private adapter detail')
-
-    fireEvent.click(screen.getByRole('button', { name: '重试加载工作区' }))
-    await waitFor((): void => expect(nextPageAttempts).toBe(2))
-    expect(listWorkspaceAccessPage.mock.calls.slice(1).map(([request]) => request.cursor)).toEqual([
-      nextCursor,
-      nextCursor
-    ])
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-  })
-
-  it('aborts an in-flight WorkspaceAccess page when the shell unmounts', async (): Promise<void> => {
-    await setWorkspaceAppTestLocale('zh-SG')
-    /** @brief 默认首个 WorkspaceAccess / Default first WorkspaceAccess. */
-    const { firstAccess } = await readDemoAuthority()
-    /** @brief 后续页 cursor / Next-page cursor. */
-    const nextCursor = asUiWorkspaceCursor('workspace_cursor_pending')
-    /** @brief 被页面请求拥有的取消信号 / Cancellation signal owned by the page request. */
-    let pageSignal: AbortSignal | undefined
-    /** @brief 第二页保持 pending 的 Workspace gateway / Workspace gateway keeping its second page pending. */
-    const listWorkspaceAccessPage = vi.fn(
-      (request: Parameters<InMemoryWorkspaceGateway['listWorkspaceAccessPage']>[0]) => {
-        if (request.cursor === null) {
-          return Promise.resolve({ hasMore: true as const, items: [firstAccess], nextCursor })
-        }
-        pageSignal = request.signal
-        return new Promise<never>(() => undefined)
-      }
-    )
-    /** @brief 被测应用卸载动作 / Unmount action for the tested app. */
-    const { unmount } = render(
-      <WorkspaceApp
-        gateways={createTestGateways({ workspace: { listWorkspaceAccessPage } })}
-        initialPath="/"
-      />
-    )
-
-    await screen.findByRole('heading', { name: '今日工作台' })
-    fireEvent.click(screen.getByRole('button', { name: '加载更多工作区' }))
-    await waitFor((): void => expect(pageSignal).toBeDefined())
-    unmount()
-
-    expect(pageSignal?.aborted).toBe(true)
-  })
-
-  it('shows a safe error when the Workspace picker rejects a stale selection', async (): Promise<void> => {
-    await setWorkspaceAppTestLocale('zh-SG')
-    /** @brief 测试身份权威 / Test Identity authority. */
-    const { currentUser } = await readDemoAuthority()
-
-    render(<WorkspaceApp gateways={createTestGateways()} initialPath="/" />)
-
-    await screen.findByRole('heading', { name: '今日工作台' })
-    fireEvent.change(screen.getByRole('combobox', { name: '当前工作区' }), {
-      target: { value: '' }
-    })
-
-    expect(await screen.findByText('无法切换工作区，请刷新访问权限后重试。')).toHaveAttribute(
-      'role',
-      'alert'
-    )
-    expect(screen.getByRole('combobox', { name: '当前工作区' })).toHaveValue(
-      currentUser.defaultWorkspaceId
-    )
   })
 
   it('does not invent an account while the Workspace authority is loading', async (): Promise<void> => {
@@ -592,10 +386,31 @@ describe('WorkspaceApp app shell', (): void => {
     expect(screen.getByRole('link', { name: '知识库' })).toHaveAttribute('href', '/knowledge')
     expect(screen.queryByRole('link', { name: '可见性' })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: '状态' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '反馈' })).toHaveAttribute('aria-disabled', 'true')
-    expect(screen.getByRole('button', { name: '反馈' })).toHaveAccessibleDescription(
-      '反馈功能正在准备中，目前无法提交。'
+    expect(screen.queryByRole('button', { name: '反馈' })).not.toBeInTheDocument()
+  })
+
+  it('renders simplified RoleStory chrome without placeholder or workspace controls', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('en-US')
+    /** @brief 当前测试身份与默认工作区 / Current test identity and default Workspace. */
+    const { currentUser, firstAccess } = await readDemoAuthority()
+
+    const { container } = render(<WorkspaceApp initialPath="/" />)
+
+    await screen.findByRole('heading', { name: "Today's workspace" })
+    expect(screen.getByRole('link', { name: 'RoleStory workspace home' })).toHaveTextContent(
+      'RoleStory'
     )
+    expect(screen.queryByRole('button', { name: 'Feedback' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: 'Current workspace' })).not.toBeInTheDocument()
+
+    /** @brief 左下角精简后的账户区域 / Simplified account region in the lower-left corner. */
+    const account = container.querySelector('.aw-account')
+    expect(account).not.toBeNull()
+    if (account === null) throw new Error('Expected the account region.')
+    expect(within(account).getByText(currentUser.displayName)).toBeInTheDocument()
+    expect(within(account).queryByText(firstAccess.workspace.name)).not.toBeInTheDocument()
+    expect(within(account).queryByText('Owner')).not.toBeInTheDocument()
+    expect(within(account).queryByText('Personal')).not.toBeInTheDocument()
   })
 
   it('renders English chrome and retains accessible names for compact navigation', async (): Promise<void> => {

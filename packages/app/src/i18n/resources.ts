@@ -5,7 +5,7 @@ export const zhSGTranslation = {
   app: {
     name: '求职工作台',
     tagline: '把准备、练习和复盘放在同一个工作流里。',
-    homeAria: 'Inkwell 工作区首页'
+    homeAria: 'RoleStory 工作区首页'
   },
   nav: {
     primary: '主导航',
@@ -1131,7 +1131,7 @@ export const enUSTranslation = {
   app: {
     name: 'Career Workspace',
     tagline: 'Prepare, practise, and reflect in one workflow.',
-    homeAria: 'Inkwell workspace home'
+    homeAria: 'RoleStory workspace home'
   },
   nav: {
     primary: 'Primary navigation',
