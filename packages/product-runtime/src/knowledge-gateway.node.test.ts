@@ -174,6 +174,49 @@ function createCommand(): UiCreateManualKnowledgeNoteCommand {
 }
 
 describe('ApiV2KnowledgeGateway API v2 runtime boundary', (): void => {
+  it('reads an authenticated byte range and preserves exact original text bytes', async (): Promise<void> => {
+    /** @brief 包含换行与空格的原始 UTF-8 字节 / Original UTF-8 bytes containing newlines and spaces. */
+    const original = new TextEncoder().encode('第一行\n  第二行\n')
+    /** @brief 模拟受保护内容读取 / Mock protected-content read. */
+    const getAuthenticatedContent = vi.fn().mockResolvedValue(
+      new Response(original, {
+        headers: {
+          'Content-Length': String(original.byteLength),
+          'Content-Range': `bytes 0-${original.byteLength - 1}/${original.byteLength}`,
+          'Content-Type': 'text/plain; charset=utf-8'
+        },
+        status: 206
+      })
+    )
+    const gateway = new ApiV2KnowledgeGateway({
+      getAuthenticatedContent
+    } as unknown as ApiV2HttpClient)
+    const signal = new AbortController().signal
+
+    const content = await gateway.getKnowledgeSourceOriginalContent({
+      maximumBytes: 1024,
+      signal,
+      sourceId: asUiOpaqueId<'knowledge-source'>(SOURCE_ID),
+      workspaceId: asUiOpaqueId<'workspace'>(WORKSPACE_ID)
+    })
+
+    expect(getAuthenticatedContent).toHaveBeenCalledWith(
+      `/workspaces/${WORKSPACE_ID}/knowledge-sources/${SOURCE_ID}/original-content`,
+      {
+        ifRange: null,
+        maxResponseBytes: 1024,
+        range: 'bytes=0-1023',
+        signal
+      }
+    )
+    expect(content).toEqual({
+      bytes: original,
+      complete: true,
+      mediaType: 'text/plain; charset=utf-8',
+      totalSizeBytes: original.byteLength
+    })
+  })
+
   it('maps one Workspace cursor page without flattening canonical lifecycle facts', async (): Promise<void> => {
     const getJson = vi.fn().mockResolvedValue(
       readResponse({

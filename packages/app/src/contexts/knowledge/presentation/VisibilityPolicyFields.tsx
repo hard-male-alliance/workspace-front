@@ -30,6 +30,17 @@ const KNOWLEDGE_MODEL_REGIONS: readonly UiKnowledgeModelRegion[] = [
 /** @brief Agent scope 的 canonical 开放枚举格式 / Canonical open-enum format for an Agent scope. */
 const AGENT_SCOPE_PATTERN = /^[a-z][a-z0-9_.-]{2,100}$/u
 
+/** @brief 手工笔记面向产品功能的用途预设 / Product-facing usage preset for a manual note. */
+export type KnowledgeUsagePreset = 'stored_only' | 'resume' | 'interview' | 'resume_and_interview'
+
+/** @brief AI 用途预设统一允许的只读知识操作 / Read-only Knowledge operations shared by AI usage presets. */
+const AI_USAGE_OPERATIONS: readonly UiKnowledgeOperation[] = [
+  'retrieve',
+  'quote',
+  'summarize',
+  'derive'
+]
+
 /** @brief 完整策略表单属性 / Complete-policy form properties. */
 export interface VisibilityPolicyFieldsProps {
   /** @brief 当前完整策略草稿 / Current complete policy draft. */
@@ -65,6 +76,65 @@ export function createSafeKnowledgeVisibilityPolicy(): UiKnowledgeVisibilityPoli
     sensitivity: 'confidential',
     sessionOverrideAllowed: false
   }
+}
+
+/**
+ * @brief 将产品用途应用到完整可见性策略 / Apply a product usage preset to a complete visibility policy.
+ * @param policy 当前完整策略 / Current complete policy.
+ * @param preset 用户选择的产品用途 / Product usage selected by the user.
+ * @return 保留非产品 Agent 规则并更新已知功能规则的新策略 / New policy preserving non-product Agent grants while updating known feature grants.
+ * @note 本函数只配置来源权限，不修改任何 Resume Assistant 运行逻辑 / This configures source authorization only and does not modify Resume Assistant runtime logic.
+ */
+export function applyKnowledgeUsagePreset(
+  policy: UiKnowledgeVisibilityPolicy,
+  preset: KnowledgeUsagePreset
+): UiKnowledgeVisibilityPolicy {
+  /** @brief 不属于产品预设的自定义 Agent 规则 / Custom Agent grants outside the product preset. */
+  const customGrants = policy.agentGrants.filter(
+    (grant) => grant.agentScope !== 'resume_assistant' && grant.agentScope !== 'interview_coach'
+  )
+  /** @brief 预设要求的产品 Agent scope / Product Agent scopes required by the preset. */
+  const scopes =
+    preset === 'resume_and_interview'
+      ? ['resume_assistant', 'interview_coach']
+      : preset === 'resume'
+        ? ['resume_assistant']
+        : preset === 'interview'
+          ? ['interview_coach']
+          : []
+  /** @brief 是否需要模型处理和自动摄取 / Whether model processing and automatic ingestion are required. */
+  const usesAi = scopes.length > 0
+  return {
+    ...policy,
+    agentGrants: [
+      ...customGrants,
+      ...scopes.map((agentScope) => ({
+        agentScope,
+        allowedOperations: [...AI_USAGE_OPERATIONS],
+        effect: 'allow' as const
+      }))
+    ],
+    allowExternalModelProcessing: usesAi,
+    allowedModelRegions: usesAi ? ['global'] : policy.allowedModelRegions,
+    sessionOverrideAllowed: usesAi
+  }
+}
+
+/**
+ * @brief 判断策略是否要求自动摄取供 AI 使用 / Determine whether a policy requires automatic ingestion for AI use.
+ * @param policy 当前完整来源策略 / Current complete source policy.
+ * @return 存在已知 AI 检索授权且允许外部处理时为 true / True when a known AI retrieval grant and external processing are enabled.
+ */
+export function shouldAutomaticallyIngestKnowledge(policy: UiKnowledgeVisibilityPolicy): boolean {
+  return (
+    policy.allowExternalModelProcessing &&
+    policy.agentGrants.some(
+      (grant) =>
+        (grant.agentScope === 'resume_assistant' || grant.agentScope === 'interview_coach') &&
+        grant.effect === 'allow' &&
+        grant.allowedOperations.includes('retrieve')
+    )
+  )
 }
 
 /**
@@ -203,22 +273,16 @@ export function VisibilityPolicyFields({
         <label className="aw-editor-field">
           <span>{t('visibility.policyVersionLabel', { defaultValue: '策略领域版本' })}</span>
           <input
-            disabled={disabled}
+            disabled
             inputMode="numeric"
             min={1}
-            onChange={(event): void => {
-              onChange({
-                ...value,
-                policyVersion: event.currentTarget.valueAsNumber
-              })
-            }}
             step={1}
             type="number"
             value={value.policyVersion}
           />
           <small>
             {t('visibility.policyVersionHelp', {
-              defaultValue: '这是策略模型版本，不是 HTTP ETag。'
+              defaultValue: '保存策略变更时由系统自动递增，不是 HTTP ETag。'
             })}
           </small>
         </label>

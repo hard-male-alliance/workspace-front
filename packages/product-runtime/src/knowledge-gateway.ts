@@ -1,14 +1,13 @@
 /** @file API v2 KnowledgeSource 生产防腐层 / Production anti-corruption layer for API v2 KnowledgeSource. */
 
 import {
-  cancelWorkspaceJob,
   createKnowledgeWorkflowApi,
   createWorkspaceKnowledgeSource,
   getWorkspaceKnowledgeSource,
   listWorkspaceKnowledgeSourcePage,
   updateWorkspaceKnowledgeSource,
+  ApiV2ContractError,
   type ApiV2HttpClient,
-  type Job,
   type KnowledgeWorkflowApi,
   type KnowledgeSource,
   type KnowledgeSourceRepresentation,
@@ -26,6 +25,9 @@ import {
   type KnowledgeGateway,
   type UiCreateManualKnowledgeNoteCommand,
   type UiIngestKnowledgeFileCommand,
+  type UiIngestKnowledgeSourceCommand,
+  type UiKnowledgeOriginalContent,
+  type UiKnowledgeOriginalContentRead,
   type UiKnowledgeSearchResult,
   type UiKnowledgeSourcePageRead,
   type UiKnowledgeSourceRead,
@@ -43,10 +45,70 @@ import {
 } from '@ai-job-workspace/app/application'
 
 const MAXIMUM_KNOWLEDGE_FILE_BYTES = 10 * 1024 * 1024
-const MAXIMUM_INGESTION_WAIT_MILLISECONDS = 120_000
+/** @brief 单一 bytes Content-Range 的严格语法 / Strict syntax for one bytes Content-Range. */
+const KNOWLEDGE_CONTENT_RANGE = /^bytes ([0-9]+)-([0-9]+)\/([0-9]+)$/u
 
-function knowledgeCommandId(kind: string): string {
-  return `${kind}_${globalThis.crypto.randomUUID()}`
+/**
+ * @brief 将十进制响应头解析为安全非负整数 / Parse a decimal response header as a safe non-negative integer.
+ * @param value 原始响应头 / Raw response header.
+ * @param label 错误消息中的字段标签 / Field label used in an error message.
+ * @return 已验证整数 / Validated integer.
+ */
+function parseKnowledgeByteCount(value: string | null, label: string): number {
+  if (value === null || !/^[0-9]+$/u.test(value)) {
+    throw new ApiV2ContractError(`Knowledge original content requires a valid ${label}.`)
+  }
+  /** @brief 已转换的十进制值 / Converted decimal value. */
+  const parsed = Number(value)
+  if (!Number.isSafeInteger(parsed)) {
+    throw new ApiV2ContractError(`Knowledge original content ${label} is not a safe integer.`)
+  }
+  return parsed
+}
+
+/**
+ * @brief 从完整或部分响应确定原始内容总大小 / Determine original-content size from a complete or partial response.
+ * @param response 已通过通用二进制边界验证的响应 / Response validated by the common binary boundary.
+ * @param receivedBytes 实际读取的响应字节数 / Actual response bytes consumed.
+ * @return 原始内容总大小 / Total original-content size.
+ */
+function originalContentTotalSize(response: Response, receivedBytes: number): number {
+  if (response.status === 200) {
+    /** @brief 完整响应声明的长度 / Length declared by the complete response. */
+    const declared = parseKnowledgeByteCount(
+      response.headers.get('Content-Length'),
+      'Content-Length'
+    )
+    if (declared !== receivedBytes || response.headers.has('Content-Range')) {
+      throw new ApiV2ContractError('Knowledge original content complete-response metadata differs.')
+    }
+    return declared
+  }
+  /** @brief 部分响应的范围元数据 / Range metadata of the partial response. */
+  const match = KNOWLEDGE_CONTENT_RANGE.exec(response.headers.get('Content-Range') ?? '')
+  if (match === null) {
+    throw new ApiV2ContractError(
+      'Knowledge original content partial response requires Content-Range.'
+    )
+  }
+  /** @brief 部分响应起点 / Partial-response start. */
+  const start = Number(match[1])
+  /** @brief 部分响应终点 / Partial-response end. */
+  const end = Number(match[2])
+  /** @brief 原始内容总大小 / Total original-content size. */
+  const total = Number(match[3])
+  if (
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(end) ||
+    !Number.isSafeInteger(total) ||
+    start !== 0 ||
+    end < start ||
+    end - start + 1 !== receivedBytes ||
+    end >= total
+  ) {
+    throw new ApiV2ContractError('Knowledge original content Content-Range is inconsistent.')
+  }
+  return total
 }
 
 async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
@@ -76,24 +138,6 @@ async function uploadBytes(
   if (response.status !== 204) {
     throw new Error(`knowledge.upload_failed.${response.status}`)
   }
-}
-
-async function ingestionDelay(milliseconds: number, signal?: AbortSignal): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    const timer = globalThis.setTimeout(resolve, milliseconds)
-    signal?.addEventListener(
-      'abort',
-      (): void => {
-        globalThis.clearTimeout(timer)
-        reject(
-          signal.reason instanceof Error
-            ? signal.reason
-            : new DOMException('Knowledge ingestion was cancelled.', 'AbortError')
-        )
-      },
-      { once: true }
-    )
-  })
 }
 
 function uploadVisibility(): KnowledgeVisibilityPolicy {
@@ -347,6 +391,42 @@ export class ApiV2KnowledgeGateway implements KnowledgeGateway {
   }
 
   /** @inheritdoc */
+  async getKnowledgeSourceOriginalContent(
+    input: UiKnowledgeOriginalContentRead
+  ): Promise<UiKnowledgeOriginalContent> {
+    if (!Number.isSafeInteger(input.maximumBytes) || input.maximumBytes < 1) {
+      throw new RangeError('Knowledge original-content preview limit must be a positive integer.')
+    }
+    /** @brief 从零开始且受 UI 上限约束的单一字节范围 / Single zero-based byte range bounded by the UI limit. */
+    const range = `bytes=0-${input.maximumBytes - 1}`
+    /** @brief 保留原始媒体类型与范围元数据的受保护响应 / Protected response preserving original media type and range metadata. */
+    const response = await this.#client.getAuthenticatedContent(
+      `/workspaces/${input.workspaceId}/knowledge-sources/${input.sourceId}/original-content`,
+      {
+        ifRange: null,
+        maxResponseBytes: input.maximumBytes,
+        range,
+        signal: input.signal
+      }
+    )
+    /** @brief 未经文本转换的原样响应字节 / Verbatim response bytes before any text conversion. */
+    const bytes = new Uint8Array(await response.arrayBuffer())
+    /** @brief 完整原始内容的字节数 / Byte length of the complete original content. */
+    const totalSizeBytes = originalContentTotalSize(response, bytes.byteLength)
+    /** @brief 原始响应媒体类型 / Original response media type. */
+    const mediaType = response.headers.get('Content-Type')
+    if (mediaType === null || mediaType.trim() === '') {
+      throw new ApiV2ContractError('Knowledge original content requires Content-Type.')
+    }
+    return {
+      bytes,
+      complete: bytes.byteLength === totalSizeBytes,
+      mediaType,
+      totalSizeBytes
+    }
+  }
+
+  /** @inheritdoc */
   async createManualKnowledgeNote(
     command: UiCreateManualKnowledgeNoteCommand
   ): Promise<UiKnowledgeSourceAuthority> {
@@ -392,7 +472,7 @@ export class ApiV2KnowledgeGateway implements KnowledgeGateway {
     command.onProgress?.('creating-upload')
     const upload = await this.#workflow.createUploadSession({
       filename: command.filename,
-      idempotencyKey: knowledgeCommandId('knowledge_upload'),
+      idempotencyKey: `${command.commandId}_upload`,
       mediaType: command.mediaType,
       sha256: digest,
       ...(command.signal === undefined ? {} : { signal: command.signal }),
@@ -406,7 +486,7 @@ export class ApiV2KnowledgeGateway implements KnowledgeGateway {
     await uploadBytes(upload, command.bytes, this.#fetchImpl, command.signal)
     command.onProgress?.('verifying')
     const completed = await this.#workflow.completeUploadSession({
-      idempotencyKey: knowledgeCommandId('knowledge_upload_complete'),
+      idempotencyKey: `${command.commandId}_complete`,
       sha256: digest,
       ...(command.signal === undefined ? {} : { signal: command.signal }),
       sizeBytes: command.bytes.byteLength,
@@ -418,7 +498,7 @@ export class ApiV2KnowledgeGateway implements KnowledgeGateway {
     }
     command.onProgress?.('creating-source')
     const source = await this.#workflow.createFileSource({
-      idempotencyKey: knowledgeCommandId('knowledge_source'),
+      idempotencyKey: `${command.commandId}_source`,
       name: command.name,
       ...(command.signal === undefined ? {} : { signal: command.signal }),
       uploadId: upload.id,
@@ -426,38 +506,32 @@ export class ApiV2KnowledgeGateway implements KnowledgeGateway {
       workspaceId: command.workspaceId
     })
     command.onProgress?.('queued')
-    let current = await this.#workflow.createIngestionJob({
-      idempotencyKey: knowledgeCommandId('knowledge_ingestion'),
+    await this.#workflow.createIngestionJob({
+      idempotencyKey: `${command.commandId}_ingestion`,
+      force: false,
       ...(command.signal === undefined ? {} : { signal: command.signal }),
       sourceId: source.value.id,
       workspaceId: command.workspaceId
     })
-    const deadline = Date.now() + MAXIMUM_INGESTION_WAIT_MILLISECONDS
-    let interval = 800
-    try {
-      while (current.job.status === 'queued' || current.job.status === 'running') {
-        command.onProgress?.(current.job.status === 'queued' ? 'queued' : 'processing')
-        if (Date.now() >= deadline) throw new Error('knowledge.ingestion_timeout')
-        await ingestionDelay(interval, command.signal)
-        current = await this.#workflow.getJob(command.workspaceId, current.job.id, command.signal)
-        interval = Math.min(Math.round(interval * 1.5), 3_000)
-      }
-    } catch (error: unknown) {
-      if (command.signal?.aborted === true) {
-        await cancelWorkspaceJob(this.#client, {
-          idempotencyKey: knowledgeCommandId('knowledge_ingestion_cancel'),
-          ifMatch: current.entityTag,
-          jobId: current.job.id,
-          workspaceId: command.workspaceId
-        }).catch((): void => undefined)
-      }
-      throw error
-    }
-    assertKnowledgeJobSucceeded(current.job)
-    command.onProgress?.('completed')
+    return mapAuthority(source)
+  }
+
+  /** @inheritdoc */
+  async ingestKnowledgeSource(
+    command: UiIngestKnowledgeSourceCommand
+  ): Promise<UiKnowledgeSourceAuthority> {
+    command.signal?.throwIfAborted()
+    command.onProgress?.('queued')
+    await this.#workflow.createIngestionJob({
+      force: command.force,
+      idempotencyKey: command.commandId,
+      ...(command.signal === undefined ? {} : { signal: command.signal }),
+      sourceId: command.sourceId,
+      workspaceId: command.workspaceId
+    })
     return this.getKnowledgeSource({
-      signal: new AbortController().signal,
-      sourceId: asUiOpaqueId<'knowledge-source'>(source.value.id),
+      signal: command.signal ?? new AbortController().signal,
+      sourceId: command.sourceId,
       workspaceId: command.workspaceId
     })
   }
@@ -482,10 +556,4 @@ export class ApiV2KnowledgeGateway implements KnowledgeGateway {
       query: result.query
     }
   }
-}
-
-function assertKnowledgeJobSucceeded(job: Job): void {
-  if (job.status === 'succeeded') return
-  if (job.status === 'failed') throw new Error(job.problem.code)
-  throw new Error(`knowledge.ingestion_${job.status}`)
 }

@@ -11,6 +11,7 @@ export type {
   UiKnowledgeAgentScope,
   UiKnowledgeIngestionState,
   UiKnowledgeIngestionStatus,
+  UiKnowledgeOriginalContent,
   UiKnowledgeModelRegion,
   UiKnowledgeOperation,
   UiKnowledgeProblem,
@@ -32,6 +33,8 @@ export type {
 export type {
   UiCreateManualKnowledgeNoteCommand,
   UiIngestKnowledgeFileCommand,
+  UiIngestKnowledgeSourceCommand,
+  UiKnowledgeOriginalContentRead,
   UiKnowledgeFileIngestionPhase,
   UiKnowledgeSourcePageRead,
   UiKnowledgeSourcePatch,
