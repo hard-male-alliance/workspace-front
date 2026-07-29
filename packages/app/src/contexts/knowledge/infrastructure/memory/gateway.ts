@@ -6,6 +6,7 @@ import type { KnowledgeGateway } from '../../application/gateway'
 import type {
   UiCreateManualKnowledgeNoteCommand,
   UiIngestKnowledgeFileCommand,
+  UiIngestKnowledgeSourceCommand,
   UiKnowledgeSourcePageRead,
   UiKnowledgeSourceRead,
   UiSearchKnowledgeCommand,
@@ -332,6 +333,44 @@ export class InMemoryKnowledgeGateway implements KnowledgeGateway {
     this.#sources.push(source)
     this.#entityTags.set(source.id, concurrencyToken)
     return Promise.resolve(cloneMemoryValue({ concurrencyToken, source }))
+  }
+
+  /** @inheritdoc */
+  ingestKnowledgeSource(
+    command: UiIngestKnowledgeSourceCommand
+  ): Promise<UiKnowledgeSourceAuthority> {
+    command.signal?.throwIfAborted()
+    /** @brief path identities 匹配的来源位置 / Source position matching both path identities. */
+    const sourceIndex = this.#sources.findIndex(
+      (candidate) =>
+        candidate.workspaceId === command.workspaceId && candidate.id === command.sourceId
+    )
+    if (sourceIndex < 0) return throwMemoryNotFound('KnowledgeSource')
+    /** @brief 当前内存来源 / Current in-memory source. */
+    const current = this.#sources[sourceIndex]!
+    command.onProgress?.('processing')
+    /** @brief 模拟统一摄取成功后的来源 / Source after simulated shared-ingestion success. */
+    const updated: UiKnowledgeSource = {
+      ...current,
+      currentVersionId: asUiOpaqueId<'knowledge-source-version'>(
+        `knowledge_memory_version_${String(current.revision + 1).padStart(6, '0')}`
+      ),
+      ingestion: {
+        chunkCount: 1,
+        documentCount: 1,
+        lastProblem: null,
+        lastSuccessAt: '2026-07-23T00:00:01.000Z',
+        status: 'ready'
+      },
+      revision: current.revision + 1,
+      updatedAt: '2026-07-23T00:00:01.000Z'
+    }
+    /** @brief 处理后强 ETag / Strong ETag after ingestion. */
+    const concurrencyToken = this.#nextEntityTag(updated.id, updated.revision)
+    this.#sources[sourceIndex] = updated
+    this.#entityTags.set(updated.id, concurrencyToken)
+    command.onProgress?.('completed')
+    return Promise.resolve(cloneMemoryValue({ concurrencyToken, source: updated }))
   }
 
   /** @inheritdoc */

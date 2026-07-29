@@ -99,6 +99,7 @@ function gateway(
     createManualKnowledgeNote: create,
     getKnowledgeSource: vi.fn(),
     ingestKnowledgeFile: vi.fn(),
+    ingestKnowledgeSource: vi.fn(),
     listKnowledgeSourcePage: list,
     searchKnowledge: vi.fn(),
     updateKnowledgeSource: vi.fn()

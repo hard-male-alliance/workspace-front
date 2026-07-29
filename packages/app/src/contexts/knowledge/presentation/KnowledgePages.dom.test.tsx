@@ -70,6 +70,7 @@ function createKnowledgeGateway(overrides: Partial<KnowledgeGateway>): Knowledge
     createManualKnowledgeNote: unexpected,
     getKnowledgeSource: unexpected,
     ingestKnowledgeFile: unexpected,
+    ingestKnowledgeSource: unexpected,
     listKnowledgeSourcePage: unexpected,
     searchKnowledge: unexpected,
     updateKnowledgeSource: unexpected,
@@ -499,6 +500,86 @@ describe('Knowledge API v2 presentation', (): void => {
 
     expect(await screen.findByRole('heading', { name: '无法加载知识来源详情' })).toBeVisible()
     expect(screen.queryByText(mismatchedSource.name)).not.toBeInTheDocument()
+  })
+
+  it('starts shared ingestion for an unprocessed manual note and reloads its authority', async (): Promise<void> => {
+    /** @brief 尚未处理的手工笔记 / Manual note not yet ingested. */
+    const source = createSource(
+      '待处理手工笔记',
+      'manual-note-to-process',
+      MOCK_KNOWLEDGE_WORKSPACE_ID,
+      {
+        currentVersionId: null,
+        ingestion: {
+          chunkCount: 0,
+          documentCount: 0,
+          lastProblem: null,
+          lastSuccessAt: null,
+          status: 'not_started'
+        },
+        sourceType: 'manual_note',
+        visibility: {
+          ...MOCK_KNOWLEDGE_SOURCES[0]!.visibility,
+          allowExternalModelProcessing: true,
+          allowedModelRegions: ['global']
+        }
+      }
+    )
+    /** @brief 处理完成后的服务端权威 / Backend authority after ingestion succeeds. */
+    const readySource = createSource(source.name, source.id, source.workspaceId, {
+      ...source,
+      currentVersionId: asUiOpaqueId<'knowledge-source-version'>('manual-note-version-ready'),
+      ingestion: {
+        chunkCount: 3,
+        documentCount: 1,
+        lastProblem: null,
+        lastSuccessAt: '2026-07-29T01:02:03.000Z',
+        status: 'ready'
+      },
+      revision: source.revision + 1
+    })
+    /** @brief 首次与刷新详情读取 / Initial and refreshed detail reads. */
+    const get = vi
+      .fn<KnowledgeGateway['getKnowledgeSource']>()
+      .mockResolvedValueOnce({
+        concurrencyToken: asUiConcurrencyToken('"etag-manual-note-not-started"'),
+        source
+      })
+      .mockResolvedValue({
+        concurrencyToken: asUiConcurrencyToken('"etag-manual-note-ready"'),
+        source: readySource
+      })
+    /** @brief 统一来源摄取命令 / Shared source-ingestion command. */
+    const ingest = vi.fn<KnowledgeGateway['ingestKnowledgeSource']>(() =>
+      Promise.resolve({
+        concurrencyToken: asUiConcurrencyToken('"etag-manual-note-ready"'),
+        source: readySource
+      })
+    )
+
+    renderKnowledgeRoute(
+      <KnowledgeSourceDetailPage />,
+      `/knowledge/${source.id}`,
+      createTestGateways({
+        knowledge: createKnowledgeGateway({
+          getKnowledgeSource: get,
+          ingestKnowledgeSource: ingest
+        })
+      })
+    )
+
+    expect(await screen.findByRole('heading', { name: '尚未开始' })).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: '开始处理' }))
+    await waitFor((): void => expect(ingest).toHaveBeenCalledOnce())
+    expect(ingest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        force: false,
+        sourceId: source.id,
+        workspaceId: source.workspaceId
+      })
+    )
+    expect(await screen.findByRole('heading', { name: '处理完成' })).toBeVisible()
+    expect(screen.getByText('3', { selector: 'strong' })).toBeVisible()
   })
 
   it('renders literal deleting-source facts while suppressing untrusted Problem text', async (): Promise<void> => {

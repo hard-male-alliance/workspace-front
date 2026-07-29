@@ -101,6 +101,25 @@ export interface UiIngestKnowledgeFileCommand {
   readonly onProgress?: (phase: UiKnowledgeFileIngestionPhase) => void
 }
 
+/** @brief 已存在 KnowledgeSource 的处理阶段 / Processing phase for an existing KnowledgeSource. */
+export type UiKnowledgeSourceIngestionPhase = 'queued' | 'processing' | 'completed'
+
+/** @brief 对已存在来源启动或恢复摄取的稳定命令 / Stable command starting or resuming ingestion for an existing source. */
+export interface UiIngestKnowledgeSourceCommand {
+  /** @brief 一次处理意图内稳定的幂等命令 identity / Idempotent command identity stable within one processing intent. */
+  readonly commandId: UiCommandId
+  /** @brief 显式授权 Workspace / Explicitly authorized Workspace. */
+  readonly workspaceId: UiWorkspaceId
+  /** @brief 待处理来源 / Source to process. */
+  readonly sourceId: UiKnowledgeSourceId
+  /** @brief 是否明确重做已就绪来源 / Whether to explicitly reprocess an already-ready source. */
+  readonly force: boolean
+  /** @brief 当前调用生命周期取消信号 / Cancellation signal for the current call lifecycle. */
+  readonly signal?: AbortSignal
+  /** @brief 可选处理进度通知 / Optional processing-progress notification. */
+  readonly onProgress?: (phase: UiKnowledgeSourceIngestionPhase) => void
+}
+
 /** @brief Workspace 内真实 Knowledge 搜索请求 / Real Knowledge search request in a Workspace. */
 export interface UiSearchKnowledgeCommand {
   readonly workspaceId: UiWorkspaceId

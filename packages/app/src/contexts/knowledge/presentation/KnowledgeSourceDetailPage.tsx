@@ -1,13 +1,22 @@
 /** @file API v2 KnowledgeSource 权威详情页 / API v2 authoritative KnowledgeSource detail page. */
 
-import { ArrowLeft, FileText, LockKeyhole, Pencil, ShieldCheck } from 'lucide-react'
-import { useCallback, useMemo, useSyncExternalStore } from 'react'
+import {
+  ArrowLeft,
+  FileText,
+  LoaderCircle,
+  LockKeyhole,
+  Pencil,
+  Play,
+  ShieldCheck
+} from 'lucide-react'
+import { useCallback, useMemo, useState, useSyncExternalStore } from 'react'
 import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router-dom'
 
 import { useAsyncResource, useKnowledgeGateway, useWorkspaceSession } from '../../../app/AppData'
-import { ResourceErrorState } from '../../../app/ResourceErrorState'
+import { ResourceErrorState, ResourceFailureMessage } from '../../../app/ResourceErrorState'
+import { createUiCommandId } from '../../../shared-kernel/command'
 import { asUiOpaqueId } from '../../../shared-kernel/identity'
 import { EmptyState, LoadingState } from '../../../ui'
 import type {
@@ -446,19 +455,61 @@ function LiteralVisibilityPolicy({
  */
 function KnowledgeSourceDetail({
   authority,
+  onRefresh,
   workspaceName
 }: {
   /** @brief 与强 ETag 原子配对的来源权威 / Source authority atomically paired with a strong ETag. */
   readonly authority: UiKnowledgeSourceAuthority
+  /** @brief 处理完成后重新读取权威来源 / Reload the authoritative source after processing completes. */
+  readonly onRefresh: () => void
   /** @brief 当前 Workspace 展示名 / Current Workspace display name. */
   readonly workspaceName: string
 }): React.JSX.Element {
   /** @brief 翻译与应用语言 / Translation and application locale. */
   const { i18n, t } = useTranslation()
+  /** @brief Knowledge 应用端口 / Knowledge application port. */
+  const knowledge = useKnowledgeGateway()
+  /** @brief 手工笔记处理命令状态 / Manual-note ingestion command state. */
+  const [processing, setProcessing] = useState<
+    | { readonly status: 'idle' | 'queued' | 'processing' }
+    | { readonly status: 'error'; readonly error: unknown }
+  >({ status: 'idle' })
   /** @brief 服务端权威来源 / Authoritative source. */
   const source = authority.source
   /** @brief 删除中或已删除来源必须保持只读 / Sources being deleted or already deleted must remain read-only. */
   const isReadOnly = source.ingestion.status === 'deleting' || source.ingestion.status === 'deleted'
+  /** @brief 当前手工笔记是否需要启动或恢复处理 / Whether this manual note needs ingestion started or resumed. */
+  const canStartProcessing =
+    source.sourceType === 'manual_note' &&
+    (source.ingestion.status === 'not_started' ||
+      source.ingestion.status === 'failed' ||
+      source.ingestion.status === 'stale')
+  /** @brief 来源策略是否允许外部向量模型处理 / Whether source policy permits external embedding-model processing. */
+  const processingAllowed = source.visibility.allowExternalModelProcessing
+  /** @brief 当前是否已有处理命令在途 / Whether an ingestion command is in flight. */
+  const isProcessing = processing.status === 'queued' || processing.status === 'processing'
+
+  /**
+   * @brief 启动已有手工笔记的统一后端摄取任务 / Start the shared backend ingestion job for an existing manual note.
+   * @return 命令完成 Promise / Promise settled after the command finishes.
+   */
+  async function startProcessing(): Promise<void> {
+    setProcessing({ status: 'queued' })
+    try {
+      await knowledge.ingestKnowledgeSource({
+        commandId: createUiCommandId(),
+        force: source.ingestion.status === 'failed' || source.ingestion.status === 'stale',
+        onProgress: (phase): void => {
+          if (phase !== 'completed') setProcessing({ status: phase })
+        },
+        sourceId: source.id,
+        workspaceId: source.workspaceId
+      })
+      onRefresh()
+    } catch (error: unknown) {
+      setProcessing({ error, status: 'error' })
+    }
+  }
 
   return (
     <div className="aw-page">
@@ -516,8 +567,42 @@ function KnowledgeSourceDetail({
           >
             {getKnowledgeIngestionLabel(source.ingestion.status, t)}
           </span>
+          {canStartProcessing ? (
+            <button
+              className="aw-primary-button"
+              disabled={isProcessing || !processingAllowed}
+              onClick={(): void => {
+                void startProcessing()
+              }}
+              type="button"
+            >
+              {isProcessing ? (
+                <LoaderCircle aria-hidden="true" className="aw-spin" size={14} />
+              ) : (
+                <Play aria-hidden="true" size={14} />
+              )}
+              {isProcessing
+                ? t('knowledge.processingManualNote', { defaultValue: '正在处理…' })
+                : t('knowledge.processManualNote', { defaultValue: '开始处理' })}
+            </button>
+          ) : null}
         </div>
       </section>
+
+      {canStartProcessing && !processingAllowed ? (
+        <p className="aw-inline-notice">
+          {t('knowledge.externalProcessingRequired', {
+            defaultValue:
+              '当前向量模型通过外部服务运行。请先在来源设置中允许外部模型处理，再开始处理。'
+          })}
+        </p>
+      ) : null}
+
+      {processing.status === 'error' ? (
+        <p className="aw-inline-error" role="alert">
+          <ResourceFailureMessage error={processing.error} />
+        </p>
+      ) : null}
 
       <div className="aw-visibility-grid">
         <section aria-labelledby="knowledge-source-facts-title" className="aw-card aw-card-pad">
@@ -734,6 +819,7 @@ export function KnowledgeSourceDetailPage(): React.JSX.Element {
     <KnowledgeSourceDetail
       authority={detail.data.authority}
       key={`${selectionRevision}:${detail.data.authority.source.id}`}
+      onRefresh={detail.retry}
       workspaceName={detail.data.workspaceName}
     />
   )

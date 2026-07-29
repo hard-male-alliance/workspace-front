@@ -127,16 +127,29 @@ function buildPatch(
 ): Parameters<KnowledgeGateway['updateKnowledgeSource']>[0]['patch'] | null {
   /** @brief 名称是否变化 / Whether the name changed. */
   const nameChanged = draft.name !== base.source.name
+  /**
+   * @brief 以当前权威版本比较策略内容 / Compare policy content at the current authoritative version.
+   * @note policyVersion 是服务端要求的单调版本，不是用户编辑内容 / policyVersion is a server-required monotonic revision, not user-authored content.
+   */
+  const comparableVisibility: UiKnowledgeVisibilityPolicy = {
+    ...draft.visibility,
+    policyVersion: base.source.visibility.policyVersion
+  }
   /** @brief 完整策略是否变化 / Whether the complete policy changed. */
   const visibilityChanged = !knowledgeVisibilityPoliciesEqual(
-    draft.visibility,
+    comparableVisibility,
     base.source.visibility
   )
+  /** @brief 仅在策略内容变化时生成下一单调版本 / Produce the next monotonic version only when policy content changes. */
+  const nextVisibility: UiKnowledgeVisibilityPolicy = {
+    ...comparableVisibility,
+    policyVersion: base.source.visibility.policyVersion + 1
+  }
   if (nameChanged && visibilityChanged) {
-    return { name: draft.name, visibility: draft.visibility }
+    return { name: draft.name, visibility: nextVisibility }
   }
   if (nameChanged) return { name: draft.name }
-  return visibilityChanged ? { visibility: draft.visibility } : null
+  return visibilityChanged ? { visibility: nextVisibility } : null
 }
 
 /**

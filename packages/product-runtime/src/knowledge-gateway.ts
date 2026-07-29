@@ -26,6 +26,7 @@ import {
   type KnowledgeGateway,
   type UiCreateManualKnowledgeNoteCommand,
   type UiIngestKnowledgeFileCommand,
+  type UiIngestKnowledgeSourceCommand,
   type UiKnowledgeSearchResult,
   type UiKnowledgeSourcePageRead,
   type UiKnowledgeSourceRead,
@@ -428,6 +429,7 @@ export class ApiV2KnowledgeGateway implements KnowledgeGateway {
     command.onProgress?.('queued')
     let current = await this.#workflow.createIngestionJob({
       idempotencyKey: knowledgeCommandId('knowledge_ingestion'),
+      force: false,
       ...(command.signal === undefined ? {} : { signal: command.signal }),
       sourceId: source.value.id,
       workspaceId: command.workspaceId
@@ -458,6 +460,49 @@ export class ApiV2KnowledgeGateway implements KnowledgeGateway {
     return this.getKnowledgeSource({
       signal: new AbortController().signal,
       sourceId: asUiOpaqueId<'knowledge-source'>(source.value.id),
+      workspaceId: command.workspaceId
+    })
+  }
+
+  /** @inheritdoc */
+  async ingestKnowledgeSource(
+    command: UiIngestKnowledgeSourceCommand
+  ): Promise<UiKnowledgeSourceAuthority> {
+    command.signal?.throwIfAborted()
+    command.onProgress?.('queued')
+    let current = await this.#workflow.createIngestionJob({
+      force: command.force,
+      idempotencyKey: command.commandId,
+      ...(command.signal === undefined ? {} : { signal: command.signal }),
+      sourceId: command.sourceId,
+      workspaceId: command.workspaceId
+    })
+    const deadline = Date.now() + MAXIMUM_INGESTION_WAIT_MILLISECONDS
+    let interval = 800
+    try {
+      while (current.job.status === 'queued' || current.job.status === 'running') {
+        command.onProgress?.(current.job.status === 'queued' ? 'queued' : 'processing')
+        if (Date.now() >= deadline) throw new Error('knowledge.ingestion_timeout')
+        await ingestionDelay(interval, command.signal)
+        current = await this.#workflow.getJob(command.workspaceId, current.job.id, command.signal)
+        interval = Math.min(Math.round(interval * 1.5), 3_000)
+      }
+    } catch (error: unknown) {
+      if (command.signal?.aborted === true) {
+        await cancelWorkspaceJob(this.#client, {
+          idempotencyKey: `${command.commandId}_cancel`,
+          ifMatch: current.entityTag,
+          jobId: current.job.id,
+          workspaceId: command.workspaceId
+        }).catch((): void => undefined)
+      }
+      throw error
+    }
+    assertKnowledgeJobSucceeded(current.job)
+    command.onProgress?.('completed')
+    return this.getKnowledgeSource({
+      signal: new AbortController().signal,
+      sourceId: command.sourceId,
       workspaceId: command.workspaceId
     })
   }

@@ -203,22 +203,16 @@ export function VisibilityPolicyFields({
         <label className="aw-editor-field">
           <span>{t('visibility.policyVersionLabel', { defaultValue: '策略领域版本' })}</span>
           <input
-            disabled={disabled}
+            disabled
             inputMode="numeric"
             min={1}
-            onChange={(event): void => {
-              onChange({
-                ...value,
-                policyVersion: event.currentTarget.valueAsNumber
-              })
-            }}
             step={1}
             type="number"
             value={value.policyVersion}
           />
           <small>
             {t('visibility.policyVersionHelp', {
-              defaultValue: '这是策略模型版本，不是 HTTP ETag。'
+              defaultValue: '保存策略变更时由系统自动递增，不是 HTTP ETag。'
             })}
           </small>
         </label>

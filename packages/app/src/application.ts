@@ -90,7 +90,9 @@ export type {
 export type {
   UiCreateManualKnowledgeNoteCommand,
   UiIngestKnowledgeFileCommand,
+  UiIngestKnowledgeSourceCommand,
   UiKnowledgeFileIngestionPhase,
+  UiKnowledgeSourceIngestionPhase,
   UiKnowledgeSourcePageRead,
   UiKnowledgeSourcePatch,
   UiKnowledgeSourceRead,

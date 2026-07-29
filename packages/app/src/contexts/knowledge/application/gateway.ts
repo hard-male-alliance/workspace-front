@@ -3,6 +3,7 @@
 import type {
   UiCreateManualKnowledgeNoteCommand,
   UiIngestKnowledgeFileCommand,
+  UiIngestKnowledgeSourceCommand,
   UiKnowledgeSourcePageRead,
   UiKnowledgeSourceRead,
   UiSearchKnowledgeCommand,
@@ -50,6 +51,11 @@ export interface KnowledgeGateway {
 
   /** @brief 上传本地文件并等待后端摄取完成 / Upload a local file and await backend ingestion. */
   ingestKnowledgeFile(command: UiIngestKnowledgeFileCommand): Promise<UiKnowledgeSourceAuthority>
+
+  /** @brief 启动或恢复已存在来源的后端摄取并等待完成 / Start or resume backend ingestion for an existing source and await completion. */
+  ingestKnowledgeSource(
+    command: UiIngestKnowledgeSourceCommand
+  ): Promise<UiKnowledgeSourceAuthority>
 
   /** @brief 对明确选择的当前有效 Source 执行真实混合搜索 / Execute real hybrid search over selected active Sources. */
   searchKnowledge(command: UiSearchKnowledgeCommand): Promise<UiKnowledgeSearchResult>

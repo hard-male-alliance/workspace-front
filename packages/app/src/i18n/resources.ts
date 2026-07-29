@@ -999,6 +999,10 @@ export const zhSGTranslation = {
     sources: '个来源',
     documents: '份文档',
     chunks: '个片段',
+    processManualNote: '开始处理',
+    processingManualNote: '正在处理…',
+    externalProcessingRequired:
+      '当前向量模型通过外部服务运行。请先在来源设置中允许外部模型处理，再开始处理。',
     resumeAutoSync: '简历会自动作为知识来源加入；删除简历后不会保留幽灵索引。',
     memory: '个人记忆',
     sourceDescription: '来源资源表示可同步资料，不暴露 chunk 或向量实现。',
@@ -1073,7 +1077,7 @@ export const zhSGTranslation = {
     defaultEffect: '未匹配规则时',
     sensitivityLabel: '敏感等级',
     policyVersionLabel: '策略领域版本',
-    policyVersionHelp: '这是策略模型版本，不是 HTTP ETag。',
+    policyVersionHelp: '保存策略变更时由系统自动递增，不是 HTTP ETag。',
     retentionDays: '保留天数',
     noFixedRetention: '不设置固定期限',
     modelRegions: '允许模型处理的数据区域',
@@ -2207,6 +2211,10 @@ export const enUSTranslation = {
     sources: 'sources',
     documents: 'documents',
     chunks: 'chunks',
+    processManualNote: 'Start processing',
+    processingManualNote: 'Processing…',
+    externalProcessingRequired:
+      'The current embedding model runs through an external service. Allow external model processing in source settings before starting.',
     resumeAutoSync:
       'Resumes enter the knowledge base automatically; deleting one must not leave a ghost index.',
     memory: 'Personal memory',
@@ -2288,7 +2296,8 @@ export const enUSTranslation = {
     defaultEffect: 'When no rule matches',
     sensitivityLabel: 'Sensitivity',
     policyVersionLabel: 'Policy domain version',
-    policyVersionHelp: 'This is the policy-model version, not the HTTP ETag.',
+    policyVersionHelp:
+      'The system increments this policy-model version when policy changes are saved; it is not the HTTP ETag.',
     retentionDays: 'Retention days',
     noFixedRetention: 'No fixed retention period',
     modelRegions: 'Data regions allowed for model processing',
