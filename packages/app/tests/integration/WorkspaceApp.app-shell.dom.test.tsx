@@ -240,18 +240,17 @@ describe('WorkspaceApp app shell', (): void => {
     expect(screen.queryByRole('combobox', { name: '当前工作区' })).not.toBeInTheDocument()
   })
 
-  it('shows the selected WorkspaceAccess role, plan, and data region', async (): Promise<void> => {
+  it('keeps WorkspaceAccess metadata out of the workspace home', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
 
     render(<WorkspaceApp initialPath="/" />)
 
     await screen.findByRole('heading', { name: '今日工作台' })
-    /** @brief 首页中的访问权威定义列表 / Access-authority definition list on the home page. */
-    const authority = screen.getByLabelText('工作区访问权限')
-    expect(within(authority).getByText('所有者')).toBeInTheDocument()
-    expect(within(authority).getByText('个人版')).toBeInTheDocument()
-    expect(within(authority).getByText('中国大陆')).toBeInTheDocument()
-    expect(within(authority).queryByText('member_mock_klee_owner')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('工作区访问权限')).not.toBeInTheDocument()
+    expect(screen.queryByText('所有者')).not.toBeInTheDocument()
+    expect(screen.queryByText('个人版')).not.toBeInTheDocument()
+    expect(screen.queryByText('中国大陆')).not.toBeInTheDocument()
+    expect(screen.queryByText('member_mock_klee_owner')).not.toBeInTheDocument()
   })
 
   it('does not invent an account while the Workspace authority is loading', async (): Promise<void> => {

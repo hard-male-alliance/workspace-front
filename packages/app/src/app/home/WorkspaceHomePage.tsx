@@ -1,4 +1,4 @@
-import { ArrowRight, FileText, GraduationCap } from 'lucide-react'
+import { ArrowRight, FileText } from 'lucide-react'
 import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
@@ -83,32 +83,6 @@ function WorkspaceHomeContent({
         </div>
         <div className="aw-workspace-authority-summary">
           <span className="aw-status aw-status--ready">{home.workspaceAccess.workspace.name}</span>
-          <dl aria-label={t('workspace.access.title', { defaultValue: '工作区访问权限' })}>
-            <div>
-              <dt>{t('workspace.access.role', { defaultValue: '角色' })}</dt>
-              <dd>
-                {t(`workspace.access.roles.${home.workspaceAccess.role}`, {
-                  defaultValue: home.workspaceAccess.role
-                })}
-              </dd>
-            </div>
-            <div>
-              <dt>{t('workspace.access.plan', { defaultValue: '套餐' })}</dt>
-              <dd>
-                {t(`workspace.access.plans.${home.workspaceAccess.workspace.plan}`, {
-                  defaultValue: home.workspaceAccess.workspace.plan
-                })}
-              </dd>
-            </div>
-            <div>
-              <dt>{t('workspace.access.dataRegion', { defaultValue: '数据区域' })}</dt>
-              <dd>
-                {t(`workspace.access.dataRegions.${home.workspaceAccess.workspace.dataRegion}`, {
-                  defaultValue: home.workspaceAccess.workspace.dataRegion
-                })}
-              </dd>
-            </div>
-          </dl>
         </div>
       </header>
 
@@ -264,13 +238,6 @@ function WorkspaceHomeContent({
           </div>
         </section>
       </div>
-
-      <p className="aw-workbench-notice">
-        <GraduationCap aria-hidden="true" size={15} />
-        {t('workspace.home.dataNotice', {
-          defaultValue: '数据来自当前工作区，操作结果以服务端确认为准。'
-        })}
-      </p>
     </div>
   )
 }
