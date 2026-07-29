@@ -286,6 +286,28 @@
   gap: 8px;
 }
 
+.aw-resume-section-heading--fixed {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.aw-section-toggle {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.aw-section-title-copy {
+  display: grid;
+  min-width: 0;
+}
+
 .aw-section-drag-handle {
   display: grid;
   width: 24px;
@@ -302,7 +324,7 @@
   font-weight: 720;
 }
 
-.aw-resume-section-heading > div > span {
+.aw-section-title-copy > span {
   color: var(--ui-color-ink-subtle);
   font-size: 9px;
 }

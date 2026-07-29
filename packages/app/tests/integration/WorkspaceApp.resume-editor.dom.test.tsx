@@ -53,6 +53,33 @@ async function waitForResumeEditor(): Promise<void> {
 
 /** @brief 简历编辑器用户行为测试 / Resume-editor user-behaviour tests. */
 describe('WorkspaceApp Resume editor', (): void => {
+  it('lets personal information and multiple Resume sections expand independently', async (): Promise<void> => {
+    await setWorkspaceAppTestLocale('zh-SG')
+    window.history.replaceState(null, '', `/resumes/${MOCK_RESUME_ID}/edit`)
+
+    render(<WorkspaceApp />)
+
+    const profileToggle = await screen.findByRole('button', { name: '收起个人信息' })
+    const summaryToggle = screen.getByRole('button', { name: '收起职业摘要' })
+    const experienceToggle = screen.getByRole('button', { name: '展开工作经历' })
+
+    expect(profileToggle).toHaveAttribute('aria-expanded', 'true')
+    expect(summaryToggle).toHaveAttribute('aria-expanded', 'true')
+    expect(experienceToggle).toHaveAttribute('aria-expanded', 'false')
+
+    fireEvent.click(experienceToggle)
+
+    expect(screen.getByRole('button', { name: '收起职业摘要' })).toHaveAttribute(
+      'aria-expanded',
+      'true'
+    )
+    expect(screen.getByRole('button', { name: '收起工作经历' })).toHaveAttribute(
+      'aria-expanded',
+      'true'
+    )
+    expect(screen.queryByRole('button', { name: /删除个人信息/u })).not.toBeInTheDocument()
+  })
+
   it('shows normalized item fields when a section has no legacy content body', async (): Promise<void> => {
     await setWorkspaceAppTestLocale('zh-SG')
     const resume = new InMemoryResumeGateway()
