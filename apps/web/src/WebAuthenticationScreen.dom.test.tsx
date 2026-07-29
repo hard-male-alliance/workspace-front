@@ -11,8 +11,7 @@ afterEach(cleanup)
 describe('WebAuthenticationScreen', (): void => {
   it.each([
     ['登录', 'login'],
-    ['创建账户', 'signup'],
-    ['无法登录？恢复账户', 'recovery']
+    ['创建账户', 'signup']
   ] as const)(
     'routes %s to the hosted %s authorization flow',
     async (buttonName, screenHint): Promise<void> => {
@@ -28,6 +27,15 @@ describe('WebAuthenticationScreen', (): void => {
       expect(onAuthorize).toHaveBeenCalledWith(screenHint)
     }
   )
+
+  it('does not present the unavailable account recovery entry', (): void => {
+    /** @brief 授权动作 spy / Authorization-action spy. */
+    const onAuthorize = vi.fn((): Promise<void> => Promise.resolve())
+
+    render(<WebAuthenticationScreen locale="zh-CN" onAuthorize={onAuthorize} />)
+
+    expect(screen.queryByRole('button', { name: '无法登录？恢复账户' })).not.toBeInTheDocument()
+  })
 
   it('presents a safe retry state without reflecting protocol error details', async (): Promise<void> => {
     /** @brief 失败的授权动作 / Failing authorization action. */

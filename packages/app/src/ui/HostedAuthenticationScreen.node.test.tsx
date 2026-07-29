@@ -45,7 +45,7 @@ describe('HostedAuthenticationScreen host-specific failures', (): void => {
     expect(html).toContain('Linux 桌面版')
     expect(html).toContain('已禁用桌面持久登录')
     expect(html).toContain('请使用 Web 版')
-    expect(html.match(/disabled=""/gu)).toHaveLength(3)
+    expect(html.match(/disabled=""/gu)).toHaveLength(2)
     expect(html).not.toContain('系统安全存储暂时不可用')
   })
 })
