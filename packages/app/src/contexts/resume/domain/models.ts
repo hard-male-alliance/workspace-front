@@ -6,6 +6,8 @@ import type { UiConcurrencyToken } from '../../../shared-kernel/concurrency'
 import type { UiContentLocale } from '../../../shared-kernel/locale'
 import type {
   UiJsonValue,
+  UiResumeContactId,
+  UiResumeDateRange,
   UiResumeId,
   UiResumeItemId,
   UiResumeOutputFormat,
@@ -302,18 +304,104 @@ export type UiResumeSectionUpdateInput = UiResumeSectionMutationInput &
     readonly sectionId: UiResumeSectionId
   }
 
-/** @brief 可由中间编辑器直接修改的规范化条目文本字段 / Normalized item text fields directly editable in the center editor. */
-export type UiResumeItemTextField = 'location' | 'organization' | 'subtitle' | 'title'
+/** @brief 可由中间编辑器直接修改的规范化条目标量文本字段 / Normalized scalar item text fields directly editable in the center editor. */
+export type UiResumeItemTextField = 'location' | 'organization' | 'subtitle' | 'title' | 'url'
 
-/** @brief 用户编辑一个规范化条目文本字段的领域输入 / Domain input for editing one normalized item text field. */
-export interface UiResumeItemUpdateInput extends UiResumeSectionMutationInput {
-  /** @brief 目标条目 / Target item. */
-  readonly itemId: UiResumeItemId
-  /** @brief 目标语义字段 / Target semantic field. */
-  readonly field: UiResumeItemTextField
-  /** @brief 完整字段值；空字符串映射为 null / Complete field value; an empty string maps to null. */
-  readonly value: string | null
-}
+/** @brief 可由中间编辑器直接修改的规范化条目字段 / Normalized item fields directly editable in the center editor. */
+export type UiResumeItemEditableField =
+  UiResumeItemTextField | 'dateRange' | 'highlights' | 'skills' | 'summary'
+
+/** @brief 用户编辑一个规范化条目字段的值 / Value for one normalized item-field edit. */
+type UiResumeItemFieldPatch =
+  | {
+      /** @brief 日期范围字段 / Date-range field. */
+      readonly field: 'dateRange'
+      /** @brief 保留精度的完整日期范围 / Complete date range preserving precision. */
+      readonly value: UiResumeDateRange | null
+    }
+  | {
+      /** @brief 经历要点字段 / Highlights field. */
+      readonly field: 'highlights'
+      /** @brief 完整且有序的经历要点 / Complete ordered highlights. */
+      readonly value: readonly UiResumeRichText[]
+    }
+  | {
+      /** @brief 技能字段 / Skills field. */
+      readonly field: 'skills'
+      /** @brief 完整且有序的技能 / Complete ordered skills. */
+      readonly value: readonly string[]
+    }
+  | {
+      /** @brief 条目摘要字段 / Item-summary field. */
+      readonly field: 'summary'
+      /** @brief 完整可空富文本摘要 / Complete optional rich-text summary. */
+      readonly value: UiResumeRichText | null
+    }
+  | {
+      /** @brief 可空标量文本字段 / Nullable scalar text field. */
+      readonly field: UiResumeItemTextField
+      /** @brief 完整字段值；空字符串映射为 null / Complete field value; an empty string maps to null. */
+      readonly value: string | null
+    }
+
+/** @brief 用户编辑一个规范化条目字段的领域输入 / Domain input for editing one normalized item field. */
+export type UiResumeItemUpdateInput = UiResumeSectionMutationInput &
+  UiResumeItemFieldPatch & {
+    /** @brief 目标条目 / Target item. */
+    readonly itemId: UiResumeItemId
+  }
+
+/** @brief 可由中间编辑器修改的个人资料字段和值 / Profile field and value editable in the center editor. */
+type UiResumeProfileFieldPatch =
+  | {
+      /** @brief 必填姓名字段 / Required full-name field. */
+      readonly field: 'fullName'
+      /** @brief 完整姓名 / Complete full name. */
+      readonly value: string
+    }
+  | {
+      /** @brief 可空职业标题字段 / Nullable professional-headline field. */
+      readonly field: 'headline'
+      /** @brief 完整职业标题 / Complete professional headline. */
+      readonly value: string | null
+    }
+  | {
+      /** @brief 可空个人简介字段 / Nullable profile-summary field. */
+      readonly field: 'summary'
+      /** @brief 完整富文本简介 / Complete rich-text summary. */
+      readonly value: UiResumeRichText | null
+    }
+
+/** @brief 用户编辑个人资料字段的领域输入 / Domain input for editing one profile field. */
+export type UiResumeProfileUpdateInput = UiResumeSectionMutationInput & UiResumeProfileFieldPatch
+
+/** @brief 可由中间编辑器修改的联系方式字段和值 / Contact field and value editable in the center editor. */
+type UiResumeContactFieldPatch =
+  | {
+      /** @brief 可空联系方式标签 / Nullable contact label. */
+      readonly field: 'label'
+      /** @brief 完整标签值 / Complete label value. */
+      readonly value: string | null
+    }
+  | {
+      /** @brief 必填联系方式展示值 / Required contact display value. */
+      readonly field: 'value'
+      /** @brief 完整展示值 / Complete display value. */
+      readonly value: string
+    }
+  | {
+      /** @brief 可空安全链接 / Nullable safe URL. */
+      readonly field: 'url'
+      /** @brief 完整安全链接 / Complete safe URL. */
+      readonly value: string | null
+    }
+
+/** @brief 用户编辑已有联系方式字段的领域输入 / Domain input for editing one existing contact field. */
+export type UiResumeContactUpdateInput = UiResumeSectionMutationInput &
+  UiResumeContactFieldPatch & {
+    /** @brief 目标联系方式 / Target contact. */
+    readonly contactId: UiResumeContactId
+  }
 
 /** @brief 调整简历板块顺序的领域输入 / Domain input for reordering resume sections. */
 export interface UiResumeSectionsReorderInput extends UiResumeSectionMutationInput {

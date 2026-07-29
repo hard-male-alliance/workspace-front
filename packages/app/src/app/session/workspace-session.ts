@@ -211,10 +211,11 @@ export function createWorkspaceSession(
       currentSubject !== undefined && currentSubject !== authority.currentUser.subject
 
     if (isInitialAuthority || principalChanged) {
-      selectedWorkspaceId = findAccess(authority, authority.currentUser.defaultWorkspaceId)
-        ?.workspace.id
+      selectedWorkspaceId =
+        findAccess(authority, authority.currentUser.defaultWorkspaceId)?.workspace.id ??
+        authority.accesses.at(0)?.workspace.id
     } else if (findAccess(authority, selectedWorkspaceId) === undefined) {
-      selectedWorkspaceId = undefined
+      selectedWorkspaceId = authority.accesses.at(0)?.workspace.id
     }
 
     currentAuthority = authority

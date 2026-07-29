@@ -39,16 +39,24 @@ import type { ResumeTemplateCatalogPort } from '../application/resume-creation'
 import { loadPinnedResumeTemplate } from '../application/template-catalog'
 import { resumeAssistantFailureMessage } from './resume-assistant-failure'
 import {
+  asUiResumePartialDate,
   getUiResumeSectionTextViolation,
   replaceUiResumeRichTextText,
+  type UiResumeContact,
+  type UiResumeContactId,
+  type UiResumeDateRange,
   type UiResumeEditorModel,
+  type UiResumeItem,
   type UiResumeItemId,
   type UiResumeSection,
   type UiResumeSectionId
 } from '../domain/document'
 import type {
+  UiResumeContactUpdateInput,
+  UiResumeItemEditableField,
   UiResumeItemTextField,
   UiResumeItemUpdateInput,
+  UiResumeProfileUpdateInput,
   UiResumeSectionDeleteInput,
   UiResumeSectionsReorderInput,
   UiResumeSectionUpdateInput,
@@ -125,7 +133,8 @@ const RESUME_ITEM_TEXT_FIELDS = [
   { field: 'title', label: '条目标题' },
   { field: 'subtitle', label: '副标题' },
   { field: 'organization', label: '组织或院校' },
-  { field: 'location', label: '地点' }
+  { field: 'location', label: '地点' },
+  { field: 'url', label: '条目链接' }
 ] as const satisfies readonly {
   readonly field: UiResumeItemTextField
   readonly label: string
@@ -226,9 +235,13 @@ interface RunResumeMutation {
    * @brief 仅在当前没有 Resume 写入时执行意图 / Run an intent only when no Resume write is active.
    * @template TResult 写操作结果 / Mutation result.
    * @param mutation 延迟执行的写操作 / Deferred mutation.
+   * @param onSuccess 在释放单写通道前吸收新权威的回调 / Callback adopting new authority before the single-write lane is released.
    * @return 写结果；被当前通道拒绝时为 null / Mutation result, or null when rejected by the active lane.
    */
-  <TResult>(mutation: () => Promise<TResult>): Promise<TResult | null>
+  <TResult>(
+    mutation: () => Promise<TResult>,
+    onSuccess?: (result: TResult) => void
+  ): Promise<TResult | null>
 }
 
 /** @brief Resume mutation 错误对页面状态机的处置 / Disposition of a Resume-mutation error in the page state machine. */
@@ -791,16 +804,22 @@ function ResumeAssistantPanel({
 
 /** @brief 所有语义板块组成的连续编辑器 / Continuous editor for all semantic sections. */
 function ResumeSectionsEditor({
+  authorityReloadRevision,
   editor,
   gateway,
   isWriteLocked,
+  onDraftStateChange,
   onEditorChange,
   onMutationError,
   runMutation
 }: {
+  /** @brief 成功权威重载后递增的草稿重置代际 / Draft-reset generation incremented after a successful authority reload. */
+  readonly authorityReloadRevision: number
   readonly editor: UiResumeEditorModel
   readonly gateway: ResumeGateway
   readonly isWriteLocked: boolean
+  /** @brief 向工作区报告是否存在浏览器本地草稿 / Report whether browser-local drafts exist to the workspace. */
+  readonly onDraftStateChange: (hasDrafts: boolean) => void
   readonly onEditorChange: (editor: UiResumeEditorModel) => void
   readonly onMutationError: (
     error: unknown,
@@ -811,8 +830,19 @@ function ResumeSectionsEditor({
 }): React.JSX.Element {
   const { t } = useTranslation()
   const diagnostics = useDiagnostics()
-  const [focusedSectionId, setFocusedSectionId] = useState<UiResumeSectionId | null>(
-    editor.resume.sections.at(0)?.id ?? null
+  /** @brief 本地化的个人信息板块名称 / Localized profile-section name. */
+  const profileSectionName = t('resume.workspace.personalInformation', {
+    defaultValue: '个人信息'
+  })
+  /** @brief 个人信息卡片是否展开 / Whether the profile card is expanded. */
+  const [isProfileExpanded, setIsProfileExpanded] = useState(true)
+  /** @brief 独立展开的语义板块集合 / Independently expanded semantic sections. */
+  const [expandedSectionIds, setExpandedSectionIds] = useState<ReadonlySet<UiResumeSectionId>>(
+    () => {
+      /** @brief 初始默认展开的首个板块 / First section expanded by default. */
+      const firstSectionId = editor.resume.sections.at(0)?.id
+      return firstSectionId === undefined ? new Set() : new Set([firstSectionId])
+    }
   )
   const [deleteCandidate, setDeleteCandidate] = useState<UiResumeSectionId | null>(null)
   const [draggedSectionId, setDraggedSectionId] = useState<UiResumeSectionId | null>(null)
@@ -822,6 +852,9 @@ function ResumeSectionsEditor({
   )
   /** @brief 规范化条目字段的浏览器本地草稿 / Browser-local drafts for normalized item fields. */
   const [itemDrafts, setItemDrafts] = useState<ReadonlyMap<string, string>>(() => new Map())
+  /** @brief 已应用到条目草稿的最近一次权威重载代际 / Latest authority-reload generation applied to item drafts. */
+  const [itemDraftAuthorityRevision, setItemDraftAuthorityRevision] =
+    useState(authorityReloadRevision)
   /** @brief 当前正在保存的板块 / Section currently being persisted. */
   const [savingSectionId, setSavingSectionId] = useState<UiResumeSectionId | null>(null)
   /** @brief 当前正在保存的条目字段键 / Item-field key currently being persisted. */
@@ -837,10 +870,23 @@ function ResumeSectionsEditor({
   /** @brief 尚未被服务端确认的删除 command / Delete command not yet confirmed by the service. */
   const deleteCommandAttemptRef = useRef<ResumeDeleteCommandAttempt | null>(null)
 
+  /** @brief 当前编辑器是否含有尚未被服务端确认的本地草稿 / Whether the editor contains local drafts not yet confirmed by the service. */
+  const hasLocalDrafts = drafts.size > 0 || itemDrafts.size > 0
+
   useUnsavedChanges(
     `resume.section-drafts:${editor.resume.id}`,
-    drafts.size > 0 || itemDrafts.size > 0 || savingSectionId !== null || savingItemKey !== null
+    hasLocalDrafts || savingSectionId !== null || savingItemKey !== null
   )
+
+  useEffect((): (() => void) => {
+    onDraftStateChange(hasLocalDrafts)
+    return (): void => onDraftStateChange(false)
+  }, [hasLocalDrafts, onDraftStateChange])
+
+  if (itemDraftAuthorityRevision !== authorityReloadRevision) {
+    setItemDraftAuthorityRevision(authorityReloadRevision)
+    setItemDrafts(new Map())
+  }
 
   /** @brief 服务端已删除对应 section、但仍须交还用户的本地草稿 / Local drafts whose sections were removed by the server but must still be returned to the user. */
   const orphanedDrafts = [...drafts].filter(
@@ -868,8 +914,275 @@ function ResumeSectionsEditor({
   }
 
   /** @brief 构造条目字段草稿的稳定本地键 / Build the stable local key for an item-field draft. */
-  const itemDraftKey = (itemId: UiResumeItemId, field: UiResumeItemTextField): string =>
-    `${itemId}:${field}`
+  const itemDraftKey = (
+    itemId: UiResumeItemId,
+    field: UiResumeItemEditableField | 'dateRange.end' | 'dateRange.start'
+  ): string => `${itemId}:${field}`
+
+  /**
+   * @brief 构造经历要点草稿的稳定本地键 / Build the stable local key for a highlight draft.
+   * @param itemId 目标条目 / Target item.
+   * @param highlightIndex 要点索引 / Highlight index.
+   * @return 浏览器本地草稿键 / Browser-local draft key.
+   */
+  const highlightDraftKey = (itemId: UiResumeItemId, highlightIndex: number): string =>
+    `${itemId}:highlights:${highlightIndex}`
+
+  /**
+   * @brief 提交已经冻结的语义字段命令 / Submit an already frozen semantic-field command.
+   * @param dispatch 原样重放同一命令的动作 / Action replaying the same command verbatim.
+   * @param key 对应的本地草稿键 / Matching local draft key.
+   * @param draft 提交时冻结的草稿正文 / Draft body frozen at submission.
+   * @param failureTitle 安全失败提示 / Safe failure title.
+   * @return 无返回值 / No return value.
+   */
+  const submitSemanticCommand = async (
+    dispatch: () => Promise<UiResumeEditorModel>,
+    key: string,
+    draft: string,
+    failureTitle: string
+  ): Promise<void> => {
+    /** @brief 吸收服务端确认的新权威并只清理对应草稿 / Adopt confirmed authority and clear only its matching draft. */
+    const accept = (next: UiResumeEditorModel): void => {
+      onEditorChange(next)
+      setItemDrafts((current) => {
+        const remaining = new Map(current)
+        if (remaining.get(key) === draft) remaining.delete(key)
+        return remaining
+      })
+      setStructureFailure(null)
+    }
+    setSavingItemKey(key)
+    try {
+      await runMutation(dispatch, accept)
+    } catch (reason: unknown) {
+      /** @brief 根恢复状态机对失败命令的处置 / Root recovery state machine's disposition for the failed command. */
+      const disposition = onMutationError(
+        reason,
+        async (): Promise<void> => accept(await dispatch()),
+        (): void => undefined
+      )
+      if (disposition === null) {
+        setStructureFailure({
+          error: reason,
+          title: failureTitle
+        })
+      }
+    } finally {
+      setSavingItemKey(null)
+    }
+  }
+
+  /**
+   * @brief 提交已经冻结的条目字段命令 / Submit an already frozen item-field command.
+   * @param command 完整条目更新意图 / Complete item-update intent.
+   * @param key 对应的本地草稿键 / Matching local draft key.
+   * @param draft 提交时冻结的草稿正文 / Draft body frozen at submission.
+   * @return 无返回值 / No return value.
+   */
+  const submitItemCommand = (
+    command: UiResumeItemUpdateInput,
+    key: string,
+    draft: string
+  ): Promise<void> =>
+    submitSemanticCommand(
+      (): Promise<UiResumeEditorModel> =>
+        runDiagnosticCommand(
+          diagnostics,
+          { operation: 'resume.section_update', scope: 'resume' },
+          () => gateway.updateResumeItem(command)
+        ),
+      key,
+      draft,
+      '条目修改尚未保存；你的输入仍保留在本页。'
+    )
+
+  /** @brief 构造个人资料字段草稿键 / Build a profile-field draft key. */
+  const profileDraftKey = (field: 'fullName' | 'headline' | 'summary'): string => `profile:${field}`
+
+  /** @brief 构造联系方式字段草稿键 / Build a contact-field draft key. */
+  const contactDraftKey = (
+    contactId: UiResumeContactId,
+    field: 'label' | 'url' | 'value'
+  ): string => `contact:${contactId}:${field}`
+
+  /** @brief 合并一个语义字段的浏览器本地草稿 / Merge one browser-local semantic-field draft. */
+  const updateSemanticDraft = (key: string, value: string): void => {
+    if (isWriteLocked) return
+    setItemDrafts((current) => {
+      /** @brief 保留其他未保存字段的新草稿集合 / New draft collection retaining other unsaved fields. */
+      const next = new Map(current)
+      next.set(key, value)
+      return next
+    })
+  }
+
+  /**
+   * @brief 保存姓名或职业标题 / Persist the full name or professional headline.
+   * @param field 目标个人资料字段 / Target profile field.
+   * @param authoritativeValue 当前权威值 / Current authoritative value.
+   * @return 无返回值 / No return value.
+   */
+  const persistProfileText = async (
+    field: 'fullName' | 'headline',
+    authoritativeValue: string | null
+  ): Promise<void> => {
+    /** @brief 当前个人资料字段的草稿键 / Draft key for the current profile field. */
+    const key = profileDraftKey(field)
+    /** @brief 用户输入的个人资料草稿 / Profile draft entered by the user. */
+    const draft = itemDrafts.get(key)
+    if (draft === undefined || savingItemKey !== null || isWriteLocked) return
+    if (field === 'fullName' && draft.trim().length === 0) {
+      setStructureFailure({
+        error: new Error('resume.profile.full_name_required'),
+        title: '姓名不能为空。'
+      })
+      return
+    }
+    /** @brief 根据字段可空性规范化的值 / Value normalized according to field nullability. */
+    const value = field === 'headline' && draft.length === 0 ? null : draft
+    if (value === authoritativeValue) return
+    /** @brief 冻结权威与个人资料值的命令 / Command freezing authority and the profile value. */
+    const command: UiResumeProfileUpdateInput =
+      field === 'fullName'
+        ? {
+            baseRevision: editor.resume.revision,
+            commandId: createUiCommandId(),
+            concurrencyToken: editor.concurrencyToken,
+            field,
+            resumeId: editor.resume.id,
+            value: draft,
+            workspaceId: editor.resume.workspaceId
+          }
+        : {
+            baseRevision: editor.resume.revision,
+            commandId: createUiCommandId(),
+            concurrencyToken: editor.concurrencyToken,
+            field,
+            resumeId: editor.resume.id,
+            value,
+            workspaceId: editor.resume.workspaceId
+          }
+    await submitSemanticCommand(
+      (): Promise<UiResumeEditorModel> =>
+        runDiagnosticCommand(
+          diagnostics,
+          { operation: 'resume.section_update', scope: 'resume' },
+          () => gateway.updateResumeProfile(command)
+        ),
+      key,
+      draft,
+      '个人资料修改尚未保存；你的输入仍保留在本页。'
+    )
+  }
+
+  /**
+   * @brief 保存个人简介并保留未触及的富文本 marks / Persist profile summary while preserving untouched rich-text marks.
+   * @return 无返回值 / No return value.
+   */
+  const persistProfileSummary = async (): Promise<void> => {
+    /** @brief 个人简介草稿键 / Profile-summary draft key. */
+    const key = profileDraftKey('summary')
+    /** @brief 用户输入的个人简介 / Profile summary entered by the user. */
+    const draft = itemDrafts.get(key)
+    if (draft === undefined || savingItemKey !== null || isWriteLocked) return
+    /** @brief 由当前权威富文本重定位得到的新简介 / New summary rebased from the authoritative rich text. */
+    const value =
+      draft.length === 0 ? null : replaceUiResumeRichTextText(editor.resume.profile.summary, draft)
+    if (draft === (editor.resume.profile.summary?.text ?? '')) return
+    /** @brief 冻结权威与完整简介的命令 / Command freezing authority and the complete summary. */
+    const command: UiResumeProfileUpdateInput = {
+      baseRevision: editor.resume.revision,
+      commandId: createUiCommandId(),
+      concurrencyToken: editor.concurrencyToken,
+      field: 'summary',
+      resumeId: editor.resume.id,
+      value,
+      workspaceId: editor.resume.workspaceId
+    }
+    await submitSemanticCommand(
+      (): Promise<UiResumeEditorModel> =>
+        runDiagnosticCommand(
+          diagnostics,
+          { operation: 'resume.section_update', scope: 'resume' },
+          () => gateway.updateResumeProfile(command)
+        ),
+      key,
+      draft,
+      '个人简介修改尚未保存；你的输入仍保留在本页。'
+    )
+  }
+
+  /**
+   * @brief 保存已有联系方式的一个文本字段 / Persist one text field of an existing contact.
+   * @param contact 当前权威联系方式 / Current authoritative contact.
+   * @param field 目标字段 / Target field.
+   * @return 无返回值 / No return value.
+   */
+  const persistContact = async (
+    contact: UiResumeContact,
+    field: 'label' | 'url' | 'value'
+  ): Promise<void> => {
+    /** @brief 当前联系方式字段草稿键 / Draft key for the current contact field. */
+    const key = contactDraftKey(contact.id, field)
+    /** @brief 用户输入的联系方式草稿 / Contact draft entered by the user. */
+    const draft = itemDrafts.get(key)
+    if (draft === undefined || savingItemKey !== null || isWriteLocked) return
+    if (field === 'value' && draft.trim().length === 0) {
+      setStructureFailure({
+        error: new Error('resume.contact.value_required'),
+        title: '联系方式的值不能为空。'
+      })
+      return
+    }
+    if (field === 'url' && draft.length > 0) {
+      try {
+        /** @brief 用于校验安全协议的标准 URL / Standard URL used to validate the safe protocol. */
+        const parsed = new URL(draft)
+        if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw new Error('unsafe')
+      } catch (error: unknown) {
+        setStructureFailure({ error, title: '联系方式链接必须是有效的 http 或 https 地址。' })
+        return
+      }
+    }
+    /** @brief 根据字段可空性规范化的联系方式值 / Contact value normalized according to field nullability. */
+    const value = field === 'value' ? draft : draft.length === 0 ? null : draft
+    if (value === contact[field]) return
+    /** @brief 冻结权威与联系方式值的命令 / Command freezing authority and the contact value. */
+    const command: UiResumeContactUpdateInput =
+      field === 'value'
+        ? {
+            baseRevision: editor.resume.revision,
+            commandId: createUiCommandId(),
+            concurrencyToken: editor.concurrencyToken,
+            contactId: contact.id,
+            field,
+            resumeId: editor.resume.id,
+            value: draft,
+            workspaceId: editor.resume.workspaceId
+          }
+        : {
+            baseRevision: editor.resume.revision,
+            commandId: createUiCommandId(),
+            concurrencyToken: editor.concurrencyToken,
+            contactId: contact.id,
+            field,
+            resumeId: editor.resume.id,
+            value,
+            workspaceId: editor.resume.workspaceId
+          }
+    await submitSemanticCommand(
+      (): Promise<UiResumeEditorModel> =>
+        runDiagnosticCommand(
+          diagnostics,
+          { operation: 'resume.section_update', scope: 'resume' },
+          () => gateway.updateResumeContact(command)
+        ),
+      key,
+      draft,
+      '联系方式修改尚未保存；你的输入仍保留在本页。'
+    )
+  }
 
   /**
    * @brief 保存一个规范化条目文本字段 / Persist one normalized item text field.
@@ -910,43 +1223,203 @@ function ResumeSectionsEditor({
       value,
       workspaceId: editor.resume.workspaceId
     }
-    /** @brief 原样发送同一条目命令的动作 / Action dispatching the same item command verbatim. */
-    const dispatch = (): Promise<UiResumeEditorModel> =>
-      runDiagnosticCommand(
-        diagnostics,
-        { operation: 'resume.section_update', scope: 'resume' },
-        () => gateway.updateResumeItem(command)
-      )
-    /** @brief 吸收服务端确认的新权威并只清理对应草稿 / Adopt confirmed authority and clear only its matching draft. */
-    const accept = (next: UiResumeEditorModel): void => {
-      onEditorChange(next)
+    await submitItemCommand(command, key, draft)
+  }
+
+  /**
+   * @brief 保存一个经历要点并保留其他要点 / Persist one highlight while retaining the other highlights.
+   * @param item 当前权威条目 / Current authoritative item.
+   * @param highlightIndex 目标要点索引 / Target highlight index.
+   * @return 无返回值 / No return value.
+   */
+  const persistItemHighlight = async (
+    item: UiResumeItem,
+    highlightIndex: number
+  ): Promise<void> => {
+    /** @brief 当前要点的稳定草稿键 / Stable draft key for the current highlight. */
+    const key = highlightDraftKey(item.id, highlightIndex)
+    /** @brief 用户实际输入的要点草稿 / Highlight draft actually entered by the user. */
+    const draft = itemDrafts.get(key)
+    /** @brief 当前权威要点 / Current authoritative highlight. */
+    const authoritativeHighlight = item.highlights[highlightIndex]
+    if (
+      draft === undefined ||
+      authoritativeHighlight === undefined ||
+      savingItemKey !== null ||
+      isWriteLocked
+    ) {
+      return
+    }
+    if (draft === authoritativeHighlight.text) {
       setItemDrafts((current) => {
-        const remaining = new Map(current)
-        if (remaining.get(key) === draft) remaining.delete(key)
-        return remaining
+        /** @brief 删除未改变要点后的剩余草稿 / Remaining drafts after removing an unchanged highlight. */
+        const next = new Map(current)
+        next.delete(key)
+        return next
       })
-      setStructureFailure(null)
+      return
     }
-    setSavingItemKey(key)
+    /** @brief 替换目标正文并保留其他要点的完整数组 / Complete array replacing the target text and retaining other highlights. */
+    const value = item.highlights.map((highlight, index) =>
+      index === highlightIndex ? replaceUiResumeRichTextText(highlight, draft) : highlight
+    )
+    /** @brief 冻结权威与完整要点数组的条目命令 / Item command freezing authority and the complete highlights array. */
+    const command: UiResumeItemUpdateInput = {
+      baseRevision: editor.resume.revision,
+      commandId: createUiCommandId(),
+      concurrencyToken: editor.concurrencyToken,
+      field: 'highlights',
+      itemId: item.id,
+      resumeId: editor.resume.id,
+      value,
+      workspaceId: editor.resume.workspaceId
+    }
+    await submitItemCommand(command, key, draft)
+  }
+
+  /**
+   * @brief 保存条目摘要并安全重定位富文本 marks / Persist an item summary and safely rebase rich-text marks.
+   * @param item 当前权威条目 / Current authoritative item.
+   * @return 无返回值 / No return value.
+   */
+  const persistItemSummary = async (item: UiResumeItem): Promise<void> => {
+    /** @brief 摘要字段的稳定草稿键 / Stable draft key for the summary field. */
+    const key = itemDraftKey(item.id, 'summary')
+    /** @brief 用户实际输入的摘要草稿 / Summary draft actually entered by the user. */
+    const draft = itemDrafts.get(key)
+    if (draft === undefined || savingItemKey !== null || isWriteLocked) return
+    if (draft === (item.summary?.text ?? '')) {
+      setItemDrafts((current) => {
+        /** @brief 删除未改变摘要后的剩余草稿 / Remaining drafts after removing an unchanged summary. */
+        const next = new Map(current)
+        next.delete(key)
+        return next
+      })
+      return
+    }
+    /** @brief 空摘要映射为 null，否则安全替换富文本正文 / Null for an empty summary, otherwise safely replaced rich text. */
+    const value = draft.length === 0 ? null : replaceUiResumeRichTextText(item.summary, draft)
+    /** @brief 冻结权威与完整摘要的条目命令 / Item command freezing authority and the complete summary. */
+    const command: UiResumeItemUpdateInput = {
+      baseRevision: editor.resume.revision,
+      commandId: createUiCommandId(),
+      concurrencyToken: editor.concurrencyToken,
+      field: 'summary',
+      itemId: item.id,
+      resumeId: editor.resume.id,
+      value,
+      workspaceId: editor.resume.workspaceId
+    }
+    await submitItemCommand(command, key, draft)
+  }
+
+  /**
+   * @brief 保存一行一个的技能列表 / Persist a one-skill-per-line list.
+   * @param item 当前权威条目 / Current authoritative item.
+   * @return 无返回值 / No return value.
+   */
+  const persistItemSkills = async (item: UiResumeItem): Promise<void> => {
+    /** @brief 技能字段的稳定草稿键 / Stable draft key for the skills field. */
+    const key = itemDraftKey(item.id, 'skills')
+    /** @brief 用户实际输入的技能草稿 / Skills draft actually entered by the user. */
+    const draft = itemDrafts.get(key)
+    if (draft === undefined || savingItemKey !== null || isWriteLocked) return
+    /** @brief 去除空行后的完整有序技能 / Complete ordered skills after removing blank lines. */
+    const value = draft
+      .split(/\r?\n/u)
+      .map((skill) => skill.trim())
+      .filter((skill) => skill.length > 0)
+    if (
+      value.length === item.skills.length &&
+      value.every((skill, index) => skill === item.skills[index])
+    ) {
+      setItemDrafts((current) => {
+        /** @brief 删除未改变技能后的剩余草稿 / Remaining drafts after removing unchanged skills. */
+        const next = new Map(current)
+        next.delete(key)
+        return next
+      })
+      return
+    }
+    /** @brief 冻结权威与完整技能列表的条目命令 / Item command freezing authority and the complete skills list. */
+    const command: UiResumeItemUpdateInput = {
+      baseRevision: editor.resume.revision,
+      commandId: createUiCommandId(),
+      concurrencyToken: editor.concurrencyToken,
+      field: 'skills',
+      itemId: item.id,
+      resumeId: editor.resume.id,
+      value,
+      workspaceId: editor.resume.workspaceId
+    }
+    await submitItemCommand(command, key, draft)
+  }
+
+  /**
+   * @brief 保存条目日期范围的一侧 / Persist one boundary of an item date range.
+   * @param item 当前权威条目 / Current authoritative item.
+   * @param boundary 起始或结束边界 / Start or end boundary.
+   * @return 无返回值 / No return value.
+   */
+  const persistItemDateBoundary = async (
+    item: UiResumeItem,
+    boundary: 'end' | 'start'
+  ): Promise<void> => {
+    /** @brief 日期边界的稳定草稿键 / Stable draft key for the date boundary. */
+    const key = itemDraftKey(item.id, `dateRange.${boundary}`)
+    /** @brief 用户实际输入的日期草稿 / Date draft actually entered by the user. */
+    const draft = itemDrafts.get(key)
+    if (draft === undefined || savingItemKey !== null || isWriteLocked) return
+    /** @brief 当前权威日期边界 / Current authoritative date boundary. */
+    const authoritativeValue = item.dateRange?.[boundary] ?? null
+    /** @brief 经契约校验并保留精度的新日期边界 / New date boundary validated against the contract while preserving precision. */
+    let nextStart = item.dateRange?.start ?? null
+    /** @brief 合并后的结束日期 / Merged end date. */
+    let nextEnd = item.dateRange?.end ?? null
     try {
-      const next = await runMutation(dispatch)
-      if (next !== null) accept(next)
-    } catch (reason: unknown) {
-      /** @brief 根恢复状态机对失败命令的处置 / Root recovery state machine's disposition for the failed command. */
-      const disposition = onMutationError(
-        reason,
-        async (): Promise<void> => accept(await dispatch()),
-        (): void => undefined
-      )
-      if (disposition === null) {
-        setStructureFailure({
-          error: reason,
-          title: '条目修改尚未保存；你的输入仍保留在本页。'
-        })
+      if (boundary === 'start') {
+        nextStart = draft.length === 0 ? null : asUiResumePartialDate(draft)
+      } else {
+        nextEnd =
+          draft.length === 0 ? null : draft === 'present' ? 'present' : asUiResumePartialDate(draft)
       }
-    } finally {
-      setSavingItemKey(null)
+    } catch (error: unknown) {
+      setStructureFailure({
+        error,
+        title: '日期格式无效；请使用 YYYY、YYYY-MM、YYYY-MM-DD 或 present。'
+      })
+      return
     }
+    /** @brief 经契约校验并保留精度的新日期边界 / New date boundary validated against the contract while preserving precision. */
+    const nextBoundary = boundary === 'start' ? nextStart : nextEnd
+    if (nextBoundary === authoritativeValue) {
+      setItemDrafts((current) => {
+        /** @brief 删除未改变日期后的剩余草稿 / Remaining drafts after removing an unchanged date. */
+        const next = new Map(current)
+        next.delete(key)
+        return next
+      })
+      return
+    }
+    /** @brief 合并另一侧权威值后的完整日期范围 / Complete date range merged with the other authoritative boundary. */
+    const nextRange: UiResumeDateRange = {
+      end: nextEnd,
+      start: nextStart
+    }
+    /** @brief 两侧均为空时使用 null 的规范化日期值 / Normalized date value using null when both boundaries are empty. */
+    const value = nextRange.start === null && nextRange.end === null ? null : nextRange
+    /** @brief 冻结权威与完整日期范围的条目命令 / Item command freezing authority and the complete date range. */
+    const command: UiResumeItemUpdateInput = {
+      baseRevision: editor.resume.revision,
+      commandId: createUiCommandId(),
+      concurrencyToken: editor.concurrencyToken,
+      field: 'dateRange',
+      itemId: item.id,
+      resumeId: editor.resume.id,
+      value,
+      workspaceId: editor.resume.workspaceId
+    }
+    await submitItemCommand(command, key, draft)
   }
 
   /**
@@ -1129,9 +1602,10 @@ function ResumeSectionsEditor({
     setSavingSectionId(section.id)
     setSaveFailure(null)
     try {
-      const next = await runMutation(() => dispatchSectionCommand(commandAttempt))
-      if (next === null) return
-      acceptSectionCommand(next, section.id, field)
+      await runMutation(
+        () => dispatchSectionCommand(commandAttempt),
+        (next): void => acceptSectionCommand(next, section.id, field)
+      )
     } catch (reason: unknown) {
       /** @brief 不经新权威重构而原样重放本命令的确认动作 / Confirmation action replaying this command verbatim without rebuilding it from newer authority. */
       const confirmUnknownOutcome = async (): Promise<void> => {
@@ -1189,10 +1663,13 @@ function ResumeSectionsEditor({
     )
     reorderCommandAttemptRef.current = commandAttempt
     try {
-      const next = await runMutation(() => dispatchReorderCommand(commandAttempt))
-      if (next === null) return
-      onEditorChange(next)
-      setStructureFailure(null)
+      await runMutation(
+        () => dispatchReorderCommand(commandAttempt),
+        (next): void => {
+          onEditorChange(next)
+          setStructureFailure(null)
+        }
+      )
     } catch (reason: unknown) {
       /** @brief 原样重放本排序命令的确认动作 / Confirmation action replaying this reorder command verbatim. */
       const confirmUnknownOutcome = async (): Promise<void> => {
@@ -1264,19 +1741,32 @@ function ResumeSectionsEditor({
     )
     deleteCommandAttemptRef.current = commandAttempt
     try {
-      const next = await runMutation(() => dispatchDeleteCommand(commandAttempt))
-      if (next === null) return
-      onEditorChange(next)
-      setStructureFailure(null)
-      setFocusedSectionId(next.resume.sections.at(0)?.id ?? null)
-      setDeleteCandidate(null)
+      await runMutation(
+        () => dispatchDeleteCommand(commandAttempt),
+        (next): void => {
+          onEditorChange(next)
+          setStructureFailure(null)
+          setExpandedSectionIds((current) => {
+            /** @brief 移除已删除板块后的展开集合 / Expanded set after removing the deleted section. */
+            const remaining = new Set(current)
+            remaining.delete(sectionId)
+            return remaining
+          })
+          setDeleteCandidate(null)
+        }
+      )
     } catch (reason: unknown) {
       /** @brief 原样重放本删除命令的确认动作 / Confirmation action replaying this delete command verbatim. */
       const confirmUnknownOutcome = async (): Promise<void> => {
         const next = await dispatchDeleteCommand(commandAttempt)
         onEditorChange(next)
         setStructureFailure(null)
-        setFocusedSectionId(next.resume.sections.at(0)?.id ?? null)
+        setExpandedSectionIds((current) => {
+          /** @brief 确认删除后的展开集合 / Expanded set after the confirmed deletion. */
+          const remaining = new Set(current)
+          remaining.delete(sectionId)
+          return remaining
+        })
         setDeleteCandidate(null)
       }
       /** @brief 放弃旧删除命令身份 / Abandon the old delete-command identity. */
@@ -1442,8 +1932,127 @@ function ResumeSectionsEditor({
         />
       ) : null}
       <div className="aw-resume-sections">
+        <article className={`aw-resume-section-editor ${isProfileExpanded ? 'is-focused' : ''}`}>
+          <header className="aw-resume-section-heading aw-resume-section-heading--fixed">
+            <button
+              aria-expanded={isProfileExpanded}
+              aria-label={t(
+                isProfileExpanded
+                  ? 'resume.workspace.collapseSection'
+                  : 'resume.workspace.expandSection',
+                {
+                  defaultValue: isProfileExpanded ? '收起{{name}}' : '展开{{name}}',
+                  name: profileSectionName
+                }
+              )}
+              className="aw-section-toggle"
+              onClick={(): void => setIsProfileExpanded((current) => !current)}
+              type="button"
+            >
+              <span className="aw-section-title-copy">
+                <h3>{profileSectionName}</h3>
+                <span>profile</span>
+              </span>
+              {isProfileExpanded ? (
+                <ChevronUp aria-hidden="true" size={15} />
+              ) : (
+                <ChevronDown aria-hidden="true" size={15} />
+              )}
+            </button>
+          </header>
+          {isProfileExpanded ? (
+            <div className="aw-section-focus-editor">
+              {(
+                [
+                  { field: 'fullName', label: '姓名' },
+                  { field: 'headline', label: '职业标题' }
+                ] as const
+              ).map(({ field, label }) => {
+                /** @brief 当前个人资料字段的稳定草稿键 / Stable draft key for the current profile field. */
+                const key = profileDraftKey(field)
+                /** @brief 草稿优先的个人资料字段值 / Draft-first profile-field value. */
+                const value = itemDrafts.get(key) ?? editor.resume.profile[field] ?? ''
+                return (
+                  <label key={field}>
+                    <span>{label}</span>
+                    <input
+                      aria-label={label}
+                      className="aw-text-input"
+                      disabled={isWriteLocked || savingItemKey === key}
+                      onBlur={(): void => {
+                        void persistProfileText(field, editor.resume.profile[field])
+                      }}
+                      onChange={(event): void =>
+                        updateSemanticDraft(key, event.currentTarget.value)
+                      }
+                      value={value}
+                    />
+                  </label>
+                )
+              })}
+              {(() => {
+                /** @brief 个人简介草稿键 / Profile-summary draft key. */
+                const key = profileDraftKey('summary')
+                /** @brief 草稿优先的个人简介 / Draft-first profile summary. */
+                const value = itemDrafts.get(key) ?? editor.resume.profile.summary?.text ?? ''
+                return (
+                  <label>
+                    <span>个人简介</span>
+                    <textarea
+                      aria-label="个人简介"
+                      className="aw-section-textarea"
+                      disabled={isWriteLocked || savingItemKey === key}
+                      onBlur={(): void => {
+                        void persistProfileSummary()
+                      }}
+                      onChange={(event): void =>
+                        updateSemanticDraft(key, event.currentTarget.value)
+                      }
+                      value={value}
+                    />
+                  </label>
+                )
+              })()}
+              {editor.resume.profile.contacts.map((contact, contactIndex) => (
+                <article className="aw-rich-text-shell" key={contact.id}>
+                  <strong>联系方式 {contactIndex + 1}</strong>
+                  {(
+                    [
+                      { field: 'label', label: `联系方式 ${contactIndex + 1} 的标签` },
+                      { field: 'value', label: `联系方式 ${contactIndex + 1} 的值` },
+                      { field: 'url', label: `联系方式 ${contactIndex + 1} 的链接` }
+                    ] as const
+                  ).map(({ field, label }) => {
+                    /** @brief 当前联系方式字段草稿键 / Draft key for the current contact field. */
+                    const key = contactDraftKey(contact.id, field)
+                    /** @brief 草稿优先的联系方式字段值 / Draft-first contact-field value. */
+                    const value = itemDrafts.get(key) ?? contact[field] ?? ''
+                    return (
+                      <label key={field}>
+                        <span>{label}</span>
+                        <input
+                          aria-label={label}
+                          className="aw-text-input"
+                          disabled={isWriteLocked || savingItemKey === key}
+                          onBlur={(): void => {
+                            void persistContact(contact, field)
+                          }}
+                          onChange={(event): void =>
+                            updateSemanticDraft(key, event.currentTarget.value)
+                          }
+                          value={value}
+                        />
+                      </label>
+                    )
+                  })}
+                </article>
+              ))}
+            </div>
+          ) : null}
+        </article>
         {editor.resume.sections.map((section, index) => {
-          const isFocused = section.id === focusedSectionId
+          /** @brief 当前语义板块是否独立展开 / Whether the current semantic section is independently expanded. */
+          const isExpanded = expandedSectionIds.has(section.id)
           /** @brief 当前板块的未保存草稿 / Unsaved draft for the current section. */
           const draft = drafts.get(section.id)
           /** @brief 输入框展示的标题 / Title displayed in the input. */
@@ -1454,10 +2063,9 @@ function ResumeSectionsEditor({
           const isSaving = savingSectionId === section.id
           return (
             <article
-              className={`aw-resume-section-editor ${isFocused ? 'is-focused' : ''}`}
+              className={`aw-resume-section-editor ${isExpanded ? 'is-focused' : ''}`}
               draggable={!isWriteLocked}
               key={section.id}
-              onClick={(): void => setFocusedSectionId(section.id)}
               onDragOver={(event): void => event.preventDefault()}
               onDragStart={(): void => setDraggedSectionId(section.id)}
               onDrop={(): void => dropBefore(section.id)}
@@ -1466,10 +2074,39 @@ function ResumeSectionsEditor({
                 <span aria-hidden="true" className="aw-section-drag-handle">
                   <GripVertical size={15} />
                 </span>
-                <div>
-                  <h3>{sectionTitle || section.kind}</h3>
-                  <span>{section.kind}</span>
-                </div>
+                <button
+                  aria-expanded={isExpanded}
+                  aria-label={t(
+                    isExpanded
+                      ? 'resume.workspace.collapseSection'
+                      : 'resume.workspace.expandSection',
+                    {
+                      defaultValue: isExpanded ? '收起{{name}}' : '展开{{name}}',
+                      name: sectionTitle || section.kind
+                    }
+                  )}
+                  className="aw-section-toggle"
+                  onClick={(): void => {
+                    setExpandedSectionIds((current) => {
+                      /** @brief 本次切换后的展开集合 / Expanded set after this toggle. */
+                      const next = new Set(current)
+                      if (next.has(section.id)) next.delete(section.id)
+                      else next.add(section.id)
+                      return next
+                    })
+                  }}
+                  type="button"
+                >
+                  <span className="aw-section-title-copy">
+                    <h3>{sectionTitle || section.kind}</h3>
+                    <span>{section.kind}</span>
+                  </span>
+                  {isExpanded ? (
+                    <ChevronUp aria-hidden="true" size={15} />
+                  ) : (
+                    <ChevronDown aria-hidden="true" size={15} />
+                  )}
+                </button>
                 <div className="aw-section-actions">
                   <button
                     aria-label={t('resume.workspace.moveUp', {
@@ -1522,7 +2159,7 @@ function ResumeSectionsEditor({
                   </button>
                 </div>
               </header>
-              {isFocused ? (
+              {isExpanded ? (
                 <div className="aw-section-focus-editor">
                   <label>
                     <span>{t('resume.editor.sectionTitle', { defaultValue: '区段标题' })}</span>
@@ -1549,11 +2186,15 @@ function ResumeSectionsEditor({
                     />
                   </label>
                   <label>
-                    <span>{t('resume.editor.semanticContent', { defaultValue: '语义内容' })}</span>
+                    <span>
+                      {t('resume.editor.semanticContent', {
+                        defaultValue: '板块补充说明（可选）'
+                      })}
+                    </span>
                     <div className="aw-rich-text-shell">
                       <textarea
                         aria-label={t('resume.editor.semanticContent', {
-                          defaultValue: '语义内容'
+                          defaultValue: '板块补充说明（可选）'
                         })}
                         aria-invalid={
                           saveFailure?.kind === 'validation' &&
@@ -1617,6 +2258,131 @@ function ResumeSectionsEditor({
                           </label>
                         )
                       })}
+                      {(['start', 'end'] as const).map((boundary) => {
+                        /** @brief 当前日期边界的本地草稿键 / Local draft key for the current date boundary. */
+                        const key = itemDraftKey(item.id, `dateRange.${boundary}`)
+                        /** @brief 草稿优先的日期边界值 / Draft-first date-boundary value. */
+                        const value = itemDrafts.get(key) ?? item.dateRange?.[boundary] ?? ''
+                        /** @brief 当前日期边界的可访问标签 / Accessible label for the current date boundary. */
+                        const label = `${boundary === 'start' ? '开始日期' : '结束日期'} ${itemIndex + 1}`
+                        return (
+                          <label key={key}>
+                            <span>{label}</span>
+                            <input
+                              aria-label={label}
+                              className="aw-text-input"
+                              disabled={isWriteLocked || savingItemKey === key}
+                              onBlur={(): void => {
+                                void persistItemDateBoundary(item, boundary)
+                              }}
+                              onChange={(event): void => {
+                                const nextValue = event.currentTarget.value
+                                setItemDrafts((current) => {
+                                  /** @brief 合并本次日期输入后的草稿 / Drafts after merging this date input. */
+                                  const next = new Map(current)
+                                  next.set(key, nextValue)
+                                  return next
+                                })
+                              }}
+                              placeholder={boundary === 'end' ? 'YYYY-MM 或 present' : 'YYYY-MM'}
+                              value={value}
+                            />
+                          </label>
+                        )
+                      })}
+                      {(() => {
+                        /** @brief 条目摘要的本地草稿键 / Local draft key for the item summary. */
+                        const key = itemDraftKey(item.id, 'summary')
+                        /** @brief 草稿优先的条目摘要 / Draft-first item summary. */
+                        const value = itemDrafts.get(key) ?? item.summary?.text ?? ''
+                        /** @brief 当前摘要的可访问标签 / Accessible label for the current summary. */
+                        const label = `条目摘要 ${itemIndex + 1}`
+                        return (
+                          <label>
+                            <span>{label}</span>
+                            <textarea
+                              aria-label={label}
+                              className="aw-section-textarea"
+                              disabled={isWriteLocked || savingItemKey === key}
+                              onBlur={(): void => {
+                                void persistItemSummary(item)
+                              }}
+                              onChange={(event): void => {
+                                const nextValue = event.currentTarget.value
+                                setItemDrafts((current) => {
+                                  /** @brief 合并本次摘要输入后的草稿 / Drafts after merging this summary input. */
+                                  const next = new Map(current)
+                                  next.set(key, nextValue)
+                                  return next
+                                })
+                              }}
+                              value={value}
+                            />
+                          </label>
+                        )
+                      })()}
+                      {item.highlights.map((highlight, highlightIndex) => {
+                        /** @brief 当前经历要点的本地草稿键 / Local draft key for the current highlight. */
+                        const key = highlightDraftKey(item.id, highlightIndex)
+                        /** @brief 草稿优先的经历要点正文 / Draft-first highlight text. */
+                        const value = itemDrafts.get(key) ?? highlight.text
+                        /** @brief 当前要点的可访问标签 / Accessible label for the current highlight. */
+                        const label = `经历要点 ${itemIndex + 1}-${highlightIndex + 1}`
+                        return (
+                          <label key={key}>
+                            <span>{label}</span>
+                            <textarea
+                              aria-label={label}
+                              className="aw-section-textarea"
+                              disabled={isWriteLocked || savingItemKey === key}
+                              onBlur={(): void => {
+                                void persistItemHighlight(item, highlightIndex)
+                              }}
+                              onChange={(event): void => {
+                                const nextValue = event.currentTarget.value
+                                setItemDrafts((current) => {
+                                  /** @brief 合并本次要点输入后的草稿 / Drafts after merging this highlight input. */
+                                  const next = new Map(current)
+                                  next.set(key, nextValue)
+                                  return next
+                                })
+                              }}
+                              value={value}
+                            />
+                          </label>
+                        )
+                      })}
+                      {(() => {
+                        /** @brief 技能列表的本地草稿键 / Local draft key for the skills list. */
+                        const key = itemDraftKey(item.id, 'skills')
+                        /** @brief 草稿优先的一行一个技能正文 / Draft-first one-skill-per-line text. */
+                        const value = itemDrafts.get(key) ?? item.skills.join('\n')
+                        /** @brief 当前技能列表的可访问标签 / Accessible label for the current skills list. */
+                        const label = `技能 ${itemIndex + 1}`
+                        return (
+                          <label>
+                            <span>{label}</span>
+                            <textarea
+                              aria-label={label}
+                              className="aw-section-textarea"
+                              disabled={isWriteLocked || savingItemKey === key}
+                              onBlur={(): void => {
+                                void persistItemSkills(item)
+                              }}
+                              onChange={(event): void => {
+                                const nextValue = event.currentTarget.value
+                                setItemDrafts((current) => {
+                                  /** @brief 合并本次技能输入后的草稿 / Drafts after merging this skills input. */
+                                  const next = new Map(current)
+                                  next.set(key, nextValue)
+                                  return next
+                                })
+                              }}
+                              value={value}
+                            />
+                          </label>
+                        )
+                      })()}
                     </article>
                   ))}
                 </div>
@@ -1669,12 +2435,18 @@ export function ResumeWorkspace({
   const [confirmationClock, setConfirmationClock] = useState(0)
   /** @brief 在同一事件循环内也能原子拒绝第二个写意图 / Atomic guard rejecting a second write intent within the same event loop. */
   const mutationInFlightRef = useRef(false)
+  /** @brief 当前单写通道内可等待的完整 mutation / Complete active mutation that PDF generation may await. */
+  const mutationPromiseRef = useRef<Promise<unknown> | null>(null)
+  /** @brief 不依赖 React commit 即可读取的最新 Resume 权威 / Latest Resume authority readable without waiting for a React commit. */
+  const latestEditorRef = useRef(initialEditor)
   const [isReloadingAuthority, setReloadingAuthority] = useState(false)
   /** @brief 当前权威重读独占的取消控制器 / Abort controller exclusively owned by the current authority reload. */
   const authorityReloadControllerRef = useRef<AbortController | null>(null)
   /** @brief 当前聚合恢复动作的安全错误 / Safe error from the current aggregate-recovery action. */
   const [authorityRecoveryError, setAuthorityRecoveryError] = useState<unknown>(null)
   const [authorityReloadRevision, setAuthorityReloadRevision] = useState(0)
+  /** @brief 中栏是否存在尚未保存到服务端的本地草稿 / Whether the editor pane has browser-local drafts not yet saved to the service. */
+  const [hasEditorDrafts, setHasEditorDrafts] = useState(false)
   const [mobilePane, setMobilePane] = useState<MobileResumePane>('preview')
   const [mobileAssistantOpen, setMobileAssistantOpen] = useState(false)
   const [aiUndo, setAiUndo] = useState<ResumeAiUndoState | null>(() =>
@@ -1820,18 +2592,53 @@ export function ResumeWorkspace({
    * @param mutation 延迟执行的 gateway 写操作 / Deferred gateway mutation.
    * @return 写结果；已有写操作执行中时为 null / Mutation result, or null while another write is active.
    */
+  /**
+   * @brief 同步吸收一份新 Resume 权威 / Synchronously adopt a new Resume authority.
+   * @param nextEditor 服务端确认的新权威 / New authority confirmed by the service.
+   * @return 无返回值 / No return value.
+   */
+  const adoptEditor = (nextEditor: UiResumeEditorModel): void => {
+    latestEditorRef.current = nextEditor
+    setEditor(nextEditor)
+  }
+
   const runResumeMutation: RunResumeMutation = async <TResult,>(
-    mutation: () => Promise<TResult>
+    mutation: () => Promise<TResult>,
+    onSuccess?: (result: TResult) => void
   ): Promise<TResult | null> => {
     if (mutationInFlightRef.current || authorityRecovery !== null) return null
     mutationInFlightRef.current = true
     setMutatingResume(true)
+    /** @brief 包含权威吸收步骤的完整单写任务 / Complete single-lane task including authority adoption. */
+    const pending = (async (): Promise<TResult> => {
+      const result = await mutation()
+      onSuccess?.(result)
+      return result
+    })()
+    mutationPromiseRef.current = pending
     try {
-      return await mutation()
+      return await pending
     } finally {
+      if (mutationPromiseRef.current === pending) mutationPromiseRef.current = null
       mutationInFlightRef.current = false
       setMutatingResume(false)
     }
+  }
+
+  /**
+   * @brief 若保存正在进行则把 PDF 请求排到新 revision / Defer a PDF request to the new revision while a save is active.
+   * @return 本次请求是否已被延迟处理 / Whether the current request was handled by deferral.
+   */
+  const deferPdfRenderUntilMutationSettles = async (): Promise<boolean> => {
+    const pending = mutationPromiseRef.current
+    if (pending === null) return false
+    try {
+      await pending
+    } catch {
+      return true
+    }
+    setAutoRenderRevision(latestEditorRef.current.resume.revision)
+    return true
   }
 
   /**
@@ -2014,11 +2821,13 @@ export function ResumeWorkspace({
     ),
     editor: (
       <ResumeSectionsEditor
+        authorityReloadRevision={authorityReloadRevision}
         editor={editor}
         gateway={gateway}
         isWriteLocked={isWriteLocked}
         key={editor.resume.id}
-        onEditorChange={setEditor}
+        onDraftStateChange={setHasEditorDrafts}
+        onEditorChange={adoptEditor}
         onMutationError={handleMutationError}
         runMutation={runResumeMutation}
       />
@@ -2026,8 +2835,10 @@ export function ResumeWorkspace({
     preview: (
       <ResumePreviewPanel
         autoStart={autoRenderRevision === editor.resume.revision}
+        deferRenderUntilMutationSettles={deferPdfRenderUntilMutationSettles}
         editor={editor}
         generation={previewGeneration}
+        hasUnsavedChanges={hasEditorDrafts}
         isWriteLocked={isWriteLocked}
         onAutoStartConsumed={(): void => setAutoRenderRevision(null)}
         pdfSupported={selectedTemplate?.supportedOutputFormats.includes('pdf') === true}

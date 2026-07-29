@@ -102,6 +102,8 @@ describe('WorkspaceApp interview workflow', (): void => {
     expect(await screen.findByRole('heading', { name: '创建练习会话' })).toBeInTheDocument()
     const scenarioSelect = screen.getByRole('combobox', { name: '练习场景' })
     expect(scenarioSelect).toHaveDisplayValue('本地 Demo 六维面试')
+    expect(screen.getByText('练习充分后可主动结束面试，随后即可生成本次报告。')).toBeInTheDocument()
+    expect(document.body).not.toHaveTextContent('20 分钟 · 6 个目标问题')
     expect(createInterviewScenario).toHaveBeenCalledOnce()
     const scenarioInput = createInterviewScenario.mock.calls[0]?.[0].input
     expect(scenarioInput).toMatchObject({

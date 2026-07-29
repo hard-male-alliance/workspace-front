@@ -5,7 +5,7 @@ export const zhSGTranslation = {
   app: {
     name: '求职工作台',
     tagline: '把准备、练习和复盘放在同一个工作流里。',
-    homeAria: 'Inkwell 工作区首页'
+    homeAria: 'RoleStory 工作区首页'
   },
   nav: {
     primary: '主导航',
@@ -471,7 +471,7 @@ export const zhSGTranslation = {
     },
     editor: {
       sectionTitle: '区段标题',
-      semanticContent: '语义内容'
+      semanticContent: '板块补充说明（可选）'
     },
     workspace: {
       windowControls: '简历窗口控制',
@@ -485,9 +485,12 @@ export const zhSGTranslation = {
       pdfOutdated: '当前 PDF 基于较早的简历版本生成。请手动生成新的 PDF 以查看最新改动。',
       collapseWindow: '收起“{{name}}”窗口',
       expandWindow: '展开“{{name}}”窗口',
+      collapseSection: '收起{{name}}',
+      expandSection: '展开{{name}}',
+      personalInformation: '个人信息',
       openTemplateSettings: '打开模板与样式设置',
       askAssistantLabel: '询问简历助手',
-      editorHint: '浏览全部板块，点击后聚焦编辑。',
+      editorHint: '各板块可独立展开、收起和编辑。',
       moveUp: '上移{{name}}',
       moveDown: '下移{{name}}',
       deleteSection: '删除{{name}}',
@@ -720,6 +723,7 @@ export const zhSGTranslation = {
     difficulty: '难度',
     duration: '预计时长',
     scenario: '练习场景',
+    manualCompletionHint: '练习充分后可主动结束面试，随后即可生成本次报告。',
     noScenarios: '没有可用场景',
     focusPrompt: '补充要求（可选）',
     focusUnavailable: '当前 API 契约尚未支持补充要求',
@@ -1135,7 +1139,7 @@ export const enUSTranslation = {
   app: {
     name: 'Career Workspace',
     tagline: 'Prepare, practise, and reflect in one workflow.',
-    homeAria: 'Inkwell workspace home'
+    homeAria: 'RoleStory workspace home'
   },
   nav: {
     primary: 'Primary navigation',
@@ -1635,7 +1639,7 @@ export const enUSTranslation = {
     },
     editor: {
       sectionTitle: 'Section title',
-      semanticContent: 'Semantic content'
+      semanticContent: 'Optional section notes'
     },
     workspace: {
       windowControls: 'Resume window controls',
@@ -1650,9 +1654,12 @@ export const enUSTranslation = {
         'This PDF was generated from an earlier Resume version. Generate a new PDF to view the latest changes.',
       collapseWindow: 'Collapse {{name}} window',
       expandWindow: 'Expand {{name}} window',
+      collapseSection: 'Collapse {{name}}',
+      expandSection: 'Expand {{name}}',
+      personalInformation: 'Personal information',
       openTemplateSettings: 'Open Template and style settings',
       askAssistantLabel: 'Ask the resume assistant',
-      editorHint: 'Review every section and select one for focused editing.',
+      editorHint: 'Expand, collapse, and edit each section independently.',
       moveUp: 'Move {{name}} up',
       moveDown: 'Move {{name}} down',
       deleteSection: 'Delete {{name}}',
@@ -1906,6 +1913,8 @@ export const enUSTranslation = {
     difficulty: 'Difficulty',
     duration: 'Expected duration',
     scenario: 'Practice scenario',
+    manualCompletionHint:
+      'When you have practised enough, end the interview to make its report available.',
     noScenarios: 'No scenarios available',
     focusPrompt: 'Additional focus (optional)',
     focusUnavailable: 'Additional focus is not supported by the current API contract',

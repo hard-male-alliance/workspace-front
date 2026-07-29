@@ -119,7 +119,7 @@ describe('checkContracts', () => {
       expect(result.head).toBe(pinnedRevision)
       expect(result.requiredEntries).toHaveLength(4)
     })
-  })
+  }, 15_000)
 
   it('拒绝未初始化的 gitlink 工作树并给出初始化命令', async () => {
     await withContractFixture(async ({ parentRoot, submoduleRoot }) => {

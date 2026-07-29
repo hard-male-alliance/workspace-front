@@ -16,11 +16,12 @@ import {
   asUiOpaqueId,
   createUiCommandId
 } from '@ai-job-workspace/app/application'
-import type {
-  AgentConversation,
-  AgentMessage,
-  AgentRun,
-  ResumeAssistantAgentApi
+import {
+  ApiV2NetworkError,
+  type AgentConversation,
+  type AgentMessage,
+  type AgentRun,
+  type ResumeAssistantAgentApi
 } from '@ai-job-workspace/product-api-v2'
 
 const RECOVERY_PREFIX = 'aiws.resume-assistant.run.v1'
@@ -275,6 +276,31 @@ async function delay(milliseconds: number, signal?: AbortSignal): Promise<void> 
   })
 }
 
+/**
+ * @brief 在瞬时读取超时后继续读取同一个 Agent Run / Keep reading the same Agent Run after a transient read timeout.
+ * @param api 已绑定的 Resume Agent API / Bound Resume Agent API.
+ * @param input 当前 Resume 助手请求与取消信号 / Current Resume-assistant request and cancellation signal.
+ * @param runId 必须保持不变的权威 Run ID / Authoritative Run ID that must remain unchanged.
+ * @param retryDelayMilliseconds 超时后的重试延迟 / Retry delay after a timeout.
+ * @return 同一个 Run 的下一份可验证权威状态 / Next verifiable authority for the same Run.
+ * @note 只有读请求超时可恢复；认证、契约、Problem 与主动取消均原样传播 / Only read timeouts recover; authentication, contract, Problem, and caller cancellation propagate unchanged.
+ */
+async function getRunRecoveringTimeout(
+  api: ResumeAssistantAgentApi,
+  input: UiResumeAssistantRequest,
+  runId: string,
+  retryDelayMilliseconds: number
+): Promise<AgentRun> {
+  while (true) {
+    try {
+      return await api.getRun(input.workspaceId, runId, input.signal)
+    } catch (error: unknown) {
+      if (!(error instanceof ApiV2NetworkError) || error.kind !== 'timeout') throw error
+      await delay(retryDelayMilliseconds, input.signal)
+    }
+  }
+}
+
 async function waitForRun(
   api: ResumeAssistantAgentApi,
   input: UiResumeAssistantRequest,
@@ -285,7 +311,7 @@ async function waitForRun(
   while (run.status === 'queued' || run.status === 'running') {
     const hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden'
     await delay(hidden ? Math.max(interval, 4_000) : interval, input.signal)
-    run = await api.getRun(input.workspaceId, run.id, input.signal)
+    run = await getRunRecoveringTimeout(api, input, run.id, interval)
     interval = Math.min(Math.round(interval * 1.5), 2_500)
   }
   return run
@@ -423,8 +449,8 @@ async function waitForProposalContinuation(
   runId: string,
   waitingOutputMessageId: string | null
 ): Promise<AgentRun> {
-  let run = await api.getRun(input.workspaceId, runId, input.signal)
   let interval = 400
+  let run = await getRunRecoveringTimeout(api, input, runId, interval)
   while (
     run.status === 'queued' ||
     run.status === 'running' ||
@@ -432,7 +458,7 @@ async function waitForProposalContinuation(
     (run.status === 'succeeded' && run.outputMessageId === waitingOutputMessageId)
   ) {
     await delay(interval, input.signal)
-    run = await api.getRun(input.workspaceId, runId, input.signal)
+    run = await getRunRecoveringTimeout(api, input, runId, interval)
     interval = Math.min(Math.round(interval * 1.5), 2_500)
   }
   return run
