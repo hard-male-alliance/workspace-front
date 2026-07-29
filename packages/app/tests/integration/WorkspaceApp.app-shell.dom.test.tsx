@@ -403,7 +403,7 @@ describe('WorkspaceApp app shell', (): void => {
     expect(screen.queryByRole('combobox', { name: 'Current workspace' })).not.toBeInTheDocument()
 
     /** @brief 左下角精简后的账户区域 / Simplified account region in the lower-left corner. */
-    const account = container.querySelector('.aw-account')
+    const account = container.querySelector<HTMLElement>('.aw-account')
     expect(account).not.toBeNull()
     if (account === null) throw new Error('Expected the account region.')
     expect(within(account).getByText(currentUser.displayName)).toBeInTheDocument()
