@@ -43,7 +43,10 @@ const ACTIVE_RESUME_READ_SIGNAL = new AbortController().signal
  * @return 桌面布局使用的设置链接 / Settings link used by the desktop layout.
  */
 function desktopTemplateSettingsLink(accessibleName: string): HTMLElement {
-  return within(screen.getByRole('toolbar')).getByRole('link', { name: accessibleName })
+  return within(screen.getByRole('toolbar')).getByRole('link', {
+    hidden: true,
+    name: accessibleName
+  })
 }
 
 /** @brief 等待真实 Resume 编辑控件完成加载 / Wait until the real Resume editing controls are ready. */
@@ -63,6 +66,10 @@ describe('WorkspaceApp Resume editor', (): void => {
     const summaryToggle = screen.getByRole('button', { name: '收起职业摘要' })
     const experienceToggle = screen.getByRole('button', { name: '展开工作经历' })
 
+    expect(screen.queryAllByRole('link', { name: '生成与导出' })).toHaveLength(0)
+    expect(screen.queryAllByRole('link', { name: '版本与建议' })).toHaveLength(0)
+    expect(screen.queryAllByRole('link', { name: '打开模板与样式设置' })).toHaveLength(0)
+    expect(screen.getByRole('button', { name: '生成 PDF 预览' })).toBeVisible()
     expect(profileToggle).toHaveAttribute('aria-expanded', 'true')
     expect(summaryToggle).toHaveAttribute('aria-expanded', 'true')
     expect(experienceToggle).toHaveAttribute('aria-expanded', 'false')

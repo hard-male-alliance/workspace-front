@@ -329,6 +329,9 @@ describe('Knowledge API v2 presentation', (): void => {
     renderKnowledgeRoute(<KnowledgePage />, '/knowledge', createTestGateways({ knowledge }))
 
     expect(await screen.findByRole('heading', { name: sourceA.name })).toBeVisible()
+    expect(screen.queryByRole('link', { name: '搜索知识库' })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '上传文件' })).toBeVisible()
+    expect(screen.getByRole('link', { name: '新建手工笔记' })).toBeVisible()
     fireEvent.click(screen.getByRole('button', { name: '加载更多' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('已保留当前列表')
