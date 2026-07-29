@@ -642,6 +642,88 @@ describe('Knowledge API v2 presentation', (): void => {
     expect(screen.getByText('3', { selector: 'strong' })).toBeVisible()
   })
 
+  it('polls a queued source until the authoritative ingestion state becomes ready', async (): Promise<void> => {
+    /** @brief 后端已接受、尚未开始执行的来源 / Source accepted by the backend but not yet executing. */
+    const queuedSource = createSource(
+      '排队中的知识来源',
+      'queued-source-auto-refresh',
+      MOCK_KNOWLEDGE_WORKSPACE_ID,
+      {
+        currentVersionId: null,
+        ingestion: {
+          chunkCount: 0,
+          documentCount: 0,
+          lastProblem: null,
+          lastSuccessAt: null,
+          status: 'queued'
+        },
+        sourceType: 'file'
+      }
+    )
+    /** @brief 后台摄取完成后的最新权威 / Latest authority after background ingestion completes. */
+    const readySource = createSource(queuedSource.name, queuedSource.id, queuedSource.workspaceId, {
+      ...queuedSource,
+      currentVersionId: asUiOpaqueId<'knowledge-source-version'>('queued-source-version-ready'),
+      ingestion: {
+        chunkCount: 174,
+        documentCount: 1,
+        lastProblem: null,
+        lastSuccessAt: '2026-07-29T12:01:03.000Z',
+        status: 'ready'
+      },
+      revision: queuedSource.revision + 1
+    })
+    /** @brief 首次返回 queued、轮询返回 ready 的详情读取 / Detail read returning queued first and ready when polled. */
+    const get = vi
+      .fn<KnowledgeGateway['getKnowledgeSource']>()
+      .mockResolvedValueOnce({
+        concurrencyToken: asUiConcurrencyToken('"etag-queued-source"'),
+        source: queuedSource
+      })
+      .mockResolvedValue({
+        concurrencyToken: asUiConcurrencyToken('"etag-ready-source"'),
+        source: readySource
+      })
+    /** @brief 由测试显式触发的轮询回调 / Poll callback explicitly triggered by the test. */
+    let pollCallback: (() => void) | null = null
+    /** @brief 捕获详情页轮询而不等待真实五秒 / Capture detail polling without waiting five real seconds. */
+    const setIntervalSpy = vi
+      .spyOn(window, 'setInterval')
+      .mockImplementation((handler: TimerHandler): number => {
+        if (typeof handler !== 'function') throw new TypeError('Poll handler must be callable.')
+        /** @brief 已排除字符串分支的定时器回调 / Timer callback after rejecting the string branch. */
+        const callableHandler = handler as () => void
+        pollCallback = callableHandler
+        return 47
+      })
+    /** @brief 验证到达终态后释放轮询 / Verify polling is released after reaching a terminal state. */
+    const clearIntervalSpy = vi.spyOn(window, 'clearInterval').mockImplementation((): void => {})
+
+    try {
+      renderKnowledgeRoute(
+        <KnowledgeSourceDetailPage />,
+        `/knowledge/${queuedSource.id}`,
+        createTestGateways({
+          knowledge: createKnowledgeGateway({ getKnowledgeSource: get })
+        })
+      )
+
+      expect(await screen.findByRole('heading', { name: queuedSource.name })).toBeVisible()
+      expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 5_000)
+      expect(pollCallback).not.toBeNull()
+      act((): void => {
+        pollCallback?.()
+      })
+      await waitFor((): void => expect(get).toHaveBeenCalledTimes(2))
+      expect(await screen.findByRole('heading', { name: '处理完成' })).toBeVisible()
+      expect(screen.getByText('174', { selector: 'strong' })).toBeVisible()
+      expect(clearIntervalSpy).toHaveBeenCalledWith(47)
+    } finally {
+      setIntervalSpy.mockRestore()
+      clearIntervalSpy.mockRestore()
+    }
+  })
+
   it('renders literal deleting-source facts while suppressing untrusted Problem text', async (): Promise<void> => {
     /** @brief 必须永不进入 DOM 的服务端文本 / Server text that must never enter the DOM. */
     const secrets = {

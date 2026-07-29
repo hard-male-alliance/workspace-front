@@ -40,6 +40,14 @@ import {
 const ORIGINAL_CONTENT_PREVIEW_BYTES = 1024 * 1024
 /** @brief 后端异步处理期间的权威状态刷新间隔 / Authority refresh interval during asynchronous backend processing. */
 const INGESTION_REFRESH_MILLISECONDS = 5_000
+/** @brief 必须持续重读服务端权威的摄取状态 / Ingestion states requiring continued authority rereads. */
+const ACTIVE_INGESTION_STATUSES: ReadonlySet<UiKnowledgeSource['ingestion']['status']> = new Set([
+  'queued',
+  'fetching',
+  'parsing',
+  'chunking',
+  'embedding'
+])
 
 /** @brief 原始内容的按需读取状态 / Lazy original-content read state. */
 type OriginalContentState =
@@ -570,14 +578,7 @@ function KnowledgeSourceDetail({
   const interviewIssues = interviewEligibilityIssues(source)
 
   useEffect((): (() => void) | undefined => {
-    if (
-      source.ingestion.status !== 'fetching' &&
-      source.ingestion.status !== 'parsing' &&
-      source.ingestion.status !== 'chunking' &&
-      source.ingestion.status !== 'embedding'
-    ) {
-      return undefined
-    }
+    if (!ACTIVE_INGESTION_STATUSES.has(source.ingestion.status)) return undefined
     /** @brief 周期权威状态重读计时器；single-flight 刷新会拒绝重叠请求 / Periodic authority reread timer; the single-flight refresh rejects overlap. */
     const interval = window.setInterval(onRefresh, INGESTION_REFRESH_MILLISECONDS)
     return (): void => window.clearInterval(interval)
