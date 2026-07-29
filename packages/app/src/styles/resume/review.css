@@ -359,6 +359,10 @@
   gap: 5px;
 }
 
+.aw-resume-workspace-links[hidden] {
+  display: none;
+}
+
 @media (max-width: 840px) {
   .aw-review-page-header,
   .aw-review-detail-heading {

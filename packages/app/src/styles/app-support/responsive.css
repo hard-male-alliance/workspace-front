@@ -113,6 +113,10 @@
     text-decoration: none;
   }
 
+  .aw-mobile-tabs .aw-tab[hidden] {
+    display: none;
+  }
+
   .aw-mobile-tabs .aw-tab[aria-pressed='true'] {
     border-color: var(--ui-color-accent);
     background: var(--ui-color-accent-subtle);
