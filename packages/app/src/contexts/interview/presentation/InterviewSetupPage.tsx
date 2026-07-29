@@ -557,9 +557,9 @@ function InterviewSetupForm({
               <strong>{selectedScenario.name}</strong>
               <p>{selectedScenario.description}</p>
               <span>
-                {selectedScenario.durationMinutes} {t('common.minutes', { defaultValue: '分钟' })} ·{' '}
-                {selectedScenario.targetQuestionCount}{' '}
-                {t('interviewSetup.questions', { defaultValue: '个目标问题' })}
+                {t('interviewSetup.manualCompletionHint', {
+                  defaultValue: '练习充分后可主动结束面试，随后即可生成本次报告。'
+                })}
               </span>
             </div>
           ) : null}
