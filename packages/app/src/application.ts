@@ -89,6 +89,7 @@ export type {
 } from './contexts/knowledge/domain/models'
 export type {
   UiCreateManualKnowledgeNoteCommand,
+  UiDeleteKnowledgeSourceCommand,
   UiIngestKnowledgeFileCommand,
   UiKnowledgeFileIngestionPhase,
   UiKnowledgeSourcePageRead,

@@ -5,6 +5,7 @@ import { ApiV2WriteOutcomeUnknownError } from '@ai-job-workspace/product-api-v2'
 import type { KnowledgeGateway } from '../../application/gateway'
 import type {
   UiCreateManualKnowledgeNoteCommand,
+  UiDeleteKnowledgeSourceCommand,
   UiIngestKnowledgeFileCommand,
   UiKnowledgeSourcePageRead,
   UiKnowledgeSourceRead,
@@ -172,6 +173,24 @@ export class InMemoryKnowledgeGateway implements KnowledgeGateway {
       return throwMemoryNotFound('KnowledgeSource')
     }
     return cloneMemoryValue({ concurrencyToken, source })
+  }
+
+  /** @inheritdoc */
+  async deleteKnowledgeSource(command: UiDeleteKnowledgeSourceCommand): Promise<void> {
+    command.signal?.throwIfAborted()
+    await prepareMemoryRead(this.#options)
+    command.signal?.throwIfAborted()
+    if (command.workspaceId !== MOCK_KNOWLEDGE_WORKSPACE_ID) {
+      return throwMemoryNotFound('KnowledgeSource')
+    }
+    /** @brief 与 path identities 同时匹配的来源位置 / Source position matching both path identities. */
+    const sourceIndex = this.#sources.findIndex(
+      (candidate) =>
+        candidate.workspaceId === command.workspaceId && candidate.id === command.sourceId
+    )
+    if (sourceIndex < 0) return throwMemoryNotFound('KnowledgeSource')
+    this.#sources.splice(sourceIndex, 1)
+    this.#entityTags.delete(command.sourceId)
   }
 
   /** @inheritdoc */

@@ -97,6 +97,7 @@ function gateway(
 ): KnowledgeGateway {
   return {
     createManualKnowledgeNote: create,
+    deleteKnowledgeSource: vi.fn(),
     getKnowledgeSource: vi.fn(),
     ingestKnowledgeFile: vi.fn(),
     listKnowledgeSourcePage: list,

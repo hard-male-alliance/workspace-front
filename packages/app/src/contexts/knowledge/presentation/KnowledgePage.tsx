@@ -8,7 +8,8 @@ import {
   Globe2,
   Plus,
   RefreshCw,
-  Search
+  Search,
+  Trash2
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -200,8 +201,14 @@ function acceptedCursorsForPage(page: UiKnowledgeSourcePage): ReadonlySet<UiKnow
  * @return 只使用 API v2 权威字段的来源卡片 / Source card using only authoritative API v2 fields.
  */
 function KnowledgeSourceCard({
+  deleting,
+  onRequestDelete,
   source
 }: {
+  /** @brief 当前来源是否正在等待永久删除 / Whether this source is awaiting permanent deletion. */
+  readonly deleting: boolean
+  /** @brief 请求显示永久删除确认 / Request permanent-deletion confirmation. */
+  readonly onRequestDelete: (source: UiKnowledgeSource) => void
   /** @brief 待呈现来源 / Source to render. */
   readonly source: UiKnowledgeSource
 }): React.JSX.Element {
@@ -264,6 +271,19 @@ function KnowledgeSourceCard({
           {t('common.review', { defaultValue: '查看' })}
           <ChevronRight aria-hidden="true" size={14} />
         </Link>
+        <button
+          aria-label={t('knowledge.deleteSource', {
+            defaultValue: '删除{{sourceName}}',
+            sourceName: source.name
+          })}
+          className="aw-icon-button"
+          disabled={deleting}
+          onClick={(): void => onRequestDelete(source)}
+          title={t('knowledge.deleteSourceTitle', { defaultValue: '永久删除知识来源' })}
+          type="button"
+        >
+          <Trash2 aria-hidden="true" size={15} />
+        </button>
       </div>
     </article>
   )
@@ -299,12 +319,22 @@ function KnowledgeSourceCollection({
   })
   /** @brief 原子首页刷新状态 / Atomic first-page refresh state. */
   const [refresh, setRefresh] = useState<KnowledgeRefreshState>({ status: 'idle' })
+  /** @brief 等待用户确认永久删除的来源 / Source awaiting permanent-deletion confirmation. */
+  const [pendingDelete, setPendingDelete] = useState<UiKnowledgeSource | null>(null)
+  /** @brief 当前永久删除命令状态 / Current permanent-deletion command state. */
+  const [deleteState, setDeleteState] = useState<
+    | { readonly status: 'idle' }
+    | { readonly status: 'deleting' }
+    | { readonly status: 'error'; readonly error: unknown }
+  >({ status: 'idle' })
   /** @brief 最近一次追加数 / Number appended by the latest continuation. */
   const [appendedCount, setAppendedCount] = useState(0)
   /** @brief 当前后续页控制器 / Current continuation controller. */
   const continuationController = useRef<AbortController | null>(null)
   /** @brief 当前刷新控制器 / Current refresh controller. */
   const refreshController = useRef<AbortController | null>(null)
+  /** @brief 当前删除任务等待控制器 / Current deletion-job wait controller. */
+  const deletionController = useRef<AbortController | null>(null)
   /** @brief 规范化本地筛选词 / Normalized local filter. */
   const normalizedFilter = filter.trim().toLocaleLowerCase()
   /** @brief 仅在已加载来源中筛选出的结果 / Results filtered only from loaded sources. */
@@ -326,9 +356,43 @@ function KnowledgeSourceCollection({
       refreshController.current?.abort(
         new DOMException('Knowledge list identity changed.', 'AbortError')
       )
+      deletionController.current?.abort(
+        new DOMException('Knowledge list identity changed.', 'AbortError')
+      )
     },
     []
   )
+
+  /** @brief 提交已明确确认的知识来源永久删除 / Submit an explicitly confirmed permanent KnowledgeSource deletion. */
+  const confirmDelete = useCallback(async (): Promise<void> => {
+    if (
+      pendingDelete === null ||
+      deleteState.status === 'deleting' ||
+      deletionController.current !== null
+    ) {
+      return
+    }
+    /** @brief 本次删除任务专属取消控制器 / Abort controller dedicated to this deletion job. */
+    const controller = new AbortController()
+    deletionController.current = controller
+    setDeleteState({ status: 'deleting' })
+    try {
+      await gateway.deleteKnowledgeSource({
+        signal: controller.signal,
+        sourceId: pendingDelete.id,
+        workspaceId
+      })
+      controller.signal.throwIfAborted()
+      if (workspaceSession.getSelectionRevision() !== selectionRevision) return
+      setSources((current) => current.filter((source) => source.id !== pendingDelete.id))
+      setPendingDelete(null)
+      setDeleteState({ status: 'idle' })
+    } catch (error: unknown) {
+      if (!controller.signal.aborted) setDeleteState({ error, status: 'error' })
+    } finally {
+      if (deletionController.current === controller) deletionController.current = null
+    }
+  }, [deleteState.status, gateway, pendingDelete, selectionRevision, workspaceId, workspaceSession])
 
   /** @brief 加载当前关系声明的下一页 / Load the next page declared by the current relation. */
   const loadMore = useCallback(async (): Promise<void> => {
@@ -533,8 +597,67 @@ function KnowledgeSourceCollection({
         ) : (
           <div className="aw-source-list" id="knowledge-source-items">
             {visibleSources.map((source) => (
-              <KnowledgeSourceCard key={source.id} source={source} />
+              <KnowledgeSourceCard
+                deleting={pendingDelete?.id === source.id && deleteState.status === 'deleting'}
+                key={source.id}
+                onRequestDelete={(target): void => {
+                  setPendingDelete(target)
+                  setDeleteState({ status: 'idle' })
+                }}
+                source={source}
+              />
             ))}
+          </div>
+        )}
+
+        {pendingDelete === null ? null : (
+          <div
+            aria-labelledby="knowledge-delete-title"
+            aria-modal="true"
+            className="aw-knowledge-delete-dialog"
+            role="alertdialog"
+          >
+            <strong id="knowledge-delete-title">
+              {t('knowledge.deleteTitle', {
+                defaultValue: '永久删除“{{name}}”？',
+                name: pendingDelete.name
+              })}
+            </strong>
+            <p>
+              {t('knowledge.deleteDescription', {
+                defaultValue: '删除后无法恢复，关联的文档版本和检索片段也会一并删除。'
+              })}
+            </p>
+            {deleteState.status === 'error' ? (
+              <p className="aw-knowledge-delete-error" role="alert">
+                <ResourceFailureMessage error={deleteState.error} />
+              </p>
+            ) : null}
+            <div className="aw-knowledge-delete-actions">
+              <button
+                className="aw-quiet-button"
+                disabled={deleteState.status === 'deleting'}
+                onClick={(): void => {
+                  setPendingDelete(null)
+                  setDeleteState({ status: 'idle' })
+                }}
+                type="button"
+              >
+                {t('common.cancel', { defaultValue: '取消' })}
+              </button>
+              <button
+                className="aw-danger-button"
+                disabled={deleteState.status === 'deleting'}
+                onClick={(): void => {
+                  void confirmDelete()
+                }}
+                type="button"
+              >
+                {deleteState.status === 'deleting'
+                  ? t('knowledge.deleting', { defaultValue: '正在删除…' })
+                  : t('knowledge.confirmDelete', { defaultValue: '确认永久删除' })}
+              </button>
+            </div>
           </div>
         )}
 

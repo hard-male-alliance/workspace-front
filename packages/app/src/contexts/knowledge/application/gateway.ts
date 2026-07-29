@@ -2,6 +2,7 @@
 
 import type {
   UiCreateManualKnowledgeNoteCommand,
+  UiDeleteKnowledgeSourceCommand,
   UiIngestKnowledgeFileCommand,
   UiKnowledgeSourcePageRead,
   UiKnowledgeSourceRead,
@@ -29,6 +30,13 @@ export interface KnowledgeGateway {
    * @return 来源与同一响应的强并发令牌 / Source and strong concurrency token from the same response.
    */
   getKnowledgeSource(input: UiKnowledgeSourceRead): Promise<UiKnowledgeSourceAuthority>
+
+  /**
+   * @brief 永久删除一个 KnowledgeSource 并等待服务端删除任务完成 / Permanently delete one KnowledgeSource and await the server deletion job.
+   * @param command Workspace、source identity 与取消信号 / Workspace, source identity, and cancellation signal.
+   * @return 服务端删除任务成功后完成 / Completes after the server deletion job succeeds.
+   */
+  deleteKnowledgeSource(command: UiDeleteKnowledgeSourceCommand): Promise<void>
 
   /**
    * @brief 创建手工笔记来源 / Create a manual-note source.

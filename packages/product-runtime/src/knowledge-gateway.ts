@@ -1,11 +1,13 @@
 /** @file API v2 KnowledgeSource 生产防腐层 / Production anti-corruption layer for API v2 KnowledgeSource. */
 
 import {
+  ApiV2ContractError,
   cancelWorkspaceJob,
   createKnowledgeWorkflowApi,
   createWorkspaceKnowledgeSource,
   getWorkspaceKnowledgeSource,
   listWorkspaceKnowledgeSourcePage,
+  parseJob,
   updateWorkspaceKnowledgeSource,
   type ApiV2HttpClient,
   type Job,
@@ -25,6 +27,7 @@ import {
   cloneUiJsonValue,
   type KnowledgeGateway,
   type UiCreateManualKnowledgeNoteCommand,
+  type UiDeleteKnowledgeSourceCommand,
   type UiIngestKnowledgeFileCommand,
   type UiKnowledgeSearchResult,
   type UiKnowledgeSourcePageRead,
@@ -347,6 +350,41 @@ export class ApiV2KnowledgeGateway implements KnowledgeGateway {
   }
 
   /** @inheritdoc */
+  async deleteKnowledgeSource(command: UiDeleteKnowledgeSourceCommand): Promise<void> {
+    /** @brief 删除前读取的最新来源权威 / Latest source authority read before deletion. */
+    const authority = await getWorkspaceKnowledgeSource(this.#client, {
+      ...(command.signal === undefined ? {} : { signal: command.signal }),
+      sourceId: command.sourceId,
+      workspaceId: command.workspaceId
+    })
+    /** @brief 服务端接受的知识删除 Job / Knowledge deletion Job accepted by the server. */
+    const accepted = await this.#client.deleteAcceptedJson(
+      `/workspaces/${encodeURIComponent(command.workspaceId)}/knowledge-sources/${encodeURIComponent(command.sourceId)}`,
+      {
+        ifMatch: authority.entityTag,
+        ...(command.signal === undefined ? {} : { signal: command.signal })
+      }
+    )
+    /** @brief 当前删除 Job 权威 / Current deletion Job authority. */
+    let current = parseJob(accepted.data)
+    assertKnowledgeDeletionJob(current, command.workspaceId, command.sourceId)
+
+    /** @brief 等待删除任务的固定截止时间 / Fixed deadline for awaiting the deletion job. */
+    const deadline = Date.now() + MAXIMUM_INGESTION_WAIT_MILLISECONDS
+    /** @brief 有上限的轮询间隔 / Bounded polling interval. */
+    let interval = 800
+    while (current.status === 'queued' || current.status === 'running') {
+      if (Date.now() >= deadline) throw new Error('knowledge.deletion_timeout')
+      await ingestionDelay(interval, command.signal)
+      const authority = await this.#workflow.getJob(command.workspaceId, current.id, command.signal)
+      current = authority.job
+      assertKnowledgeDeletionJob(current, command.workspaceId, command.sourceId)
+      interval = Math.min(Math.round(interval * 1.5), 3_000)
+    }
+    assertKnowledgeJobSucceeded(current)
+  }
+
+  /** @inheritdoc */
   async createManualKnowledgeNote(
     command: UiCreateManualKnowledgeNoteCommand
   ): Promise<UiKnowledgeSourceAuthority> {
@@ -488,4 +526,24 @@ function assertKnowledgeJobSucceeded(job: Job): void {
   if (job.status === 'succeeded') return
   if (job.status === 'failed') throw new Error(job.problem.code)
   throw new Error(`knowledge.ingestion_${job.status}`)
+}
+
+/**
+ * @brief 校验删除 Job 始终绑定当前 Workspace 与来源 / Validate that a deletion Job remains bound to the current Workspace and source.
+ * @param job 已严格解码 Job / Strictly decoded Job.
+ * @param workspaceId 请求 Workspace / Requested Workspace.
+ * @param sourceId 请求来源 identity / Requested source identity.
+ * @return 无返回值 / No return value.
+ */
+function assertKnowledgeDeletionJob(job: Job, workspaceId: string, sourceId: string): void {
+  if (
+    job.workspace_id !== workspaceId ||
+    job.kind !== 'knowledge.delete' ||
+    job.subject.resource_type !== 'knowledge_source' ||
+    job.subject.id !== sourceId
+  ) {
+    throw new ApiV2ContractError(
+      'API v2 returned a Knowledge deletion Job outside the requested source authority.'
+    )
+  }
 }

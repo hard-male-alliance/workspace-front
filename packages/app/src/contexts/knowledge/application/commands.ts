@@ -31,6 +31,16 @@ export interface UiKnowledgeSourceRead {
   readonly signal: AbortSignal
 }
 
+/** @brief 永久删除一个 Workspace KnowledgeSource / Permanently delete one Workspace KnowledgeSource. */
+export interface UiDeleteKnowledgeSourceCommand {
+  /** @brief 显式授权 Workspace / Explicitly authorized Workspace. */
+  readonly workspaceId: UiWorkspaceId
+  /** @brief 来源 identity / Source identity. */
+  readonly sourceId: UiKnowledgeSourceId
+  /** @brief 当前调用生命周期的取消信号 / Cancellation signal for the current call lifecycle. */
+  readonly signal?: AbortSignal
+}
+
 /** @brief 创建手工笔记 KnowledgeSource 的冻结命令 / Frozen command for creating a manual-note KnowledgeSource. */
 export interface UiCreateManualKnowledgeNoteCommand {
   /**

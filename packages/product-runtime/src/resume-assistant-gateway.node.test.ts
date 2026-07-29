@@ -68,6 +68,7 @@ function knowledgeDouble(items: readonly UiKnowledgeSource[] = []): KnowledgeGat
   const unavailable = () => vi.fn(() => Promise.reject(new Error('unexpected Knowledge call')))
   return {
     createManualKnowledgeNote: unavailable(),
+    deleteKnowledgeSource: unavailable(),
     getKnowledgeSource: unavailable(),
     ingestKnowledgeFile: unavailable(),
     listKnowledgeSourcePage: vi.fn(() =>

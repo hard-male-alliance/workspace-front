@@ -83,6 +83,31 @@
   font-size: 11px;
 }
 
+.aw-knowledge-delete-dialog {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid var(--ui-color-danger);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-color-surface);
+}
+
+.aw-knowledge-delete-dialog p {
+  margin: 0;
+  color: var(--ui-color-ink-muted);
+}
+
+.aw-knowledge-delete-dialog .aw-knowledge-delete-error {
+  color: var(--ui-color-danger);
+}
+
+.aw-knowledge-delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .aw-knowledge-section-heading {
   justify-content: space-between;
   gap: var(--ui-space-4);
