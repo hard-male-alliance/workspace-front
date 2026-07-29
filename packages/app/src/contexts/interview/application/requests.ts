@@ -6,6 +6,7 @@ import type { UiOpaqueId, UiWorkspaceId } from '../../../shared-kernel/identity'
 import type {
   UiCreateInterviewSessionInput,
   UiInterviewEndReason,
+  UiInterviewKnowledgeRetrieval,
   UiInterviewPageLimit,
   UiInterviewRealtimeTransport,
   UiInterviewReportId,
@@ -155,6 +156,8 @@ export interface UiConnectTextInterviewCommand {
   readonly audienceId: UiOpaqueId<'user'>
   /** @brief 有新权威转录可读取时通知页面 / Notify the page when authoritative transcript may have changed. */
   readonly onTranscriptChanged: () => void
+  /** @brief 单题知识检索完成后的脱敏通知 / Redacted notification after per-question Knowledge retrieval. */
+  readonly onKnowledgeRetrieval?: (result: UiInterviewKnowledgeRetrieval) => void
   /** @brief 非主动断线通知 / Unexpected-disconnection notification. */
   readonly onDisconnected: (error: unknown) => void
   /** @brief 页面生命周期取消信号 / Page-lifecycle cancellation signal. */

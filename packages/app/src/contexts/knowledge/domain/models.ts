@@ -144,6 +144,18 @@ export interface UiPublicKnowledgeSourceConfig {
   readonly resumeId?: UiOpaqueId<'resume'>
 }
 
+/** @brief 未经切块或向量化的 KnowledgeSource 原始内容预览 / Original KnowledgeSource content preview before chunking or vectorization. */
+export interface UiKnowledgeOriginalContent {
+  /** @brief 服务端原样返回的字节 / Bytes returned verbatim by the server. */
+  readonly bytes: Uint8Array
+  /** @brief 原始内容的媒体类型 / Media type of the original content. */
+  readonly mediaType: string
+  /** @brief 原始内容总字节数 / Total byte length of the original content. */
+  readonly totalSizeBytes: number
+  /** @brief 当前结果是否包含完整原始内容 / Whether this result contains the complete original content. */
+  readonly complete: boolean
+}
+
 /** @brief Problem 字段错误的低敏感结构 / Low-sensitivity structured Problem field error. */
 export interface UiKnowledgeProblemFieldError {
   /** @brief JSON Pointer 或协议路径 / JSON Pointer or protocol path. */

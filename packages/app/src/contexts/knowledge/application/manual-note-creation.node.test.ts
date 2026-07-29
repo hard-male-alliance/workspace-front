@@ -98,6 +98,7 @@ function gateway(
   return {
     createManualKnowledgeNote: create,
     getKnowledgeSource: vi.fn(),
+    getKnowledgeSourceOriginalContent: vi.fn(),
     ingestKnowledgeFile: vi.fn(),
     ingestKnowledgeSource: vi.fn(),
     listKnowledgeSourcePage: list,

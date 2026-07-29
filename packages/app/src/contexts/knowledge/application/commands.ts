@@ -31,6 +31,12 @@ export interface UiKnowledgeSourceRead {
   readonly signal: AbortSignal
 }
 
+/** @brief 读取 KnowledgeSource 原始内容预览 / Read an original-content preview for a KnowledgeSource. */
+export interface UiKnowledgeOriginalContentRead extends UiKnowledgeSourceRead {
+  /** @brief 允许返回的预览字节上限 / Maximum preview bytes permitted in the response. */
+  readonly maximumBytes: number
+}
+
 /** @brief 创建手工笔记 KnowledgeSource 的冻结命令 / Frozen command for creating a manual-note KnowledgeSource. */
 export interface UiCreateManualKnowledgeNoteCommand {
   /**
@@ -92,6 +98,8 @@ export type UiKnowledgeFileIngestionPhase =
 
 /** @brief 文件上传、Source 创建和摄取的单一用户意图 / One user intent covering file upload, Source creation, and ingestion. */
 export interface UiIngestKnowledgeFileCommand {
+  /** @brief 跨重试稳定的完整上传意图 identity / Stable whole-upload intent identity across retries. */
+  readonly commandId: UiCommandId
   readonly workspaceId: UiWorkspaceId
   readonly name: string
   readonly filename: string

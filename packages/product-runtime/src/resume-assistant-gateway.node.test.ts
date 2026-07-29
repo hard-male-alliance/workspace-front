@@ -68,6 +68,7 @@ function knowledgeDouble(items: readonly UiKnowledgeSource[] = []): KnowledgeGat
   return {
     createManualKnowledgeNote: unavailable(),
     getKnowledgeSource: unavailable(),
+    getKnowledgeSourceOriginalContent: unavailable(),
     ingestKnowledgeFile: unavailable(),
     ingestKnowledgeSource: unavailable(),
     listKnowledgeSourcePage: vi.fn(() =>

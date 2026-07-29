@@ -26,6 +26,7 @@ export type {
   UiInterviewInferenceQualityTier,
   UiInterviewJobTarget,
   UiInterviewKnowledgeSelection,
+  UiInterviewKnowledgeRetrieval,
   UiInterviewKnowledgeSelectionMode,
   UiInterviewKnowledgeVersionId,
   UiInterviewKnowledgeVersionPin,

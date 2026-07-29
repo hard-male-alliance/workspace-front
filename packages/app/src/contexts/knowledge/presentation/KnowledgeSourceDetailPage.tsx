@@ -2,6 +2,7 @@
 
 import {
   ArrowLeft,
+  Eye,
   FileText,
   LoaderCircle,
   LockKeyhole,
@@ -9,7 +10,7 @@ import {
   Play,
   ShieldCheck
 } from 'lucide-react'
-import { useCallback, useMemo, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router-dom'
@@ -20,6 +21,7 @@ import { createUiCommandId } from '../../../shared-kernel/command'
 import { asUiOpaqueId } from '../../../shared-kernel/identity'
 import { EmptyState, LoadingState } from '../../../ui'
 import type {
+  UiKnowledgeOriginalContent,
   UiKnowledgeModelRegion,
   UiKnowledgeOperation,
   UiKnowledgeProblem,
@@ -33,6 +35,50 @@ import {
   getKnowledgeSensitivityLabel,
   getKnowledgeSourceTypeLabel
 } from './knowledge-source-presentation'
+
+/** @brief 详情页原始文本预览上限 / Original-text preview limit on the detail page. */
+const ORIGINAL_CONTENT_PREVIEW_BYTES = 1024 * 1024
+/** @brief 后端异步处理期间的权威状态刷新间隔 / Authority refresh interval during asynchronous backend processing. */
+const INGESTION_REFRESH_MILLISECONDS = 5_000
+
+/** @brief 原始内容的按需读取状态 / Lazy original-content read state. */
+type OriginalContentState =
+  | { readonly status: 'idle' | 'loading' }
+  | { readonly status: 'error'; readonly error: unknown }
+  | {
+      readonly status: 'ready'
+      /** @brief 服务端原始内容元数据 / Server original-content metadata. */
+      readonly content: UiKnowledgeOriginalContent
+      /** @brief 严格 UTF-8 解码后的文本；二进制为 null / Strictly UTF-8 decoded text, or null for binary content. */
+      readonly text: string | null
+    }
+
+/**
+ * @brief 判断原始媒体类型是否适合只读文本展示 / Determine whether an original media type is suitable for read-only text display.
+ * @param mediaType 带可选参数的媒体类型 / Media type with optional parameters.
+ * @return 可按 UTF-8 文本展示时为 true / True when the content may be displayed as UTF-8 text.
+ */
+function isTextualOriginalContent(mediaType: string): boolean {
+  /** @brief 去除参数并统一大小写的媒体类型 / Lowercase media type without parameters. */
+  const essence = mediaType.split(';', 1)[0]?.trim().toLowerCase() ?? ''
+  return (
+    essence.startsWith('text/') ||
+    essence === 'application/json' ||
+    essence === 'application/xml' ||
+    essence.endsWith('+json') ||
+    essence.endsWith('+xml')
+  )
+}
+
+/**
+ * @brief 对原始内容执行严格 UTF-8 解码 / Strictly decode original content as UTF-8.
+ * @param content 未经转换的原始内容 / Original content before conversion.
+ * @return 文本媒体类型的原文，二进制为 null / Original text for textual media, or null for binary media.
+ */
+function decodeOriginalContent(content: UiKnowledgeOriginalContent): string | null {
+  if (!isTextualOriginalContent(content.mediaType)) return null
+  return new TextDecoder('utf-8', { fatal: true }).decode(content.bytes)
+}
 
 /** @brief KnowledgeSource 详情读取结果 / KnowledgeSource detail-read result. */
 type KnowledgeSourceDetailAuthority =
@@ -127,6 +173,36 @@ function getOperationLabel(operation: UiKnowledgeOperation, translate: TFunction
   /** @brief 当前操作标签 / Current operation label. */
   const definition = labels[operation]
   return translate(definition.key, { defaultValue: definition.label })
+}
+
+/**
+ * @brief 解释来源为何尚不能用于模拟面试 / Explain why a source is not yet usable by Interview.
+ * @param source 当前权威知识来源 / Current authoritative Knowledge source.
+ * @return 空数组表示可用，否则为互不重复的阻塞原因 / Empty when eligible; otherwise mutually distinct blockers.
+ */
+function interviewEligibilityIssues(source: UiKnowledgeSource): readonly string[] {
+  /** @brief 当前策略中的模拟面试检索授权 / Interview retrieval grant in the current policy. */
+  const grant = source.visibility.agentGrants.find(
+    (candidate) => candidate.agentScope === 'interview_coach'
+  )
+  /** @brief 按实际会话筛选条件生成的阻塞原因 / Blockers derived from actual session-selection filters. */
+  const issues: string[] = []
+  if (!source.enabled) issues.push('来源已停用')
+  if (source.ingestion.status !== 'ready' || source.currentVersionId === null) {
+    issues.push('内容处理尚未完成')
+  }
+  if (!source.visibility.allowExternalModelProcessing) issues.push('未允许外部模型处理')
+  if (!source.visibility.allowedModelRegions.includes('global')) {
+    issues.push('未允许当前模型区域')
+  }
+  if (
+    grant === undefined ||
+    grant.effect !== 'allow' ||
+    !grant.allowedOperations.includes('retrieve')
+  ) {
+    issues.push('未授权模拟面试检索')
+  }
+  return issues
 }
 
 /**
@@ -474,6 +550,8 @@ function KnowledgeSourceDetail({
     | { readonly status: 'idle' | 'queued' | 'processing' }
     | { readonly status: 'error'; readonly error: unknown }
   >({ status: 'idle' })
+  /** @brief 仅由用户明确操作触发的原始内容状态 / Original-content state triggered only by an explicit user action. */
+  const [originalContent, setOriginalContent] = useState<OriginalContentState>({ status: 'idle' })
   /** @brief 服务端权威来源 / Authoritative source. */
   const source = authority.source
   /** @brief 删除中或已删除来源必须保持只读 / Sources being deleted or already deleted must remain read-only. */
@@ -488,10 +566,26 @@ function KnowledgeSourceDetail({
   const processingAllowed = source.visibility.allowExternalModelProcessing
   /** @brief 当前是否已有处理命令在途 / Whether an ingestion command is in flight. */
   const isProcessing = processing.status === 'queued' || processing.status === 'processing'
+  /** @brief 模拟面试实际来源筛选条件的阻塞说明 / Blockers from the actual Interview source-selection conditions. */
+  const interviewIssues = interviewEligibilityIssues(source)
+
+  useEffect((): (() => void) | undefined => {
+    if (
+      source.ingestion.status !== 'fetching' &&
+      source.ingestion.status !== 'parsing' &&
+      source.ingestion.status !== 'chunking' &&
+      source.ingestion.status !== 'embedding'
+    ) {
+      return undefined
+    }
+    /** @brief 周期权威状态重读计时器；single-flight 刷新会拒绝重叠请求 / Periodic authority reread timer; the single-flight refresh rejects overlap. */
+    const interval = window.setInterval(onRefresh, INGESTION_REFRESH_MILLISECONDS)
+    return (): void => window.clearInterval(interval)
+  }, [onRefresh, source.ingestion.status])
 
   /**
    * @brief 启动已有手工笔记的统一后端摄取任务 / Start the shared backend ingestion job for an existing manual note.
-   * @return 命令完成 Promise / Promise settled after the command finishes.
+   * @return 后端接受任务后完成的 Promise / Promise settled after backend job acceptance.
    */
   async function startProcessing(): Promise<void> {
     setProcessing({ status: 'queued' })
@@ -508,6 +602,26 @@ function KnowledgeSourceDetail({
       onRefresh()
     } catch (error: unknown) {
       setProcessing({ error, status: 'error' })
+    }
+  }
+
+  /**
+   * @brief 按需读取未经切块与向量化的原始内容 / Lazily read original content before chunking and vectorization.
+   * @return 请求与严格文本解码完成 Promise / Promise settled after the request and strict text decoding.
+   */
+  async function loadOriginalContent(): Promise<void> {
+    setOriginalContent({ status: 'loading' })
+    try {
+      /** @brief 受鉴权与字节上限保护的原始内容 / Original content protected by authorization and a byte ceiling. */
+      const content = await knowledge.getKnowledgeSourceOriginalContent({
+        maximumBytes: ORIGINAL_CONTENT_PREVIEW_BYTES,
+        signal: new AbortController().signal,
+        sourceId: source.id,
+        workspaceId: source.workspaceId
+      })
+      setOriginalContent({ content, status: 'ready', text: decodeOriginalContent(content) })
+    } catch (error: unknown) {
+      setOriginalContent({ error, status: 'error' })
     }
   }
 
@@ -604,6 +718,16 @@ function KnowledgeSourceDetail({
         </p>
       ) : null}
 
+      <p
+        className={interviewIssues.length === 0 ? 'aw-inline-notice' : 'aw-inline-warning'}
+        role="status"
+      >
+        <strong>模拟面试：</strong>{' '}
+        {interviewIssues.length === 0
+          ? '此来源已满足选择和检索条件。'
+          : `暂不可用（${interviewIssues.join('、')}）。`}
+      </p>
+
       <div className="aw-visibility-grid">
         <section aria-labelledby="knowledge-source-facts-title" className="aw-card aw-card-pad">
           <div className="aw-inline-actions">
@@ -685,6 +809,66 @@ function KnowledgeSourceDetail({
         </section>
       </div>
 
+      <section aria-labelledby="knowledge-original-content-title" className="aw-card aw-card-pad">
+        <div className="aw-inline-actions">
+          <div>
+            <h2 className="aw-card-title" id="knowledge-original-content-title">
+              {t('knowledge.originalContent', { defaultValue: '原始内容' })}
+            </h2>
+            <p className="aw-card-description">
+              {t('knowledge.originalContentDescription', {
+                defaultValue: '查看上传或创建时的原文，不展示切词和向量化后的片段。'
+              })}
+            </p>
+          </div>
+          <button
+            className="aw-quiet-button"
+            disabled={originalContent.status === 'loading'}
+            onClick={(): void => {
+              void loadOriginalContent()
+            }}
+            type="button"
+          >
+            {originalContent.status === 'loading' ? (
+              <LoaderCircle aria-hidden="true" className="aw-spin" size={14} />
+            ) : (
+              <Eye aria-hidden="true" size={14} />
+            )}
+            {originalContent.status === 'loading'
+              ? t('knowledge.loadingOriginalContent', { defaultValue: '正在读取…' })
+              : t('knowledge.viewOriginalContent', { defaultValue: '查看原始内容' })}
+          </button>
+        </div>
+
+        {originalContent.status === 'error' ? (
+          <p className="aw-inline-error" role="alert">
+            <ResourceFailureMessage error={originalContent.error} />
+          </p>
+        ) : null}
+
+        {originalContent.status === 'ready' && originalContent.text !== null ? (
+          <>
+            {!originalContent.content.complete ? (
+              <p className="aw-inline-notice">
+                {t('knowledge.originalContentTruncated', {
+                  defaultValue: '内容较大，当前仅显示前 1 MiB。'
+                })}
+              </p>
+            ) : null}
+            <pre className="aw-knowledge-original-content">{originalContent.text}</pre>
+          </>
+        ) : null}
+
+        {originalContent.status === 'ready' && originalContent.text === null ? (
+          <p className="aw-inline-notice">
+            {t('knowledge.originalBinaryContent', {
+              defaultValue:
+                '该来源是二进制原文件，不能作为纯文本直接展示；当前页面不会用处理后的切片冒充原文。'
+            })}
+          </p>
+        ) : null}
+      </section>
+
       <LiteralVisibilityPolicy source={source} />
 
       {source.ingestion.lastProblem === null ? null : (
@@ -752,6 +936,52 @@ export function KnowledgeSourceDetailPage(): React.JSX.Element {
     loadSource,
     `${selectionRevision}:${sourceId ?? 'missing'}`
   )
+  /** @brief 当前详情请求的稳定资源 identity / Stable resource identity for the current detail request. */
+  const resourceIdentity = `${selectionRevision}:${sourceId ?? 'missing'}`
+  /** @brief 后台刷新得到且仍属于当前资源的最新权威 / Latest background authority still belonging to the current resource. */
+  const [backgroundDetail, setBackgroundDetail] = useState<{
+    /** @brief 防止 Workspace 或路由切换后复用旧响应 / Prevent reuse after a Workspace or route switch. */
+    readonly resourceIdentity: string
+    /** @brief 后台读取结果 / Background read result. */
+    readonly data: KnowledgeSourceDetailAuthority
+  } | null>(null)
+  /** @brief 当前后台刷新控制器；非 null 同时充当 single-flight 锁 / Current refresh controller, also serving as a single-flight lock. */
+  const backgroundController = useRef<AbortController | null>(null)
+
+  useEffect(
+    (): (() => void) => () => {
+      backgroundController.current?.abort()
+      backgroundController.current = null
+    },
+    [resourceIdentity]
+  )
+
+  /**
+   * @brief 保留当前详情并在后台重读权威 / Preserve the current detail while rereading authority in the background.
+   * @return 无返回值；相同资源同一时刻最多一个请求 / No return value; at most one request per resource at a time.
+   */
+  const refreshSource = useCallback((): void => {
+    if (backgroundController.current !== null) return
+    /** @brief 仅属于本次后台读取的取消控制器 / Abort controller owned by this background read. */
+    const controller = new AbortController()
+    backgroundController.current = controller
+    void loadSource(controller.signal)
+      .then((data): void => {
+        if (!controller.signal.aborted) {
+          setBackgroundDetail({ data, resourceIdentity })
+        }
+      })
+      .catch((error: unknown): void => {
+        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+          // 保留最后一次成功权威；下一轮轮询继续尝试。/ Preserve stale authority and retry next poll.
+        }
+      })
+      .finally((): void => {
+        if (backgroundController.current === controller) {
+          backgroundController.current = null
+        }
+      })
+  }, [loadSource, resourceIdentity])
 
   if (detail.status === 'loading') {
     return (
@@ -779,7 +1009,11 @@ export function KnowledgeSourceDetailPage(): React.JSX.Element {
     )
   }
 
-  if (detail.data.kind === 'missing-source') {
+  /** @brief 初始读取或后台刷新中较新的当前详情 / Current detail from the initial read or a newer background refresh. */
+  const currentDetail =
+    backgroundDetail?.resourceIdentity === resourceIdentity ? backgroundDetail.data : detail.data
+
+  if (currentDetail.kind === 'missing-source') {
     return (
       <div className="aw-page">
         <EmptyState
@@ -797,7 +1031,7 @@ export function KnowledgeSourceDetailPage(): React.JSX.Element {
     )
   }
 
-  if (detail.data.kind === 'no-workspace') {
+  if (currentDetail.kind === 'no-workspace') {
     return (
       <div className="aw-page">
         <EmptyState
@@ -817,10 +1051,10 @@ export function KnowledgeSourceDetailPage(): React.JSX.Element {
 
   return (
     <KnowledgeSourceDetail
-      authority={detail.data.authority}
-      key={`${selectionRevision}:${detail.data.authority.source.id}`}
-      onRefresh={detail.retry}
-      workspaceName={detail.data.workspaceName}
+      authority={currentDetail.authority}
+      key={`${selectionRevision}:${currentDetail.authority.source.id}`}
+      onRefresh={refreshSource}
+      workspaceName={currentDetail.workspaceName}
     />
   )
 }

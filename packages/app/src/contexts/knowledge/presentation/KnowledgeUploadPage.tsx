@@ -6,6 +6,7 @@ import { Link, useNavigate } from 'react-router-dom'
 
 import { useKnowledgeGateway, useWorkspaceSession } from '../../../app/AppData'
 import { ResourceFailureMessage } from '../../../app/ResourceErrorState'
+import { createUiCommandId } from '../../../shared-kernel/command'
 import type { UiKnowledgeFileIngestionPhase } from '../application/commands'
 
 const SUPPORTED_MEDIA_TYPES = new Set([
@@ -22,7 +23,7 @@ const PHASE_LABELS: Readonly<Record<UiKnowledgeFileIngestionPhase, string>> = {
   uploading: '正在上传文件…',
   verifying: '正在校验文件类型、大小和完整性…',
   'creating-source': '正在创建知识来源和版本…',
-  queued: '已进入摄取队列…',
+  queued: '处理任务已受理，正在打开详情…',
   processing: '正在解析、切分并生成向量…',
   completed: '摄取完成'
 }
@@ -37,7 +38,7 @@ function normalizedMediaType(file: File): string {
   return file.type
 }
 
-/** @brief 上传本地文件并等待真实摄取完成 / Upload a local file and await real ingestion completion. */
+/** @brief 上传本地文件并等待后端接受真实摄取任务 / Upload a local file and await real ingestion acceptance. */
 export function KnowledgeUploadPage(): React.JSX.Element {
   const gateway = useKnowledgeGateway()
   const workspaceSession = useWorkspaceSession()
@@ -47,6 +48,8 @@ export function KnowledgeUploadPage(): React.JSX.Element {
   const [phase, setPhase] = useState<UiKnowledgeFileIngestionPhase | null>(null)
   const [error, setError] = useState<unknown>(null)
   const controllerRef = useRef<AbortController | null>(null)
+  /** @brief 未确定失败前跨重试保留的上传意图 identity / Upload intent identity retained across retries until definitive change. */
+  const commandIdRef = useRef<ReturnType<typeof createUiCommandId> | null>(null)
   const isBusy = phase !== null && phase !== 'completed'
 
   const submit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
@@ -73,8 +76,12 @@ export function KnowledgeUploadPage(): React.JSX.Element {
       setPhase('hashing')
       const bytes = await file.arrayBuffer()
       controller.signal.throwIfAborted()
+      /** @brief 同一文件与名称重试时复用的幂等 identity / Idempotent identity reused when retrying the same file and name. */
+      const commandId = commandIdRef.current ?? createUiCommandId()
+      commandIdRef.current = commandId
       const authority = await gateway.ingestKnowledgeFile({
         bytes,
+        commandId,
         filename: file.name,
         mediaType,
         name: name.trim() || file.name,
@@ -82,6 +89,7 @@ export function KnowledgeUploadPage(): React.JSX.Element {
         signal: controller.signal,
         workspaceId: workspace.id
       })
+      commandIdRef.current = null
       await navigate(`/knowledge/${authority.source.id}`)
     } catch (uploadError: unknown) {
       if (!controller.signal.aborted) setError(uploadError)
@@ -98,7 +106,7 @@ export function KnowledgeUploadPage(): React.JSX.Element {
           <p className="aw-eyebrow">KNOWLEDGE · FILE INGESTION</p>
           <h1 className="aw-page-title">上传知识文件</h1>
           <p className="aw-page-description">
-            文件会经过完整性校验、解析和切分，并由外部 Embedding 模型生成检索向量。
+            文件完成上传和完整性校验后会进入后台处理；详情页会持续显示解析、切分和向量化状态。
           </p>
         </div>
         <Link className="aw-quiet-button" to="/knowledge">
@@ -116,7 +124,10 @@ export function KnowledgeUploadPage(): React.JSX.Element {
           <input
             disabled={isBusy}
             maxLength={300}
-            onChange={(event): void => setName(event.target.value)}
+            onChange={(event): void => {
+              commandIdRef.current = null
+              setName(event.target.value)
+            }}
             placeholder={file?.name ?? '例如：产品需求说明'}
             value={name}
           />
@@ -126,7 +137,10 @@ export function KnowledgeUploadPage(): React.JSX.Element {
           <input
             accept=".txt,.md,.markdown,.json,.pdf,application/pdf,application/json,text/plain,text/markdown"
             disabled={isBusy}
-            onChange={(event): void => setFile(event.target.files?.[0] ?? null)}
+            onChange={(event): void => {
+              commandIdRef.current = null
+              setFile(event.target.files?.[0] ?? null)
+            }}
             required
             type="file"
           />
@@ -149,7 +163,7 @@ export function KnowledgeUploadPage(): React.JSX.Element {
         <div className="aw-inline-actions">
           <button className="aw-primary-button" disabled={file === null || isBusy} type="submit">
             <FileUp aria-hidden="true" size={15} />
-            {isBusy ? '正在处理…' : '上传并摄取'}
+            {isBusy ? '正在上传…' : '上传并开始处理'}
           </button>
           {isBusy ? (
             <button

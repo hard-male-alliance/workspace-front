@@ -4,6 +4,7 @@ import type {
   UiCreateManualKnowledgeNoteCommand,
   UiIngestKnowledgeFileCommand,
   UiIngestKnowledgeSourceCommand,
+  UiKnowledgeOriginalContentRead,
   UiKnowledgeSourcePageRead,
   UiKnowledgeSourceRead,
   UiSearchKnowledgeCommand,
@@ -11,6 +12,7 @@ import type {
 } from './commands'
 import type {
   UiKnowledgeSearchResult,
+  UiKnowledgeOriginalContent,
   UiKnowledgeSourceAuthority,
   UiKnowledgeSourcePage
 } from '../domain/models'
@@ -32,6 +34,15 @@ export interface KnowledgeGateway {
   getKnowledgeSource(input: UiKnowledgeSourceRead): Promise<UiKnowledgeSourceAuthority>
 
   /**
+   * @brief 读取未经切块或向量化的原始来源内容 / Read original source content before chunking or vectorization.
+   * @param input Workspace、来源 identity、预览上限与取消信号 / Workspace, source identity, preview limit, and cancellation signal.
+   * @return 原样字节、媒体类型与完整性信息 / Verbatim bytes, media type, and completeness metadata.
+   */
+  getKnowledgeSourceOriginalContent(
+    input: UiKnowledgeOriginalContentRead
+  ): Promise<UiKnowledgeOriginalContent>
+
+  /**
    * @brief 创建手工笔记来源 / Create a manual-note source.
    * @param command 稳定幂等命令 / Stable idempotent command.
    * @return 新来源与创建响应的强 ETag / New source and strong ETag from the creation response.
@@ -49,10 +60,10 @@ export interface KnowledgeGateway {
     command: UiUpdateKnowledgeSourceCommand
   ): Promise<UiKnowledgeSourceAuthority>
 
-  /** @brief 上传本地文件并等待后端摄取完成 / Upload a local file and await backend ingestion. */
+  /** @brief 上传本地文件并等待后端接受摄取任务 / Upload a local file and await backend ingestion acceptance. */
   ingestKnowledgeFile(command: UiIngestKnowledgeFileCommand): Promise<UiKnowledgeSourceAuthority>
 
-  /** @brief 启动或恢复已存在来源的后端摄取并等待完成 / Start or resume backend ingestion for an existing source and await completion. */
+  /** @brief 启动或恢复已有来源并等待后端接受任务 / Start or resume an existing source and await backend job acceptance. */
   ingestKnowledgeSource(
     command: UiIngestKnowledgeSourceCommand
   ): Promise<UiKnowledgeSourceAuthority>

@@ -69,6 +69,7 @@ function createKnowledgeGateway(overrides: Partial<KnowledgeGateway>): Knowledge
   return {
     createManualKnowledgeNote: unexpected,
     getKnowledgeSource: unexpected,
+    getKnowledgeSourceOriginalContent: unexpected,
     ingestKnowledgeFile: unexpected,
     ingestKnowledgeSource: unexpected,
     listKnowledgeSourcePage: unexpected,
@@ -239,7 +240,7 @@ describe('Knowledge API v2 presentation', (): void => {
         ]
       }
     })
-    fireEvent.submit(screen.getByRole('button', { name: '上传并摄取' }).closest('form')!)
+    fireEvent.submit(screen.getByRole('button', { name: '上传并开始处理' }).closest('form')!)
 
     await waitFor((): void => expect(ingest).toHaveBeenCalledTimes(1))
     expect(ingest.mock.calls[0]?.[0]).toMatchObject({
@@ -502,6 +503,55 @@ describe('Knowledge API v2 presentation', (): void => {
     expect(screen.queryByText(mismatchedSource.name)).not.toBeInTheDocument()
   })
 
+  it('loads and displays exact original text only after the user requests it', async (): Promise<void> => {
+    /** @brief 用于详情页的手工笔记来源 / Manual-note source used by the detail page. */
+    const source = createSource('原文展示测试', 'original-content-source')
+    /** @brief 必须保留空格与换行的原文 / Original text whose spaces and line breaks must be preserved. */
+    const text = '第一行\n  保留两个前导空格\n最后一行'
+    /** @brief 原文读取端口 / Original-content read port. */
+    const getOriginal = vi.fn<KnowledgeGateway['getKnowledgeSourceOriginalContent']>(() =>
+      Promise.resolve({
+        bytes: new TextEncoder().encode(text),
+        complete: true,
+        mediaType: 'text/plain; charset=utf-8',
+        totalSizeBytes: new TextEncoder().encode(text).byteLength
+      })
+    )
+
+    renderKnowledgeRoute(
+      <KnowledgeSourceDetailPage />,
+      `/knowledge/${source.id}`,
+      createTestGateways({
+        knowledge: createKnowledgeGateway({
+          getKnowledgeSource: vi.fn(() =>
+            Promise.resolve({
+              concurrencyToken: asUiConcurrencyToken('"etag-original-content"'),
+              source
+            })
+          ),
+          getKnowledgeSourceOriginalContent: getOriginal
+        })
+      })
+    )
+
+    expect(await screen.findByRole('heading', { name: source.name })).toBeVisible()
+    expect(getOriginal).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '查看原始内容' }))
+
+    await waitFor((): void => {
+      expect(document.querySelector('.aw-knowledge-original-content')).toHaveTextContent(text, {
+        normalizeWhitespace: false
+      })
+    })
+    expect(getOriginal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maximumBytes: 1024 * 1024,
+        sourceId: source.id,
+        workspaceId: source.workspaceId
+      })
+    )
+  })
+
   it('starts shared ingestion for an unprocessed manual note and reloads its authority', async (): Promise<void> => {
     /** @brief 尚未处理的手工笔记 / Manual note not yet ingested. */
     const source = createSource(
@@ -538,6 +588,9 @@ describe('Knowledge API v2 presentation', (): void => {
       },
       revision: source.revision + 1
     })
+    /** @brief 受测试控制的后台详情刷新 / Background detail refresh controlled by the test. */
+    const refreshedAuthority =
+      createDeferred<Awaited<ReturnType<KnowledgeGateway['getKnowledgeSource']>>>()
     /** @brief 首次与刷新详情读取 / Initial and refreshed detail reads. */
     const get = vi
       .fn<KnowledgeGateway['getKnowledgeSource']>()
@@ -545,10 +598,7 @@ describe('Knowledge API v2 presentation', (): void => {
         concurrencyToken: asUiConcurrencyToken('"etag-manual-note-not-started"'),
         source
       })
-      .mockResolvedValue({
-        concurrencyToken: asUiConcurrencyToken('"etag-manual-note-ready"'),
-        source: readySource
-      })
+      .mockImplementation(() => refreshedAuthority.promise)
     /** @brief 统一来源摄取命令 / Shared source-ingestion command. */
     const ingest = vi.fn<KnowledgeGateway['ingestKnowledgeSource']>(() =>
       Promise.resolve({
@@ -578,6 +628,16 @@ describe('Knowledge API v2 presentation', (): void => {
         workspaceId: source.workspaceId
       })
     )
+    await waitFor((): void => expect(get).toHaveBeenCalledTimes(2))
+    expect(screen.getByRole('heading', { name: '尚未开始' })).toBeVisible()
+    expect(screen.queryByText('正在加载知识来源详情…')).not.toBeInTheDocument()
+    await act(async (): Promise<void> => {
+      refreshedAuthority.resolve({
+        concurrencyToken: asUiConcurrencyToken('"etag-manual-note-ready"'),
+        source: readySource
+      })
+      await refreshedAuthority.promise
+    })
     expect(await screen.findByRole('heading', { name: '处理完成' })).toBeVisible()
     expect(screen.getByText('3', { selector: 'strong' })).toBeVisible()
   })

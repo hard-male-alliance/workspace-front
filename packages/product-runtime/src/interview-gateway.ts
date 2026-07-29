@@ -804,6 +804,26 @@ function openTextInterviewChannel(
         }
         return
       }
+      if (
+        frame.type === 'knowledge_retrieval' &&
+        (frame.status === 'hit' ||
+          frame.status === 'miss' ||
+          frame.status === 'not_selected' ||
+          frame.status === 'unavailable') &&
+        typeof frame.hit_count === 'number' &&
+        Number.isSafeInteger(frame.hit_count) &&
+        frame.hit_count >= 0 &&
+        typeof frame.elapsed_ms === 'number' &&
+        Number.isSafeInteger(frame.elapsed_ms) &&
+        frame.elapsed_ms >= 0
+      ) {
+        command.onKnowledgeRetrieval?.({
+          elapsedMs: frame.elapsed_ms,
+          hitCount: frame.hit_count,
+          status: frame.status
+        })
+        return
+      }
       const current = pending
       if (frame.type === 'turn_error' && current !== undefined && frame.input_id === current.id) {
         current.reject(
