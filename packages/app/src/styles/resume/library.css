@@ -27,6 +27,7 @@
 }
 
 .aw-resume-summary-card {
+  position: relative;
   min-width: 0;
   border: 1px solid var(--ui-color-border);
   border-radius: var(--ui-radius-lg);
@@ -36,6 +37,53 @@
     border-color var(--ui-transition-fast),
     background var(--ui-transition-fast),
     transform var(--ui-transition-fast);
+}
+
+.aw-resume-summary-delete {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--ui-radius-sm);
+  background: transparent;
+  color: var(--ui-color-ink-subtle);
+  cursor: pointer;
+}
+
+.aw-resume-summary-delete:hover,
+.aw-resume-summary-delete:focus-visible {
+  background: var(--ui-color-danger-subtle);
+  color: var(--ui-color-danger);
+}
+
+.aw-resume-delete-dialog {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--ui-color-danger);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-color-surface);
+  box-shadow: var(--ui-shadow-2);
+}
+
+.aw-resume-delete-dialog p {
+  margin: 0;
+  color: var(--ui-color-ink-muted);
+  font-size: 13px;
+}
+
+.aw-resume-delete-dialog .aw-resume-delete-error {
+  color: var(--ui-color-danger);
+}
+
+.aw-resume-delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .aw-resume-summary-card:hover {

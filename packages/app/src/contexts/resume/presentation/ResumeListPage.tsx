@@ -1,4 +1,4 @@
-import { ArrowRight, FilePlus2, FileText, Files } from 'lucide-react'
+import { ArrowRight, FilePlus2, FileText, Files, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
@@ -51,6 +51,8 @@ interface ResumeSummaryCardProps {
   readonly applicationLocale: string
   /** @brief 待呈现的摘要 / Summary to present. */
   readonly summary: UiResumeSummary
+  /** @brief 请求进入永久删除确认 / Request permanent-deletion confirmation. */
+  readonly onRequestDelete: (summary: UiResumeSummary) => void
 }
 
 /** @brief 已加载 ResumeSummary 集合属性 / Loaded ResumeSummary-collection properties. */
@@ -120,6 +122,7 @@ function formatContentLocale(contentLocale: string, applicationLocale: string): 
  */
 function ResumeSummaryCard({
   applicationLocale,
+  onRequestDelete,
   summary
 }: ResumeSummaryCardProps): React.JSX.Element {
   /** @brief 翻译函数 / Translation function. */
@@ -162,6 +165,17 @@ function ResumeSummaryCard({
           <ArrowRight size={18} strokeWidth={1.8} />
         </span>
       </Link>
+      <button
+        aria-label={t('resume.library.deleteLabel', {
+          defaultValue: '删除{{title}}',
+          title: summary.title
+        })}
+        className="aw-resume-summary-delete"
+        onClick={() => onRequestDelete(summary)}
+        type="button"
+      >
+        <Trash2 aria-hidden="true" size={17} strokeWidth={1.8} />
+      </button>
     </li>
   )
 }
@@ -188,6 +202,17 @@ function ResumeSummaryCollection({
   const [continuation, setContinuation] = useState<ResumeContinuationState>({ status: 'idle' })
   /** @brief 辅助技术播报的最近追加数 / Most recent append count announced to assistive technology. */
   const [appendedCount, setAppendedCount] = useState(0)
+  /** @brief 正在等待用户确认永久删除的简历 / Resume awaiting permanent-deletion confirmation. */
+  const [pendingDelete, setPendingDelete] = useState<UiResumeSummary | null>(null)
+  /** @brief 当前删除命令状态 / Current deletion-command state. */
+  const [deleteState, setDeleteState] = useState<
+    | { readonly status: 'idle' }
+    | { readonly status: 'deleting' }
+    | {
+        readonly status: 'error'
+        readonly error: unknown
+      }
+  >({ status: 'idle' })
   /** @brief 当前后续页请求控制器 / Current continuation-request controller. */
   const continuationController = useRef<AbortController | null>(null)
 
@@ -256,6 +281,26 @@ function ResumeSummaryCollection({
     workspaceSession
   ])
 
+  /** @brief 提交已明确确认的永久删除 / Submit an explicitly confirmed permanent deletion. */
+  const confirmDelete = useCallback(async (): Promise<void> => {
+    if (pendingDelete === null || deleteState.status === 'deleting') return
+    /** @brief 当前删除调用的取消控制器 / Cancellation controller for the current delete call. */
+    const controller = new AbortController()
+    setDeleteState({ status: 'deleting' })
+    try {
+      await gateway.deleteResume({
+        resumeId: pendingDelete.id,
+        signal: controller.signal,
+        workspaceId
+      })
+      setSummaries((current) => current.filter((summary) => summary.id !== pendingDelete.id))
+      setPendingDelete(null)
+      setDeleteState({ status: 'idle' })
+    } catch (error: unknown) {
+      setDeleteState({ error, status: 'error' })
+    }
+  }, [deleteState.status, gateway, pendingDelete, workspaceId])
+
   if (summaries.length === 0 && !page.hasMore) {
     return (
       <EmptyState
@@ -282,9 +327,66 @@ function ResumeSummaryCollection({
       </h2>
       <ul className="aw-resume-summary-list" id="resume-library-items">
         {summaries.map((summary) => (
-          <ResumeSummaryCard applicationLocale={i18n.language} key={summary.id} summary={summary} />
+          <ResumeSummaryCard
+            applicationLocale={i18n.language}
+            key={summary.id}
+            onRequestDelete={(target): void => {
+              setPendingDelete(target)
+              setDeleteState({ status: 'idle' })
+            }}
+            summary={summary}
+          />
         ))}
       </ul>
+
+      {pendingDelete === null ? null : (
+        <div
+          aria-labelledby="resume-delete-title"
+          aria-modal="true"
+          className="aw-resume-delete-dialog"
+          role="alertdialog"
+        >
+          <strong id="resume-delete-title">
+            {t('resume.library.deleteTitle', {
+              defaultValue: '永久删除“{{title}}”？',
+              title: pendingDelete.title
+            })}
+          </strong>
+          <p>
+            {t('resume.library.deleteDescription', {
+              defaultValue: '删除后无法恢复，相关简历版本也将不可再访问。'
+            })}
+          </p>
+          {deleteState.status === 'error' ? (
+            <p className="aw-resume-delete-error" role="alert">
+              <ResourceFailureMessage error={deleteState.error} />
+            </p>
+          ) : null}
+          <div className="aw-resume-delete-actions">
+            <button
+              className="aw-quiet-button"
+              disabled={deleteState.status === 'deleting'}
+              onClick={() => {
+                setPendingDelete(null)
+                setDeleteState({ status: 'idle' })
+              }}
+              type="button"
+            >
+              {t('common.cancel', { defaultValue: '取消' })}
+            </button>
+            <button
+              className="aw-danger-button"
+              disabled={deleteState.status === 'deleting'}
+              onClick={() => void confirmDelete()}
+              type="button"
+            >
+              {deleteState.status === 'deleting'
+                ? t('resume.library.deleting', { defaultValue: '正在删除…' })
+                : t('resume.library.confirmDelete', { defaultValue: '确认永久删除' })}
+            </button>
+          </div>
+        </div>
+      )}
 
       <p aria-live="polite" className="aw-sr-only">
         {appendedCount > 0

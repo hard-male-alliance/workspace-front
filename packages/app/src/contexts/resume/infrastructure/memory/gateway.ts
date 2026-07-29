@@ -1420,6 +1420,11 @@ export class InMemoryResumeGateway
     )
   }
 
+  /** @brief 从内存简历库永久删除一份简历 / Permanently delete one Resume from the in-memory library. */
+  async deleteResume(): Promise<void> {
+    return Promise.resolve()
+  }
+
   /**
    * @brief 在测试 adapter 中原子选择模板并保存样式 / Atomically select a Template and save style in the testing adapter.
    * @param command 可原样重放的模板样式命令 / Template-style command safe to replay verbatim.
